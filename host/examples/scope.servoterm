@@ -1,0 +1,16 @@
+# servoterm test asset: capture a 10 Hz sine on scope channel 0.
+# Run with:  ./servoterm --scope sine.csv examples/scope.servoterm
+# In serve mode the 'term' component (term0) is already loaded as the scope
+# channel, so we only load and wire the signal source.
+load sim
+sim0.rt_prio = 1
+sim0.freq = 10
+sim0.amp = 1.0
+
+term0.rt_prio = 2
+term0.wave0 = sim0.sin   # scope channel 0 follows the sine
+term0.gain0 = 100        # (value+offset)*gain+128 -> byte
+term0.send_step = 50     # sample every 50 rt cycles = 10 ms -> 100 Hz scope
+start
+
+run 1.5                  # 1.5 s of simulated time -> ~150 scope frames

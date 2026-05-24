@@ -30,6 +30,7 @@ stmblx
 # host simulation build
 host/gen
 host/stmbl_host
+host/servoterm
 
 # Ignore list for Eagle, a PCB layout tool
 

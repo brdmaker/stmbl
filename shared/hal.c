@@ -799,13 +799,13 @@ uint32_t hal_parse_(char *cmd) {
   int32_t foo = 0;
 
   char sinkc[64];
-  int32_t sinki = 0;
+  long sinki = 0;  // long (not int32_t) so the %li scanf width matches on LP64 hosts too
   char sinkp[64];
 
   float value = 0.0;
 
   char sourcec[64];
-  int32_t sourcei = 0;
+  long sourcei = 0;  // see sinki
   char sourcep[64];
 
   hal_pin_inst_t *sink;
@@ -967,7 +967,7 @@ COMMAND("debug_level", debug_level, "set hal debug level, 0 = print all, 1 = pri
 
 void hal_linked_pins(char *ptr){
   char sinkc[64];
-  uint32_t sinki = 0;
+  unsigned long sinki = 0;  // unsigned long so the %lu scanf width matches on LP64 hosts too
   char sinkp[64];
   int foo;
   foo = sscanf(ptr, " %[a-zA-Z_]%lu.%[a-zA-Z0-9_]", sinkc, &sinki, sinkp);
