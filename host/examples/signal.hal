@@ -1,0 +1,28 @@
+# Signal-generator demo: run the 'sim' component in the RT loop and sample its
+# sine output. Demonstrates the control loop ticking a real component in time.
+load sim
+sim0.rt_prio = 1     # schedule sim in the rt loop
+sim0.freq = 10       # 10 Hz sine, period = 100 ms = 500 rt cycles
+sim0.amp = 1.0
+start
+
+run 1.0              # let the internal amp/freq low-pass settle (~0.9 s)
+
+# sample one full 100 ms period at 1/8 intervals (~62 rt cycles each):
+step 62
+sim0.sin
+step 63
+sim0.sin
+step 62
+sim0.sin
+step 63
+sim0.sin
+step 62
+sim0.sin
+step 63
+sim0.sin
+step 62
+sim0.sin
+step 63
+sim0.sin
+time

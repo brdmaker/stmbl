@@ -27,6 +27,10 @@ sim/plot
 stmblx
 *.ngc
 
+# host simulation build
+host/gen
+host/stmbl_host
+
 # Ignore list for Eagle, a PCB layout tool
 
 # Backup files

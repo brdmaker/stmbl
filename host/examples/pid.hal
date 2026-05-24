@@ -1,0 +1,33 @@
+# PID control-logic demo: drive the real 'pid' cascade (position -> velocity ->
+# acceleration -> torque) with a position error and read the computed commands.
+# This exercises the actual control code that runs on the drive.
+load pid
+pid0.rt_prio = 1
+pid0.enable = 1
+
+# generous limits so the cascade is not clamped to zero
+pid0.max_vel        = 1000
+pid0.max_usr_vel    = 1000
+pid0.max_usr_acc    = 1000000
+pid0.max_torque     = 1000
+pid0.min_torque     = -1000
+pid0.max_usr_torque = 1000
+pid0.j_mot          = 0.001
+
+# default gains from nrt_init: pos_p=100, vel_p=2000, vel_i=10
+start
+
+# commanded position 1.0 rad, feedback at 0 -> error = 1.0 rad
+pid0.pos_ext_cmd = 1.0
+pid0.pos_fb = 0.0
+step 1
+pid0.pos_error      # expect 1.0 rad
+pid0.vel_cmd        # expect pos_error * pos_p = 100 rad/s
+pid0.acc_cmd        # expect vel_error * vel_p, clamped
+pid0.torque_cor_cmd # acc_cmd * j_mot + integral term
+
+# now move the feedback to the target: error -> 0, commands collapse
+pid0.pos_fb = 1.0
+step 1
+pid0.pos_error      # expect ~0
+pid0.vel_cmd        # expect ~0
