@@ -31,6 +31,9 @@ stmblx
 host/gen
 host/stmbl_host
 host/servoterm
+host/servoterm.dSYM/
+host/stmbl_host.dSYM/
+
 
 # Ignore list for Eagle, a PCB layout tool
 

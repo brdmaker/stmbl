@@ -15,3 +15,6 @@
 #ifndef M_SQRT1_3
 #define M_SQRT1_3 0.57735026918962576451
 #endif
+
+/* Firmware requires GCC 5+; macOS cc is Clang with __GNUC__ 4. */
+#define STMBL_HOST 1

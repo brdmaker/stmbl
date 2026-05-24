@@ -22,8 +22,10 @@
 #include <stdint.h>
 #include "stmbl_talk.h"
 
+#ifndef STMBL_HOST
 #if __GNUC__ < 5
 #error gcc to old (< 5.0)
+#endif
 #endif
 
 #define DATABAUD 3000000  //baudrate used for communication

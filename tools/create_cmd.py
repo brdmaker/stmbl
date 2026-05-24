@@ -7,7 +7,7 @@ cmd = []
 for infile in sys.argv[2:]:
     with open(infile) as f:
         for line_number, line in enumerate(f):
-            match = re.search('COMMAND\("(\w*)", *(\w*), *"([^"]*)"\);', line)
+            match = re.search(r'COMMAND\("(\w*)", *(\w*), *"([^"]*)"\);', line)
             if match:
                 cmd.append((match.groups(), infile, line_number))
 

@@ -44,6 +44,15 @@ Entry format:
 - Fix:     Widened the affected locals (`sinki`, `sourcei`) to `long` /
   `unsigned long`. No effect on the 32-bit ARM target; correct on LP64.
 
+## 2026-05-24  common.h GCC version guard vs macOS Clang
+- Area:    `shared/common.h`, `host/host_compat.h`
+- Status:  Fixed
+- Symptom: Host `make` failed with `#error gcc to old (< 5.0)` in `common.h`.
+- Cause:   Apple `cc` is Clang, which defines `__GNUC__` 4 for GCC compatibility;
+  the firmware guard is meant for the ARM cross-GCC toolchain, not the host.
+- Fix:     `host_compat.h` defines `STMBL_HOST`; `common.h` skips the check when
+  that macro is set.
+
 ## 2026-05-24  newlib-only M_SQRT3 missing under glibc
 - Area:    `shared/comps/psi.c` (`dq.c`, `idq.c` for the V3 build)
 - Status:  Workaround

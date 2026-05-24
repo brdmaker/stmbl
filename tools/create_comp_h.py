@@ -8,13 +8,13 @@ with open(sys.argv[2]) as f: # TODO raise error if file cannot be opened instead
     comp_name = ''
     comp_file = infile.split("/")[-1].split(".")[0]
     for line in f:
-        comp = re.search('COMP\((\w*)\);', line)
+        comp = re.search(r'COMP\((\w*)\);', line)
         if comp:
             comp_name = comp.groups()[0]
-        pin = re.search('HAL_PIN\((\w*)\)', line)
+        pin = re.search(r'HAL_PIN\((\w*)\)', line)
         if pin:
             pins.append((pin.groups()[0], int(1)))
-        pin = re.search('HAL_PINA\((\w*),\s*(\d*)\)', line)
+        pin = re.search(r'HAL_PINA\((\w*),\s*(\d*)\)', line)
         if pin:
             pins.append((pin.groups()[0], int(pin.groups()[1])))
 
