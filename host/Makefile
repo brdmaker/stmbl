@@ -19,7 +19,8 @@ COMPS = \
   pmsm_limits pmsm_ttc dc_limits dc_ttc acim_ttc uvw fanuc fb_switch reslimit \
   iit vel_int linrev psi stp uf2 ramp scale idx_home move not and or jog \
   velbuf avg mux veltopos debounce pos_filter rl mad sensorless field gain \
-  rlpsij veltime mpid fmove home en th id motsim term
+  rlpsij veltime mpid fmove home en th motsim term \
+  idm idpmsm ids iddc
 
 COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS)))
 COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS)))
