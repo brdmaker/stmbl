@@ -121,8 +121,11 @@ SHARED_COMPS += shared/comps/home.c
 SHARED_COMPS += shared/comps/en.c
 SHARED_COMPS += shared/comps/th.c
 #SHARED_COMPS += shared/comps/asm.c
-SHARED_COMPS += shared/comps/id.c
-SHARED_COMPS += shared/comps/motsim.c
+SHARED_COMPS += shared/comps/idpmsm.c
+SHARED_COMPS += shared/comps/iddc.c
+SHARED_COMPS += shared/comps/idm.c
+SHARED_COMPS += shared/comps/ids.c
+#SHARED_COMPS += shared/comps/motsim.c
 
 COMPS = $(SRC_COMPS) $(SHARED_COMPS)
 SOURCES += $(COMPS)
@@ -132,6 +135,7 @@ SOURCES += $(COMPS)
 SOURCES += src/version.c
 SOURCES += src/syscalls.c
 
+SOURCES += shared/crc.c
 SOURCES += shared/crc8.c
 SOURCES += shared/crc.c
 SOURCES += shared/yaskawa_crc16.c
