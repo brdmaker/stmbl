@@ -26,17 +26,22 @@ COMPS = \
 COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS)))
 COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS)))
 
-CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c
+# Host-only HAL components (live in host/, not shared/comps/).
+HOST_COMP_SRCS = sserial_host.c
+HOST_COMP_HDRS = $(GEN)/sserial_host_comp.h
+
+CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
+            $(ROOT)/shared/crc8.c
 HOST_SRCS = main.c cdc_host.c
-ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c
+ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS) $(GEN)/hal_tbl.c
 
 # Sources scanned by create_cmd.py for COMMAND() registrations.
-CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS)
+CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS)
 
 # Sources shared by all unit-test binaries: HAL + comps without main.c.
 # tests/stubs.c supplies the host symbols that main.c would otherwise provide.
-TEST_SRCS = $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c cdc_host.c
-TEST_BINS = tests/test_hal tests/test_pins tests/test_comps
+TEST_SRCS = $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS) $(GEN)/hal_tbl.c cdc_host.c
+TEST_BINS = tests/test_hal tests/test_pins tests/test_comps tests/test_sserial
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
 INCLUDES = -Ishim -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
@@ -57,7 +62,7 @@ endif
 
 all: stmbl_host servoterm
 
-stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c $(ALL_SRCS)
+stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(HOST_COMP_HDRS) $(GEN)/hal_tbl.c $(ALL_SRCS)
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDFLAGS) $(LDLIBS)
 
 # CLI servoterm: standalone, no firmware sources, no special includes.
@@ -67,8 +72,11 @@ servoterm: servoterm.c
 $(GEN)/%_comp.h: $(ROOT)/shared/comps/%.c | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
 
-$(GEN)/hal_tbl.c: $(COMP_SRCS) | $(GEN)
-	@$(PYTHON) $(ROOT)/tools/create_hal_tbl.py $@ $(COMP_SRCS)
+$(GEN)/hal_tbl.c: $(COMP_SRCS) $(HOST_COMP_SRCS) | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_hal_tbl.py $@ $(COMP_SRCS) $(HOST_COMP_SRCS)
+
+$(GEN)/sserial_host_comp.h: sserial_host.c | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ sserial_host.c
 
 $(GEN)/commandslist.h: $(CMD_SCAN) | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_cmd.py $@ $(CMD_SCAN)
@@ -94,10 +102,17 @@ tests/test_comps: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c \
 	$(CC) $(CFLAGS) -Itests $(TEST_SRCS) tests/stubs.c tests/test_comps.c \
 	    -o $@ $(LDFLAGS) $(LDLIBS)
 
+tests/test_sserial: stmbl_host lbp_client.c lbp_client.h \
+    tests/test_sserial.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -I. -Itests lbp_client.c $(ROOT)/shared/crc8.c \
+	    tests/test_sserial.c -o $@ $(LDFLAGS) $(LDLIBS)
+
 test: all $(TEST_BINS)
 	@echo "=== unit: test_hal ===" && ./tests/test_hal
 	@echo "=== unit: test_pins ===" && ./tests/test_pins
 	@echo "=== unit: test_comps ===" && ./tests/test_comps
+	@echo "=== unit: test_sserial ===" && ./tests/test_sserial
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
 	@for f in tests/scripts/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
