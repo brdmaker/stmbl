@@ -103,6 +103,24 @@ Entry format:
   `if(hal.debug_level < 1)` guard to `hal_print_pin` if output noise
   becomes a problem.
 
+## 2026-05-25  sserial_host frt race: pd_cmd consumed before pin writes
+- Area:    `host/sserial_host.c`, `host/tests/test_sserial.c`
+- Status:  Fixed
+- Symptom: test_sserial tests 17/18/20 (process_data pos_fb/vel_fb checks)
+  failed ~10% of runs with wrong pin values (0.0 or stale value).
+- Cause:   stmbl_host is single-threaded: it's either in `run_cycles` (frt
+  loop) or reading from stdin (fgets loop). HAL pin assignments from the
+  pipe are processed only in the fgets loop, not during run_cycles. If the
+  parent wrote pd_cmd to the socket before the previous step's run_cycles
+  completed, frt_func consumed pd_cmd with the old pin values (before
+  pos_fb=1.5 / pos_fb=9.875 were seen). Race window: ~3-11 residual frt
+  calls at ~1µs each; parent write latency ~5-6µs → ~10% failure rate.
+- Fix:     Added `HAL_PIN(pd_arm)` to sserial_host. frt_func checks
+  `PIN(pd_arm) > 0.5` before processing ProcessDataRPC and immediately
+  resets it to 0 after. The test sets pd_arm=1.0 via sim_cmd before each
+  lbp_process_data call; this goes through the pipe so it is processed in
+  the fgets loop, meaning pd_arm can only be 1 during the intended step.
+
 ## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note
