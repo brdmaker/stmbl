@@ -121,6 +121,19 @@ Entry format:
   lbp_process_data call; this goes through the pipe so it is processed in
   the fgets loop, meaning pd_arm can only be 1 during the intended step.
 
+## 2026-05-25  Virtual motor drive via sserial
+- Area:    `host/tests/test_sserial_motor.c`, `shared/comps/veltopos.c`
+- Status:  Note
+- Symptom: (design note) sserial_host wired to veltopos integrator; vel_cmd from
+  LBP master drives veltopos, pos_fb fed back over sserial.
+- Cause:   N/A — this is an integration demonstration.
+- Fix:     HAL wiring: `veltopos0.vel = sserial_host0.vel_cmd` and
+  `sserial_host0.pos_fb = veltopos0.pos`. Timing: sserial reads pos_fb
+  during FRT call 1 of each step (before that step's RT cycles), so
+  pos_fb lags by one step (3 RT cycles = 0.6 ms). With vel=10 rad/s and
+  polecount=1 each step adds 0.006 rad; stopping (vel=0) holds position
+  confirmed by comparing consecutive exchange responses.
+
 ## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note
