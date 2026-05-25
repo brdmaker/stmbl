@@ -41,10 +41,18 @@ CFLAGS  += -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv \
            -include host_compat.h $(INCLUDES)
 LDLIBS   = -lm
 
+# SANITIZE=1: AddressSanitizer + UndefinedBehaviorSanitizer.
+# Drops to -O0 for accurate stack frames and line attribution.
+# Usage: make SANITIZE=1
+ifeq ($(SANITIZE),1)
+  CFLAGS  += -O0 -fsanitize=address,undefined -fno-omit-frame-pointer
+  LDFLAGS += -fsanitize=address,undefined
+endif
+
 all: stmbl_host servoterm
 
 stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c $(ALL_SRCS)
-	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDFLAGS) $(LDLIBS)
 
 # CLI servoterm: standalone, no firmware sources, no special includes.
 servoterm: servoterm.c
