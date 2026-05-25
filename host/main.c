@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <signal.h>
 
 #include "hal.h"
 #include "commands.h"
@@ -159,7 +160,6 @@ static int run_script(FILE *in) {
 // serial port. Commands arrive on stdin. Deterministic: time advances only via
 // 'run'/'step', and nrt (scope drain) is interleaved while it does.
 static int serve(void) {
-  setvbuf(stdout, NULL, _IONBF, 0);
   serve_mode = 1;
   cdc_host_set_connected(1);
   load_comp(comp_by_name("term"));  // term0: the comms / scope channel
@@ -174,6 +174,14 @@ static int serve(void) {
 
 // --- Main -------------------------------------------------------------------
 int main(int argc, char **argv) {
+  /* Prevent death-by-SIGPIPE when the other end of a socketpair closes
+   * while this process is still writing packets (inter-CPU link simulation). */
+  signal(SIGPIPE, SIG_IGN);
+
+  /* Unbuffered stdout so pipe-based tests can read output in real time.
+   * (serve() would override this to _IONBF anyway; unify here.) */
+  setvbuf(stdout, NULL, _IONBF, 0);
+
   hal_init(RT_PERIOD, FRT_PERIOD);
   hal_set_debug_level(0);
 

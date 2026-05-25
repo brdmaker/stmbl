@@ -134,6 +134,38 @@ Entry format:
   polecount=1 each step adds 0.006 rad; stopping (vel=0) holds position
   confirmed by comparing consecutive exchange responses.
 
+## 2026-05-25  HAL component names must not contain digits
+- Area:    `shared/hal.c` (`comp_inst_by_name`, `pin_inst_by_name`)
+- Status:  Note
+- Symptom: Loading a component whose name contains an embedded digit (e.g.
+  `ls_f3_host`) succeeds and shows up in `hal`, but every pin query/set for
+  that component returns "not found".
+- Cause:   The HAL parser uses `%[^0-9]` to extract the component name from a
+  token like `ls_f3_host0.r`; it stops at the first digit, reading `"ls_f"`
+  and treating `"3"` as the instance number — finding neither.
+- Fix:     Renamed `ls_f3_host` → `ls_host` (no embedded digit). The rule:
+  digits in HAL component base names are forbidden; only the trailing
+  instance number (appended automatically) may be a digit.
+
+## 2026-05-25  Two-process dual-CPU simulation: SIGPIPE and stdout race
+- Area:    `host/hv_lv_host.c`, `host/ls_host.c`, `host/main.c`,
+           `host/tests/test_hv_link.c`
+- Status:  Fixed
+- Symptom: (1) F4 process produced 0 bytes of stdout output in the test.
+  (2) Even after fixing (1), test_hv_link was flaky: 9/9 some runs, 5/9 others.
+- Cause:   (1) If F3 (the faster process) exits first, F4 receives SIGPIPE on
+  its next `write()` to the socket and dies immediately without flushing
+  buffered stdio output.
+  (2) Both processes' commands were pre-loaded into their stdin pipes, so the
+  OS could schedule F4's Phase 3 (read replies) before F3's Phase 2 (send
+  replies), leaving id_fb at 0 instead of 2.5.
+- Fix:     (1) Added `signal(SIGPIPE, SIG_IGN)` + `setvbuf(stdout,NULL,_IONBF,0)`
+  to `main()` in main.c. SIGPIPE now returns EPIPE from write() (already
+  ignored), and unbuffered stdout makes output available immediately.
+  (2) test_hv_link.c redesigned with stdout-marker synchronisation: each phase
+  sends a "time" command and uses `poll()`+`read()` to block until "sim time:"
+  appears in that process's stdout — guaranteeing strict phase ordering.
+
 ## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note

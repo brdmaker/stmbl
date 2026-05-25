@@ -38,6 +38,8 @@ host/tests/test_pins
 host/tests/test_comps
 host/tests/test_sserial
 host/tests/test_sserial_motor
+host/tests/test_hv_link
+
 
 
 # Ignore list for Eagle, a PCB layout tool

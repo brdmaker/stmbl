@@ -27,8 +27,8 @@ COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS)))
 COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS)))
 
 # Host-only HAL components (live in host/, not shared/comps/).
-HOST_COMP_SRCS = sserial_host.c
-HOST_COMP_HDRS = $(GEN)/sserial_host_comp.h
+HOST_COMP_SRCS = sserial_host.c hv_lv_host.c ls_host.c
+HOST_COMP_HDRS = $(GEN)/sserial_host_comp.h $(GEN)/hv_lv_host_comp.h $(GEN)/ls_host_comp.h
 
 CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
             $(ROOT)/shared/crc8.c
@@ -41,7 +41,7 @@ CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS)
 # Sources shared by all unit-test binaries: HAL + comps without main.c.
 # tests/stubs.c supplies the host symbols that main.c would otherwise provide.
 TEST_SRCS = $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS) $(GEN)/hal_tbl.c cdc_host.c
-TEST_BINS = tests/test_hal tests/test_pins tests/test_comps tests/test_sserial tests/test_sserial_motor
+TEST_BINS = tests/test_hal tests/test_pins tests/test_comps tests/test_sserial tests/test_sserial_motor tests/test_hv_link
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
 INCLUDES = -Ishim -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
@@ -77,6 +77,12 @@ $(GEN)/hal_tbl.c: $(COMP_SRCS) $(HOST_COMP_SRCS) | $(GEN)
 
 $(GEN)/sserial_host_comp.h: sserial_host.c | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ sserial_host.c
+
+$(GEN)/hv_lv_host_comp.h: hv_lv_host.c | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ hv_lv_host.c
+
+$(GEN)/ls_host_comp.h: ls_host.c | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ ls_host.c
 
 $(GEN)/commandslist.h: $(CMD_SCAN) | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_cmd.py $@ $(CMD_SCAN)
@@ -114,12 +120,17 @@ tests/test_sserial_motor: stmbl_host lbp_client.c lbp_client.h \
 	$(CC) $(CFLAGS) -I. -Itests lbp_client.c $(ROOT)/shared/crc8.c \
 	    tests/test_sserial_motor.c -o $@ $(LDFLAGS) $(LDLIBS)
 
+tests/test_hv_link: stmbl_host tests/test_hv_link.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -Itests tests/test_hv_link.c -o $@ $(LDFLAGS) $(LDLIBS)
+
 test: all $(TEST_BINS)
 	@echo "=== unit: test_hal ===" && ./tests/test_hal
 	@echo "=== unit: test_pins ===" && ./tests/test_pins
 	@echo "=== unit: test_comps ===" && ./tests/test_comps
 	@echo "=== unit: test_sserial ===" && ./tests/test_sserial
 	@echo "=== unit: test_sserial_motor ===" && ./tests/test_sserial_motor
+	@echo "=== unit: test_hv_link ===" && ./tests/test_hv_link
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
 	@for f in tests/scripts/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
