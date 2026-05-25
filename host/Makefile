@@ -4,7 +4,8 @@
 #
 # Usage:
 #   make               build ./stmbl_host and ./servoterm
-#   make test          build and run the bundled example scripts
+#   make test          run unit tests + all HAL scripts (examples/ and tests/scripts/)
+#   make SANITIZE=1 test   same with ASAN + UBSan
 #   make clean
 
 PYTHON ?= python3
@@ -31,6 +32,11 @@ ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c
 
 # Sources scanned by create_cmd.py for COMMAND() registrations.
 CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS)
+
+# Sources shared by all unit-test binaries: HAL + comps without main.c.
+# tests/stubs.c supplies the host symbols that main.c would otherwise provide.
+TEST_SRCS = $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c cdc_host.c
+TEST_BINS = tests/test_hal tests/test_pins tests/test_comps
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
 INCLUDES = -Ishim -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
@@ -70,11 +76,33 @@ $(GEN)/commandslist.h: $(CMD_SCAN) | $(GEN)
 $(GEN):
 	@mkdir -p $(GEN)
 
-test: all
+tests/test_hal: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c \
+    tests/stubs.c tests/test_hal.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -Itests $(TEST_SRCS) tests/stubs.c tests/test_hal.c \
+	    -o $@ $(LDFLAGS) $(LDLIBS)
+
+tests/test_pins: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c \
+    tests/stubs.c tests/test_pins.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -Itests $(TEST_SRCS) tests/stubs.c tests/test_pins.c \
+	    -o $@ $(LDFLAGS) $(LDLIBS)
+
+tests/test_comps: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c \
+    tests/stubs.c tests/test_comps.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -Itests $(TEST_SRCS) tests/stubs.c tests/test_comps.c \
+	    -o $@ $(LDFLAGS) $(LDLIBS)
+
+test: all $(TEST_BINS)
+	@echo "=== unit: test_hal ===" && ./tests/test_hal
+	@echo "=== unit: test_pins ===" && ./tests/test_pins
+	@echo "=== unit: test_comps ===" && ./tests/test_comps
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
+	@for f in tests/scripts/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 
 clean:
-	rm -rf $(GEN) stmbl_host servoterm
+	rm -rf $(GEN) stmbl_host servoterm $(TEST_BINS)
 
 .PHONY: all test clean

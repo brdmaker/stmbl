@@ -1,0 +1,16 @@
+# PID saturation: a huge position error must clamp torque_cmd to max_torque.
+load pid
+pid0.rt_prio = 1
+pid0.en = 1
+pid0.max_vel = 1000
+pid0.neg_min_vel = 1000
+pid0.max_acc = 1000000
+pid0.max_torque = 50
+pid0.neg_min_torque = 50
+pid0.j_mot = 0.001
+pid0.vel_g = 1
+pid0.pos_ext_cmd = 1000000.0
+pid0.pos_fb = 0.0
+start
+step 1
+pid0.torque_cmd

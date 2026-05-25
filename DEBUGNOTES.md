@@ -82,7 +82,28 @@ Entry format:
 - Fix:     TODO — add a commutation source (or drive `com_pos` from rotor angle)
   and ship a `examples/motor.servoterm` closed-loop asset.
 
-## 2026-05-24  Scope channels are 8-bit (lossy) by design
+## 2026-05-25  HAL pin connection syntax: = not <=
+- Area:    `shared/hal.c` (`hal_parse_`), `host/tests/`
+- Status:  Note
+- Symptom: Pin connections in HAL scripts must use `sink = source` syntax.
+  The `<=` notation (e.g. `sim1.amp <= sim0.amp`) is display-only output
+  format from `hal_print_pin`; passing it as a command is silently ignored.
+- Cause:   The sscanf pattern in case 3 of `hal_parse_` uses ` = ` as the
+  separator; `<` is not consumed so the parse falls through to pin query.
+- Fix:     Documented here and corrected in all test files and scripts.
+
+## 2026-05-25  hal_print_pin bypasses debug_level
+- Area:    `shared/hal.c` (`hal_print_pin`, `hal_parse_` case 3)
+- Status:  Known
+- Symptom: Pin query output (case 3 search-comps path) prints via
+  `hal_print_pin` which calls printf directly, not gated by `debug_level`.
+  Appears in unit test output even with `hal_set_debug_level(2)`.
+- Cause:   `hal_print_pin` was written before the debug_level system.
+- Fix:     Cosmetic only; does not affect test results. Could add a
+  `if(hal.debug_level < 1)` guard to `hal_print_pin` if output noise
+  becomes a problem.
+
+## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note
 - Symptom: Scope CSV values are quantized.

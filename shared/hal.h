@@ -22,6 +22,14 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifdef STMBL_HOST
+#include <assert.h>
+#define HAL_ASSERT(x)        assert(x)
+#define HAL_COMP_INST_MAGIC  0xC0A51237u
+#else
+#define HAL_ASSERT(x)        ((void)0)
+#endif
+
 #define HAL_CALC_TIME
 #define HAL_COMP_CALC_TIME
 //#define HAL_WATCHDOG
@@ -75,6 +83,9 @@ typedef const struct {
 } hal_comp_t;
 
 typedef struct hal_comp_inst_t {
+#ifdef STMBL_HOST
+  uint32_t magic;   /* must equal HAL_COMP_INST_MAGIC; catches stale/wild pointers */
+#endif
   hal_comp_t *comp;
   uint32_t instance;
   void *ctx;
@@ -169,6 +180,24 @@ typedef struct {
 } hal_t;
 
 extern hal_t hal;
+
+#ifdef STMBL_HOST
+/* Pointer-range guards: catch misaligned, stale, or out-of-bounds pointers
+ * before they reach component callbacks.  All three expand to no-ops on the
+ * embedded target so no firmware code is affected. */
+#define HAL_CHECK_COMP_INST(p) \
+  HAL_ASSERT((p)->magic == HAL_COMP_INST_MAGIC)
+#define HAL_CHECK_CTX(ctx, size) \
+  HAL_ASSERT((uint8_t *)(ctx) >= hal.ctxs && \
+             (uint8_t *)(ctx) + (size) <= hal.ctxs + HAL_MAX_CTX)
+#define HAL_CHECK_PIN(pin) \
+  HAL_ASSERT((pin) >= hal.pin_insts && \
+             (pin) < hal.pin_insts + HAL_MAX_PINS)
+#else
+#define HAL_CHECK_COMP_INST(p)       ((void)0)
+#define HAL_CHECK_CTX(ctx, size)     ((void)0)
+#define HAL_CHECK_PIN(pin)           ((void)0)
+#endif
 
 hal_comp_t *comp_by_name(NAME name);
 hal_comp_inst_t *comp_inst_by_name(NAME name, uint32_t instance);

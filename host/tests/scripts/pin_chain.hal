@@ -1,0 +1,13 @@
+# Three-hop chain: sim2.amp = sim1.amp = sim0.amp (sink = source syntax)
+# After relink, sim2.amp->source collapses to sim0.amp directly.
+# Setting sim0.amp = 5.0 must be visible via sim2.amp.
+load sim
+load sim
+load sim
+
+sim1.amp = sim0.amp
+sim2.amp = sim1.amp
+relink
+
+sim0.amp = 5.0
+sim2.amp

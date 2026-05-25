@@ -299,6 +299,9 @@ uint32_t load_comp(hal_comp_t *comp) {
   hal.comp_insts[hal.comp_inst_count].pin_insts = &hal.pin_insts[hal.pin_inst_count];
   hal.comp_insts[hal.comp_inst_count].ctx_size  = ctx_size;
   hal.comp_insts[hal.comp_inst_count].state     = PRE_INIT;
+#ifdef STMBL_HOST
+  hal.comp_insts[hal.comp_inst_count].magic     = HAL_COMP_INST_MAGIC;
+#endif
 
   uint32_t offset = 0;
   for(int i = 0; i < comp_count; i++) {
@@ -369,6 +372,11 @@ void hal_run_rt() {
 #endif
 
   for(hal.active_rt_func = 0; hal.active_rt_func < hal.rt_comp_count; hal.active_rt_func++) {
+    HAL_CHECK_COMP_INST(hal.rt_comps[hal.active_rt_func]);
+    HAL_ASSERT(hal.rt_comps[hal.active_rt_func]->state == STARTED);
+    HAL_CHECK_CTX(hal.rt_comps[hal.active_rt_func]->ctx,
+                  hal.rt_comps[hal.active_rt_func]->ctx_size);
+    HAL_CHECK_PIN(hal.rt_comps[hal.active_rt_func]->pin_insts);
     hal.rt_comps[hal.active_rt_func]->comp->rt(hal.rt_period, hal.rt_comps[hal.active_rt_func]->ctx, hal.rt_comps[hal.active_rt_func]->pin_insts);
 #ifdef HAL_COMP_CALC_TIME
     uint32_t end_ticks = hal_get_systick_value();
@@ -428,6 +436,11 @@ void hal_run_frt() {
 #endif
 
   for(hal.active_frt_func = 0; hal.active_frt_func < hal.frt_comp_count; hal.active_frt_func++) {
+    HAL_CHECK_COMP_INST(hal.frt_comps[hal.active_frt_func]);
+    HAL_ASSERT(hal.frt_comps[hal.active_frt_func]->state == STARTED);
+    HAL_CHECK_CTX(hal.frt_comps[hal.active_frt_func]->ctx,
+                  hal.frt_comps[hal.active_frt_func]->ctx_size);
+    HAL_CHECK_PIN(hal.frt_comps[hal.active_frt_func]->pin_insts);
     hal.frt_comps[hal.active_frt_func]->comp->frt(hal.frt_period, hal.frt_comps[hal.active_frt_func]->ctx, hal.frt_comps[hal.active_frt_func]->pin_insts);
 #ifdef HAL_COMP_CALC_TIME
     uint32_t end_ticks = hal_get_systick_value();
@@ -470,6 +483,10 @@ void hal_run_nrt() {
 
   for(hal.active_nrt_func = 0; hal.active_nrt_func < hal.comp_inst_count; hal.active_nrt_func++) {
     if(hal.comp_insts[hal.active_nrt_func].comp->nrt != 0) {
+      HAL_CHECK_COMP_INST(&hal.comp_insts[hal.active_nrt_func]);
+      HAL_CHECK_CTX(hal.comp_insts[hal.active_nrt_func].ctx,
+                    hal.comp_insts[hal.active_nrt_func].ctx_size);
+      HAL_CHECK_PIN(hal.comp_insts[hal.active_nrt_func].pin_insts);
       hal.comp_insts[hal.active_nrt_func].comp->nrt(hal.comp_insts[hal.active_nrt_func].ctx, hal.comp_insts[hal.active_nrt_func].pin_insts);
 #ifdef HAL_COMP_CALC_TIME
       uint32_t end_ticks = hal_get_systick_value();
@@ -762,6 +779,20 @@ void hal_print_pin(hal_pin_inst_t *p) {
   }
 }
 
+#ifdef STMBL_HOST
+/* Walk the source chain from pin; assert it terminates within HAL_MAX_PINS
+ * hops.  More hops means a cycle was introduced by a bad connection. */
+static void hal_assert_pin_acyclic(hal_pin_inst_t *pin) {
+  int depth = 0;
+  hal_pin_inst_t *p = pin;
+  while(p != p->source) {
+    HAL_CHECK_PIN(p->source);
+    p = p->source;
+    HAL_ASSERT(++depth < HAL_MAX_PINS);
+  }
+}
+#endif
+
 char *findline(char *ptr) {
   for(int i = 0; i < 64; i++) {
     if(ptr[i] == 0) {
@@ -879,6 +910,9 @@ uint32_t hal_parse_(char *cmd) {
         source = pin_inst_by_name(sourcec, sourcei, sourcep);
         if(sink && source) {
           sink->source = source;
+#ifdef STMBL_HOST
+          hal_assert_pin_acyclic(sink);
+#endif
           if(hal.debug_level < 1) {
             printf("OK %s%lu.%s <= %s%lu.%s = %f\n", sinkc, sinki, sinkp, sourcec, sourcei, sourcep, source->source->value);
           }
