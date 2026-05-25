@@ -41,7 +41,7 @@ CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS)
 # Sources shared by all unit-test binaries: HAL + comps without main.c.
 # tests/stubs.c supplies the host symbols that main.c would otherwise provide.
 TEST_SRCS = $(CORE_SRCS) $(COMP_SRCS) $(HOST_COMP_SRCS) $(GEN)/hal_tbl.c cdc_host.c
-TEST_BINS = tests/test_hal tests/test_pins tests/test_comps tests/test_sserial tests/test_sserial_motor tests/test_hv_link tests/test_motor_hv
+TEST_BINS = tests/test_hal tests/test_pins tests/test_comps tests/test_sserial tests/test_sserial_motor tests/test_hv_link tests/test_motor_hv tests/test_autotune
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
 INCLUDES = -Ishim -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
@@ -128,6 +128,10 @@ tests/test_motor_hv: stmbl_host tests/test_motor_hv.c tests/runner.h
 	@mkdir -p tests
 	$(CC) $(CFLAGS) -Itests tests/test_motor_hv.c -o $@ $(LDFLAGS) $(LDLIBS)
 
+tests/test_autotune: stmbl_host tests/test_autotune.c tests/runner.h
+	@mkdir -p tests
+	$(CC) $(CFLAGS) -Itests tests/test_autotune.c -o $@ $(LDFLAGS) $(LDLIBS)
+
 test: all $(TEST_BINS)
 	@echo "=== unit: test_hal ===" && ./tests/test_hal
 	@echo "=== unit: test_pins ===" && ./tests/test_pins
@@ -136,6 +140,7 @@ test: all $(TEST_BINS)
 	@echo "=== unit: test_sserial_motor ===" && ./tests/test_sserial_motor
 	@echo "=== unit: test_hv_link ===" && ./tests/test_hv_link
 	@echo "=== unit: test_motor_hv ===" && ./tests/test_motor_hv
+	@echo "=== unit: test_autotune ===" && ./tests/test_autotune
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
 	@for f in tests/scripts/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done

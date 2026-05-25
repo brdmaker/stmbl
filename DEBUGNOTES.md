@@ -193,6 +193,22 @@ Entry format:
 - Fix:     `get_pin` in test_motor_hv.c now finds the LAST occurrence of the
   pattern (loops over all `strstr` hits, keeps the final one).
 
+## 2026-05-25  rlpsij J estimate filter lag (acc inflated by ~k/(1-k))
+- Area:    `shared/comps/rlpsij.c` (state 5, J identification)
+- Status:  Known
+- Symptom: `rlpsij0.j` converges to ~J/90 instead of the true rotor inertia.
+  With mot_j=0.001 kg·m² the identified value is ~0.000011 kg·m².
+- Cause:   The acceleration estimate uses a hardcoded 0.99-per-step IIR on
+  velocity: `acc = (vel_unfiltered - vel_filtered) / period`. At steady-state
+  acceleration α, the filter lag is k/(1-k) * period * α = 99 * 0.0002 * α,
+  so the lag term dominates the numerator, inflating `acc` by ~99×. The J
+  formula `j = torque / acc` therefore gives J/99.
+- Fix:     Not fixed (matches real firmware behaviour). On real hardware the
+  J estimate is used only as a rough feedforward seed; tight accuracy is not
+  required. In `test_autotune`, we only assert `j > 0` (state machine ran).
+  A correct acc estimate would use `(vel_filtered(n) - vel_filtered(n-1)) /
+  period` instead of `(vel_raw - vel_filtered) / period`.
+
 ## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note
