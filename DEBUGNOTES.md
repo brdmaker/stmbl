@@ -166,6 +166,33 @@ Entry format:
   sends a "time" command and uses `poll()`+`read()` to block until "sim time:"
   appears in that process's stdout — guaranteeing strict phase ordering.
 
+## 2026-05-25  WRITE_CONF bootstrap: ls_host zeros out pre-set config pins
+- Area:    `host/ls_host.c`
+- Status:  Fixed
+- Symptom: `test_motor_hv` — `motsim0.iq`, `id`, `vel` all NaN. Test sets
+  `ls_host0.l = 0.001` before `start`, but `motsim` sees `mot_l = 0 → ÷0 → NaN`.
+- Cause:   `ls_host.nrt_init` zeros `ctx->config`, and `rt_func` propagates all
+  9 config slots (`PIN(l) = ctx->config.pins.l`) on every received packet.
+  The first packet carries conf_addr=0 (r), so `ctx->config.pins.l` is still 0.
+  That overwrites the user-set `ls_host0.l = 0.001` one RT cycle in.
+- Fix:     Added `rt_start` to `ls_host` that copies all 9 HAL pin values into
+  `ctx->config` at start time. The first packet's propagation then writes the
+  user-set value (l=0.001) rather than zero. Subsequent WRITE_CONF slots from
+  F4 update the values as they arrive.
+
+## 2026-05-25  get_pin finds stale value from HAL wiring echo lines
+- Area:    `host/tests/test_motor_hv.c`
+- Status:  Fixed
+- Symptom: Test 6 (`motsim0.vel > 0`) always failed even though torque was
+  flowing and velocity should have been ≈0.03 rad/s.
+- Cause:   HAL link commands (`motsim0.com_vel = motsim0.vel`) echo an "OK"
+  confirmation line: `"OK motsim0.com_vel <= motsim0.vel = 0.000000"`. This
+  string contains the pattern `"motsim0.vel = "` at the old (zero) value. Since
+  it appears in the accumulated buffer before the final explicit pin query,
+  `strstr` returned the stale match.
+- Fix:     `get_pin` in test_motor_hv.c now finds the LAST occurrence of the
+  pattern (loops over all `strstr` hits, keeps the final one).
+
 ## 2026-05-25  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
 - Status:  Note

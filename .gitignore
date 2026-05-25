@@ -39,6 +39,7 @@ host/tests/test_comps
 host/tests/test_sserial
 host/tests/test_sserial_motor
 host/tests/test_hv_link
+host/tests/test_motor_hv
 
 
 

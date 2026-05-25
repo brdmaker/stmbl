@@ -114,6 +114,20 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   fprintf(stderr, "ls_host: using fd %d\n", ctx->fd);
 }
 
+static void rt_start(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct ls_host_ctx_t *ctx      = (struct ls_host_ctx_t *)ctx_ptr;
+  struct ls_host_pin_ctx_t *pins = (struct ls_host_pin_ctx_t *)pin_ptr;
+  ctx->config.pins.r       = PIN(r);
+  ctx->config.pins.l       = PIN(l);
+  ctx->config.pins.psi     = PIN(psi);
+  ctx->config.pins.cur_bw  = PIN(cur_bw);
+  ctx->config.pins.cur_ff  = PIN(cur_ff);
+  ctx->config.pins.cur_ind = PIN(cur_ind);
+  ctx->config.pins.max_y   = PIN(max_y);
+  ctx->config.pins.max_cur = PIN(max_cur);
+  ctx->config.pins.dac     = PIN(dac);
+}
+
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct ls_host_ctx_t *ctx      = (struct ls_host_ctx_t *)ctx_ptr;
   struct ls_host_pin_ctx_t *pins = (struct ls_host_pin_ctx_t *)pin_ptr;
@@ -259,7 +273,7 @@ const hal_comp_t ls_host_comp_struct = {
   .frt       = 0,
   .nrt_init  = nrt_init,
   .hw_init   = 0,
-  .rt_start  = 0,
+  .rt_start  = rt_start,
   .frt_start = 0,
   .rt_stop   = 0,
   .frt_stop  = 0,
