@@ -36,6 +36,7 @@ host/stmbl_host.dSYM/
 host/tests/test_hal
 host/tests/test_pins
 host/tests/test_comps
+host/tests/test_sserial
 
 
 # Ignore list for Eagle, a PCB layout tool
