@@ -442,6 +442,14 @@ void MainWindow::runScript(const QString &path) {
   }
 }
 
+// --- sim launcher ---------------------------------------------------------
+
+void MainWindow::connectToSim(const QString &stmblHostPath, const QString &script) {
+  m_conn->connectSim(stmblHostPath, script);
+  // Title shows which binary we launched.
+  setWindowTitle("ServoTerm — " + stmblHostPath);
+}
+
 // --- helpers --------------------------------------------------------------
 
 void MainWindow::appendConsole(const QString &html) {

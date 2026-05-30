@@ -2,6 +2,8 @@
 #include "SerialConnection.h"
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFileInfo>
+#include <QDir>
 
 int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
@@ -10,33 +12,39 @@ int main(int argc, char *argv[]) {
   app.setApplicationVersion("1.0");
 
   QCommandLineParser parser;
-  parser.setApplicationDescription("stmbl ServoTerm — motor drive console");
+  parser.setApplicationDescription("stmbl ServoTerm — motor drive console\n"
+    "\n"
+    "  Quick-start with built-in simulator:\n"
+    "    servoterm --sim ../host/stmbl_host\n"
+    "    servoterm --sim ../host/stmbl_host examples/motor.hal\n");
   parser.addHelpOption();
   parser.addVersionOption();
-  parser.addPositionalArgument("script", "HAL script to run on startup (sim mode)", "[script]");
-  QCommandLineOption simOpt({"s", "sim"}, "Path to stmbl_host binary (enables sim mode)", "path", "./stmbl_host");
+  // Positional: optional HAL script fed to the simulator on startup.
+  parser.addPositionalArgument("script",
+    "HAL/servoterm script to run at startup (sim mode only)", "[script]");
+  // --sim / -s: path to stmbl_host binary; auto-connects on launch.
+  QCommandLineOption simOpt({"s", "sim"},
+    "Launch stmbl_host as simulator backend (enables sim mode)",
+    "stmbl_host", "");
   parser.addOption(simOpt);
   parser.process(app);
 
   MainWindow w;
+  w.show();
 
   if (parser.isSet(simOpt)) {
-    QString path   = parser.value(simOpt);
+    QString path = parser.value(simOpt);
+    // Default: look next to the servoterm binary, then in PATH.
+    if (path.isEmpty()) {
+      QString beside = QFileInfo(argv[0]).dir().filePath("stmbl_host");
+      path = QFileInfo(beside).isExecutable() ? beside : "stmbl_host";
+    }
     QString script = parser.positionalArguments().value(0);
-    // Connect to simulator automatically when --sim is given.
-    auto *conn = w.findChild<class SerialConnection *>();
-    Q_UNUSED(conn);
-    // We expose runScript via MainWindow; trigger sim connect via a delayed call.
+    // Defer until the event loop is running so the window is fully shown.
     QMetaObject::invokeMethod(&w, [&w, path, script]{
-      // Access conn through MainWindow's public API (ConnectDialog is inline, so we
-      // can't call it directly; expose a helper instead).
-      // Simplest: just show the window and let the user connect.
-      // For automated use, drop a script on the window.
-      if (!script.isEmpty()) w.runScript(script);
+      w.connectToSim(path, script);
     }, Qt::QueuedConnection);
   } else {
-    // If a positional argument was given without --sim, treat it as a script
-    // for the already-connected session (user will connect manually first).
     QString script = parser.positionalArguments().value(0);
     if (!script.isEmpty()) {
       QMetaObject::invokeMethod(&w, [&w, script]{ w.runScript(script); },
@@ -44,6 +52,5 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  w.show();
   return app.exec();
 }

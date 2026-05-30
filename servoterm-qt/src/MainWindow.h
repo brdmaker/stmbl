@@ -25,8 +25,12 @@ public:
   explicit MainWindow(QWidget *parent = nullptr);
   ~MainWindow() override;
 
-  // Open a script file on the connected simulator (drag-and-drop or CLI arg).
+  // Open a script file on the connected session (drag-and-drop or CLI arg).
   void runScript(const QString &path);
+
+  // Launch stmbl_host as a subprocess and connect the GUI to it.
+  // If script is non-empty it is fed to the simulator after startup.
+  void connectToSim(const QString &stmblHostPath, const QString &script = {});
 
 protected:
   void keyPressEvent(QKeyEvent *event) override;
