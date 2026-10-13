@@ -19,6 +19,11 @@ pid0.vel_d = idm0.vel_d
 idm0.torque = pid0.torque_cmd
 idm0.fb_torque = pid0.fb_torque_cmd
 
+# measured motion for the least-squares fit (vel1.torque = 0 below keeps
+# vel1 model-free, so its acc is not derived from the inertia being fitted)
+idm0.vel_fb = vel1.vel
+idm0.acc_fb = vel1.acc
+
 vel1.torque = 0
 vel2.torque = 0
 

@@ -155,19 +155,33 @@ Entry format:
   Regression asset: `host/examples/idm_load.hal`. Not yet run on hardware.
 
 ## 2026-10-14  idm: damping and friction not separable at cruise speed
-- Area:    `shared/comps/idm.c`
-- Status:  Note
-- Symptom: In the host sim (no load), idm gives d = 0.00106 / f = 0.072
-  against a true 0.002 / 0.05.
-- Cause:   Most of the run (state 1.3, 90 s) is at constant max_vel, where
-  `d*v + f*sign(v)` is a single number. The sum is right
-  (0.072 + 25*0.00106 = 0.098 against a true 0.100), but how it is split
-  between d and f is not well determined. Only the 20 s ramp-up (state 1.2)
-  runs at several speeds. The offset also adapts slowly (li = 0.01), and
-  reaches only about 89% within the run.
-- Fix:     Idea: spend more of the run at several speeds, or fit d/f by
-  least squares from the `*_sum` values idm already collects. Also consider
-  a smaller `li` or a longer run.
+- Area:    `shared/comps/idm.c`, `conf/template/id_mot.txt`, `id_sys.txt`
+- Status:  Fixed (host sim; not yet run on hardware)
+- Symptom: Host sim, no load: idm gave d = 0.00106 and f = 0.072 against a
+  true 0.002 / 0.05. With high damping (d = 0.01, f = 0.01) all four
+  estimates diverged: f +600..1700%, j collapsed to its clamp, and position
+  error reached 2.4 rad.
+- Cause:   (1) Most of the run is at one speed, where `d*v + f*sign(v)` is
+  one number: the sum is right, the split is not. (2) The adaptive
+  estimates feed pid's feedforward directly, so an error in one (f taking
+  over d's share) feeds into the others, and tracking degrades.
+- Fix:     idm now prints a least-squares fit instead of the adaptive
+  estimates. The adaptive estimates still drive the feedforward during
+  the run.
+  - `vel_steps` (default 5) cycles the stroke speed in state 1.3.
+  - `ls_fb` (default 1) fits against measured `vel_fb`/`acc_fb`, linked to
+    vel1 in id_mot.txt. vel1 is model-free there because `vel1.torque = 0`.
+  - `ls_lp` (20 Hz) filters torque, acc, vel and sign(vel) identically
+    before the fit. Without it, the noise of the differentiated acc biased
+    j by -97%.
+  - id_sys reports `j_sys = fit - idm0.j_mot` (linked to conf0.j).
+  - If the fit is unusable (< 1000 samples, singular, or j <= 0), idm prints
+    a red warning and falls back to the adaptive values.
+  Sim results, five plants, 4096-count encoder plus vel estimator: j +0..13%,
+  d -4..+4%, f 0%, o 0%. id_sys: j_sys +1%.
+  Regression asset: `host/examples/idm_load.hal`.
+  Remaining: j reads 5-13% high (possibly current-loop lag between commanded
+  and actual torque; not checked). Not tested with sensor noise.
 
 ## 2026-10-14  autotune smaller issues (idpmsm, ids)
 - Area:    `shared/comps/idpmsm.c`, `shared/comps/ids.c`

@@ -95,6 +95,8 @@ conf0.j
 this takes about 2 minutes +
 disconnect the motor from the load +
 the motor will move between idm0.min_pos (rad) and idm0.max_pos (rad) with a max velocity of idm0.max_vel (rad/s) and a max acceleration of idm0.max_acc (rad/s^2) +
+the stroke speed steps through 1/5 .. 5/5 of idm0.max_vel (idm0.vel_steps), so that damping and friction can be told apart +
+the result is a least-squares fit against the measured motion (vel1.vel, vel1.acc); if it is unusable, a red warning is printed and the adaptive estimates are used +
 follow the green instructions in Servoterm
 
 - set your config to
