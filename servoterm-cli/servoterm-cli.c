@@ -178,6 +178,30 @@ static int write_all(int fd, const char *buf, size_t n) {
   return 0;
 }
 
+// Send one command line as a single write, so it reaches the drive in one
+// USB packet. The firmware's input ring buffer (shared/ringbuf.c) is written
+// from the USB interrupt and read from the main loop without locking; when a
+// line arrives split across packets, the main loop reads the partial line and
+// rewinds it (rb_undo) while the interrupt may be adding the rest, and bytes
+// get lost. Lines over 63 chars would also jam the drive's 64-byte line
+// buffer, so they are refused.
+#define MAX_CMD_LINE 63
+static int write_line(int fd, const char *text, size_t len) {
+  char buf[MAX_CMD_LINE + 1];
+  if(len > MAX_CMD_LINE) {
+    fprintf(stderr, "servoterm-cli: command too long (%zu > %d chars), not sent: %.*s\n", len,
+            MAX_CMD_LINE, (int)len, text);
+    return -2;
+  }
+  memcpy(buf, text, len);
+  buf[len] = '\n';
+  if(write_all(fd, buf, len + 1) < 0) {
+    perror("servoterm-cli: write");
+    return -1;
+  }
+  return 0;
+}
+
 // Read from the drive for up to 'sec' seconds; returns text bytes seen, -1 on
 // error/disconnect.
 static int pump(int fd, double sec) {
@@ -229,8 +253,7 @@ static int send_line(int fd, const char *line, int wait_ms) {
   if(*p == '\0' || *p == '\n' || *p == '\r' || *p == '#') {
     return 0;
   }
-  if(write_all(fd, line, len) < 0 || write_all(fd, "\n", 1) < 0) {
-    perror("servoterm-cli: write");
+  if(write_line(fd, line, len) < 0) {
     return -1;
   }
   return pump(fd, wait_ms / 1000.0) < 0 ? -1 : 0;
@@ -265,8 +288,7 @@ static int capture_cmd(int fd, const char *cmd, double quiet, const char *done, 
   if(cap_buf) {
     cap_buf[0] = '\0';
   }
-  if(write_all(fd, cmd, strlen(cmd)) < 0 || write_all(fd, "\n", 1) < 0) {
-    perror("servoterm-cli: write");
+  if(write_line(fd, cmd, strlen(cmd)) < 0) {
     capturing = 0;
     return -1;
   }
@@ -475,7 +497,11 @@ static int conf_load(int fd, const char *path, int backup) {
       rc = -1;
       break;
     }
-    if(!cap_buf || strncmp(cap_buf, "adding ", 7) != 0) {
+    // The drive answers "adding <arg>\n"; anything else (a merged line, a
+    // missing reply) means the drive did not get exactly this line.
+    char want[CONF_MAX_LINE + 16];
+    snprintf(want, sizeof(want), "adding %.*s\n", (int)len, p);
+    if(!cap_buf || strcmp(cap_buf, want) != 0) {
       fprintf(stderr, "servoterm-cli: no ack for line %d (%s), got: %s\n", lines + 1, cmd,
               cap_buf ? cap_buf : "");
       rc = -1;
@@ -589,6 +615,14 @@ int main(int argc, char **argv) {
   // queued before, including a partial scope frame at the start of the stream.
   discard_text = 1;
   pump(fd, 0.3);
+  // A lone newline ends any half-line left in the drive's input buffer by an
+  // earlier session (an empty line is a no-op on the drive).
+  if(write_all(fd, "\n", 1) < 0) {
+    perror("servoterm-cli: write");
+    close(fd);
+    return 1;
+  }
+  pump(fd, 0.2);
   discard_text = 0;
 
   int rc = 0;
