@@ -10,7 +10,7 @@ pid0.acc_ext_cmd = idm0.acc_cmd
 pid0.j_mot = idm0.inertia
 pid0.d = idm0.damping
 pid0.f = idm0.friction
-pid0.l = idm0.load
+pid0.o = idm0.offset
 
 pid0.pos_bw = idm0.pos_bw
 pid0.vel_bw = idm0.vel_bw

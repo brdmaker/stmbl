@@ -1,0 +1,74 @@
+# idm (motor mechanics identification, conf/template/id_mot.txt) against a
+# simulated motor with a constant load torque of -0.3 Nm.
+# True plant: j = 0.0002, d = 0.002, f = 0.05; the offset should converge
+# toward +0.3 (feedforward o compensates the load).
+# Regression for the id_mot.txt fix: pid0.o = idm0.offset (was pid0.l = idm0.load,
+# which does not exist, so the offset integrated open-loop and never settled).
+# Expected at t = 120 s: idm0.offset ~ 0.267, pid0.torque_sum ~ 0.03.
+# Plant: motsim in current mode. pp = 1 and psi = 2/3 so that
+# torque = 3/2 * psi * pp * iq = iq, so pid torque_cmd can drive q_cmd directly.
+load idm
+load pid
+load motsim
+idm0.rt_prio = 1
+pid0.rt_prio = 2
+motsim0.rt_prio = 3
+
+motsim0.en = 1
+motsim0.cmd_mode = 1
+motsim0.mot_pp = 1
+motsim0.mot_psi = 0.666667
+motsim0.psi = 0.666667
+motsim0.mot_r = 0.75
+motsim0.r = 0.75
+motsim0.mot_l = 0.0015
+motsim0.l = 0.0015
+motsim0.mot_j = 0.0002
+motsim0.mot_d = 0.002
+motsim0.mot_f = 0.05
+motsim0.load_torque = -0.3
+motsim0.com_pos = motsim0.pos
+motsim0.com_vel = motsim0.vel
+motsim0.q_cmd = pid0.torque_cmd
+motsim0.d_cmd = 0
+
+# pid limits (conf0.max_vel / max_acc / max_force stand-ins)
+pid0.en = 1
+pid0.max_vel = 1000
+pid0.neg_min_vel = 1000
+pid0.max_acc = 1000000
+pid0.max_torque = 10
+pid0.neg_min_torque = 10
+pid0.vel_g = 1
+pid0.pos_fb = motsim0.pos
+pid0.vel_fb = motsim0.vel
+
+# id_mot.txt (with the fix)
+idm0.en = 1
+pid0.pos_ext_cmd = idm0.pos_cmd
+pid0.vel_ext_cmd = idm0.vel_cmd
+pid0.acc_ext_cmd = idm0.acc_cmd
+pid0.j_mot = idm0.inertia
+pid0.d = idm0.damping
+pid0.f = idm0.friction
+pid0.o = idm0.offset
+pid0.pos_bw = idm0.pos_bw
+pid0.vel_bw = idm0.vel_bw
+pid0.vel_d = idm0.vel_d
+idm0.torque = pid0.torque_cmd
+idm0.fb_torque = pid0.fb_torque_cmd
+start
+step 1
+nrt
+step 1
+nrt
+run 120
+nrt
+time
+idm0.state
+idm0.inertia
+idm0.damping
+idm0.friction
+idm0.offset
+pid0.o
+pid0.torque_sum

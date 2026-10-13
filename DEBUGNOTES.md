@@ -117,3 +117,72 @@ Entry format:
   over 52 chars (63 - len("appendconf ")) and turns tabs into spaces. A
   firmware fix would discard the line when the buffer is full and no `\n`
   has come.
+
+## 2026-10-14  Drive loses bytes when a command arrives split across USB packets
+- Area:    `shared/ringbuf.c` (`rb_putc` vs `rb_getc`/`rb_undo`), `src/usb_cdc.c`
+- Status:  Workaround
+- Symptom: During `servoterm-cli --load`, one `appendconf` line got no ack.
+  Its `\n` was lost, so the next command (`showconf`) was glued onto it:
+  the drive answered `adding ...# append to configshowconf`.
+- Cause:   `usb_rx_buf` is written from the USB interrupt (`VCP_DataRx` ->
+  `rb_putc`) and read in the main loop (`rb_getline`), with no locking. The
+  tool sent the text and the `\n` in two writes, i.e. two USB packets.
+  `rb_getline` read the partial line, saw no `\n` and rewound with `rb_undo`.
+  If the interrupt adds the `\n` during that read-modify-write of `pos`/`len`,
+  the byte is lost or lands in the wrong slot.
+- Fix:     Tool side: servoterm-cli sends each command and its `\n` in one
+  write of at most 64 bytes, i.e. one full-speed USB packet. It sends a lone
+  `\n` at connect to end any stale half-line. It also checks each
+  `adding <line>` ack exactly. With these changes, load/verify/restore passed.
+  Firmware fix: disable the USB IRQ around `rb_getline`, or make `rb_undo`
+  unnecessary by peeking for `\n` before consuming.
+
+## 2026-10-14  id_mot template links non-existent pins (offset not fed back)
+- Area:    `conf/template/id_mot.txt`, `shared/comps/idm.c`, `shared/comps/pid.c`
+- Status:  Fixed
+- Symptom: `id_mot.txt` had `pid0.l = idm0.load`. Neither pin exists (pid's
+  offset pin is `o`, idm's is `offset`), so the drive rejects it with
+  "not found: pid0.l". With a constant load, `conf0.o` came out wrong.
+- Cause:   With `pid0.o` unlinked, idm0.offset is learned open-loop. It
+  integrates `fb_torque_cmd`, and pid's integral term holds the load, so the
+  estimate grows linearly forever. The printed value just reflects run time
+  multiplied by load. In the host sim (motsim, load -0.3 Nm, true o = +0.3),
+  it rose steadily to 0.657 at 120 s, and inertia came out 0.000341 against
+  a true 0.0002.
+- Fix:     `pid0.o = idm0.offset`. In the same sim: offset converges toward
+  0.3 (0.267 at the end of the run), inertia 0.000215, and pid's integral
+  drops from 0.30 to 0.03. With no load, results are the same as before.
+  Regression asset: `host/examples/idm_load.hal`. Not yet run on hardware.
+
+## 2026-10-14  idm: damping and friction not separable at cruise speed
+- Area:    `shared/comps/idm.c`
+- Status:  Note
+- Symptom: In the host sim (no load), idm gives d = 0.00106 / f = 0.072
+  against a true 0.002 / 0.05.
+- Cause:   Most of the run (state 1.3, 90 s) is at constant max_vel, where
+  `d*v + f*sign(v)` is a single number. The sum is right
+  (0.072 + 25*0.00106 = 0.098 against a true 0.100), but how it is split
+  between d and f is not well determined. Only the 20 s ramp-up (state 1.2)
+  runs at several speeds. The offset also adapts slowly (li = 0.01), and
+  reaches only about 89% within the run.
+- Fix:     Idea: spend more of the run at several speeds, or fit d/f by
+  least squares from the `*_sum` values idm already collects. Also consider
+  a smaller `li` or a longer run.
+
+## 2026-10-14  autotune smaller issues (idpmsm, ids)
+- Area:    `shared/comps/idpmsm.c`, `shared/comps/ids.c`
+- Status:  Note
+- Symptom/Cause:
+  - idpmsm state 1.3 (L): resets `tmp0/tmp1` but not `tmp2/tmp3`. So on a
+    second run in the same boot, the "low" averages start from the previous
+    run's values.
+  - idpmsm state 2.3 (mot_fb_offset): low-pass filters `-pos_fb` without
+    handling angle wrap. If the locked rotor sits near ±pi, the average mixes
+    +pi and -pi and the offset comes out wrong.
+  - idpmsm state 2.3 writes `PIN(en) = 0`, but `en` is linked to
+    `fault0.en_out` and gets overwritten next cycle, so it has no effect.
+  - ids state 0 resets `step = 0.1`, `rep = 1` every time, so nrt_init's
+    0.25 / 2 never apply. `rep` is not used anywhere.
+  - idm: `inertia_sum/damping_sum/friction_sum/offset_sum` are computed but
+    never used or printed. Only the adaptive estimates are reported.
+- Fix:     None yet. Each is small. Check in the host sim before changing.
