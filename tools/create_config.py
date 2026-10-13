@@ -5,9 +5,21 @@ import os
 
 config = []
 
+# findline() in shared/hal.c looks at most 64 chars ahead for '\n'; a longer
+# line makes hal_parse() silently stop, dropping the rest of the template.
+MAX_LINE = 63
+
+errors = 0
 for infile in sys.argv[2:]:
     with open(infile) as f:
-        config.append((os.path.splitext(os.path.basename(infile))[0], f.read()))
+        content = f.read()
+    for n, line in enumerate(content.splitlines(), 1):
+        if len(line) > MAX_LINE:
+            sys.stderr.write("%s:%d: line is %d chars, max %d (hal_parse would stop here)\n" % (infile, n, len(line), MAX_LINE))
+            errors += 1
+    config.append((os.path.splitext(os.path.basename(infile))[0], content))
+if errors:
+    sys.exit(1)
 
 code = open(sys.argv[1], 'w')
 

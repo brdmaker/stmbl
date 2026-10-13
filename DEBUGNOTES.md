@@ -214,3 +214,20 @@ Entry format:
   `.data` gets its flash LMA from the program headers, so `elf_to_bin`
   has no 0x08000000 -> 0x20000000 gap. Full `make all` takes about 30 s on
   4 cores. The hang seen with binutils 2.42 is still unexplained.
+
+## 2026-10-14  Config/template lines >= 64 chars silently end hal_parse
+- Area:    `shared/hal.c` (`findline`), `shared/config.c` (`link`), `src/config.c` (`loadconf`)
+- Status:  Fixed (templates); Known (firmware limit)
+- Symptom: On the drive, `link id_mot` applied only the first part of the
+  template. `idm0.vel_fb`/`acc_fb` stayed unlinked, and `vel1.torque = 0`
+  and `conf0.max_pos_error = 0` never applied. There was no error message.
+- Cause:   `findline()` looks at most 64 chars ahead for `\n` and returns 0
+  otherwise, which ends `hal_parse()`'s loop. A 72-char comment line added
+  to id_mot.txt cut the template there. This affects templates (`link`)
+  and the flash config at boot (`loadconf`). The host sim did not catch
+  it: the test scripts had the template lines inlined, and the host build
+  does not include `config.c`.
+- Fix:     Shortened the comments. `tools/create_config.py` now fails the
+  build on any template line over 63 chars. servoterm-cli `--load` already
+  limits config lines to 52. Firmware idea: have findline() skip to the
+  real `\n` instead of giving up after 64 chars.
