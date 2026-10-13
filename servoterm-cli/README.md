@@ -18,7 +18,8 @@ Needs only a C compiler. The user must be in the `dialout` group.
 
 ```sh
 ./servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]
-                [--dump FILE] [--load FILE [--no-backup]] [-c CMD]... [SCRIPT]
+                [--dump FILE] [--load FILE [--no-backup]]
+                [-C pin:gain,...] [--step N] [--log SEC] [-c CMD]... [SCRIPT]
   -d DEV    serial device (default /dev/ttyACM0)
   -s FILE   write decoded scope samples to FILE as CSV
   -t SEC    after the last command, exit once no text arrived for SEC s (default 0.5)
@@ -26,6 +27,9 @@ Needs only a C compiler. The user must be in the `dialout` group.
   -c CMD    send CMD (repeatable); takes precedence over SCRIPT/stdin
   --dump FILE   save the drive's flash config to FILE
   --load FILE   write FILE to the drive's flash config (see below)
+  -C LIST       scope channels pin:gain,... (see Scope logging)
+  --step N      scope sample interval in rt cycles; adds a time column
+  --log SEC     keep recording for SEC seconds (0 = until stopped)
   SCRIPT    file of commands; '#' comments and blank lines are skipped
 ```
 
@@ -66,6 +70,27 @@ until it is reset (`-c reset` or a power cycle).
 Lines are compared the way the drive stores them: leading and trailing blanks
 and trailing empty lines are dropped, and tabs become spaces. So a dumped file
 loads back unchanged.
+
+## Scope logging
+
+```sh
+./servoterm-cli -C "pid0.pos_error:1000,vel1.vel:0.35,pid0.torque_cmd:250" \
+                --step 5 -s run.csv --log 0 > run.txt
+```
+
+- `-C pin:gain,...`: link `term0.wave0..7` to these pins and set their
+  gains (offsets to 0). This is a RAM setting, not saved to flash. The drive
+  sends `value * gain + 128` as one byte (clamped to 1..254), so full scale
+  is +-127/gain and the resolution is 1/gain. The CSV gets the pin names as
+  headers and the values in the pin's own units.
+- `--step N`: `term0.send_step`, i.e. sample every N rt cycles (5 kHz / N),
+  and add a time column `t`.
+- `--log SEC`: record for SEC seconds (0 = until Ctrl-C / SIGTERM /
+  SIGHUP). The CSV is flushed every second, and drive text lines are
+  prefixed with the host time.
+
+LinuxCNC talks to the drive over smart-serial, so the USB console is free
+for logging during a LinuxCNC run.
 
 ## Protocol notes
 

@@ -48,6 +48,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,15 +76,48 @@ static size_t cap_len = 0;
 static size_t cap_size = 0;
 static unsigned char frame[SCOPE_CHANNELS];
 
+// Scope channel setup from -C: name and gain per channel. The drive sends
+// byte = (value + offset) * gain + 128, clamped to 1..254 (term.c), so gain is
+// counts per unit and full scale is +-127/gain. With a gain set, samples are
+// written in the pin's own units: (byte - 128) / gain.
+static const char *scope_name[SCOPE_CHANNELS];
+static double scope_gain[SCOPE_CHANNELS];
+static double scope_dt = 0.0;  // s per frame (from --step), adds a "t" column
+
+static volatile sig_atomic_t stop_req = 0;
+static void on_signal(int sig) {
+  (void)sig;
+  stop_req = 1;
+}
+
+// --log mode: prefix each line of drive text with the host time
+static int stamp_text     = 0;
+static int at_line_start  = 1;
+
 static void scope_emit(void) {
   if(scope_fp) {
     fprintf(scope_fp, "%ld", scope_frame);
+    if(scope_dt > 0.0) {
+      fprintf(scope_fp, ",%.4f", scope_frame * scope_dt);
+    }
     for(int i = 0; i < SCOPE_CHANNELS; i++) {
-      fprintf(scope_fp, ",%.5f", (frame[i] - 128) / 128.0);
+      if(scope_gain[i] != 0.0) {
+        fprintf(scope_fp, ",%.6g", (frame[i] - 128) / scope_gain[i]);
+      } else {
+        fprintf(scope_fp, ",%.5f", (frame[i] - 128) / 128.0);
+      }
     }
     fprintf(scope_fp, "\n");
   }
   scope_frame++;
+}
+
+static void print_stamp(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  struct tm tm;
+  localtime_r(&tv.tv_sec, &tm);
+  printf("[%02d:%02d:%02d.%03ld] ", tm.tm_hour, tm.tm_min, tm.tm_sec, (long)(tv.tv_usec / 1000));
 }
 
 // Split the drive's byte stream into text (printed) and scope frames (to CSV).
@@ -119,7 +153,14 @@ static int demux(const unsigned char *buf, int n) {
         cap_buf[cap_len++] = b;
         cap_buf[cap_len]   = '\0';
       } else {
+        if(stamp_text && at_line_start && b != '\n' && b != '\r') {
+          print_stamp();
+          at_line_start = 0;
+        }
         putchar(b);
+        if(b == '\n') {
+          at_line_start = 1;
+        }
       }
       text++;
     }
@@ -209,7 +250,7 @@ static int pump(int fd, double sec) {
   double end = now() + sec;
   for(;;) {
     double left = end - now();
-    if(left <= 0) {
+    if(left <= 0 || stop_req) {
       return text;
     }
     fd_set rfds;
@@ -549,6 +590,7 @@ static void usage(void) {
   fprintf(stderr,
           "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
           "                     [--dump FILE] [--load FILE [--no-backup]]\n"
+          "                     [-C pin:gain,...] [--step N] [--log SEC]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -563,9 +605,18 @@ int main(int argc, char **argv) {
   const char *dump_path = NULL;
   const char *load_path = NULL;
   int backup            = 1;
+  const char *scope_cfg = NULL;
+  int send_step         = 0;
+  double log_sec        = -1.0;  // < 0: no log mode
 
   for(int i = 1; i < argc; i++) {
-    if(strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
+    if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
+      scope_cfg = argv[++i];
+    } else if(strcmp(argv[i], "--step") == 0 && i + 1 < argc) {
+      send_step = atoi(argv[++i]);
+    } else if(strcmp(argv[i], "--log") == 0 && i + 1 < argc) {
+      log_sec = atof(argv[++i]);
+    } else if(strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
       dump_path = argv[++i];
     } else if(strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
       load_path = argv[++i];
@@ -594,6 +645,28 @@ int main(int argc, char **argv) {
     }
   }
 
+  // -C "pin:gain,pin:gain,...": up to 8 channels, in order wave0..wave7.
+  // An empty entry leaves that channel as it is on the drive.
+  char *cfg_copy = scope_cfg ? strdup(scope_cfg) : NULL;
+  if(cfg_copy) {
+    char *save = NULL;
+    char *tok  = strtok_r(cfg_copy, ",", &save);
+    for(int i = 0; tok && i < SCOPE_CHANNELS; i++) {
+      char *colon = strchr(tok, ':');
+      if(!colon || colon == tok || atof(colon + 1) == 0.0) {
+        fprintf(stderr, "servoterm-cli: -C entry %d must be pin:gain (non-zero gain): %s\n", i, tok);
+        return 1;
+      }
+      *colon        = '\0';
+      scope_name[i] = tok;
+      scope_gain[i] = atof(colon + 1);
+      tok           = strtok_r(NULL, ",", &save);
+    }
+  }
+  if(send_step > 0) {
+    scope_dt = send_step / 5000.0;  // rt runs at 5 kHz
+  }
+
   if(scope_path) {
     scope_fp = fopen(scope_path, "w");
     if(!scope_fp) {
@@ -601,11 +674,25 @@ int main(int argc, char **argv) {
       return 1;
     }
     fprintf(scope_fp, "frame");
+    if(scope_dt > 0.0) {
+      fprintf(scope_fp, ",t");
+    }
     for(int i = 0; i < SCOPE_CHANNELS; i++) {
-      fprintf(scope_fp, ",ch%d", i);
+      if(scope_name[i]) {
+        fprintf(scope_fp, ",%s", scope_name[i]);
+      } else {
+        fprintf(scope_fp, ",ch%d", i);
+      }
     }
     fprintf(scope_fp, "\n");
   }
+
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = on_signal;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+  sigaction(SIGHUP, &sa, NULL);
 
   int fd = open_port(dev);
   if(fd < 0) {
@@ -626,6 +713,23 @@ int main(int argc, char **argv) {
   discard_text = 0;
 
   int rc = 0;
+  // Scope setup (RAM only, not saved to flash).
+  for(int i = 0; i < SCOPE_CHANNELS && rc == 0; i++) {
+    if(scope_name[i]) {
+      char line[MAX_CMD_LINE + 1];
+      snprintf(line, sizeof(line), "term0.wave%d = %s", i, scope_name[i]);
+      rc = send_line(fd, line, wait_ms);
+      snprintf(line, sizeof(line), "term0.gain%d = %g", i, scope_gain[i]);
+      rc = rc ? rc : send_line(fd, line, wait_ms);
+      snprintf(line, sizeof(line), "term0.offset%d = 0", i);
+      rc = rc ? rc : send_line(fd, line, wait_ms);
+    }
+  }
+  if(rc == 0 && send_step > 0) {
+    char line[MAX_CMD_LINE + 1];
+    snprintf(line, sizeof(line), "term0.send_step = %d", send_step);
+    rc = send_line(fd, line, wait_ms);
+  }
   // Config operations run first, so "--load f -c reset" applies the new config.
   if(load_path) {
     rc = conf_load(fd, load_path, backup) < 0;
@@ -639,7 +743,7 @@ int main(int argc, char **argv) {
     for(int i = 0; i < ncmds && rc == 0; i++) {
       rc = send_line(fd, cmds[i], wait_ms);
     }
-  } else if(script || !(dump_path || load_path)) {
+  } else if(script || !(dump_path || load_path || log_sec >= 0.0 || scope_cfg)) {
     FILE *in = stdin;
     if(script) {
       in = fopen(script, "r");
@@ -689,9 +793,31 @@ int main(int argc, char **argv) {
     }
   }
 
+  if(rc == 0 && log_sec >= 0.0) {
+    // Record until log_sec passed (0 = until SIGINT/SIGTERM), flushing the
+    // CSV every second so a crash or kill loses at most a second.
+    fprintf(stderr, "servoterm-cli: logging%s, stop with Ctrl-C or kill %d\n",
+            log_sec > 0.0 ? "" : " until stopped", (int)getpid());
+    stamp_text = 1;
+    double end = now() + log_sec;
+    while(!stop_req && (log_sec == 0.0 || now() < end)) {
+      if(pump(fd, 1.0) < 0) {
+        fprintf(stderr, "servoterm-cli: device disconnected\n");
+        rc = 1;
+        break;
+      }
+      fflush(stdout);
+      if(scope_fp) {
+        fflush(scope_fp);
+      }
+    }
+    stamp_text = 0;
+    settle     = 0.0;
+  }
+
   // Collect trailing output until the drive goes quiet. Scope frames alone do
   // not count as activity, since they stream continuously.
-  while(rc == 0) {
+  while(rc == 0 && settle > 0.0 && !stop_req) {
     int t = pump(fd, settle);
     if(t < 0) {
       rc = 1;
