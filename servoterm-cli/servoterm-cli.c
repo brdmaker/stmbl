@@ -1,0 +1,676 @@
+/*
+ * This file is part of the stmbl project.
+ *
+ * servoterm-cli: a headless command-line client for a real stmbl drive,
+ * modelled on QtServoterm (https://github.com/STMBL/QtServoterm) but with no
+ * GUI. It is derived from host/servoterm.c, which drives the x86 simulator;
+ * this variant opens the drive's USB CDC serial port (e.g. /dev/ttyACM0)
+ * instead of spawning stmbl_host.
+ *
+ * Wire protocol (USB serial link, see shared/comps/term.c):
+ *   host -> drive : command lines terminated with '\n'
+ *   drive -> host : text responses, interleaved with scope frames:
+ *                     0xFF, ch0, ch1, ... ch7   (each channel byte in 1..254)
+ *                     0xFE                       = scope reset
+ *                   channel value = (byte - 128) / 128.0
+ *
+ * Usage:
+ *   servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]
+ *                 [--dump FILE] [--load FILE [--no-backup]] [-c CMD]... [SCRIPT]
+ *     -d DEV    serial device (default /dev/ttyACM0)
+ *     -s FILE   write decoded scope samples to FILE as CSV
+ *     -t SEC    after input is exhausted, keep reading until the drive has
+ *               been quiet (no text) for SEC seconds, then exit (default 0.5)
+ *     -w MS     delay between sent command lines in ms (default 50)
+ *     -c CMD    send CMD (may be repeated); takes precedence over SCRIPT/stdin
+ *     --dump FILE  save the drive's flash config to FILE ('-' = stdout)
+ *     --load FILE  write FILE to the drive's flash config and verify it; the
+ *                  previous config is saved to conf-backup-<time>.txt first
+ *                  unless --no-backup. Runs before --dump and -c.
+ *     SCRIPT    file of commands to send; if omitted (and no --dump/--load),
+ *               reads stdin
+ *
+ * Lines starting with '#' and empty lines in SCRIPT/stdin are not sent.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <termios.h>
+#include <time.h>
+#include <unistd.h>
+
+#define SCOPE_CHANNELS 8
+#define SCOPE_MARKER 0xFF
+#define SCOPE_RESET 0xFE
+#define MAX_CMDS 64
+
+static FILE *scope_fp   = NULL;
+static long scope_frame = 0;
+static int frame_active = 0;
+static int frame_have   = 0;
+static int discard_text = 0;  // drop text while syncing to the stream
+
+// When capturing, text goes into cap_buf instead of stdout.
+static int capturing  = 0;
+static char *cap_buf  = NULL;
+static size_t cap_len = 0;
+static size_t cap_size = 0;
+static unsigned char frame[SCOPE_CHANNELS];
+
+static void scope_emit(void) {
+  if(scope_fp) {
+    fprintf(scope_fp, "%ld", scope_frame);
+    for(int i = 0; i < SCOPE_CHANNELS; i++) {
+      fprintf(scope_fp, ",%.5f", (frame[i] - 128) / 128.0);
+    }
+    fprintf(scope_fp, "\n");
+  }
+  scope_frame++;
+}
+
+// Split the drive's byte stream into text (printed) and scope frames (to CSV).
+// Returns the number of text bytes seen, so the caller can detect quiet time.
+static int demux(const unsigned char *buf, int n) {
+  int text = 0;
+  for(int i = 0; i < n; i++) {
+    unsigned char b = buf[i];
+    if(frame_active) {
+      frame[frame_have++] = b;
+      if(frame_have == SCOPE_CHANNELS) {
+        frame_active = 0;
+        frame_have   = 0;
+        scope_emit();
+      }
+    } else if(b == SCOPE_MARKER) {
+      frame_active = 1;
+      frame_have   = 0;
+    } else if(b == SCOPE_RESET) {
+      if(scope_fp) {
+        fprintf(scope_fp, "# reset\n");
+      }
+    } else if(!discard_text) {
+      if(capturing) {
+        if(cap_len + 2 > cap_size) {
+          cap_size = cap_size ? cap_size * 2 : 4096;
+          cap_buf  = realloc(cap_buf, cap_size);
+          if(!cap_buf) {
+            fprintf(stderr, "servoterm-cli: out of memory\n");
+            exit(1);
+          }
+        }
+        cap_buf[cap_len++] = b;
+        cap_buf[cap_len]   = '\0';
+      } else {
+        putchar(b);
+      }
+      text++;
+    }
+  }
+  fflush(stdout);
+  return text;
+}
+
+static double now(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_sec + tv.tv_usec / 1e6;
+}
+
+static int open_port(const char *dev) {
+  int fd = open(dev, O_RDWR | O_NOCTTY);
+  if(fd < 0) {
+    fprintf(stderr, "servoterm-cli: cannot open %s: %s\n", dev, strerror(errno));
+    return -1;
+  }
+  struct termios tio;
+  if(tcgetattr(fd, &tio) < 0) {
+    perror("tcgetattr");
+    close(fd);
+    return -1;
+  }
+  // Raw 8-bit: scope bytes 0xFE/0xFF and CR/LF must pass through untouched.
+  // The baud rate is irrelevant for USB CDC.
+  cfmakeraw(&tio);
+  tio.c_cflag |= CLOCAL | CREAD;
+  tio.c_cc[VMIN]  = 0;
+  tio.c_cc[VTIME] = 0;
+  cfsetispeed(&tio, B115200);
+  cfsetospeed(&tio, B115200);
+  if(tcsetattr(fd, TCSANOW, &tio) < 0) {
+    perror("tcsetattr");
+    close(fd);
+    return -1;
+  }
+  tcflush(fd, TCIOFLUSH);
+  return fd;
+}
+
+static int write_all(int fd, const char *buf, size_t n) {
+  size_t off = 0;
+  while(off < n) {
+    ssize_t w = write(fd, buf + off, n - off);
+    if(w < 0) {
+      if(errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+      return -1;
+    }
+    off += w;
+  }
+  return 0;
+}
+
+// Read from the drive for up to 'sec' seconds; returns text bytes seen, -1 on
+// error/disconnect.
+static int pump(int fd, double sec) {
+  int text   = 0;
+  double end = now() + sec;
+  for(;;) {
+    double left = end - now();
+    if(left <= 0) {
+      return text;
+    }
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(fd, &rfds);
+    struct timeval tv = {(long)left, (long)((left - (long)left) * 1e6)};
+    int r             = select(fd + 1, &rfds, NULL, NULL, &tv);
+    if(r < 0) {
+      if(errno == EINTR) {
+        continue;
+      }
+      return -1;
+    }
+    if(r == 0) {
+      return text;
+    }
+    unsigned char buf[1024];
+    ssize_t n = read(fd, buf, sizeof(buf));
+    if(n < 0) {
+      if(errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+      return -1;
+    }
+    if(n == 0) {
+      return -1;  // device gone
+    }
+    text += demux(buf, (int)n);
+  }
+}
+
+static int send_line(int fd, const char *line, int wait_ms) {
+  size_t len = strlen(line);
+  while(len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+    len--;
+  }
+  const char *p = line;
+  while(*p == ' ' || *p == '\t') {
+    p++;
+  }
+  if(*p == '\0' || *p == '\n' || *p == '\r' || *p == '#') {
+    return 0;
+  }
+  if(write_all(fd, line, len) < 0 || write_all(fd, "\n", 1) < 0) {
+    perror("servoterm-cli: write");
+    return -1;
+  }
+  return pump(fd, wait_ms / 1000.0) < 0 ? -1 : 0;
+}
+
+/*
+ * Config dump/load.
+ *
+ * The drive keeps its config as text: a RAM buffer (edited with deleteconf /
+ * appendconf) and a flash copy (written with flashsaveconf, printed with
+ * showconf, parsed at boot). Loading therefore goes deleteconf -> appendconf
+ * per line -> flashsaveconf -> showconf to verify. The running drive is not
+ * affected until it is reset.
+ *
+ * Limits from the firmware:
+ *  - term reads lines into a 64 byte buffer; a longer line is never consumed
+ *    and blocks all further input, so "appendconf " + line must fit in 63.
+ *  - call_cmd() takes the argument with sscanf(" %[ -~]"): leading blanks are
+ *    dropped and the argument ends at the first non-printable character.
+ *  - config buffer is 15 KiB including the terminating NUL.
+ */
+#define CONF_MAX_LINE 63
+#define CONF_PREFIX "appendconf "
+#define CONF_MAX_SIZE (15 * 1024 - 1)
+
+// Send a command and collect its text reply in cap_buf. Returns once the
+// drive has been quiet for 'quiet' s, or 'done' (if given) appears, or
+// 'timeout' s passed. Returns -1 on I/O error.
+static int capture_cmd(int fd, const char *cmd, double quiet, const char *done, double timeout) {
+  capturing = 1;
+  cap_len   = 0;
+  if(cap_buf) {
+    cap_buf[0] = '\0';
+  }
+  if(write_all(fd, cmd, strlen(cmd)) < 0 || write_all(fd, "\n", 1) < 0) {
+    perror("servoterm-cli: write");
+    capturing = 0;
+    return -1;
+  }
+  double end = now() + timeout;
+  int got    = 0;
+  while(now() < end) {
+    int t = pump(fd, done ? 0.05 : quiet);
+    if(t < 0) {
+      capturing = 0;
+      return -1;
+    }
+    got += t;
+    if(done && cap_buf && strstr(cap_buf, done)) {
+      break;
+    }
+    if(!done && got && t == 0) {
+      break;
+    }
+  }
+  capturing = 0;
+  return 0;
+}
+
+// Normalize config text the way the drive stores it: CR removed, tabs turned
+// into spaces, leading blanks dropped, trailing blanks dropped, trailing
+// empty lines dropped. Result is malloc'd.
+static char *conf_normalize(const char *in) {
+  size_t n  = strlen(in);
+  char *out = malloc(n + 2);
+  size_t o  = 0;
+  const char *p = in;
+  while(*p) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p) : strlen(p);
+    size_t s      = 0;
+    while(s < len && (p[s] == ' ' || p[s] == '\t' || p[s] == '\r')) {
+      s++;
+    }
+    size_t t = len;
+    while(t > s && (p[t - 1] == ' ' || p[t - 1] == '\t' || p[t - 1] == '\r')) {
+      t--;
+    }
+    for(size_t i = s; i < t; i++) {
+      out[o++] = p[i] == '\t' ? ' ' : p[i];
+    }
+    out[o++] = '\n';
+    if(!e) {
+      break;
+    }
+    p = e + 1;
+  }
+  while(o && out[o - 1] == '\n') {
+    o--;
+  }
+  out[o++] = '\n';
+  out[o]   = '\0';
+  return out;
+}
+
+static char *read_file(const char *path) {
+  FILE *f = strcmp(path, "-") == 0 ? stdin : fopen(path, "r");
+  if(!f) {
+    fprintf(stderr, "servoterm-cli: cannot open %s: %s\n", path, strerror(errno));
+    return NULL;
+  }
+  size_t size = 0, cap = 4096;
+  char *buf   = malloc(cap);
+  size_t r;
+  while((r = fread(buf + size, 1, cap - size - 1, f)) > 0) {
+    size += r;
+    if(cap - size < 2) {
+      cap *= 2;
+      buf = realloc(buf, cap);
+    }
+  }
+  buf[size] = '\0';
+  if(f != stdin) {
+    fclose(f);
+  }
+  return buf;
+}
+
+static int write_file(const char *path, const char *data) {
+  FILE *f = strcmp(path, "-") == 0 ? stdout : fopen(path, "w");
+  if(!f) {
+    fprintf(stderr, "servoterm-cli: cannot write %s: %s\n", path, strerror(errno));
+    return -1;
+  }
+  fputs(data, f);
+  if(f != stdout) {
+    fclose(f);
+  } else {
+    fflush(f);
+  }
+  return 0;
+}
+
+// Read the flash config with showconf; returns normalized text (malloc'd).
+static char *conf_read(int fd) {
+  if(capture_cmd(fd, "showconf", 0.5, NULL, 10.0) < 0) {
+    return NULL;
+  }
+  return conf_normalize(cap_buf ? cap_buf : "");
+}
+
+static int conf_dump(int fd, const char *path) {
+  char *conf = conf_read(fd);
+  if(!conf) {
+    return -1;
+  }
+  int rc = write_file(path, conf);
+  if(rc == 0 && strcmp(path, "-") != 0) {
+    fprintf(stderr, "servoterm-cli: config (%zu bytes) written to %s\n", strlen(conf), path);
+  }
+  free(conf);
+  return rc;
+}
+
+// Check every line before touching the drive. Returns number of errors.
+static int conf_validate(const char *conf, const char *path) {
+  int errors = 0, lineno = 0;
+  const char *p = conf;
+  while(*p) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p) : strlen(p);
+    lineno++;
+    if(strlen(CONF_PREFIX) + len > CONF_MAX_LINE) {
+      fprintf(stderr, "%s:%d: line is %zu chars, max %zu: %.*s\n", path, lineno, len,
+              (size_t)(CONF_MAX_LINE - strlen(CONF_PREFIX)), (int)len, p);
+      errors++;
+    }
+    for(size_t i = 0; i < len; i++) {
+      unsigned char c = p[i];
+      if(c < ' ' || c > '~') {
+        fprintf(stderr, "%s:%d: non-printable character 0x%02x at column %zu\n", path, lineno, c,
+                i + 1);
+        errors++;
+        break;
+      }
+    }
+    if(!e) {
+      break;
+    }
+    p = e + 1;
+  }
+  if(strlen(conf) > CONF_MAX_SIZE) {
+    fprintf(stderr, "%s: config is %zu bytes, max %d\n", path, strlen(conf), CONF_MAX_SIZE);
+    errors++;
+  }
+  return errors;
+}
+
+static int conf_load(int fd, const char *path, int backup) {
+  char *raw = read_file(path);
+  if(!raw) {
+    return -1;
+  }
+  char *conf = conf_normalize(raw);
+  free(raw);
+  if(conf_validate(conf, path)) {
+    fprintf(stderr, "servoterm-cli: %s rejected, drive not touched\n", path);
+    free(conf);
+    return -1;
+  }
+
+  // Save what is in flash now, so a bad load can be undone.
+  char *old = conf_read(fd);
+  if(!old) {
+    free(conf);
+    return -1;
+  }
+  if(strcmp(old, conf) == 0) {
+    fprintf(stderr, "servoterm-cli: drive config already matches %s, nothing to do\n", path);
+    free(old);
+    free(conf);
+    return 0;
+  }
+  if(backup) {
+    char bak[64];
+    time_t t = time(NULL);
+    strftime(bak, sizeof(bak), "conf-backup-%Y%m%d-%H%M%S.txt", localtime(&t));
+    if(write_file(bak, old) < 0) {
+      free(old);
+      free(conf);
+      return -1;
+    }
+    fprintf(stderr, "servoterm-cli: previous config saved to %s\n", bak);
+  }
+  free(old);
+
+  if(capture_cmd(fd, "deleteconf", 0.1, NULL, 1.0) < 0) {
+    free(conf);
+    return -1;
+  }
+
+  // Append line by line, waiting for each "adding ..." echo before the next
+  // one so the drive's 64 byte line buffer never overflows.
+  int lines = 0, rc = 0;
+  char cmd[CONF_MAX_LINE + 1];
+  const char *p = conf;
+  while(*p) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p) : strlen(p);
+    snprintf(cmd, sizeof(cmd), CONF_PREFIX "%.*s", (int)len, p);
+    if(capture_cmd(fd, cmd, 0.1, "\n", 2.0) < 0) {
+      rc = -1;
+      break;
+    }
+    if(!cap_buf || strncmp(cap_buf, "adding ", 7) != 0) {
+      fprintf(stderr, "servoterm-cli: no ack for line %d (%s), got: %s\n", lines + 1, cmd,
+              cap_buf ? cap_buf : "");
+      rc = -1;
+      break;
+    }
+    lines++;
+    if(!e) {
+      break;
+    }
+    p = e + 1;
+  }
+  if(rc < 0) {
+    fprintf(stderr, "servoterm-cli: load aborted, flash NOT written\n");
+    free(conf);
+    return -1;
+  }
+
+  // Flash sector erase takes a while; wait for the final "OK"/"error".
+  if(capture_cmd(fd, "flashsaveconf", 0.1, "bytes written", 10.0) < 0) {
+    free(conf);
+    return -1;
+  }
+  if(!cap_buf || !strstr(cap_buf, "bytes written") || strstr(cap_buf, "error")) {
+    fprintf(stderr, "servoterm-cli: flashsaveconf failed: %s\n", cap_buf ? cap_buf : "");
+    free(conf);
+    return -1;
+  }
+
+  char *now_conf = conf_read(fd);
+  if(!now_conf || strcmp(now_conf, conf) != 0) {
+    fprintf(stderr, "servoterm-cli: verify FAILED, flash differs from %s\n", path);
+    free(now_conf);
+    free(conf);
+    return -1;
+  }
+  fprintf(stderr, "servoterm-cli: %d lines (%zu bytes) written to flash and verified.\n", lines,
+          strlen(conf));
+  fprintf(stderr, "servoterm-cli: takes effect after a drive reset.\n");
+  free(now_conf);
+  free(conf);
+  return 0;
+}
+
+static void usage(void) {
+  fprintf(stderr,
+          "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
+          "                     [--dump FILE] [--load FILE [--no-backup]]\n"
+          "                     [-c CMD]... [SCRIPT]\n");
+}
+
+int main(int argc, char **argv) {
+  const char *dev        = "/dev/ttyACM0";
+  const char *scope_path = NULL;
+  const char *script     = NULL;
+  const char *cmds[MAX_CMDS];
+  int ncmds             = 0;
+  double settle         = 0.5;
+  int wait_ms           = 50;
+  const char *dump_path = NULL;
+  const char *load_path = NULL;
+  int backup            = 1;
+
+  for(int i = 1; i < argc; i++) {
+    if(strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
+      dump_path = argv[++i];
+    } else if(strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
+      load_path = argv[++i];
+    } else if(strcmp(argv[i], "--no-backup") == 0) {
+      backup = 0;
+    } else if(strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+      dev = argv[++i];
+    } else if(strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+      scope_path = argv[++i];
+    } else if(strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
+      settle = atof(argv[++i]);
+    } else if(strcmp(argv[i], "-w") == 0 && i + 1 < argc) {
+      wait_ms = atoi(argv[++i]);
+    } else if(strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
+      if(ncmds < MAX_CMDS) {
+        cmds[ncmds++] = argv[++i];
+      }
+    } else if(strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+      usage();
+      return 0;
+    } else if(argv[i][0] == '-' && argv[i][1] != '\0') {
+      usage();
+      return 1;
+    } else {
+      script = argv[i];
+    }
+  }
+
+  if(scope_path) {
+    scope_fp = fopen(scope_path, "w");
+    if(!scope_fp) {
+      fprintf(stderr, "servoterm-cli: cannot open scope file %s\n", scope_path);
+      return 1;
+    }
+    fprintf(scope_fp, "frame");
+    for(int i = 0; i < SCOPE_CHANNELS; i++) {
+      fprintf(scope_fp, ",ch%d", i);
+    }
+    fprintf(scope_fp, "\n");
+  }
+
+  int fd = open_port(dev);
+  if(fd < 0) {
+    return 1;
+  }
+  // Give the drive time to see the connection (DTR), and drop whatever it had
+  // queued before, including a partial scope frame at the start of the stream.
+  discard_text = 1;
+  pump(fd, 0.3);
+  discard_text = 0;
+
+  int rc = 0;
+  // Config operations run first, so "--load f -c reset" applies the new config.
+  if(load_path) {
+    rc = conf_load(fd, load_path, backup) < 0;
+  }
+  if(rc == 0 && dump_path) {
+    rc = conf_dump(fd, dump_path) < 0;
+  }
+  if(rc) {
+    // don't send further commands after a failed config operation
+  } else if(ncmds) {
+    for(int i = 0; i < ncmds && rc == 0; i++) {
+      rc = send_line(fd, cmds[i], wait_ms);
+    }
+  } else if(script || !(dump_path || load_path)) {
+    FILE *in = stdin;
+    if(script) {
+      in = fopen(script, "r");
+      if(!in) {
+        fprintf(stderr, "servoterm-cli: cannot open script %s\n", script);
+        close(fd);
+        return 1;
+      }
+    }
+    if(in == stdin && isatty(STDIN_FILENO)) {
+      // Interactive: multiplex keyboard lines and drive output.
+      char line[256];
+      for(;;) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        FD_SET(STDIN_FILENO, &rfds);
+        if(select(fd + 1, &rfds, NULL, NULL, NULL) < 0) {
+          if(errno == EINTR) {
+            continue;
+          }
+          break;
+        }
+        if(FD_ISSET(fd, &rfds) && pump(fd, 0) < 0) {
+          fprintf(stderr, "servoterm-cli: device disconnected\n");
+          rc = 1;
+          break;
+        }
+        if(FD_ISSET(STDIN_FILENO, &rfds)) {
+          if(!fgets(line, sizeof(line), stdin)) {
+            break;
+          }
+          if(send_line(fd, line, 0) < 0) {
+            rc = 1;
+            break;
+          }
+        }
+      }
+    } else {
+      char line[256];
+      while(rc == 0 && fgets(line, sizeof(line), in)) {
+        rc = send_line(fd, line, wait_ms);
+      }
+    }
+    if(in != stdin) {
+      fclose(in);
+    }
+  }
+
+  // Collect trailing output until the drive goes quiet. Scope frames alone do
+  // not count as activity, since they stream continuously.
+  while(rc == 0) {
+    int t = pump(fd, settle);
+    if(t < 0) {
+      rc = 1;
+    }
+    if(t <= 0) {
+      break;
+    }
+  }
+
+  close(fd);
+  if(scope_fp) {
+    fprintf(stderr, "servoterm-cli: %ld scope frames written to %s\n", scope_frame, scope_path);
+    fclose(scope_fp);
+  }
+  return rc;
+}

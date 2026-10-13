@@ -90,3 +90,30 @@ Entry format:
   (`(value+offset)*gain+128`, clamped 1..254).
 - Fix:     For exact numeric assertions, query pins directly (e.g. `motsim0.vel`
   returns exact text). Use the scope CSV for waveform-shape checks.
+
+## 2026-10-14  servoterm-cli: first command lost / garbage right after open
+- Area:    `servoterm-cli/servoterm-cli.c` (real drive over /dev/ttyACM0)
+- Status:  Fixed
+- Symptom: A command sent immediately after opening the port got no reply,
+  and stray bytes (e.g. `}`, 0x80) were printed as text.
+- Cause:   The drive's `term` only reads commands once `cdc_is_connected()`
+  sees the host connection, which lags the open. The scope stream (0xFF + 8
+  bytes, nonstop while `send_step > 0`) also usually starts mid-frame, so
+  channel bytes before the first 0xFF look like text.
+- Fix:     Wait 0.3 s after open and discard everything read in that window
+  before sending the first command.
+
+## 2026-10-14  Command lines >= 64 bytes jam the drive's USB input
+- Area:    `shared/comps/term.c` (`rx_buf[64]`), `shared/ringbuf.c` (`rb_getline`)
+- Status:  Known
+- Symptom: After sending a command line of 64+ bytes (including `\n`), the
+  drive ignores that line and every line after it.
+- Cause:   `rb_getline` only returns a line that fits in `len`. Otherwise it
+  undoes the read (`rb_undo`) and returns 0, so the too-long line stays at the
+  head of the ring buffer for good. `call_cmd()` also caps the command name
+  and argument at 64 chars each, and its argument stops at the first
+  non-printable char (`%[ -~]`), so a tab cuts an `appendconf` line short.
+- Fix:     Not fixed in firmware. `servoterm-cli --load` rejects config lines
+  over 52 chars (63 - len("appendconf ")) and turns tabs into spaces. A
+  firmware fix would discard the line when the buffer is full and no `\n`
+  has come.
