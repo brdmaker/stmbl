@@ -182,6 +182,13 @@ Entry format:
   Regression asset: `host/examples/idm_load.hal`.
   Remaining: j reads 5-13% high (possibly current-loop lag between commanded
   and actual torque; not checked). Not tested with sensor noise.
+  Hardware, 2026-10-14 (firmware v0.9.18-224-g89e4d95d, bench motor,
+  id_mot, about 2 min, no faults): fit j = 0.000096, d = 0 (clamped, the raw
+  fit was negative), f = 0.0946, o = 0.0265. Adaptive estimates from the
+  same run: j 0.000066, d 0.00047, f 0.0884, o 0.0250. The two methods agree
+  roughly. The earlier conf (old idm) had j 0.000207, o 0.064. Negative d
+  probably means friction drops with speed (Stribeck effect), which
+  f + d*v cannot model. Unverified: no independent measurement of j.
 
 ## 2026-10-14  autotune smaller issues (idpmsm, ids)
 - Area:    `shared/comps/idpmsm.c`, `shared/comps/ids.c`
@@ -231,3 +238,39 @@ Entry format:
   build on any template line over 63 chars. servoterm-cli `--load` already
   limits config lines to 52. Firmware idea: have findline() skip to the
   real `\n` instead of giving up after 64 chars.
+
+## 2026-10-14  ids (id_pid) never tunes vel_bw: first cycle cost starts at min_cost
+- Area:    `shared/comps/ids.c` (state 0 / 1.2)
+- Status:  Fixed (sim regression unchanged; hardware rerun pending)
+- Symptom: On the bench motor, id_pid finished in ~25 s with
+  `vel_bw = 70.000000`, exactly 0.7 (kd) times its starting value of 100.
+- Cause:   State 0 set `cost = min_cost` instead of 0. The first cycle's cost
+  is then min_cost_init plus the real cost, and min_cost stays
+  min_cost_init. Whenever the real cost exceeds 0.2 * min_cost_init, the
+  check `cost > min_cost * kt` fires on the first evaluation, so vel_bw is
+  multiplied by kd and the search moves on without tuning it. In the host
+  sim the first cycle is cheap, so it does not trigger (vel_bw 124 before
+  and after the fix).
+- Fix:     Start cost at 0.
+
+## 2026-10-14  Bench motor: encoder resolution misconfigured (16384 vs 10000)
+- Area:    drive config (`conf0.mot_fb_res`, `conf0.polecount`), `src/comps/enc_fb.c`
+- Status:  Fixed (config)
+- Symptom: Clicks / torque catches every 0.607 "rev". The + direction
+  needed 2-5x the current of the - direction, with the voltage vector
+  rotated up to ~68 deg off the q axis. A POS_ERROR fault at +157 rad/s.
+  id_pmsm reported 8 pole pairs.
+- Cause:   The motor has a 2500-line encoder (10000 counts/rev), but the
+  config used the default 16384. `enc_fb` wraps the counter at `res` and
+  re-zeroes `abs_pos` at each index pulse. With the wrong res, the
+  commutation angle drifts ~42 deg electrical per revolution and jumps at
+  every index pulse, once per real rev = 10000/16384 = 0.610 measured rev.
+  The pole pairs read 5 * 16384/10000 = 8.2, rounded to 8.
+  `enc_fb0.indexprint = 1` showed the counter at successive index pulses
+  stepping by 10000 mod 16384.
+- Fix:     `conf0.mot_fb_res = 10000`, `conf0.polecount = 5`, then reran
+  id_pmsm (offset -0.631) and id_mot. Speed sweep +-20..157 rad/s is
+  symmetric: torque 0.03-0.05 Nm in both directions, before up to 0.43 Nm
+  in +. Hint: if id_pmsm's pole pairs are not a plausible integer for the
+  motor, or catches repeat at a non-integer fraction of a rev, check
+  mot_fb_res against the encoder datasheet.

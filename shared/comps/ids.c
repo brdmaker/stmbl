@@ -143,7 +143,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PINA(max_params, 1) = 1.0;
 
       PIN(min_cost) = (PIN(max_pos) - PIN(min_pos)) * (PIN(max_pos) - PIN(min_pos)) / PIN(max_vel) * 100.0;
-      PIN(cost) = PIN(min_cost);
+      // start each run with cost 0. It used to start at min_cost, so the first
+      // cycle's cost was min_cost + real cost; that almost always counted as
+      // worse than min_cost * kt, and vel_bw was cut by kd without ever being
+      // tuned.
+      PIN(cost) = 0.0;
 
       if(PIN(en) > 0.0){
         PIN(state) = 1.0;
