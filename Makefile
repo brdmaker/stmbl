@@ -137,7 +137,6 @@ SOURCES += src/syscalls.c
 
 SOURCES += shared/crc.c
 SOURCES += shared/crc8.c
-SOURCES += shared/crc.c
 SOURCES += shared/yaskawa_crc16.c
 SOURCES += shared/endat.c
 SOURCES += shared/angle.c

@@ -18,7 +18,7 @@ Entry format:
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
-- Status:  Open
+- Status:  Workaround (does not happen with Debian 12's binutils 2.40, see 2026-10-14)
 - Symptom: `make` (and the bootloader/f3 sub-makes) hang after linking, in the
   CRC/version post-processing step. The python process spins at ~800 MB RSS and
   never finishes. The C compiles fine; only this post-link step hangs.
@@ -200,3 +200,17 @@ Entry format:
   - idm: `inertia_sum/damping_sum/friction_sum/offset_sum` are computed but
     never used or printed. Only the adaptive estimates are reported.
 - Fix:     None yet. Each is small. Check in the host sim before changing.
+
+## 2026-10-14  Firmware build: duplicate shared/crc.c after the sys_id merge
+- Area:    `Makefile` (SOURCES), merge `03a901d6`
+- Status:  Fixed
+- Symptom: `make` failed at link: `multiple definition of calc_crc8_table`
+  and `calc_crc8`.
+- Cause:   Both branches added `SOURCES += shared/crc.c`, and the merge kept
+  both lines, so `crc.o` was linked twice.
+- Fix:     Removed the duplicate line. Separately, the add_version_info.py
+  hang (2026-05-24 entry) did not happen on the bench Pi (Debian 12,
+  aarch64, gcc-arm-none-eabi 12.2.1, binutils 2.40, newlib 3.3.0). There,
+  `.data` gets its flash LMA from the program headers, so `elf_to_bin`
+  has no 0x08000000 -> 0x20000000 gap. Full `make all` takes about 30 s on
+  4 cores. The hang seen with binutils 2.42 is still unexplained.
