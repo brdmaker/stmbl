@@ -17,5 +17,23 @@ in that file: a dated heading plus `Area`, `Status`
 
 The native x86 build of the control core lives in `host/` (see
 `host/README.md`). Prefer it for running and testing control logic. The ARM
-firmware cross-build currently hangs in a post-link tool — see `DEBUGNOTES.md`
-before attempting `make` at the repo root.
+firmware builds with `make all` at the repo root on the bench Pi (binutils
+2.40); with binutils 2.42 a post-link tool hangs, see `DEBUGNOTES.md`.
+
+## Flashing hardware
+
+Always flash with the repo's official make targets, never with your own
+`dfu-util`, `st-flash` or `tools/bootloader.py` commands:
+
+| Target | Flashes |
+|---|---|
+| `make btburn` | F4 application (`obj_app/stmbl.dfu` at 0x08010000) over USB DFU; builds first and enters the bootloader itself |
+| `make boot_btburn`, `make f3_btburn`, `make f3_boot_btburn` | F4 bootloader, F3 application, F3 bootloader |
+| `make all_btburn`, `make f3_all_btburn` | whole-chip images (`f4.bin`, `f3.bin`) |
+| `make flash`, `boot_flash`, `f3_flash`, ... | the same over ST-Link (`st-flash`) |
+
+To flash an older version, check out that commit (for example in a
+`git worktree`) and run the same target there. Reading flash for a backup
+(`dfu-util -U`) is not flashing and is fine. Before flashing, back up the
+drive's config (`servoterm-cli --dump`) and confirm the motor is safe to
+move; after flashing, check `about` and that the config is unchanged.
