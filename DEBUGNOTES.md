@@ -749,3 +749,35 @@ Entry format:
 - Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
   actuator, or marks at a multiple of the electrical period. A firmware option
   to latch only the first index would also cover it.
+
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
+- Status:  Fixed
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
+
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
+
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
+- Status:  Known
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
+

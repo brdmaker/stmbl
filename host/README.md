@@ -43,7 +43,8 @@ host/
   examples/         test assets (*.hal = deterministic console; *.servoterm = protocol + scope;
                     drive_*.txt = scripts for a simulated drive, run with --drive)
   tests/            self-checking suite: *.test scripts with @expect checks, run_tests.py;
-                    motors.py + gen_motor_tests.py (autotune), gen_soak_tests.py (soak)
+                    motors.py + gen_motor_tests.py (autotune), gen_soak_tests.py and
+                    gen_linear_soak.py (soak)
   gen/              generated tables/headers (git-ignored)
 ```
 
@@ -325,6 +326,26 @@ absolute commutation on the reference mark (`conf0.mot_fb_offset` = the
 encoder angle of the mark). `enc_fb` re-latches on every index pulse, so a
 scale with periodic marks whose pitch is not a multiple of the electrical
 period commutates wrong after the next mark (`linear_periodic_marks.test`).
+
+Autotune on a limited stroke, from the middle of it:
+
+- `rlpsij` (`servoterm-cli --autotune`): set `rlpsij0.max_travel` (rad; 10.47
+  = 100 mm here). Drive segments turn back and brake at half of it, state 5
+  runs towards the start, and past it the run aborts. State 3 alone moves one
+  to two electrical periods, so allow at least 2 (`rlpsij_linear.test`: 100
+  mm from an end stop, -39..+59 mm used; unlimited it wandered 0..+208 mm).
+  l / r = 0.375 ms is below its l observability limit; use the datasheet l.
+- `id_pid` moves about -155..+35 mm (+-10 rad, plus up to one period to the
+  first absolute angle). With the default `conf0.cur_bw = 1000` it caps
+  `vel_bw` at 500 and the following error is ~0.4 mm at 10 m/s^2; with
+  `cur_bw = 2000` it tunes pos_bw 101 / vel_bw 1000 and stays under 0.17 mm.
+- Over sserial the drive gets no acceleration feedforward
+  (`conf/template/sserial.txt` sets `vel0.en = 0`, which zeroes
+  `pid0.acc_ext_cmd`): the force to accelerate the carriage comes from the
+  feedback loops, which is what the following error in accelerations is.
+
+`make soak` includes the linear axis (`tests/gen_linear_soak.py`): reference
+run, then 1 m/s / 10 m/s^2 moves within +-450 mm, with id_pid gains.
 
 ## LinuxCNC module (`lcnc/`)
 

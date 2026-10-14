@@ -107,6 +107,8 @@ struct hv_ctx_t {
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
   double abs_pos;  // sim_abs_pos (a float sum drifts over long travel)
+  double pos0;     // sim_pos at abs_pos 0; sim_pos follows abs_pos
+  int pos0_set;
   int at_stop;
 };
 
@@ -229,6 +231,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     float ua = ud * ca - uq * sa;
     float ub = (ud * sa + uq * ca) * prev;
 
+    if(!ctx->pos0_set) {  // the starting angle, as configured
+      ctx->pos0     = PIN(sim_pos) - ctx->abs_pos;
+      ctx->pos0_set = 1;
+    }
     for(int m = 0; m < MOT_PER_F3; m++) {
       sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
       float mud = ua * cm + ub * sm;
@@ -261,7 +267,6 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         }
         PIN(sim_acc) = acc;
         PIN(sim_vel) = nv;
-        PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
         ctx->abs_pos += (v + nv) * 0.5 * mot_dt;
       }
       // end stops: the carriage stops dead
@@ -269,7 +274,6 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         double lim = ctx->abs_pos < PIN(sim_min_pos) ? PIN(sim_min_pos) :
                      ctx->abs_pos > PIN(sim_max_pos) ? PIN(sim_max_pos) : ctx->abs_pos;
         if(lim != ctx->abs_pos) {
-          PIN(sim_pos) = mod(PIN(sim_pos) + (float)(lim - ctx->abs_pos));
           ctx->abs_pos = lim;
           PIN(sim_vel) = 0.0;
           PIN(sim_acc) = 0.0;
@@ -281,6 +285,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
           ctx->at_stop = 0;
         }
       }
+      // the shaft angle follows the double position: summed in float at
+      // 80 kHz it drifted ~0.06 mm per metre against it (and against the
+      // reference marks, which sit on sim_abs_pos)
+      PIN(sim_pos)     = mod((float)fmod(ctx->pos0 + ctx->abs_pos, 2.0 * M_PI));
       PIN(sim_abs_pos) = ctx->abs_pos;
       PIN(sim_torque) = te;
     }

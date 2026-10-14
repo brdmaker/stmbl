@@ -76,11 +76,13 @@ check: stmbl_host
 	@$(PYTHON) tests/run_tests.py tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
-# profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
+# profile in closed loop (tests/gen_soak_tests.py), and the linear axis
+# (tests/gen_linear_soak.py). Generated into gen/soak.
 # make soak SOAK_CYCLES=20 for a longer run.
 SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
+	@$(PYTHON) tests/gen_linear_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
 
 test: all check
