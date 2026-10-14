@@ -57,7 +57,6 @@ static stmbl_sim_pd_t pd;
 
 static void update(void *arg, long period) {
   pins_t *p = arg;
-  static int index_req = 0;  // index_enable sent with the last exchange
 
   pd.pos_cmd      = *p->pos_cmd;
   pd.vel_cmd      = *p->vel_cmd;
@@ -77,13 +76,12 @@ static void update(void *arg, long period) {
   for(int i = 0; i < 4; i++) {
     *p->in[i] = pd.in[i];
   }
-  // The feedback answers the previous exchange. If that one asked for the
-  // index and the drive no longer echoes it, the index was found: clear the
-  // pin, as hm2 does.
-  if(index_req && !pd.index_enable_fb) {
+  // The feedback answers this exchange. If it asked for the index and the
+  // drive no longer echoes it, the index was found: clear the pin, as hm2
+  // does.
+  if(pd.index_enable && !pd.index_enable_fb) {
     *p->index_enable = 0;
   }
-  index_req = pd.index_enable;
 }
 
 static int export_pins(void) {

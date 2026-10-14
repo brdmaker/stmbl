@@ -42,13 +42,7 @@ void stmbl_sim_close(void) {
 
 void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
   sim_sserial_io_t *io = &sim_sserial_io;
-
-  pd->pos_fb          = io->pos_fb;
-  pd->vel_fb          = io->vel_fb;
-  pd->current         = io->current;
-  pd->fault           = io->fault;
-  pd->index_enable_fb = io->index_enable_fb;
-  memcpy(pd->in, io->in, sizeof(pd->in));
+  long rt_ns           = (long)(RT_PERIOD * 1e9 + 0.5);
 
   io->pos_cmd      = pd->pos_cmd;
   io->vel_cmd      = pd->vel_cmd;
@@ -58,8 +52,24 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
   memcpy(io->out, pd->out, sizeof(io->out));
   io->seq++;
 
+  // The real drive answers a packet as soon as it has it (hm2 reads that
+  // answer at the start of the next servo period), so run the rt cycle in
+  // which sserial0 takes the packet and replies before handing back the
+  // feedback. Returning the previous packet's answer added a full period
+  // of feedback delay (0.5 mm of following error at 500 mm/s).
   carry_ns += period_ns;
-  long rt_ns = (long)(RT_PERIOD * 1e9 + 0.5);
+  if(carry_ns >= rt_ns) {
+    carry_ns -= rt_ns;
+    drive_tick();
+  }
+
+  pd->pos_fb          = io->pos_fb;
+  pd->vel_fb          = io->vel_fb;
+  pd->current         = io->current;
+  pd->fault           = io->fault;
+  pd->index_enable_fb = io->index_enable_fb;
+  memcpy(pd->in, io->in, sizeof(pd->in));
+
   while(carry_ns >= rt_ns) {
     carry_ns -= rt_ns;
     drive_tick();

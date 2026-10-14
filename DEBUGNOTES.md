@@ -515,3 +515,17 @@ Entry format:
   (supply, grounding, USB, encoder cable) a suspect too.
 - Fix:     If it recurs: note the time, read `hal` (state and error_info) before
   power-cycling, and log the logic supply.
+
+## 2026-10-14  stmbl_sim returned the previous packet's answer (1 ms extra lag)
+- Area:    `host/lcnc/sim_api.c` (`stmbl_sim_update`), `host/lcnc/stmbl_sim.c`
+- Status:  Fixed
+- Symptom: LinuxCNC on the simulated drive: following error 0.84..1.0 mm at
+  500 mm/s (LinuxCNC's own 1 mm limit tripped in the soak run); the real
+  drive does 0.045 mm on the same cycle.
+- Cause:   The module handed LinuxCNC the feedback from the previous exchange,
+  then exchanged the new packet. The real drive answers each packet at once
+  and hm2 reads that answer at the start of the next servo period, so the
+  sim's feedback was one period (1 ms) staler: 0.5 mm at 500 mm/s.
+- Fix:     Exchange, run the rt cycle in which sserial0 replies, then return
+  that reply. The index handshake now compares against the current request.
+  Soak cycle on the sim: ferror max 0.040 mm.
