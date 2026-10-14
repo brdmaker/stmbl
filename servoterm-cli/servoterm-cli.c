@@ -677,32 +677,46 @@ static double parse_pin_val(const char *buf, const char *pin) {
   return v;
 }
 
-// Replace or append "conf0.<key> = <val>\n" in a config string (realloc'd).
-static char *conf_patch(char *conf, const char *key, const char *val) {
+// Set "conf0.<key> = <val>" in a config string (freed; result malloc'd).
+// The last line for the key is the one loadconf applies, so the new line goes
+// there and earlier duplicates are dropped; if there is none it is appended.
+static char *conf_patch(char *conf, const char *key, const char *val, const char *tag) {
   char needle[64];
   snprintf(needle, sizeof(needle), "conf0.%s = ", key);
-  char line[128];
-  snprintf(line, sizeof(line), "conf0.%s = %s\n", key, val);
+  size_t nl = strlen(needle);
+  char line[256];  // longer than CONF_MAX_LINE so conf_validate rejects, not truncates
+  snprintf(line, sizeof(line), "conf0.%s = %s # %s\n", key, val, tag);
 
-  char *pos = strstr(conf, needle);
-  if(pos) {
-    char *eol    = strchr(pos, '\n');
-    size_t head  = (size_t)(pos - conf);
-    size_t skip  = eol ? (size_t)(eol - pos + 1) : strlen(pos);
-    size_t tail  = strlen(pos + skip);
-    size_t nlen  = strlen(line);
-    char *out    = malloc(head + nlen + tail + 1);
-    memcpy(out, conf, head);
-    memcpy(out + head, line, nlen);
-    memcpy(out + head + nlen, pos + skip, tail + 1);
-    free(conf);
-    return out;
+  const char *last = NULL;
+  for(const char *p = conf; *p;) {
+    if(strncmp(p, needle, nl) == 0) last = p;
+    const char *e = strchr(p, '\n');
+    if(!e) break;
+    p = e + 1;
   }
-  // Not found: append before trailing newline if present, otherwise at end.
-  size_t clen = strlen(conf);
-  conf = realloc(conf, clen + strlen(line) + 1);
-  strcat(conf, line);
-  return conf;
+
+  char *out = malloc(strlen(conf) + strlen(line) + 2);
+  size_t o  = 0;
+  for(const char *p = conf; *p;) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p + 1) : strlen(p);
+    if(p == last) {
+      memcpy(out + o, line, strlen(line));
+      o += strlen(line);
+    } else if(strncmp(p, needle, nl) != 0) {
+      memcpy(out + o, p, len);
+      o += len;
+    }
+    p += len;
+  }
+  if(!last) {
+    if(o && out[o - 1] != '\n') out[o++] = '\n';
+    memcpy(out + o, line, strlen(line));
+    o += strlen(line);
+  }
+  out[o] = '\0';
+  free(conf);
+  return out;
 }
 
 static const char *autotune_state_label(int s) {
@@ -780,15 +794,32 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
 
   int polecount_int = (int)(params[2].val + 0.5);
 
+  // Physically impossible values are reported but never written.
+  int ok[6];
+  ok[0] = params[0].val > 0.0;
+  ok[1] = params[1].val > 0.0;
+  ok[2] = polecount_int >= 1;
+  ok[3] = params[3].val > 0.0;
+  ok[4] = params[4].val >= 0.0;
+  ok[5] = params[5].val >= 0.0;
+  const char *units[] = {"ohm", "Wb", "", "kg*m^2", "Nm", "Nm*s/rad"};
+  int nok = 0;
+
   fprintf(stderr, "\n--- Autotune results ---\n");
-  fprintf(stderr, "  r         = %.6g Ω\n",        params[0].val);
-  fprintf(stderr, "  psi       = %.6g Wb\n",        params[1].val);
-  fprintf(stderr, "  polecount = %d\n",             polecount_int);
-  fprintf(stderr, "  j         = %.6g kg·m²\n",    params[3].val);
-  fprintf(stderr, "  friction  = %.6g N·m\n",       params[4].val);
-  fprintf(stderr, "  damping   = %.6g N·m·s/rad\n", params[5].val);
+  for(int i = 0; i < nparams; i++) {
+    if(i == 2)
+      fprintf(stderr, "  %-9s = %d", params[i].pin, polecount_int);
+    else
+      fprintf(stderr, "  %-9s = %.6g %s", params[i].pin, params[i].val, units[i]);
+    fprintf(stderr, "%s\n", ok[i] ? "" : "   IMPLAUSIBLE, will not be written");
+    nok += ok[i];
+  }
   fprintf(stderr, "------------------------\n\n");
   fprintf(stderr, "  Note: j is approximate (rlpsij filter lag ~90×; use as feedforward seed)\n\n");
+  if(!nok) {
+    fprintf(stderr, "servoterm-cli: no plausible results, nothing to write\n");
+    return 1;
+  }
 
   // Prompt (skip in non-interactive / headless mode).
   int write_it = 0;
@@ -809,6 +840,7 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
     // Print the commands that would apply them, for reference.
     fprintf(stderr, "  To apply manually:\n");
     for(int i = 0; i < nparams; i++) {
+      if(!ok[i]) continue;
       if(i == 2) // polecount: integer
         fprintf(stderr, "    conf0.%s = %d\n", params[i].conf_key, polecount_int);
       else
@@ -820,15 +852,18 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
   // Patch the live config and write to flash.
   char *conf = conf_read(fd);
   if(!conf) return 1;
-  conf = conf_normalize(conf);
 
+  char tag[32];
+  time_t t = time(NULL);
+  strftime(tag, sizeof(tag), "autotune %Y-%m-%d", localtime(&t));
   char valstr[32];
   for(int i = 0; i < nparams; i++) {
+    if(!ok[i]) continue;
     if(i == 2) // polecount: integer
       snprintf(valstr, sizeof(valstr), "%d", polecount_int);
     else
       snprintf(valstr, sizeof(valstr), "%.6g", params[i].val);
-    conf = conf_patch(conf, params[i].conf_key, valstr);
+    conf = conf_patch(conf, params[i].conf_key, valstr, tag);
   }
 
   int rc = conf_write_text(fd, conf, "(autotune)", backup);

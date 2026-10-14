@@ -551,3 +551,42 @@ Entry format:
 - Fix:     The soak suite logs rt max every cycle and notes it above 90% of
   the period (`rt_load_high`); run it for hours and compare per-function
   maxima from `console.log`.
+
+## 2026-10-14  rlpsij on the simulated drive: bad psi/J, overspeed in state 5
+- Area:    `shared/comps/rlpsij.c`, tested via `servoterm-cli --autotune`
+           against `stmbl_host --drive ECMA-C30604FS/stmbl.conf --pty`
+- Status:  Open
+- Symptom: True motor r=1.8, psi=0.06, pp=5, j=3e-5, f=0.02. rlpsij gives
+  r=1.8005 and polecount=5 (good) but psi=0.026, j=0.0062, d<0. In state 5
+  the rotor ran away to 535 rad/s (motor max_vel 320 rad/s).
+- Cause:   State 4's velocity loop (vel_kp=0.1, vel_ki=0.01) never reaches
+  test_vel (rlpsij0.vel stayed ~0.2 rad/s vs 6.28), so the back-EMF fit
+  runs near standstill. State 5 applies +-test_cur steps with no speed
+  limit; with a low-inertia motor that overspeeds within seconds. The
+  earlier `test_autotune` hid this (pp=1, j=1e-3).
+- Fix:     TODO: retune/scale the state-4 loop by test_cur and expected
+  inertia, and bound state 5 (abort or reverse at a max speed). Until then
+  trust only r and polecount from rlpsij on real hardware.
+
+## 2026-10-14  rlpsij ignores feedback direction (mot_fb_rev)
+- Area:    `shared/comps/rlpsij.c`
+- Status:  Open
+- Symptom: With `rlpsij0.abs_pos_fb = fb_switch0.mot_abs_fb_no_offset` on a
+  config with `conf0.mot_fb_rev = 1`, psi came out 0.0079 (true 0.06) and
+  j negative; feeding the true shaft angle (`hv0.sim_pos`) gave 0.026.
+- Cause:   rlpsij builds com_pos from abs_pos_fb * polecount and has no
+  fb_rev input (idpmsm has `fb_rev`), so with reversed feedback the
+  commutation turns the wrong way after state 3.
+- Fix:     TODO: add an fb_rev pin to rlpsij (as idpmsm) or wire a
+  direction-corrected position.
+
+## 2026-10-14  servoterm-cli autotune wrote first of duplicate conf0 keys
+- Area:    `servoterm-cli/servoterm-cli.c` (`conf_patch`, `autotune_run`)
+- Status:  Fixed
+- Symptom: After `--autotune` + write, `conf0.j` stayed at the old value: the
+  bench config lists `conf0.j` and `conf0.polecount` twice, and only the
+  first line was replaced. Negative damping was also written.
+- Cause:   loadconf applies lines in order, so the last duplicate wins.
+- Fix:     conf_patch replaces the last line for the key, drops earlier
+  duplicates, tags it `# autotune <date>`. Non-physical results (r, psi, j
+  <= 0, f, d < 0, polecount < 1) are shown as IMPLAUSIBLE and not written.
