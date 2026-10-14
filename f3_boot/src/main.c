@@ -72,7 +72,7 @@ void TIM8_UP_IRQHandler() {
   }
 
   if(dma_count == 0) {
-    if(rx_buf.header.slave_addr == 255 && rx_buf.header.len == (sizeof(packet_bootloader_t) - sizeof(stmbl_talk_header_t)) / 4 && rx_buf.header.crc == HAL_CRC_Calculate(&hcrc, (uint32_t *)&(rx_buf.header.slave_addr), sizeof(packet_bootloader_t) / 4 - 1)) {
+    if(rx_buf.header.slave_addr == 255 && rx_buf.header.len == (sizeof(packet_bootloader_t) - sizeof(stmbl_talk_header_t)) / 4 && rx_buf.header.crc == HAL_CRC_Calculate(&hcrc, (uint32_t *)&rx_buf + 1, sizeof(packet_bootloader_t) / 4 - 1)) {
       //do stuff
       //tx_buf.state = do_stuff();
 
@@ -151,7 +151,7 @@ void TIM8_UP_IRQHandler() {
       tx_buf.header.conf_addr     = 0;
       tx_buf.header.config.u32    = 0;
       tx_buf.header.flags.cmd     = NO_CMD;
-      tx_buf.header.crc           = HAL_CRC_Calculate(&hcrc, (uint32_t *)&(tx_buf.header.slave_addr), sizeof(packet_bootloader_t) / 4 - 1);
+      tx_buf.header.crc           = HAL_CRC_Calculate(&hcrc, (uint32_t *)&tx_buf + 1, sizeof(packet_bootloader_t) / 4 - 1);
 
       rx_buf.header.crc = 0;
 

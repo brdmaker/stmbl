@@ -238,7 +238,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(value) = 0.75;
 
       CRC_ResetDR();
-      uint32_t crc = CRC_CalcBlockCRC((uint32_t *)&(ctx->from_hv.packet_from_hv.header.slave_addr), sizeof(stmbl_talk_header_t) / 4 + ctx->from_hv.packet_from_hv.header.len - 1);
+      // CRC covers the packet from header.slave_addr (word 1) on
+      uint32_t crc = CRC_CalcBlockCRC((uint32_t *)&(ctx->from_hv) + 1, sizeof(stmbl_talk_header_t) / 4 + ctx->from_hv.packet_from_hv.header.len - 1);
       if(ctx->from_hv.packet_from_hv.header.crc == crc) {
         switch(flash_state) {
           case SLAVE_IN_APP:
@@ -502,7 +503,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(tx_size) {
     CRC_ResetDR();
-    ctx->to_hv.packet_to_hv.header.crc = CRC_CalcBlockCRC((uint32_t *)&(ctx->to_hv.packet_to_hv.header.slave_addr), tx_size / 4 - 1);
+    // CRC covers the packet from header.slave_addr (word 1) on
+    ctx->to_hv.packet_to_hv.header.crc = CRC_CalcBlockCRC((uint32_t *)&(ctx->to_hv) + 1, tx_size / 4 - 1);
 
     //start DMA TX transfer
     DMA_Cmd(UART_DRV_TX_DMA, DISABLE);

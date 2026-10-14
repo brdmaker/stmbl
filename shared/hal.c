@@ -28,7 +28,7 @@
 
 hal_t hal;
 
-hal_comp_t *comp_by_name(NAME name) {
+hal_comp_t *comp_by_name(const char *name) {
   for(int i = 0; i < comp_count; i++) {
     if(!strncmp(name, comps[i]->name, sizeof(NAME))) {
       return (comps[i]);
@@ -537,8 +537,8 @@ void list(char *ptr) {
     printf("#pins: %lu\n", hal.comp_insts[i].comp->pin_count);
     printf("#ctx: %lu byte\n", hal.comp_insts[i].comp->ctx_size);
     printf("real #ctx: %lu byte\n", hal.comp_insts[i].ctx_size);
-    printf("*pins: 0x%x\n", (unsigned int)hal.comp_insts[i].pin_insts);
-    printf("*ctx: 0x%x\n", (unsigned int)hal.comp_insts[i].ctx);
+    printf("*pins: 0x%x\n", (unsigned int)(uintptr_t)hal.comp_insts[i].pin_insts);
+    printf("*ctx: 0x%x\n", (unsigned int)(uintptr_t)hal.comp_insts[i].ctx);
     printf("state: ");
     switch(hal.comp_insts[i].state) {
       case PRE_INIT:

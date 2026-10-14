@@ -115,7 +115,7 @@ inline float mod(float a) {
 }
 
 inline int modi(int v, int m){
-  return(SIGN(v) * (ABS(v) % m));
+  return v % m;  // C99: the result has the sign of v, as SIGN(v) * (|v| % m)
 }
 
 int quadrant(float a) {

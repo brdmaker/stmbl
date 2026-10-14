@@ -189,7 +189,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   uint32_t fault = 0;
 
   if(dma_pos == sizeof(packet_to_hv_t)) {
-    uint32_t crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)&(ctx->packet_to_hv.header.slave_addr), sizeof(packet_to_hv_t) / 4 - 1);
+    // CRC covers the packet from header.slave_addr (word 1) on
+    uint32_t crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)&(ctx->packet_to_hv) + 1, sizeof(packet_to_hv_t) / 4 - 1);
     if(ctx->packet_to_hv.header.slave_addr == 0 && ctx->packet_to_hv.header.len == (sizeof(packet_to_hv_t) - sizeof(stmbl_talk_header_t)) / 4 && crc == ctx->packet_to_hv.header.crc) {
       //
       uint8_t a = ctx->packet_to_hv.header.conf_addr;
@@ -305,7 +306,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     } else {
       ctx->packet_from_hv.buf = 0x0;
     }
-    ctx->packet_from_hv.header.crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)&(ctx->packet_from_hv.header.slave_addr), sizeof(packet_from_hv_t) / 4 - 1);
+    ctx->packet_from_hv.header.crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)&(ctx->packet_from_hv) + 1, sizeof(packet_from_hv_t) / 4 - 1);
 
     // start tx DMA
     DMA1_Channel2->CCR &= (uint16_t)(~DMA_CCR_EN);

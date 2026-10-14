@@ -170,7 +170,7 @@ typedef struct {
 
 extern hal_t hal;
 
-hal_comp_t *comp_by_name(NAME name);
+hal_comp_t *comp_by_name(const char *name);
 hal_comp_inst_t *comp_inst_by_name(NAME name, uint32_t instance);
 uint32_t pin_offset_by_comp_name(NAME name);
 pin_t *pin_by_name(NAME comp_name, NAME pin_name);

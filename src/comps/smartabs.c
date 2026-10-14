@@ -144,7 +144,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   DMA_Cmd(DMA2_Stream1, DISABLE);
   DMA_ClearFlag(DMA2_Stream1, DMA_FLAG_TCIF1);
 
-  uint8_t crc = calc_crc8(&ctx->rxbuf.reply.cf, 6, smartabs_crc8_table);
+  uint8_t crc = calc_crc8((const uint8_t *)&ctx->rxbuf.reply.cf, 6, smartabs_crc8_table);
 
   if(!crc){
     uint32_t tpos = ((ctx->rxbuf.reply.pos[2] & 0x01) << 16) + (ctx->rxbuf.reply.pos[1] << 8) + ctx->rxbuf.reply.pos[0];

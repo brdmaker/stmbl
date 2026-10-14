@@ -257,7 +257,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //reset timer
   FB0_ENC_TIM->CR1 &= ~TIM_CR1_CEN;
   FB0_ENC_TIM->CNT  = 0;
-  volatile uint32_t foo = FB0_ENC_TIM->CCR3;
+  (void)FB0_ENC_TIM->CCR3;  // read clears the CC3 capture flag
   FB0_ENC_TIM->CCR3 = 0;
   FB0_ENC_TIM->CR1 |= TIM_CR1_CEN;  // enable tim
 

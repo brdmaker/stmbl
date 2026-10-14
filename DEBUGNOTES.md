@@ -18,7 +18,7 @@ Entry format:
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
-- Status:  Workaround (does not happen with Debian 12's binutils 2.40, see 2026-10-14)
+- Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)
 - Symptom: `make` (and the bootloader/f3 sub-makes) hang after linking, in the
   CRC/version post-processing step. The python process spins at ~800 MB RSS and
   never finishes. The C compiles fine; only this post-link step hangs.
@@ -73,7 +73,7 @@ Entry format:
 
 ## 2026-05-24  No aligned closed-loop motor example yet
 - Area:    `shared/comps/motsim.c`, host test assets
-- Status:  Open
+- Status:  Fixed (2026-10-14)
 - Symptom: There is no closed-loop motor test asset (command velocity, watch it
   track).
 - Cause:   `motsim` needs a commutation angle (`com_pos` = electrical rotor
@@ -81,6 +81,10 @@ Entry format:
   does not spin the rotor cleanly. Wiring a commutation/encoder source is TODO.
 - Fix:     TODO — add a commutation source (or drive `com_pos` from rotor angle)
   and ship a `examples/motor.servoterm` closed-loop asset.
+  Done another way: `host/examples/drive_jog.txt` (run by `make test`) boots
+  the real drive config on the simulated drive (`--drive`, `host/hw/`), with
+  the encoder, fb_switch commutation and the F3 current loop. It jogs both
+  ways closed-loop.
 
 ## 2026-05-24  Scope channels are 8-bit (lossy) by design
 - Area:    `shared/comps/term.c`, `host/servoterm.c`
@@ -156,7 +160,7 @@ Entry format:
 
 ## 2026-10-14  idm: damping and friction not separable at cruise speed
 - Area:    `shared/comps/idm.c`, `conf/template/id_mot.txt`, `id_sys.txt`
-- Status:  Fixed (host sim; not yet run on hardware)
+- Status:  Fixed (host sim and hardware, 2026-10-14)
 - Symptom: Host sim, no load: idm gave d = 0.00106 and f = 0.072 against a
   true 0.002 / 0.05. With high damping (d = 0.01, f = 0.01) all four
   estimates diverged: f +600..1700%, j collapsed to its clamp, and position
@@ -180,8 +184,9 @@ Entry format:
   Sim results, five plants, 4096-count encoder plus vel estimator: j +0..13%,
   d -4..+4%, f 0%, o 0%. id_sys: j_sys +1%.
   Regression asset: `host/examples/idm_load.hal`.
-  Remaining: j reads 5-13% high (possibly current-loop lag between commanded
-  and actual torque; not checked). Not tested with sensor noise.
+  Remaining: j reads high. In the simulated drive this is confirmed as
+  current-loop lag, see "idm inertia reads high by a constant" below. Not
+  tested with sensor noise.
   Hardware, 2026-10-14 (firmware v0.9.18-224-g89e4d95d, bench motor,
   id_mot, about 2 min, no faults): fit j = 0.000096, d = 0 (clamped, the raw
   fit was negative), f = 0.0946, o = 0.0265. Adaptive estimates from the
@@ -189,6 +194,11 @@ Entry format:
   roughly. The earlier conf (old idm) had j 0.000207, o 0.064. Negative d
   probably means friction drops with speed (Stribeck effect), which
   f + d*v cannot model. Unverified: no independent measurement of j.
+  That run still had the wrong encoder resolution (16384 instead of 10000,
+  see "Bench motor: encoder resolution misconfigured"). Rerun after the fix:
+  j = 0.000044, f = 0.038, o = 0.0001; d = 0.0001 is from a separate speed
+  sweep (20-157 rad/s), not from idm. These values are in
+  `hwtest/burnin/ECMA-C30604FS/stmbl.conf`.
 
 ## 2026-10-14  autotune smaller issues (idpmsm, ids)
 - Area:    `shared/comps/idpmsm.c`, `shared/comps/ids.c`
@@ -241,7 +251,7 @@ Entry format:
 
 ## 2026-10-14  ids (id_pid) never tunes vel_bw: first cycle cost starts at min_cost
 - Area:    `shared/comps/ids.c` (state 0 / 1.2)
-- Status:  Fixed (sim regression unchanged; hardware rerun pending)
+- Status:  Fixed (sim and hardware)
 - Symptom: On the bench motor, id_pid finished in ~25 s with
   `vel_bw = 70.000000`, exactly 0.7 (kd) times its starting value of 100.
 - Cause:   State 0 set `cost = min_cost` instead of 0. The first cycle's cost
@@ -251,7 +261,11 @@ Entry format:
   multiplied by kd and the search moves on without tuning it. In the host
   sim the first cycle is cheap, so it does not trigger (vel_bw 124 before
   and after the fix).
-- Fix:     Start cost at 0.
+- Fix:     Start cost at 0. Rerun on the bench motor on 2026-10-14 with the
+  fixed firmware, after the encoder-resolution fix: id_pid now tunes vel_bw,
+  ending at pos_bw 42.8, vel_bw 500 and vel_d 1. The last two are marked
+  "(cap)" in `hwtest/burnin/ECMA-C30604FS/stmbl.conf`: they are limits, not
+  tuned optima.
 
 ## 2026-10-14  Bench motor: encoder resolution misconfigured (16384 vs 10000)
 - Area:    drive config (`conf0.mot_fb_res`, `conf0.polecount`), `src/comps/enc_fb.c`
@@ -329,3 +343,22 @@ Entry format:
 - Fix:     Idea: fit against the torque from the measured current
   (`hv0.iq_fb` * 1.5 * polecount * psi) instead of the command, or delay the
   command by the loop lag before fitting. Check with the sim first.
+
+## 2026-10-14  Build warnings in our own code
+- Area:    `src/comps/hv.c`, `stm32f303/src/comps/ls.c`, `f3_boot/src/main.c`,
+  `shared/hal.c`, `shared/crc.c`, `shared/angle.c`, `src/comps/smartabs.c`,
+  `src/comps/encs.c`
+- Status:  Fixed
+- Symptom: Firmware `make all` gave 32 warnings, host 5; none was a real bug.
+- Cause:   Mostly GCC 12 object-size checks: the stmbl_talk CRC was given
+  `&header.slave_addr` (1 byte) and reads whole words from there. Also
+  `comp_by_name(NAME)` with string literals, non-const CRC8 args, an unused
+  `volatile foo`, float math in `modi()`, pointer-to-int casts on LP64.
+- Fix:     CRC start is now `(uint32_t *)&packet + 1` (the same address, since
+  the 4-byte crc is the first field); `comp_by_name(const char *)`;
+  `calc_crc8(const ...)`; `(void)CCR3` read; `modi()` is `v % m`; casts go
+  through `uintptr_t`. Machine code is unchanged except `modi` (integer
+  only now) and encs (the stack slot for foo is gone; the register read
+  stays). Now 0 own warnings in all three builds. The 7 left are in `lib/`
+  (CMSIS `sp` clobber, USB `packed` attribute, F3 HAL `CLEAR_BIT` on IDR)
+  and are left alone.
