@@ -586,11 +586,262 @@ static int conf_load(int fd, const char *path, int backup) {
   return 0;
 }
 
+// ---- autotune support ----------------------------------------------------
+
+// Write a pre-built normalized config string to flash (no file involved).
+// label is shown in error messages, e.g. "(autotune)".
+static int conf_write_text(int fd, char *conf, const char *label, int backup) {
+  if(conf_validate(conf, label)) {
+    fprintf(stderr, "servoterm-cli: %s rejected, drive not touched\n", label);
+    return -1;
+  }
+  char *old = conf_read(fd);
+  if(!old) {
+    return -1;
+  }
+  if(strcmp(old, conf) == 0) {
+    fprintf(stderr, "servoterm-cli: config unchanged, nothing to write\n");
+    free(old);
+    return 0;
+  }
+  if(backup) {
+    char bak[64];
+    time_t t = time(NULL);
+    strftime(bak, sizeof(bak), "conf-backup-%Y%m%d-%H%M%S.txt", localtime(&t));
+    if(write_file(bak, old) < 0) {
+      free(old);
+      return -1;
+    }
+    fprintf(stderr, "servoterm-cli: previous config saved to %s\n", bak);
+  }
+  free(old);
+  if(capture_cmd(fd, "deleteconf", 0.1, NULL, 1.0) < 0) {
+    return -1;
+  }
+  int lines = 0, rc = 0;
+  char cmd[CONF_MAX_LINE + 1];
+  const char *p = conf;
+  while(*p) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p) : strlen(p);
+    snprintf(cmd, sizeof(cmd), CONF_PREFIX "%.*s", (int)len, p);
+    if(capture_cmd(fd, cmd, 0.1, "\n", 2.0) < 0) { rc = -1; break; }
+    char want[CONF_MAX_LINE + 16];
+    snprintf(want, sizeof(want), "adding %.*s\n", (int)len, p);
+    if(!cap_buf || strcmp(cap_buf, want) != 0) {
+      fprintf(stderr, "servoterm-cli: no ack for line %d (%s), got: %s\n",
+              lines + 1, cmd, cap_buf ? cap_buf : "");
+      rc = -1;
+      break;
+    }
+    lines++;
+    if(!e) break;
+    p = e + 1;
+  }
+  if(rc < 0) {
+    fprintf(stderr, "servoterm-cli: write aborted, flash NOT written\n");
+    return -1;
+  }
+  if(capture_cmd(fd, "flashsaveconf", 0.1, "bytes written", 10.0) < 0) return -1;
+  if(!cap_buf || !strstr(cap_buf, "bytes written") || strstr(cap_buf, "error")) {
+    fprintf(stderr, "servoterm-cli: flashsaveconf failed: %s\n", cap_buf ? cap_buf : "");
+    return -1;
+  }
+  char *now_conf = conf_read(fd);
+  if(!now_conf || strcmp(now_conf, conf) != 0) {
+    fprintf(stderr, "servoterm-cli: verify FAILED\n");
+    free(now_conf);
+    return -1;
+  }
+  fprintf(stderr, "servoterm-cli: %d lines (%zu bytes) written to flash and verified.\n",
+          lines, strlen(conf));
+  fprintf(stderr, "servoterm-cli: takes effect after a drive reset.\n");
+  free(now_conf);
+  return 0;
+}
+
+// Parse the last occurrence of "<pin> = <float>" from the capture buffer.
+// Returns the value, or -1e38 as a sentinel if not found.
+static double parse_pin_val(const char *buf, const char *pin) {
+  if(!buf) return -1e38;
+  char pat[128];
+  snprintf(pat, sizeof(pat), "%s = ", pin);
+  const char *p = NULL, *q = strstr(buf, pat);
+  while(q) {
+    p = q;
+    q = strstr(q + 1, pat);
+  }
+  if(!p) return -1e38;
+  double v = -1e38;
+  sscanf(p + strlen(pat), "%lf", &v);
+  return v;
+}
+
+// Replace or append "conf0.<key> = <val>\n" in a config string (realloc'd).
+static char *conf_patch(char *conf, const char *key, const char *val) {
+  char needle[64];
+  snprintf(needle, sizeof(needle), "conf0.%s = ", key);
+  char line[128];
+  snprintf(line, sizeof(line), "conf0.%s = %s\n", key, val);
+
+  char *pos = strstr(conf, needle);
+  if(pos) {
+    char *eol    = strchr(pos, '\n');
+    size_t head  = (size_t)(pos - conf);
+    size_t skip  = eol ? (size_t)(eol - pos + 1) : strlen(pos);
+    size_t tail  = strlen(pos + skip);
+    size_t nlen  = strlen(line);
+    char *out    = malloc(head + nlen + tail + 1);
+    memcpy(out, conf, head);
+    memcpy(out + head, line, nlen);
+    memcpy(out + head + nlen, pos + skip, tail + 1);
+    free(conf);
+    return out;
+  }
+  // Not found: append before trailing newline if present, otherwise at end.
+  size_t clen = strlen(conf);
+  conf = realloc(conf, clen + strlen(line) + 1);
+  strcat(conf, line);
+  return conf;
+}
+
+static const char *autotune_state_label(int s) {
+  switch(s) {
+  case 0: return "idle";
+  case 1: return "R measurement";
+  case 2: return "transition";
+  case 3: return "polecount";
+  case 4: return "psi / friction / damping";
+  case 5: return "J (inertia)";
+  case 6: return "done";
+  default: return "?";
+  }
+}
+
+static int autotune_run(int fd, const char *comp, double timeout, int backup) {
+  char cmd[128];
+
+  // Enable the identification state machine.
+  snprintf(cmd, sizeof(cmd), "%s.en = 1", comp);
+  if(send_line(fd, cmd, 50) < 0) return 1;
+
+  fprintf(stderr, "\nservoterm-cli: autotune started  (component: %s, timeout: %.0fs)\n",
+          comp, timeout);
+  fprintf(stderr, "servoterm-cli: Ctrl-C to abort\n\n");
+
+  double end     = now() + timeout;
+  int last_state = -1;
+  int done       = 0;
+
+  while(now() < end && !stop_req) {
+    snprintf(cmd, sizeof(cmd), "%s.state", comp);
+    if(capture_cmd(fd, cmd, 0.3, NULL, 2.0) < 0) {
+      fprintf(stderr, "servoterm-cli: read error during autotune\n");
+      return 1;
+    }
+    double sv  = parse_pin_val(cap_buf, cmd);
+    int state  = (int)(sv + 0.5);
+    if(state != last_state) {
+      fprintf(stderr, "  state %d — %s\n", state, autotune_state_label(state));
+      last_state = state;
+    }
+    if(state >= 6) { done = 1; break; }
+    pump(fd, 0.5);
+  }
+
+  if(!done) {
+    fprintf(stderr, "\nservoterm-cli: autotune timed out (state %d)\n", last_state);
+    return 1;
+  }
+
+  // Read the six identified parameters.
+  struct { const char *pin; const char *conf_key; double val; } params[] = {
+    { "r",        "r"         },
+    { "psi",      "psi"       },
+    { "polecount","polecount" },
+    { "j",        "j"         },
+    { "friction", "f"         },
+    { "damping",  "d"         },
+  };
+  int nparams = (int)(sizeof(params) / sizeof(params[0]));
+  int read_ok = 1;
+
+  for(int i = 0; i < nparams; i++) {
+    snprintf(cmd, sizeof(cmd), "%s.%s", comp, params[i].pin);
+    if(capture_cmd(fd, cmd, 0.3, NULL, 2.0) < 0) {
+      fprintf(stderr, "servoterm-cli: failed to read %s\n", cmd);
+      read_ok = 0;
+      continue;
+    }
+    params[i].val = parse_pin_val(cap_buf, cmd);
+  }
+
+  if(!read_ok) return 1;
+
+  int polecount_int = (int)(params[2].val + 0.5);
+
+  fprintf(stderr, "\n--- Autotune results ---\n");
+  fprintf(stderr, "  r         = %.6g Ω\n",        params[0].val);
+  fprintf(stderr, "  psi       = %.6g Wb\n",        params[1].val);
+  fprintf(stderr, "  polecount = %d\n",             polecount_int);
+  fprintf(stderr, "  j         = %.6g kg·m²\n",    params[3].val);
+  fprintf(stderr, "  friction  = %.6g N·m\n",       params[4].val);
+  fprintf(stderr, "  damping   = %.6g N·m·s/rad\n", params[5].val);
+  fprintf(stderr, "------------------------\n\n");
+  fprintf(stderr, "  Note: j is approximate (rlpsij filter lag ~90×; use as feedforward seed)\n\n");
+
+  // Prompt (skip in non-interactive / headless mode).
+  int write_it = 0;
+  if(isatty(STDIN_FILENO)) {
+    fprintf(stderr, "Write to flash config? [w = write / s = skip / q = quit]: ");
+    fflush(stderr);
+    char answer[8] = {0};
+    if(fgets(answer, sizeof(answer), stdin)) {
+      write_it = (answer[0] == 'w' || answer[0] == 'W');
+      if(answer[0] == 'q' || answer[0] == 'Q') return 1;
+    }
+  } else {
+    fprintf(stderr, "servoterm-cli: non-interactive, skipping flash write (use -c to apply)\n");
+  }
+
+  if(!write_it) {
+    fprintf(stderr, "servoterm-cli: results not written\n");
+    // Print the commands that would apply them, for reference.
+    fprintf(stderr, "  To apply manually:\n");
+    for(int i = 0; i < nparams; i++) {
+      if(i == 2) // polecount: integer
+        fprintf(stderr, "    conf0.%s = %d\n", params[i].conf_key, polecount_int);
+      else
+        fprintf(stderr, "    conf0.%s = %.6g\n", params[i].conf_key, params[i].val);
+    }
+    return 0;
+  }
+
+  // Patch the live config and write to flash.
+  char *conf = conf_read(fd);
+  if(!conf) return 1;
+  conf = conf_normalize(conf);
+
+  char valstr[32];
+  for(int i = 0; i < nparams; i++) {
+    if(i == 2) // polecount: integer
+      snprintf(valstr, sizeof(valstr), "%d", polecount_int);
+    else
+      snprintf(valstr, sizeof(valstr), "%.6g", params[i].val);
+    conf = conf_patch(conf, params[i].conf_key, valstr);
+  }
+
+  int rc = conf_write_text(fd, conf, "(autotune)", backup);
+  free(conf);
+  return rc < 0 ? 1 : 0;
+}
+
 static void usage(void) {
   fprintf(stderr,
           "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
           "                     [--dump FILE] [--load FILE [--no-backup]]\n"
           "                     [-C pin:gain,...] [--step N] [--log SEC]\n"
+          "                     [--autotune [--autotune-comp COMP] [--autotune-timeout SEC]]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -602,12 +853,15 @@ int main(int argc, char **argv) {
   int ncmds             = 0;
   double settle         = 0.5;
   int wait_ms           = 50;
-  const char *dump_path = NULL;
-  const char *load_path = NULL;
-  int backup            = 1;
-  const char *scope_cfg = NULL;
-  int send_step         = 0;
-  double log_sec        = -1.0;  // < 0: no log mode
+  const char *dump_path      = NULL;
+  const char *load_path      = NULL;
+  int backup                 = 1;
+  const char *scope_cfg      = NULL;
+  int send_step              = 0;
+  double log_sec             = -1.0;  // < 0: no log mode
+  int do_autotune            = 0;
+  const char *autotune_comp  = "rlpsij0";
+  double autotune_timeout    = 120.0;
 
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
@@ -616,6 +870,12 @@ int main(int argc, char **argv) {
       send_step = atoi(argv[++i]);
     } else if(strcmp(argv[i], "--log") == 0 && i + 1 < argc) {
       log_sec = atof(argv[++i]);
+    } else if(strcmp(argv[i], "--autotune") == 0) {
+      do_autotune = 1;
+    } else if(strcmp(argv[i], "--autotune-comp") == 0 && i + 1 < argc) {
+      autotune_comp = argv[++i];
+    } else if(strcmp(argv[i], "--autotune-timeout") == 0 && i + 1 < argc) {
+      autotune_timeout = atof(argv[++i]);
     } else if(strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
       dump_path = argv[++i];
     } else if(strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
@@ -736,6 +996,9 @@ int main(int argc, char **argv) {
   }
   if(rc == 0 && dump_path) {
     rc = conf_dump(fd, dump_path) < 0;
+  }
+  if(rc == 0 && do_autotune) {
+    rc = autotune_run(fd, autotune_comp, autotune_timeout, backup);
   }
   if(rc) {
     // don't send further commands after a failed config operation
