@@ -4,7 +4,7 @@
  *
  * The pin names match the real hv component, so the drive's config templates
  * link to it unchanged. The F3 side runs the same current controller as
- * shared/comps/curpid.c at 20 kHz, and a PMSM model (as in
+ * shared/comps/curpid.c at 20 kHz (current or voltage mode), and a PMSM model (as in
  * shared/comps/motsim.c) is integrated at 80 kHz. The sim_* pins describe the
  * simulated motor and supply; host/sim_board.txt links them to conf0 so the
  * simulated motor matches what the config says about it.
@@ -138,8 +138,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float cur_bw   = PIN(cur_bw);
   float max_cur  = MAX(PIN(max_cur) * PIN(scale), 0.01);
 
-  float abscur = d_cmd * d_cmd + q_cmd * q_cmd;
-  float s      = CLAMP(sqrtf(max_cur * max_cur / MAX(abscur, max_cur * 0.1)), 0.0, 1.0);
+  // cmd_mode 1 (CURRENT_MODE): d/q_cmd are currents, clamped to max_cur;
+  // cmd_mode 0 (VOLT_MODE, used by idpmsm): voltages, clamped to max_volt
+  int volt_mode = PIN(cmd_mode) == 0.0;
+  float abscmd  = d_cmd * d_cmd + q_cmd * q_cmd;
+  float lim     = volt_mode ? max_volt : max_cur;
+  float s       = CLAMP(sqrtf(lim * lim / MAX(abscmd, lim * 0.1)), 0.0, 1.0);
   d_cmd *= s;
   q_cmd *= s;
 
@@ -188,6 +192,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     }
     ud += ctx->id_error_sum;
     uq += ctx->iq_error_sum;
+    if(volt_mode) {
+      ud                = d_cmd;
+      uq                = q_cmd;
+      ctx->id_error_sum = 0.0;
+      ctx->iq_error_sum = 0.0;
+    }
     if(!en) {
       ud                = 0.0;
       uq                = 0.0;

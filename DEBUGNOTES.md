@@ -323,7 +323,7 @@ Entry format:
 - Area:    `host/hw/*.c`, `host/drive.c`, `host/lcnc/`
 - Status:  Note
 - Symptom: n/a. The sim runs the drive's own config and control comps, but:
-  hv (F3) is modelled as curpid at 20 kHz + a PMSM at 80 kHz, without PWM
+  hv (F3) is modelled as curpid at 20 kHz (current and voltage mode) + a PMSM at 80 kHz, without PWM
   delay, dead time, ADC noise or the F3 packet delay; the encoder is ideal
   (exact counts, index); no hv/thermal faults; `hv0.dc_cur` doesn't exist on
   the real hv either, so it is left out. `pe`/`velbuf`/`res` links fail the
@@ -408,3 +408,17 @@ Entry format:
   offset negated when it is set. Error is now 0.021 rad at every index
   position (the lock is held off by friction). Re-run id_pmsm on any motor
   with mot_fb_rev = 1 whose offset is not near a multiple of pi/polecount.
+
+## 2026-10-14  idpmsm L reads about 4x high
+- Area:    `shared/comps/idpmsm.c` (state 1.3)
+- Status:  Open
+- Symptom: Simulated drive, true L 0.023 H: id_pmsm prints l = 0.091. The
+  bench motor read 0.023 against a 6.71 mH datasheet value (3.4x).
+- Cause:   Not checked. The method toggles ud between 1.5x and 0.5x every rt
+  cycle and takes L = dU / dI * period from the averaged currents of the two
+  halves. Those are the ripple's peaks, so even ideally dI is the
+  peak-to-peak ripple, U*T/(2L): the estimate is 2L. The rest is probably
+  the sample timing (current lag, the one-cycle delay).
+- Fix:     Idea: model the ripple exactly (include the factor 2 and the
+  delay), or fit L from a single voltage step's current slope. Test on the
+  simulated drive (voltage mode works there now).
