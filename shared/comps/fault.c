@@ -23,6 +23,7 @@ HAL_PIN(cmd_error);
 HAL_PIN(mot_fb_error);
 HAL_PIN(com_fb_error);
 HAL_PIN(joint_fb_error);
+HAL_PIN(fb_mon_error);  // encoder monitor (encmon): feedback disagrees with the motor
 HAL_PIN(hv_error);
 
 HAL_PIN(hv_temp);
@@ -85,6 +86,7 @@ static const char* fault_string[] = {
   "Motor overcurrent rms",
   "Motor overcurrent peak",
   "Motor overcurrent hw limit",
+  "encoder monitor",
 };
 
 struct fault_ctx_t {
@@ -188,6 +190,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(err_filter(&(ctx->joint_fb_error), 5.0, 0.001, PIN(joint_fb_error) > 0.0)) {
     ctx->fault      = JOINT_FB_ERROR;
+    PIN(last_fault) = ctx->fault;
+    ctx->state      = SOFT_FAULT;
+  }
+
+  if(PIN(fb_mon_error) > 0.0) {  // encmon filters and times it already
+    ctx->fault      = FB_MON_ERROR;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;
   }

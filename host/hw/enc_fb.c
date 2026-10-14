@@ -8,6 +8,11 @@
  * index sits at sim_index in the encoder's own (raw) angle, which is what
  * conf0.mot_fb_offset measures. As on the drive, state is 1 (incremental)
  * until the first index pulse with en_index set, then 3 (absolute).
+ *
+ * Fault injection, on the angle the counts come from: sim_freeze holds it
+ * (stuck encoder, broken line), sim_scale multiplies its changes (lost or
+ * extra counts, slipping coupling; default 1), sim_offset adds to it (a step
+ * when changed). With the defaults the counts are the shaft's.
  */
 #include "enc_fb_comp.h"
 #include "hal.h"
@@ -44,11 +49,16 @@ HAL_PIN(indexprint);
 HAL_PIN(sim_pos);    // shaft angle [rad]
 HAL_PIN(sim_rev);    // count direction reversed
 HAL_PIN(sim_index);  // index angle in the encoder's raw angle [rad]
+HAL_PIN(sim_freeze);  // fault: angle held
+HAL_PIN(sim_scale);   // fault: gain on angle changes (1 = none)
+HAL_PIN(sim_offset);  // fault: added angle [rad]
 
 struct enc_fb_ctx_t {
   int init;
   int32_t count;  // raw count, 0..res-1
   float absoffset;
+  float last_raw;  // shaft angle at the last call
+  float angle;     // angle the counts come from (faults applied)
 };
 
 static int32_t count_of(float angle, int32_t res) {
@@ -60,6 +70,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct enc_fb_pin_ctx_t *pins = (struct enc_fb_pin_ctx_t *)pin_ptr;
   PIN(res)  = 16384;
   PIN(ires) = 1024;
+  PIN(sim_scale) = 1.0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -68,7 +79,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   int32_t res = MAX((int32_t)PIN(res), 1);
   float raw   = PIN(sim_rev) > 0.0 ? -PIN(sim_pos) : PIN(sim_pos);
-  int32_t c   = count_of(raw, res);
+  if(!ctx->init) {
+    ctx->last_raw = raw;
+    ctx->angle    = raw;
+  }
+  if(PIN(sim_freeze) <= 0.0) {
+    ctx->angle = mod(ctx->angle + minus(raw, ctx->last_raw) * PIN(sim_scale));
+  }
+  ctx->last_raw = raw;
+  int32_t c   = count_of(ctx->angle + PIN(sim_offset), res);
   int32_t ic  = count_of(PIN(sim_index), res);
 
   if(!ctx->init) {

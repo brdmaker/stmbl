@@ -727,3 +727,26 @@ Entry format:
   a pipe is block-buffered, so replies sat in the buffer.
 - Fix:     `run_script` flushes stdout after each line read from stdin
   (file scripts unchanged).
+
+## 2026-10-14  Encoder monitor (encmon) prototype
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`, fault code
+           17 `FB_MON_ERROR` (`shared/common.h`, `fault.c` input
+           `fb_mon_error`), sim fault injection in `host/hw/enc_fb.c`
+           (`sim_freeze`, `sim_scale`, `sim_offset`); branch
+           `claude/encoder-monitor`
+- Status:  Note (prototype, sim only)
+- Symptom: (design) An encoder that loses/gains counts or slips its
+  coupling keeps the drive running with wrong position/commutation; the
+  position loop cannot see it.
+- Cause:   N/A.
+- Fix:     encmon checks the dq voltage equation with the encoder's angle
+  and speed. Lessons: use w differentiated from the encoder angle, not
+  vel2.vel (the observer lags ~55 rad/s el in a 3000 rad/s^2 ramp: healthy
+  ratio 0.30 -> 0.02), and rotate the back-EMF by delta = com_fb - hv0.pos
+  (the current loop's frame). Bench motor at 100 rad/s: 2% counts lost ->
+  trips in ~50 ms, 0.1 rad angle step in ~22 ms; frozen encoder: position
+  error trips first. Floor: ~17 deg el angle error. Blind below min_bemf
+  (5 V; bench motor ~21 rad/s). Model errors (r +40%, psi +-10%, l -50%)
+  keep the healthy ratio <= 0.21 (trip 0.3). Soak (35 motors) never trips;
+  longest time above 0.3 is 0.8 ms (syn_slow_lr, unramped velocity steps)
+  vs trip_time 20 ms. Untested: hardware, out_rev = 1, field weakening.

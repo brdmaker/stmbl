@@ -1,0 +1,14 @@
+load encmon
+encmon0.rt_prio = 9
+encmon0.en = fault0.en_out
+encmon0.pos = fb_switch0.com_fb
+encmon0.com = hv0.pos
+encmon0.ud = hv0.ud_fb
+encmon0.uq = hv0.uq_fb
+encmon0.id = hv0.id_fb
+encmon0.iq = hv0.iq_fb
+encmon0.r = conf0.r
+encmon0.l = conf0.l
+encmon0.psi = conf0.psi
+encmon0.max_volt = hv0.pwm_volt
+fault0.fb_mon_error = encmon0.fault

@@ -1,0 +1,118 @@
+# Encoder monitor: 2% of the encoder counts lost (enc_fb0.sim_scale
+# 0.98: slipping coupling, wrong resolution) at 100 rad/s trips the encoder
+# monitor fault (17) within ~50 ms; the position loop does not notice.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/encmon_enable.txt
+lcnc 1 3.1831
+run 0.002
+lcnc 1 6.3662
+run 0.002
+lcnc 1 9.5493
+run 0.002
+lcnc 1 12.7324
+run 0.002
+lcnc 1 15.9155
+run 0.002
+lcnc 1 19.0986
+run 0.002
+lcnc 1 22.2817
+run 0.002
+lcnc 1 25.4648
+run 0.002
+lcnc 1 28.6479
+run 0.002
+lcnc 1 31.8310
+run 0.002
+lcnc 1 35.0141
+run 0.002
+lcnc 1 38.1972
+run 0.002
+lcnc 1 41.3803
+run 0.002
+lcnc 1 44.5634
+run 0.002
+lcnc 1 47.7465
+run 0.002
+lcnc 1 50.9296
+run 0.002
+lcnc 1 54.1127
+run 0.002
+lcnc 1 57.2958
+run 0.002
+lcnc 1 60.4789
+run 0.002
+lcnc 1 63.6620
+run 0.002
+lcnc 1 66.8451
+run 0.002
+lcnc 1 70.0282
+run 0.002
+lcnc 1 73.2113
+run 0.002
+lcnc 1 76.3944
+run 0.002
+lcnc 1 79.5775
+run 0.002
+lcnc 1 82.7606
+run 0.002
+lcnc 1 85.9437
+run 0.002
+lcnc 1 89.1268
+run 0.002
+lcnc 1 92.3099
+run 0.002
+lcnc 1 95.4930
+run 0.002
+lcnc 1 98.6761
+run 0.002
+lcnc 1 101.8592
+run 0.002
+lcnc 1 105.0423
+run 0.002
+lcnc 1 108.2254
+run 0.002
+lcnc 1 111.4085
+run 0.002
+lcnc 1 114.5916
+run 0.002
+lcnc 1 117.7747
+run 0.002
+lcnc 1 120.9578
+run 0.002
+lcnc 1 124.1409
+run 0.002
+lcnc 1 127.3240
+run 0.002
+lcnc 1 130.5071
+run 0.002
+lcnc 1 133.6902
+run 0.002
+lcnc 1 136.8733
+run 0.002
+lcnc 1 140.0563
+run 0.002
+lcnc 1 143.2394
+run 0.002
+lcnc 1 146.4225
+run 0.002
+lcnc 1 149.6056
+run 0.002
+lcnc 1 152.7887
+run 0.002
+lcnc 1 155.9718
+run 0.002
+lcnc 1 159.1549
+run 0.002
+lcnc 1 159.1549
+run 0.3
+encmon0.active
+encmon0.max_ratio
+fault0.fault
+enc_fb0.sim_scale = 0.98
+run 0.2
+encmon0.active
+encmon0.fault
+fault0.last_fault
+fault0.fault
+@expect fault0.fault[1] == 0
+@expect fault0.last_fault == 17

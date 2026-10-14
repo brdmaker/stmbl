@@ -1,0 +1,29 @@
+# Encoder monitor blind spot: at 10 rad/s the bench motor's back-EMF
+# (2.4 V) is below encmon0.min_bemf (5 V), so the monitor is inactive and
+# 10% lost counts (enc_fb0.sim_scale 0.9) are not detected by it.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/encmon_enable.txt
+lcnc 1 3.1831
+run 0.002
+lcnc 1 6.3662
+run 0.002
+lcnc 1 9.5493
+run 0.002
+lcnc 1 12.7324
+run 0.002
+lcnc 1 15.9155
+run 0.002
+lcnc 1 15.9155
+run 0.3
+encmon0.active
+encmon0.max_ratio
+fault0.fault
+enc_fb0.sim_scale = 0.9
+run 0.5
+encmon0.active
+encmon0.fault
+fault0.last_fault
+fault0.fault
+@expect encmon0.active == 0
+@expect encmon0.fault == 0
+@expect fault0.last_fault != 17
