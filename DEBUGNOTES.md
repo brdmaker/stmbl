@@ -412,7 +412,7 @@ Entry format:
 
 ## 2026-10-14  idpmsm L reads about 4x high
 - Area:    `shared/comps/idpmsm.c` (state 1.3)
-- Status:  Fixed (simulated drive; not yet run on hardware)
+- Status:  Fixed (simulated drive and bench motor)
 - Symptom: Simulated drive, true L 0.023 H: id_pmsm printed l = 0.091. The
   bench motor read 0.023 against a 6.71 mH datasheet value (3.4x).
 - Cause:   ud toggled every rt cycle, and L came from the mean currents of
@@ -429,7 +429,55 @@ Entry format:
   Simulated drive, L 0.1 mH..100 mH (L/R 0.4..20 ms), 0..2 cycles delay,
   up to +-0.1 A noise: within 1.5% (0.2% for the bench motor). Full
   id_pmsm with delay and noise: `host/examples/drive_id_pmsm.txt`.
-  On the bench expect about 0.0067 if the datasheet's 6.71 mH is the dq
-  inductance, or about 0.0034 if it is line to line. The bench config has
+  Bench motor, 2026-10-14, firmware v0.9.18-243-g128b9b92: l = 0.00489
+  (config had 0.0230 from the old method: 4.7x, as the sim predicts);
+  r 2.337, polecount 5, offset equivalent to the config's, psi 0.04916.
+  0.00489 lies between the datasheet's 6.71 mH and half of it, so the
+  datasheet doesn't settle which it quotes. The bench config has
   conf0.l = 0.023, so its current loop (kp = cur_bw * l) runs about 3x
   faster than cur_bw says; after re-measuring, raise cur_bw if needed.
+
+## 2026-10-14  idm: bench motor's inertia barely observable at max_acc 250
+- Area:    `shared/comps/idm.c` (`max_acc` default 250 rad/s^2)
+- Status:  Open
+- Symptom: Bench motor (datasheet j 0.000030 with brake), fit against
+  measured torque: j 0.000008 and 0.000010 at the default max_acc 250;
+  0.000022 at 2000; 0.000027 at 5000. f 0.037..0.042 in every run. The
+  simulated motor gives 0.000033 at 250.
+- Cause:   At 250 rad/s^2 this motor needs j*acc = 0.0075 Nm, against
+  0.04 Nm friction and +-0.03 Nm sample-to-sample current scatter, so the
+  fit is dominated by what f + d*v doesn't model (bearing catches, cogging,
+  friction falling with speed: d comes out negative). The sim motor has
+  none of that.
+- Fix:     Idea: choose max_acc so that j*acc is several times f (e.g. from a
+  first pass, or a larger default), and/or print the fit's residual so an
+  unreliable j shows. 5000 was fine on the bench motor (no faults).
+
+## 2026-10-14  USB text and scope frames mix when the drive's TX buffer overflows
+- Area:    `src/syscalls.c` (`_write`), `src/usb_cdc.c` (`cdc_tx`), USB VCP
+- Status:  Open
+- Symptom: Scope bytes inside text: `[..] ?zy?L?{??conf0.j = ...` while
+  logging 9-byte frames at 5 kHz (most frames were lost too), and 2 of 141
+  `servoterm-cli --dump` reads with 9 text bytes missing or 1 replaced.
+- Cause:   Probably `_write`/`cdc_tx` writing into APP_Rx_Buffer without
+  checking how much is still unsent, so the write pointer laps unsent data
+  when the host doesn't keep up. Not confirmed.
+- Fix:     Idea: drop (or block for) data that doesn't fit, frame-atomic for
+  scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
+  and `--load` verifies by reading back, so a garbled read can't go to flash.
+
+## 2026-10-14  RT_TOO_LONG stops while the HV supply misbehaved
+- Area:    `src/main.c` (DMA2_Stream0 rt ISR overrun check), HV supply
+- Status:  Open
+- Symptom: Bench, firmware v0.9.18-243: three boots in a row (each after
+  `servoterm-cli --load ... -c reset`) ended in `HAL state: RT_TOO_LONG`
+  within seconds, rt stopped, hv0 values frozen, enable ignored. HAL's own
+  rt max was 134 us of 200. In the same window the DC bus fell from 297 V
+  to ~145 V without anyone touching the supply, and afterwards wandered
+  148..179 V with the drive disabled (it was steady to 0.1 V at 297 V).
+  A later reset ran normally.
+- Cause:   Unknown. The USB IRQ (priority 15) can't delay the rt ISR
+  (priority 2), so the new cdc_getline masking is not it. Suspect the HV
+  supply / F3 resets.
+- Fix:     Check the supply first; then retry with a steady bus and log
+  `hal` state.
