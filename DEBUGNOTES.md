@@ -466,18 +466,26 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
-## 2026-10-14  RT_TOO_LONG stops while the HV supply misbehaved
-- Area:    `src/main.c` (DMA2_Stream0 rt ISR overrun check), HV supply
-- Status:  Open
-- Symptom: Bench, firmware v0.9.18-243: three boots in a row (each after
-  `servoterm-cli --load ... -c reset`) ended in `HAL state: RT_TOO_LONG`
-  within seconds, rt stopped, hv0 values frozen, enable ignored. HAL's own
-  rt max was 134 us of 200. In the same window the DC bus fell from 297 V
-  to ~145 V without anyone touching the supply, and afterwards wandered
-  148..179 V with the drive disabled (it was steady to 0.1 V at 297 V).
-  A later reset ran normally.
-- Cause:   Unknown. The USB IRQ (priority 15) can't delay the rt ISR
-  (priority 2), so the new cdc_getline masking is not it. Suspect the HV
-  supply / F3 resets.
-- Fix:     Check the supply first; then retry with a steady bus and log
-  `hal` state.
+## 2026-10-14  HV board reads the DC bus low (and RT_TOO_LONG stops)
+- Area:    HV board DC sense (`hw/kicad/v4.0/hv_sense.sch`: R77, R78 249k,
+  R79 3.9k into the F3 ADC; `stm32f303/src/comps/io.c` udc, fixed 3.3 V ref),
+  `src/main.c` rt ISR overrun check
+- Status:  Open (hardware suspected)
+- Symptom: Bench, 2026-10-14 from about 19:30: the supply stayed at 300 V
+  (user), but hv0.dc_volt fell from 296.9 to ~145 V and then wandered
+  148..179 V with the drive disabled. Supply set to 200 V, meter at the
+  drive's connector steady 200 V: hv0.dc_volt 137.5..139.2 V as a sawtooth
+  (sinks ~1.5 V over 10..15 s, jumps back). Same readings with firmware
+  v243, v248 (console changes reverted) and v225, so not firmware.
+  pwm_volt follows the low reading, so the F3 outputs ~1.45x the commanded
+  voltage. In the same window three boots ended in HAL state RT_TOO_LONG
+  within seconds (rt max 134 us of 200; the USB IRQ, priority 15, can't
+  delay the rt ISR, priority 2).
+- Cause:   The input feeds the DC link directly (no precharge element), so
+  the measurement is wrong: the ADC sees ~1.08 V instead of 1.55 V at 200 V.
+  A high-side resistor (R77/R78) gone high, leakage across R79, or the F3's
+  3.3 V analog supply off. Not measured yet.
+- Fix:     Measure across R79 against GNDPWR (expect 200 V * 3.9k / 501.9k =
+  1.55 V) and the F3's 3.3VP. No motor tests until the reading is right;
+  bench results from before 19:30 (id_pmsm, first id_mot runs) were taken
+  while it still read 296.9 V.
