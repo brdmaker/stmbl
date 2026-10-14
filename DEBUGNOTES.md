@@ -304,7 +304,7 @@ Entry format:
 
 ## 2026-10-14  vel_int keeps an extrapolated overshoot when a move stops
 - Area:    `shared/comps/vel_int.c` (sserial template: `vel_int0`)
-- Status:  Fixed (simulated drive; not yet run on hardware)
+- Status:  Fixed (simulated drive; not seen on hardware)
 - Symptom: After a move stops, the drive holds a position offset from
   LinuxCNC's `pos_cmd`: 15 mrad (0.024 mm) after a 19.7 rad/s jog in
   `host/examples/drive_jog.txt`; LinuxCNC on the sim shows ~0.016 mm ferror
@@ -318,6 +318,11 @@ Entry format:
   its last value in a function-level static, shared by all vel_int
   instances. drive_jog.txt: standstill offset 0.024 mm -> 0.001 mm (one
   encoder count). The watchdog still stops extrapolating after wd.
+  Bench, 2026-10-14, LinuxCNC + hm2 + the second drive, 8 moves up to
+  500 mm/s: linrev0.cmd_out - vel_int0.pos_out at rest is 0 with v243 and
+  also with v225 (old code). LinuxCNC ramps vel_cmd to ~0 before the last
+  packet, so the stop-from-speed case only came from the sim's `lcnc`
+  command. Rest ferror 0.000..0.003 mm with both.
 
 ## 2026-10-14  Simulated drive: what differs from the real one
 - Area:    `host/hw/*.c`, `host/drive.c`, `host/lcnc/`
@@ -348,7 +353,7 @@ Entry format:
 
 ## 2026-10-14  idm inertia reads high by a constant: current-loop lag
 - Area:    `shared/comps/idm.c` (least-squares fit), `conf0.cur_bw`
-- Status:  Fixed (simulated drive; not yet run on hardware)
+- Status:  Fixed (simulated drive and bench)
 - Symptom: `link id_mot` on the simulated ECMA motor (tuned config,
   `cur_bw` 1000) reports j = true + ~0.000045 kg*m^2 at any true j
   (0.00003 -> 0.000075, 0.0003 -> 0.000349). f, d and o come out right.
@@ -365,6 +370,8 @@ Entry format:
   0.0003 -> 0.000303; d, f, o unchanged. Regression: drive_id_mot.txt.
   On hardware hv0.iq_fb is about one rt cycle older than in the sim (the F3
   packet), which may bias j slightly low; check on the bench.
+  Bench, second drive (v243): j 0.000020 and 0.000027 at max_acc 250,
+  0.000030 at 5000 (datasheet 0.000030). See the max_acc entry.
 
 ## 2026-10-14  Build warnings in our own code
 - Area:    `src/comps/hv.c`, `stm32f303/src/comps/ls.c`, `f3_boot/src/main.c`,
@@ -433,7 +440,8 @@ Entry format:
   (config had 0.0230 from the old method: 4.7x, as the sim predicts);
   r 2.337, polecount 5, offset equivalent to the config's, psi 0.04916.
   0.00489 lies between the datasheet's 6.71 mH and half of it, so the
-  datasheet doesn't settle which it quotes. The bench config has
+  datasheet doesn't settle which it quotes. Second drive, same motor:
+  l = 0.004911 (+0.5%), r 2.304, polecount 5, offset equivalent, psi 0.04979. The bench config has
   conf0.l = 0.023, so its current loop (kp = cur_bw * l) runs about 3x
   faster than cur_bw says; after re-measuring, raise cur_bw if needed.
 
@@ -441,9 +449,11 @@ Entry format:
 - Area:    `shared/comps/idm.c` (`max_acc` default 250 rad/s^2)
 - Status:  Open
 - Symptom: Bench motor (datasheet j 0.000030 with brake), fit against
-  measured torque: j 0.000008 and 0.000010 at the default max_acc 250;
-  0.000022 at 2000; 0.000027 at 5000. f 0.037..0.042 in every run. The
-  simulated motor gives 0.000033 at 250.
+  measured torque. First drive: j 0.000008 and 0.000010 at the default
+  max_acc 250; 0.000022 at 2000; 0.000027 at 5000 (but its DC-bus reading
+  went wrong around then, which scales the F3's output). Second, healthy
+  drive: 0.000020 and 0.000027 at 250; 0.000030 at 5000. f 0.032..0.042.
+  The simulated motor gives 0.000033 at 250.
 - Cause:   At 250 rad/s^2 this motor needs j*acc = 0.0075 Nm, against
   0.04 Nm friction and +-0.03 Nm sample-to-sample current scatter, so the
   fit is dominated by what f + d*v doesn't model (bearing catches, cogging,
@@ -489,3 +499,19 @@ Entry format:
   1.55 V) and the F3's 3.3VP. No motor tests until the reading is right;
   bench results from before 19:30 (id_pmsm, first id_mot runs) were taken
   while it still read 296.9 V.
+
+## 2026-10-14  Drive rebooted during id_mot and then hung (once)
+- Area:    second bench drive, firmware v0.9.18-243-g128b9b92
+- Status:  Open (not reproduced)
+- Symptom: 30 s into id_mot (max_acc 250, state 1.3) the drive dropped off
+  USB and re-enumerated (an F4 restart), then enumerated but answered
+  nothing on the console until the user power-cycled it. LEDs normal after.
+  The same run then passed 3 times (2 with a scope log, 1 polled), and
+  id_mot / id_pmsm / LinuxCNC moves all ran without it again.
+- Cause:   Unknown. A HardFault would fit the hang: hal_error() returns from
+  the handler, so the faulting instruction re-runs; but that doesn't
+  explain the restart before it. A logic-supply dip would explain both.
+  The first drive's DC-sense fault on the same bench makes the setup
+  (supply, grounding, USB, encoder cable) a suspect too.
+- Fix:     If it recurs: note the time, read `hal` (state and error_info) before
+  power-cycling, and log the logic supply.
