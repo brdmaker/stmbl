@@ -8,7 +8,9 @@
 HAL_COMP(rlpsij);
 
 // Motor identification. State sequence:
-//   1  r: voltage mode, d axis locked, current regulated to test_cur.
+//   1  r: voltage mode, d axis locked, current regulated to test_cur;
+//      r from a least-squares fit of ud = r * id + l * did/dt over all
+//      samples, so a slow l/r (current still rising) does not bias it.
 //   2  l: rotor still held, a voltage square wave around r * test_cur on the
 //      d axis (voltage mode: applied unchanged over each rt period, no
 //      back-EMF at standstill); l from a least-squares fit of
@@ -73,7 +75,8 @@ HAL_PIN(acc);
 HAL_PIN(last_pos);
 HAL_PIN(error_sum);
 // state 4 least squares, x1 = diq/dt, x2 = w_el, y = uq - r * iq
-// (state 2 uses s11 and s1y with x1 = did/dt, y = ud - r * id)
+// (state 1: x1 = id, x2 = did/dt, y = ud; state 2: s11, s1y with
+// x1 = did/dt, y = ud - r * id)
 HAL_PIN(s11);
 HAL_PIN(s12);
 HAL_PIN(s22);
@@ -213,6 +216,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       if(PIN(en) > 0.0){
         PIN(r) = 0.0;
+        PIN(s11) = 0.0;
+        PIN(s12) = 0.0;
+        PIN(s22) = 0.0;
+        PIN(s1y) = 0.0;
+        PIN(s2y) = 0.0;
+        PIN(last_iq) = PIN(id_fb);
         PIN(d_cmd) = 0.0;
         PIN(q_cmd) = 0.0;
         PIN(state) = 1;
@@ -227,13 +236,23 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       float ki = MAX(PIN(rl_ki), RL_BW * ABS(PIN(d_cmd)) / PIN(test_cur));
       PIN(d_cmd) += ki * period * (PIN(test_cur) - PIN(id_fb));
 
-      // average only once the current has settled
-      if(ABS(PIN(id_fb) - PIN(test_cur)) < PIN(test_cur) * 0.05){
-        float r = PIN(ud_fb) / PIN(id_fb);
-        PIN(r) = PIN(r) > 0.0 ? PIN(r) * PIN(lpf) + r * (1.0 - PIN(lpf)) : r;
-      }
+      // ud is applied unchanged over the period (voltage mode)
+      float x1 = (PIN(id_fb) + PIN(last_iq)) / 2.0;
+      float x2 = (PIN(id_fb) - PIN(last_iq)) / period;
+      PIN(last_iq) = PIN(id_fb);
+      PIN(s11) += x1 * x1;
+      PIN(s12) += x1 * x2;
+      PIN(s22) += x2 * x2;
+      PIN(s1y) += x1 * PIN(ud_fb);
+      PIN(s2y) += x2 * PIN(ud_fb);
 
       if(PIN(timer) > PIN(rl_time)){
+        float det = PIN(s11) * PIN(s22) - PIN(s12) * PIN(s12);
+        if(det > 1e-6 * PIN(s11) * PIN(s22)){
+          PIN(r) = (PIN(s1y) * PIN(s22) - PIN(s2y) * PIN(s12)) / det;
+        } else {  // current settles within a period: no di/dt to fit
+          PIN(r) = PIN(s11) > 0.0 ? PIN(s1y) / PIN(s11) : 0.0;
+        }
         PIN(fb_offset) = PIN(abs_pos_fb);
         PIN(s11) = 0.0;
         PIN(s1y) = 0.0;

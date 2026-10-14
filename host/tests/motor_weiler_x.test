@@ -8,7 +8,7 @@ conf0.psi = 0.3333
 conf0.polecount = 2
 conf0.j = 7e-05
 conf0.f = 0.2
-conf0.d = 0.0001
+conf0.d = 0.00028
 conf0.max_ac_cur = 10
 @include tests/inc/rlpsij_hv0.txt
 rlpsij0.test_cur = 3.0
@@ -27,7 +27,7 @@ start
 debug_level 0
 fault0.cmd_error = 0
 rlpsij0.en = 1
-@sample hv0.sim_vel 0.002 18
+@sample hv0.sim_vel 0.002 16
 rlpsij0.state
 rlpsij0.r
 rlpsij0.psi

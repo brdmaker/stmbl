@@ -9,6 +9,12 @@ A .test file is a stmbl_host script plus directives:
   @sample PIN DT T         run T seconds, printing PIN every DT seconds
   @timeout SEC             wall-clock limit (default 120)
   @reject REGEX            fail if any output line matches REGEX
+  @fail MESSAGE            always fail with MESSAGE (a generator's way to
+                           report that it could not build the test)
+  @todo REASON             known failure: failing checks print as
+                           "not ok ... # TODO REASON" (TAP) and do not fail
+                           the run; passing ones print "# TODO", so a fixed
+                           issue shows up
   @expect CHECK            check printed pin values after the run
 
 CHECK forms (PIN[k] is the k-th printed value of PIN, 1-based, -1 = last;
@@ -25,6 +31,7 @@ Everything else is passed to stmbl_host unchanged.
 usage: run_tests.py [-v] FILE.test...   (run from host/, or any directory)
 """
 
+import collections
 import math
 import operator
 import os
@@ -48,13 +55,17 @@ class TestError(Exception):
     pass
 
 
+Script = collections.namedtuple("Script", "text args expects rejects timeout fails todo")
+
+
 def build_script(path):
-    """Return (script_text, args, expects, rejects, timeout)."""
-    args, expects, rejects, out = [], [], [], []
+    """Expand a .test file into a Script."""
+    args, expects, rejects, out, fails = [], [], [], [], []
     timeout = 120.0
+    todo = None
 
     def walk(p, depth):
-        nonlocal timeout
+        nonlocal timeout, todo
         if depth > 4:
             raise TestError("@include nested too deep")
         with open(p) as f:
@@ -78,6 +89,10 @@ def build_script(path):
                         out.append(pin)
                 elif word == "@timeout":
                     timeout = float(rest)
+                elif word == "@fail":
+                    fails.append((rest, where))
+                elif word == "@todo":
+                    todo = rest
                 elif word == "@reject":
                     rejects.append((re.compile(rest), where))
                 elif word == "@expect":
@@ -88,7 +103,7 @@ def build_script(path):
                     raise TestError("%s: unknown directive %s" % (where, word))
 
     walk(path, 0)
-    return "\n".join(out) + "\n", args, expects, rejects, timeout
+    return Script("\n".join(out) + "\n", args, expects, rejects, timeout, fails, todo)
 
 
 def parse_values(output):
@@ -136,15 +151,23 @@ def check(expr, values):
 
 
 def run_test(path, verbose):
-    """Yield (passed, description, detail_lines)."""
+    """Yield (passed, description, detail_lines, todo_reason_or_None)."""
     name = os.path.splitext(os.path.basename(path))[0]
     try:
-        script, args, expects, rejects, timeout = build_script(path)
+        sc = build_script(path)
     except (OSError, ValueError, TestError) as e:
-        yield False, "%s: parse" % name, [str(e)]
+        yield False, "%s: parse" % name, [str(e)], None
         return
+    for r in _run_checks(name, sc, verbose):
+        yield r + (sc.todo,)
+
+
+def _run_checks(name, sc, verbose):
+    args, expects, rejects, timeout = sc.args, sc.expects, sc.rejects, sc.timeout
+    for msg, where in sc.fails:
+        yield False, "%s: %s" % (name, msg), [where]
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-        f.write(script)
+        f.write(sc.text)
         tmp = f.name
     try:
         proc = subprocess.run(["./stmbl_host"] + args + [tmp], cwd=HOST_DIR,
@@ -180,18 +203,24 @@ def main(argv):
     if not os.access(os.path.join(HOST_DIR, "stmbl_host"), os.X_OK):
         print("Bail out! %s/stmbl_host not built" % HOST_DIR)
         return 1
-    n = failed = 0
+    n = failed = todo_failed = 0
     for path in files:
         print("# %s" % os.path.relpath(path))
-        for ok, desc, detail in run_test(os.path.abspath(path), verbose):
+        for ok, desc, detail, todo in run_test(os.path.abspath(path), verbose):
             n += 1
-            failed += not ok
-            print("%s %d - %s" % ("ok" if ok else "not ok", n, desc))
+            if not ok:
+                if todo:
+                    todo_failed += 1
+                else:
+                    failed += 1
+            print("%s %d - %s%s" % ("ok" if ok else "not ok", n, desc,
+                                    " # TODO %s" % todo if todo else ""))
             for d in detail:
                 print("#   %s" % d)
         sys.stdout.flush()
     print("1..%d" % n)
-    print("# %d/%d passed" % (n - failed, n))
+    print("# %d/%d passed%s" % (n - failed - todo_failed, n,
+                                ", %d known (TODO) failures" % todo_failed if todo_failed else ""))
     return 1 if failed else 0
 
 

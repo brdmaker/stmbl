@@ -1,0 +1,1613 @@
+# Top speed on the simulated drive: festo (r 9.6, pp 4) to 288 rad/s at
+# 3000 rad/s^2 and back, both directions, with back-EMF feedforward
+# (conf0.cur_ind = 1). Regression test for conf/template/pid.txt's
+# vel2.g = conf0.polecount: vel2 observes the electrical angle, and with
+# the old g = 1 its torque feedforward was polecount x too small; its speed
+# (hv0.vel, which the current loop's feedforward uses) was off by up to
+# 1100 rad/s and the motor ran away to ~560 rad/s (ferror 0.82 rad).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+conf0.r = 9.6
+conf0.l = 0.01
+conf0.psi = 0.05
+conf0.polecount = 4
+conf0.j = 0.000026
+conf0.f = 0.06
+conf0.d = 8.4e-05
+conf0.max_ac_cur = 10
+conf0.max_force = 3
+conf0.max_vel = 320
+conf0.cur_ind = 1
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 19.0986
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 38.1972
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 57.2958
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 76.3944
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 95.4930
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 114.5916
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 133.6902
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 152.7887
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 171.8873
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 190.9859
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 210.0845
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 229.1831
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 248.2817
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 267.3803
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 286.4789
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 305.5775
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 324.6761
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 343.7747
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 362.8733
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 381.9719
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 401.0705
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 420.1690
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 439.2676
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 439.2676
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 420.1690
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 401.0705
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 381.9719
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 362.8733
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 343.7747
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 324.6761
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 305.5775
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 286.4789
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 267.3803
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 248.2817
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 229.1831
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 210.0845
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 190.9859
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 171.8873
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 152.7887
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 133.6902
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 114.5916
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 95.4930
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 76.3944
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 57.2958
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 38.1972
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 19.0986
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -19.0986
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -38.1972
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -57.2958
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -76.3944
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -95.4930
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -114.5916
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -133.6902
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -152.7887
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -171.8873
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -190.9859
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -210.0845
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -229.1831
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -248.2817
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -267.3803
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -286.4789
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -305.5775
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -324.6761
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -343.7747
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -362.8733
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -381.9719
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -401.0705
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -420.1690
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -439.2676
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -458.3662
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -439.2676
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -420.1690
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -401.0705
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -381.9719
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -362.8733
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -343.7747
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -324.6761
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -305.5775
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -286.4789
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -267.3803
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -248.2817
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -229.1831
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -210.0845
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -190.9859
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -171.8873
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -152.7887
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -133.6902
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -114.5916
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -95.4930
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -76.3944
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -57.2958
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -38.1972
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 -19.0986
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+lcnc 1 0.0000
+run 0.004
+hv0.sim_vel
+pid0.pos_error
+fault0.fault
+@expect fault0.fault == 0
+@expect max|hv0.sim_vel| < 320
+@expect max|pid0.pos_error| < 0.3142
+@expect pid0.pos_error ~ 0 0.0126

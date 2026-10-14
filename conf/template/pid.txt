@@ -34,6 +34,8 @@ fb_switch0.joint_rev = conf0.joint_fb_rev
 reslimit0.res = conf0.mot_fb_res
 vel1.j = conf0.j
 vel2.j = conf0.j
+# vel2 tracks com_fb (electrical): torque / j times polecount
+vel2.g = conf0.polecount
 pid0.j_mot = conf0.j
 pid0.d = conf0.d
 pid0.f = conf0.f

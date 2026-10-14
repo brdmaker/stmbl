@@ -42,7 +42,8 @@ host/
   Makefile          builds stmbl_host + servoterm, runs codegen from ../tools
   examples/         test assets (*.hal = deterministic console; *.servoterm = protocol + scope;
                     drive_*.txt = scripts for a simulated drive, run with --drive)
-  tests/            self-checking suite: *.test scripts with @expect checks, run_tests.py
+  tests/            self-checking suite: *.test scripts with @expect checks, run_tests.py;
+                    motors.py + gen_motor_tests.py (autotune), gen_soak_tests.py (soak)
   gen/              generated tables/headers (git-ignored)
 ```
 
@@ -57,6 +58,7 @@ Two binaries are produced:
 cd host
 make            # builds ./stmbl_host and ./servoterm
 make check      # runs the test suite (tests/*.test), fails on any unmet check
+make soak       # soak: every motor, id_pid-tuned, through a motion profile
 make test       # make check, then every examples/*.hal, *.servoterm and drive_*.txt
 make clean
 ```
@@ -205,14 +207,60 @@ exits cleanly. Peak checks need `@sample`: a coarse sample misses peaks (a
 The drive tests `@include` the `examples/drive_*.txt` scripts, so their
 documented expectations are checked rather than just printed.
 
-`tests/motor_*.test` run the `rlpsij` autotune on 20 motors taken from
-`conf/*.txt` (r 0.4-25.5 ohm, j 1.5e-6-3.5e-4 kg*m^2, polecount 1-5) on the
-simulated drive. They check that it finishes and finds r (3%), polecount,
-psi (5%), j (10%) and friction (15%), and l (10%) where l / r >= 0.5 ms,
-with the speed kept under 80 rad/s. They are generated: edit the table in
-`tests/gen_motor_tests.py` and run `python3 tests/gen_motor_tests.py`.
+`tests/motor_*.test` run the `rlpsij` autotune on the 35 motors in
+`tests/motors.py`: 30 from `conf/*.txt` (r 0.4-25.5 ohm, j 1.5e-6-4e-4 kg*m^2,
+polecount 1-5) and 5 synthetic corners (2 kW servo, 14 pole-pair torque motor,
+spindle, micro servo, l/r = 200 ms) on the simulated drive. They check that it
+finishes and finds r (3%), polecount, psi (5%), j (10%) and friction (15%), and
+l (10%) where l / r >= 0.5 ms, with the speed kept under 80 rad/s. They are
+generated: edit `tests/motors.py` and run `python3 tests/gen_motor_tests.py`.
 Small j and l are read through a `scale` comp (x 1e6), because the console
 prints 6 decimals.
+
+`tests/drive_highspeed.test` runs a motor to 288 rad/s at 3000 rad/s^2 and
+back (regression test for `vel2.g` in `conf/template/pid.txt`).
+
+## Soak suite (`make soak`)
+
+`make soak` runs every motor in `tests/motors.py` in closed loop on the
+simulated drive, the way a machine runs: pid + pmsm + encoder, commanded
+through the simulated LinuxCNC link (`lcnc`). For each motor,
+`tests/gen_soak_tests.py` first tunes the position/velocity loop with the
+drive's own `id_pid` and then writes a soak test that uses the tuned gains.
+The tests are generated into `gen/soak` (they are ~60k lines each).
+
+```sh
+make soak                   # 1 cycle per motor, ~1 min
+make soak SOAK_CYCLES=20    # longer
+python3 tests/soak_report.py gen/soak/soak_<motor>.test   # where it went wrong
+```
+
+One cycle (~25 s simulated), scaled to the motor: top speed vmax = half the
+voltage-limited speed (capped at 0.9 * max_vel), acceleration amax = 40% of
+peak torque / j (capped at 3000 rad/s^2):
+
+| Section | Motion |
+|---|---|
+| hold, creep | standstill; +-2% vmax |
+| trapezoid | to +-vmax at amax, 1 s cruise, stop |
+| medium | four 5 rad moves at vmax/2, amax/2 |
+| reversals | 10 reversals between +-vmax/2 at amax |
+| sines | 1, 5, 20 Hz position sines within vmax/2 and 0.8 amax |
+| micro | 20 alternating 0.01 rad steps |
+| vsteps | unramped velocity steps of +-10% vmax |
+| cruise | 2 s at +-vmax |
+| enable | disable/enable at standstill, a move, back to the start |
+
+Checks, with the limits of `hwtest/soak`: following error under 0.5 mm in
+motion and 0.02 mm at rest (0.314 / 0.0126 rad at 10 mm/rev), no drive fault
+or `ERROR` line, drive enabled at the end, smart-serial link without errors,
+speed within 1.2 x vmax, phase current within max_ac_cur.
+`conf0.cur_ind = 1` is set: without back-EMF feedforward the current loop
+loses control at high electrical speed (see `DEBUGNOTES.md`).
+
+Four motors are known to fail with their `id_pid` gains (soft or underdamped
+tuning). They are marked `@todo` in the generator: TAP prints them as
+`not ok ... # TODO`, and they do not fail the run.
 
 ## Simulated drive
 

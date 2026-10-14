@@ -75,6 +75,14 @@ $(GEN):
 check: stmbl_host
 	@$(PYTHON) tests/run_tests.py tests/*.test
 
+# Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
+# profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
+# make soak SOAK_CYCLES=20 for a longer run.
+SOAK_CYCLES ?= 1
+soak: stmbl_host
+	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
+	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
+
 test: all check
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
@@ -84,4 +92,4 @@ test: all check
 clean:
 	rm -rf $(GEN) stmbl_host servoterm
 
-.PHONY: all check test clean
+.PHONY: all check soak test clean

@@ -8,7 +8,7 @@ conf0.psi = 0.05
 conf0.polecount = 4
 conf0.j = 2.6e-05
 conf0.f = 0.06
-conf0.d = 0.0001
+conf0.d = 8.4e-05
 conf0.max_ac_cur = 10
 @include tests/inc/rlpsij_hv0.txt
 rlpsij0.test_cur = 3.0

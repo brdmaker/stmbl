@@ -656,3 +656,48 @@ Entry format:
 - Fix:     Tests check l only when l/r >= 0.5 ms and read j, l through
   `scale` x1e6. servoterm-cli does not write values < 1e-5 (LOW
   RESOLUTION) and notes the damping/l limits.
+
+## 2026-10-14  pid template: vel2 torque feedforward polecount x too small
+- Area:    `conf/template/pid.txt` (vel2), `shared/comps/vel.c`
+- Status:  Fixed (sim; check on the bench)
+- Symptom: Soak at top speed (288 rad/s, 3000 rad/s^2): festo ran away to
+  ~570 rad/s, ferror 0.82 rad; iq_fb had the opposite sign of q_cmd.
+  hv0.vel (= vel2.vel) was off from the true electrical speed by up to
+  1100 rad/s.
+- Cause:   vel2 observes fb_switch0.com_fb (electrical angle) but its
+  torque feedforward acc = g * torque / j used j = conf0.j (mechanical)
+  with g = 1, so it was polecount x too small. hv0.vel feeds the current
+  loop's angle interpolation and, with cur_ind, its back-EMF feedforward.
+  Gentle profiles (hwtest/soak: 628 rad/s^2) hide it.
+- Fix:     `vel2.g = conf0.polecount` in pid.txt. Peak 306 rad/s, ferror
+  0.127 rad (`host/tests/drive_highspeed.test`). mpid.txt's vel0 also
+  observes com_fb with a torque input but sets neither j (default 1e-5) nor
+  g; not changed (no test covers mpid) - Open.
+
+## 2026-10-14  cur_ind = 0 loses current control at high electrical speed
+- Area:    hv current loop, `conf0.cur_ind` (default 0 in all configs)
+- Status:  Open
+- Symptom: Bench motor (l 0.023, pp 5) at 288 rad/s: braking current
+  requested, current stayed positive, voltage at the 164 V limit; speed
+  overshoot to 388 rad/s, ferror 0.71 rad. With cur_ind = 1: 302 rad/s,
+  0.12 rad.
+- Cause:   Without back-EMF/cross-coupling feedforward, w_el * l (33 ohm at
+  1440 rad/s) exceeds the PI's proportional gain cur_bw * l (23 V/A).
+- Fix:     The soak sets conf0.cur_ind = 1. Consider defaulting cur_ind to 1
+  (needs a correct hv0.psi and, now, the vel2.g fix) or documenting it for
+  high-speed use.
+
+## 2026-10-14  id_pid tunes some motors too soft / underdamped
+- Area:    `shared/comps/ids.c` (id_pid), `host` soak (`make soak`)
+- Status:  Open
+- Symptom: With id_pid gains, 4 of 35 motors fail the soak: rx60_456
+  (vel_bw 113, ferror 1.1 rad), sgmph_01a1 (j 1.5e-6, vel_bw 77: position
+  error fault), syn_spindle (j 0.02, vel_bw 70, ferror 0.7 rad),
+  syn_torque_14p (vel_bw 77: speed rings to ~2x the command). rx60_456
+  passes with the bench gains (vel_bw 500).
+- Cause:   Not investigated. ids tunes on a gentle move (max_vel 100,
+  max_acc 1000, +-10 rad) and caps vel_bw at cur_bw / 2.
+- Fix:     Marked @todo in gen_soak_tests.py (TAP TODO, not fatal). With
+  the bench gains for all motors instead, heavy rotors chatter at the
+  current limit (encoder quantization x j x vel_bw), so per-motor tuning
+  is needed.
