@@ -55,3 +55,6 @@ run it in a terminal):
 latency-histogram --nox --nobase --servo 1000000 --sbinsize 1000 --sbins 500
 halrun -U    # afterwards, if it was interrupted
 ```
+
+A simulated version of this machine, with no hardware needed, is in
+`../burnin-sim/`.

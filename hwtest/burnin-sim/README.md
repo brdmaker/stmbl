@@ -1,0 +1,265 @@
+# hwtest/burnin-sim: the burn-in machine with a simulated drive
+
+This is `../burnin/` with the Mesa 7c81 and the real STMBL drive replaced by
+`stmbl_sim`, a LinuxCNC realtime component built from `host/lcnc/`. It runs
+the drive's own control code (`shared/` and the `conf/template/` config
+templates) against a simulated ECMA-C30604FS motor. It runs inside LinuxCNC's
+servo thread, in lockstep with LinuxCNC.
+
+You can use it to try a drive config, LinuxCNC settings, G-code or an
+autotune before any of it touches the motor. No hardware is needed: the Pi
+on its own is enough.
+
+```
+LinuxCNC (AXIS, motion) --pos_cmd/vel_cmd/enable--> stmbl-sim.0 --> drive firmware code
+          ^                                              |          (pid, fb_switch, pmsm, ...)
+          +-------------pos_fb/vel_fb/fault--------------+          simulated F3 + motor + encoder
+                                                         |
+                               /tmp/stmbl-sim (pty) <----+  drive's USB console: servoterm-cli
+```
+
+## Contents
+
+- [Setup (once)](#setup-once)
+- [Run it with LinuxCNC](#run-it-with-linuxcnc)
+- [The drive console](#the-drive-console)
+- [The drive config (simulated flash)](#the-drive-config-simulated-flash)
+- [The simulated motor](#the-simulated-motor)
+- [Trying an autotune](#trying-an-autotune)
+- [Without LinuxCNC](#without-linuxcnc)
+- [Back to the real drive](#back-to-the-real-drive)
+- [Troubleshooting](#troubleshooting)
+- [Differences from the real drive](#differences-from-the-real-drive)
+
+## Setup (once)
+
+```sh
+cd ~/stmbl_brdmaker
+make -C servoterm-cli                  # the console client
+make -C host                           # stmbl_host, the simulator without LinuxCNC
+make -C host/lcnc                      # stmbl_sim.so, the LinuxCNC module
+sudo make -C host/lcnc install         # -> /usr/lib/linuxcnc/modules/stmbl_sim.so
+```
+
+Rebuild and reinstall the module after changing anything in `shared/`,
+`conf/template/` or `host/`. A running LinuxCNC keeps the old module until you
+restart it.
+
+## Run it with LinuxCNC
+
+```sh
+linuxcnc ~/stmbl_brdmaker/hwtest/burnin-sim/stmbl.ini
+```
+
+In AXIS, as on the real machine:
+
+1. **Estop off (F1), then machine on (F2).** The simulated drive phases the
+   motor (about 0.5 s) and enables. Its console prints
+   `INFO: Phasing` and `INFO: Enabled`.
+2. **Home all.** No home switches are configured, so homing completes at once.
+3. **Jog or MDI X.** Only X / joint 0 has a drive. Y and Z are in the config
+   but have nothing connected. Limits, as in `../burnin/`: 500 mm/s
+   (3000 rpm at 10 mm/rev) and 1000 mm/s².
+
+Machine off disables the drive. A drive fault (for example a following error
+over `conf0.max_pos_error`) reaches LinuxCNC through `stmbl-sim.0.fault` and
+`joint.0.amp-fault-in`, as with the real drive. Toggle machine on to clear it.
+
+The simulated drive's HAL pins, for halshow or halscope:
+
+| Pin | Dir | What |
+|---|---|---|
+| `stmbl-sim.0.pos_cmd`, `vel_cmd` | in | position [mm] and velocity [mm/s] command |
+| `stmbl-sim.0.pos_fb`, `vel_fb` | out | feedback, as the drive reports it |
+| `stmbl-sim.0.current` | out | motor current `hv0.iq_fb` [A] |
+| `stmbl-sim.0.enable` | in | drive enable |
+| `stmbl-sim.0.fault` | out | drive fault |
+| `stmbl-sim.0.index_enable` | io | index homing handshake (not wired in this config) |
+| `stmbl-sim.0.out-00..03` | in | drive outputs `sserial0.out0..3` (`out-03` is the brake release) |
+| `stmbl-sim.0.in-00..03` | out | drive inputs |
+| `stmbl-sim.0.scale` | in | `sserial0.scale` (this config overrides it with `linrev0.scale = 10`) |
+
+## The drive console
+
+While LinuxCNC runs, the drive's USB console is the pty `/tmp/stmbl-sim`. It
+takes the same commands and gives the same output as `/dev/ttyACM0` on the
+real drive:
+
+```sh
+cd ~/stmbl_brdmaker/servoterm-cli
+S="./servoterm-cli -d /tmp/stmbl-sim"
+
+$S -c "fault0.state" -c "fault0.fault"      # 0 disabled, 1 enabled, 3 fault
+$S -c "pid0.pos_error" -c "vel1.vel" -c "hv0.iq_fb"
+$S -c "hv0.sim_vel" -c "hv0.sim_torque"     # the simulated motor itself
+$S -c "fb_switch0.current_com_pos"          # 4 autophased, 1 absolute (after index)
+$S -c hal                                   # HAL state and the rt component list
+```
+
+Scope logging works the same way. For example, to log while you jog in AXIS
+(Ctrl-C stops it):
+
+```sh
+$S -C "pid0.pos_error:1000,vel1.vel:0.35,pid0.torque_cmd:250,hv0.iq_fb:20" \
+   --step 5 -s run.csv --log 0 > run.txt
+```
+
+The console is free whenever no client has it open, so there's no need to
+stop LinuxCNC to use it.
+
+## The drive config (simulated flash)
+
+`sim.conf` is the simulated drive's flash. The drive boots from it when
+LinuxCNC starts, and again on `reset`. It started as a copy of the tuned
+bench config `../burnin/ECMA-C30604FS/stmbl.conf`.
+
+- **Edit it while LinuxCNC is stopped,** or write it over the console as with
+  the real drive:
+  ```sh
+  $S --dump my.conf                   # what is in flash now
+  $S --load my.conf -c reset          # write, verify, reboot the drive
+  ```
+  `--load` also saves the previous contents as `conf-backup-*.txt`, as on the
+  real drive.
+- **The real drive's config is never touched.** `flashsaveconf` writes
+  `sim.conf` and nothing else.
+- **To start over** from the tuned bench config:
+  ```sh
+  cp ../burnin/ECMA-C30604FS/stmbl.conf sim.conf
+  ```
+- **The 63-character line limit applies,** as on the drive: a line of 64
+  characters or more silently ends the config there.
+
+## The simulated motor
+
+After `sim.conf`, the drive loads `host/sim_board.txt`. It links the
+simulated motor and encoder to `conf0`, so by default the motor is exactly
+what the config says. Then `sim.txt` (in this folder) is parsed, and anything
+set there wins. Use it to simulate a motor that differs from what the drive
+believes:
+
+```sh
+# sim.txt examples
+hv0.sim_j = 0.00003      # datasheet inertia instead of conf0.j
+hv0.sim_load = -0.2      # constant load torque [Nm], e.g. gravity
+hv0.sim_brake = 1.3      # holding brake [Nm], engaged while io0.out0 = 0
+hv0.sim_udc = 297        # supply [V]
+```
+
+| Pin | Default (from `sim_board.txt`) | What |
+|---|---|---|
+| `hv0.sim_r`, `sim_l` | `conf0.r`, `conf0.l` | phase resistance [Ω] and inductance [H] |
+| `hv0.sim_psi`, `sim_pp` | `conf0.psi`, `conf0.polecount` | flux linkage [V·s/rad], pole pairs |
+| `hv0.sim_j` | `conf0.j` | rotor inertia [kg·m²] |
+| `hv0.sim_d`, `sim_f` | `conf0.d`, `conf0.f` | damping [Nm/(rad/s)], coulomb friction [Nm] |
+| `hv0.sim_load` | 0 | external load torque [Nm] |
+| `hv0.sim_brake` | 0 (no brake) | brake torque [Nm]; `sim_brake_release` follows `io0.out0` |
+| `hv0.sim_udc` | 300, 297 in `sim.txt` | DC bus [V]; output voltage limit is udc / √3 · 0.95 |
+| `hv0.sim_phase_rev` | `conf0.out_rev` | motor phase order |
+| `enc_fb0.sim_rev` | `conf0.mot_fb_rev` | encoder count direction |
+| `enc_fb0.sim_index` | `conf0.mot_fb_offset` | index position. A different value makes `conf0.mot_fb_offset` wrong for this motor. |
+
+The encoder resolution is `enc_fb0.res`, which the config sets from
+`conf0.mot_fb_res`. Read-only state: `hv0.sim_pos`, `sim_vel`, `sim_acc`,
+`sim_torque`, `sim_id`, `sim_iq`.
+
+You can also set these pins at runtime from the console, for example
+`$S -c "hv0.sim_load = -0.3"`; a `reset` restores `sim.txt`. Like any
+`sim.txt` line, each must stay under 64 characters.
+
+## Trying an autotune
+
+The `id_*` templates run on the simulated drive as on the real one, and
+`stmbl_host` runs them much faster than real time. A 2½-minute `id_mot` run
+takes about 5 s. Example: identify a motor whose inertia and friction differ
+from the config:
+
+```sh
+cd ~/stmbl_brdmaker/host
+cp ../hwtest/burnin/ECMA-C30604FS/stmbl.conf /tmp/id.conf
+echo "link id_mot" >> /tmp/id.conf
+printf 'hv0.sim_j = 0.00003\nhv0.sim_f = 0.02\n' > /tmp/id_sim.txt
+printf 'fault0.cmd_error = 0\nfault0.en = 0\nrun 0.5\nfault0.en = 1\nrun 200\n' > /tmp/id.hal
+./stmbl_host --drive /tmp/id.conf --sim /tmp/id_sim.txt /tmp/id.hal | grep "append"
+```
+
+```
+conf0.j = 0.000072 # append to config
+conf0.o = -0.000015 # append to config
+conf0.d = 0.000109 # append to config
+conf0.f = 0.019951 # append to config
+```
+
+`fault0.cmd_error = 0` and `fault0.en = 1` stand in for LinuxCNC, which isn't
+running here. The friction, damping and offset results are right. The inertia
+reads high by a roughly constant 0.000045 kg·m², because of the lag between
+commanded and actual torque at `cur_bw` 1000. That is an `idm` issue the sim
+uncovered (see `DEBUGNOTES.md`), not a sim error.
+
+## Without LinuxCNC
+
+`host/stmbl_host --drive` runs the same simulated drive on its own. See
+`host/README.md` for details.
+
+```sh
+cd ~/stmbl_brdmaker/host
+# scripted, as fast as the CPU allows; 'lcnc <en> <vel> [pos]' plays LinuxCNC
+./stmbl_host --drive ../hwtest/burnin-sim/sim.conf --sim ../hwtest/burnin-sim/sim.txt examples/drive_jog.txt
+# real time, console on a pty; shows CMD error, as a drive with no LinuxCNC does
+./stmbl_host --drive ../hwtest/burnin-sim/sim.conf --pty /tmp/stmbl-sim
+```
+
+`make -C host test` runs `host/examples/drive_jog.txt` against the tuned bench
+config as a regression test.
+
+## Back to the real drive
+
+The two configs differ only in the HAL file:
+
+| | `../burnin/stmbl.hal` | `stmbl_sim.hal` |
+|---|---|---|
+| drive | `loadrt hostmot2`, `loadrt hm2_rpspi`, `hm2_7c81.0.read/write` | `loadrt stmbl_sim ...`, `addf stmbl-sim.0` |
+| pins | `hm2_7c81.0.stbl.0.0.*` | `stmbl-sim.0.*` (same names) |
+| estop | latched by the hostmot2 watchdog | follows the GUI |
+
+A config that runs well here can go to the real drive with
+`servoterm-cli --load sim.conf -c reset` on `/dev/ttyACM0`. Check it first:
+`sim.txt` settings don't go with it, and real hardware has delays, noise and
+limits that the sim doesn't (see below).
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `dlopen: .../stmbl_sim.so: cannot open shared object file` | The module isn't installed: `sudo make -C host/lcnc install` |
+| `stmbl_sim: cannot start the drive` | `sim.conf` or `sim.txt` is missing, or the `TTY` directory isn't writable. Paths in `[STMBL_SIM]` are relative to this folder. |
+| `servoterm-cli: cannot open /tmp/stmbl-sim` | LinuxCNC isn't running; the pty exists only while it does |
+| Drive shows fault 1 (`CMD error`) | LinuxCNC isn't sending, or the machine was never switched on. Machine on clears it. |
+| `LinuxCNC is still running` after a crash | `halrun -U` |
+| Changes in `shared/` don't show up | Rebuild and reinstall the module, then restart LinuxCNC |
+| Odd drive behaviour after experiments | `cp ../burnin/ECMA-C30604FS/stmbl.conf sim.conf` |
+
+## Differences from the real drive
+
+- **Ideal hardware:** the encoder counts exactly. The current loop (the F3's
+  curpid at 20 kHz) has no PWM delay, dead time or current noise, and the HV
+  board never faults. Following error and current ripple are lower than on
+  hardware; use the sim to check logic and setup, not to judge final tuning
+  margins.
+- **Command link:** the smart-serial exchange happens once per servo period,
+  with the same one-period feedback delay as hm2. Bit timing and CRC errors
+  are not simulated.
+- **One drive per LinuxCNC instance:** the drive's HAL is a single global.
+- **Template links:** links the real drive also fails on (`pe0.*`,
+  `velbuf0`, `res0.*`, `hv0.dc_cur`) print `not found` here too.
+
+Measured on the Pi 4 with LinuxCNC 2.9.1, 2026-10-14. AXIS was replaced by a
+script that drove the `linuxcnc` Python module:
+
+| Check | Result |
+|---|---|
+| Machine on | drive phases and enables, no fault |
+| G0 ±100 mm, G1 X200 F30000 | 500 mm/s and 1000 mm/s² reached; max following error 0.39 mm (while accelerating), about 0.016 mm at rest. The rest offset is a `vel_int` effect, see `DEBUGNOTES.md`. |
+| Encoder index | found; commutation switches from autophasing to absolute |
+| `--load` + `reset` over the pty | 36 lines written and verified; the drive reboots with the new config |
+| Servo-thread time | about 41 µs per 1 ms period (sim, motion and planner), worst case 172 µs |
