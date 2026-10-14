@@ -291,7 +291,7 @@ Entry format:
 
 ## 2026-10-14  vel_int keeps an extrapolated overshoot when a move stops
 - Area:    `shared/comps/vel_int.c` (sserial template: `vel_int0`)
-- Status:  Open (seen in the simulated drive; not yet checked on hardware)
+- Status:  Fixed (simulated drive; not yet run on hardware)
 - Symptom: After a move stops, the drive holds a position offset from
   LinuxCNC's `pos_cmd`: 15 mrad (0.024 mm) after a 19.7 rad/s jog in
   `host/examples/drive_jog.txt`; LinuxCNC on the sim shows ~0.016 mm ferror
@@ -300,8 +300,11 @@ Entry format:
   only resets to `pos_in` when it changes (`EDGE(p)`). If the last update of a
   move has vel != 0 and the next one repeats the same position with vel = 0,
   the extrapolation over that 1 ms (minus the 0.2 ms first cycle) stays.
-- Fix:     Idea: also reset to `pos_in` when `vel_in` changes, or on the first
-  cycle with `vel_in` == 0. Check the standstill ferror on the real drive first.
+- Fix:     A new command is now a change of pos_in or vel_in (the raw vel_in,
+  before the watchdog zeroes it), kept per instance in the ctx. EDGE() kept
+  its last value in a function-level static, shared by all vel_int
+  instances. drive_jog.txt: standstill offset 0.024 mm -> 0.001 mm (one
+  encoder count). The watchdog still stops extrapolating after wd.
 
 ## 2026-10-14  Simulated drive: what differs from the real one
 - Area:    `host/hw/*.c`, `host/drive.c`, `host/lcnc/`

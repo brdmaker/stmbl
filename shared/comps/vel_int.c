@@ -23,6 +23,8 @@ struct vel_int_ctx_t {
   float pos;
   float counter;
   float cmd_freq;
+  float last_p;  // last command, to detect a new one (per instance)
+  float last_v;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -48,8 +50,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct vel_int_ctx_t *ctx      = (struct vel_int_ctx_t *)ctx_ptr;
   struct vel_int_pin_ctx_t *pins = (struct vel_int_pin_ctx_t *)pin_ptr;
 
-  float p = PIN(pos_in);
-  float v = PIN(vel_in);
+  float p     = PIN(pos_in);
+  float v     = PIN(vel_in);
+  int new_cmd = p != ctx->last_p || v != ctx->last_v;  // before the watchdog zeroes v
 
   if(ctx->counter > PIN(wd) && v != 0.0) {
     v          = 0;
@@ -59,7 +62,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->counter += period;
   }
 
-  if(EDGE(p)) {
+  // A new command resets the extrapolation to pos_in. Checking vel_in too
+  // matters when a move stops: the last packet repeats the position with
+  // vel = 0, and checking pos_in alone would keep the overshoot
+  // extrapolated from the packet before.
+  if(new_cmd) {
+    ctx->last_p  = p;
+    ctx->last_v  = PIN(vel_in);
     ctx->counter = 0.0;
     ctx->pos     = p;
     ctx->cmd_freq += 1.0;
