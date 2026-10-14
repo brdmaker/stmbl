@@ -4,6 +4,7 @@ pmsm_ttc0.psi = conf0.psi
 pmsm_ttc0.polecount = conf0.polecount
 pmsm_ttc0.pos_in = vel2.pos_out
 pmsm_ttc0.torque = pid0.torque_cmd
+pmsm_ttc0.cur_fb = hv0.iq_fb
 hv0.d_cmd = fb_switch0.id
 hv0.q_cmd = pmsm_ttc0.cur
 hv0.cmd_mode = 1

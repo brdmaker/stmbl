@@ -35,6 +35,10 @@ HAL_PIN(li);
 
 HAL_PIN(torque);
 HAL_PIN(fb_torque);
+// measured torque (pmsm_ttc0.torque_fb). When linked, the least-squares fit
+// uses it instead of the torque command: the real torque lags the command
+// (current loop), which made the fitted inertia read high.
+HAL_PIN(torque_fb);
 
 HAL_PIN(inertia_sum);
 HAL_PIN(friction_sum);
@@ -181,7 +185,8 @@ static void ls_sample(float period, struct idm_ctx_t *ctx, struct idm_pin_ctx_t 
   float fa = ls_lp2(ctx->lpf[0], a, k);
   float fv = ls_lp2(ctx->lpf[1], v, k);
   float fs = ls_lp2(ctx->lpf[2], SIGN(v), k);
-  float ft = ls_lp2(ctx->lpf[3], PIN(torque), k);
+  int tfb  = pins->torque_fb.source != &pins->torque_fb;  // linked
+  float ft = ls_lp2(ctx->lpf[3], tfb ? PIN(torque_fb) : PIN(torque), k);
   if(ABS(v) < 0.02 * PIN(max_vel)) {
     return;
   }

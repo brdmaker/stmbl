@@ -1,0 +1,19 @@
+# id_mot (conf/template/id_mot.txt) on the simulated drive, booted
+# from the tuned bench config. The simulated motor differs from the
+# config: j 0.00003 (conf 0.000044), f 0.02 (conf 0.038); d 0.0001.
+# fault0.cmd_error = 0 / fault0.en = 1 stand in for LinuxCNC.
+# Expected (fit against measured torque, pmsm_ttc0.torque_fb):
+# j ~ 0.000033, d ~ 0.0001, f ~ 0.020, o ~ 0. Before the fit used
+# the measured torque, j read 0.000075 (current-loop lag).
+hv0.sim_j = 0.00003
+hv0.sim_f = 0.02
+debug_level 1
+link id_mot
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 200

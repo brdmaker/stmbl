@@ -18,6 +18,8 @@ pid0.vel_d = idm0.vel_d
 
 idm0.torque = pid0.torque_cmd
 idm0.fb_torque = pid0.fb_torque_cmd
+# fit against measured torque (PMSM; else the command is used)
+idm0.torque_fb = pmsm_ttc0.torque_fb
 
 # measured motion for idm's least-squares fit
 # (vel1 is model-free here: vel1.torque = 0 below)

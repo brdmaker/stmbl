@@ -334,7 +334,7 @@ Entry format:
 
 ## 2026-10-14  idm inertia reads high by a constant: current-loop lag
 - Area:    `shared/comps/idm.c` (least-squares fit), `conf0.cur_bw`
-- Status:  Open (found in the simulated drive)
+- Status:  Fixed (simulated drive; not yet run on hardware)
 - Symptom: `link id_mot` on the simulated ECMA motor (tuned config,
   `cur_bw` 1000) reports j = true + ~0.000045 kg*m^2 at any true j
   (0.00003 -> 0.000075, 0.0003 -> 0.000349). f, d and o come out right.
@@ -343,9 +343,14 @@ Entry format:
   measured acceleration, but the real torque lags it (current loop
   bandwidth, one rt cycle to the F3). With `cur_bw` 4000 the error drops to
   +0.000013.
-- Fix:     Idea: fit against the torque from the measured current
-  (`hv0.iq_fb` * 1.5 * polecount * psi) instead of the command, or delay the
-  command by the loop lag before fitting. Check with the sim first.
+- Fix:     pmsm_ttc has `cur_fb` (linked to `hv0.iq_fb` in pmsm.txt) and
+  `torque_fb` = cur_fb * 1.5 * polecount * psi. id_mot.txt links
+  `idm0.torque_fb` to it; when that pin is linked, the fit uses it instead of
+  the command (DC motors keep the command). Simulated drive, cur_bw 1000:
+  j 0.00003 -> 0.000033, 0.000044 -> 0.000047, 0.0001 -> 0.000104,
+  0.0003 -> 0.000303; d, f, o unchanged. Regression: drive_id_mot.txt.
+  On hardware hv0.iq_fb is about one rt cycle older than in the sim (the F3
+  packet), which may bias j slightly low; check on the bench.
 
 ## 2026-10-14  Build warnings in our own code
 - Area:    `src/comps/hv.c`, `stm32f303/src/comps/ls.c`, `f3_boot/src/main.c`,

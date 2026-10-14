@@ -34,6 +34,11 @@ HAL_PIN(torque);
 // cur cmd out
 HAL_PIN(cur);
 
+// measured q current in, torque it makes out (the inverse of cur, without
+// the ripple compensation): what the motor actually gets
+HAL_PIN(cur_fb);
+HAL_PIN(torque_fb);
+
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // struct sim_ctx_t * ctx = (struct sim_ctx_t *)ctx_ptr;
   struct pmsm_ttc_pin_ctx_t *pins = (struct pmsm_ttc_pin_ctx_t *)pin_ptr;
@@ -58,6 +63,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(pos_out) = pos * (1.0 - PIN(block_gain)) + (((int)((pos / 2.0 / M_PI + 0.5) * 6 + 0.5)) / 6.0 * 2.0 * M_PI - M_PI) * PIN(block_gain);
   PIN(t)       = tc + te;
   PIN(cur)     = (torque + PIN(g) * (tc + te)) / 3.0 * 2.0 / p / psi_m;
+  PIN(torque_fb) = PIN(cur_fb) * 3.0 / 2.0 * p * psi_m;
 }
 
 hal_comp_t pmsm_ttc_comp_struct = {
