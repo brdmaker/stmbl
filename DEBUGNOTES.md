@@ -324,7 +324,8 @@ Entry format:
 - Status:  Note
 - Symptom: n/a. The sim runs the drive's own config and control comps, but:
   hv (F3) is modelled as curpid at 20 kHz (current and voltage mode) + a PMSM at 80 kHz, without PWM
-  delay, dead time, ADC noise or the F3 packet delay; the encoder is ideal
+  delay or dead time; current noise (`hv0.sim_cur_noise`) and the F3 packet
+  delay (`hv0.sim_fb_delay`) are optional, off by default; the encoder is ideal
   (exact counts, index); no hv/thermal faults; `hv0.dc_cur` doesn't exist on
   the real hv either, so it is left out. `pe`/`velbuf`/`res` links fail the
   same way as on the drive ("not found").

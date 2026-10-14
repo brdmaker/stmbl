@@ -73,6 +73,8 @@ HAL_PIN(sim_brake);  // holding brake torque [Nm], applied while not released
 HAL_PIN(sim_brake_release);  // brake output (io0.out0), 1 = released
 HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // supply voltage [V]
+HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
+HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -85,7 +87,12 @@ HAL_PIN(sim_iq);
 #define F3_PER_RT 4    // F3 current loop at 20 kHz
 #define MOT_PER_F3 4   // motor model at 80 kHz
 
+#define FB_DELAY_MAX 4
+
 struct hv_ctx_t {
+  float fb[FB_DELAY_MAX + 1][4];  // id, iq, ud, uq of the last cycles
+  unsigned fb_pos;
+  uint32_t rnd;  // noise generator state
   float id_error_sum;
   float iq_error_sum;
   float ud;  // F3 output voltage, rotor frame of the F3 angle
@@ -249,7 +256,32 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     }
   }
 
-  // --- back to the F4, as src/comps/hv.c reports it
+  // --- back to the F4, as src/comps/hv.c reports it, optionally delayed
+  ctx->fb_pos = (ctx->fb_pos + 1) % (FB_DELAY_MAX + 1);
+  if(PIN(sim_cur_noise) > 0.0) {  // xorshift32: same noise on every run
+    for(int n = 0; n < 2; n++) {
+      ctx->rnd = ctx->rnd ? ctx->rnd : 2463534242u;
+      ctx->rnd ^= ctx->rnd << 13;
+      ctx->rnd ^= ctx->rnd >> 17;
+      ctx->rnd ^= ctx->rnd << 5;
+      float e = ((float)(ctx->rnd >> 8) / 8388608.0f - 1.0f) * PIN(sim_cur_noise);
+      if(n == 0) {
+        id += e;
+      } else {
+        iq += e;
+      }
+    }
+  }
+  ctx->fb[ctx->fb_pos][0] = id;
+  ctx->fb[ctx->fb_pos][1] = iq;
+  ctx->fb[ctx->fb_pos][2] = ud;
+  ctx->fb[ctx->fb_pos][3] = uq;
+  unsigned dly = (unsigned)CLAMP(PIN(sim_fb_delay), 0, FB_DELAY_MAX);
+  float *fb    = ctx->fb[(ctx->fb_pos + FB_DELAY_MAX + 1 - dly) % (FB_DELAY_MAX + 1)];
+  id = fb[0];
+  iq = fb[1];
+  ud = fb[2];
+  uq = fb[3];
   PIN(id_fb) = id;
   PIN(iq_fb) = iq;
   PIN(ud_fb) = ud;

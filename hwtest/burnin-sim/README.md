@@ -156,6 +156,8 @@ hv0.sim_udc = 297        # supply [V]
 | `hv0.sim_brake` | 0 (no brake) | brake torque [Nm]; `sim_brake_release` follows `io0.out0` |
 | `hv0.sim_udc` | 300, 297 in `sim.txt` | DC bus [V]; output voltage limit is udc / √3 · 0.95 |
 | `hv0.sim_phase_rev` | `conf0.out_rev` | motor phase order |
+| `hv0.sim_fb_delay` | 0 | extra delay of the current/voltage feedback [rt cycles, 0..4], like the F3 packet |
+| `hv0.sim_cur_noise` | 0 | current measurement noise, uniform ± [A] |
 | `enc_fb0.sim_rev` | `conf0.mot_fb_rev` | encoder count direction |
 | `enc_fb0.sim_index` | `conf0.mot_fb_offset` | index position. A different value makes `conf0.mot_fb_offset` wrong for this motor. |
 
@@ -242,8 +244,9 @@ limits that the sim doesn't (see below).
 ## Differences from the real drive
 
 - **Ideal hardware:** the encoder counts exactly. The current loop (the F3's
-  curpid at 20 kHz) has no PWM delay, dead time or current noise, and the HV
-  board never faults. Following error and current ripple are lower than on
+  curpid at 20 kHz) has no PWM delay or dead time, and the HV board never
+  faults. Current noise and feedback delay are off by default
+  (`hv0.sim_cur_noise`, `hv0.sim_fb_delay`). Following error and current ripple are lower than on
   hardware; use the sim to check logic and setup, not to judge final tuning
   margins.
 - **Command link:** the smart-serial exchange happens once per servo period,
