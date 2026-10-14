@@ -18,3 +18,10 @@
 
 /* Firmware requires GCC 5+; macOS cc is Clang with __GNUC__ 4. */
 #define STMBL_HOST 1
+
+/* On the drive printf goes to the USB serial port (_write in
+ * src/syscalls.c). Route it through host/cdc_host.c, so the simulated drive
+ * can send it to its pty. */
+#include <stdio.h>
+int stmbl_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#define printf stmbl_printf

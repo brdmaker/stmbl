@@ -12,38 +12,37 @@ CC     ?= cc
 ROOT    = ..
 GEN     = gen
 
-# Portable control components: the V4 SHARED_COMPS set from ../base.mak. 'term'
-# (the USB console / scope channel) is included via the host CDC shim in shim/.
-COMPS = \
-  sim svm vel rev hal_test ypid fault pid spid pe \
-  pmsm_limits pmsm_ttc dc_limits dc_ttc acim_ttc uvw fanuc fb_switch reslimit \
-  iit vel_int linrev psi stp uf2 ramp scale idx_home move not and or jog \
-  velbuf avg mux veltopos debounce pos_filter rl mad sensorless field gain \
-  rlpsij veltime mpid fmove home en th motsim term \
-  idm idpmsm ids iddc
+include lcnc/comps.mak
 
-COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS)))
-COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS)))
+COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS))) \
+            $(addprefix hw/,$(addsuffix .c,$(HW_COMPS))) $(ROOT)/src/comps/conf.c
+COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS) $(HW_COMPS) conf))
 
-CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c
-HOST_SRCS = main.c cdc_host.c
-ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c
+# Config templates for 'link', as in the firmware, plus the sim-only board.
+TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
+
+CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
+            $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c
+# Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
+DRIVE_SRCS = drive.c cdc_host.c pty.c
+HOST_SRCS = main.c $(DRIVE_SRCS)
+ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 
 # Sources scanned by create_cmd.py for COMMAND() registrations.
 CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS)
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
-INCLUDES = -Ishim -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
+INCLUDES = -Ishim -I. -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
 CFLAGS  ?= -O1 -g
 # -Wno-format: the firmware's printf formats target a 32-bit-long ABI (ARM);
 # they are harmless on the host and only affect a few diagnostic prints.
-CFLAGS  += -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv \
+CFLAGS  += -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv -D_GNU_SOURCE \
            -include host_compat.h $(INCLUDES)
-LDLIBS   = -lm
+LDLIBS   = -lm -lpthread
 
 all: stmbl_host servoterm
 
-stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(GEN)/hal_tbl.c $(ALL_SRCS)
+stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
 
 # CLI servoterm: standalone, no firmware sources, no special includes.
@@ -52,6 +51,15 @@ servoterm: servoterm.c
 
 $(GEN)/%_comp.h: $(ROOT)/shared/comps/%.c | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
+
+$(GEN)/%_comp.h: hw/%.c | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
+
+$(GEN)/conf_comp.h: $(ROOT)/src/comps/conf.c | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
+
+$(GEN)/conf_templates.c: $(TEMPLATES) $(ROOT)/tools/create_config.py | $(GEN)
+	@$(PYTHON) $(ROOT)/tools/create_config.py $@ $(TEMPLATES)
 
 $(GEN)/hal_tbl.c: $(COMP_SRCS) | $(GEN)
 	@$(PYTHON) $(ROOT)/tools/create_hal_tbl.py $@ $(COMP_SRCS)
@@ -65,6 +73,8 @@ $(GEN):
 test: all
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
+	@for f in examples/drive_*.txt; do echo "=== $$f ==="; \
+	  ./stmbl_host --drive $(ROOT)/hwtest/burnin/ECMA-C30604FS/stmbl.conf $$f | grep -v "^OK \|^not found"; done
 
 clean:
 	rm -rf $(GEN) stmbl_host servoterm

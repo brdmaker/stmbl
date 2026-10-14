@@ -1,0 +1,17 @@
+# sim only: parsed by host/drive.c after the drive config.
+# The simulated motor (hv0.sim_*) and encoder (enc_fb0.sim_*)
+# follow conf0. Override with --sim FILE (stmbl_host) or
+# sim=FILE (LinuxCNC stmbl_sim), e.g. hv0.sim_load = -0.2
+hv0.sim_r = conf0.r
+hv0.sim_l = conf0.l
+hv0.sim_psi = conf0.psi
+hv0.sim_pp = conf0.polecount
+hv0.sim_j = conf0.j
+hv0.sim_d = conf0.d
+hv0.sim_f = conf0.f
+hv0.sim_phase_rev = conf0.out_rev
+hv0.sim_brake_release = io0.out0
+hv0.sim_udc = 300
+enc_fb0.sim_pos = hv0.sim_pos
+enc_fb0.sim_rev = conf0.mot_fb_rev
+enc_fb0.sim_index = conf0.mot_fb_offset

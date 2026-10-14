@@ -29,61 +29,32 @@
 #include "hal.h"
 #include "commands.h"
 #include "usbd_cdc_if.h"
+#include "drive.h"
+#include "pty.h"
+#include "sim_io.h"
 
-// rt = 5 kHz control loop, frt = 20 kHz fast loop (same rates as the firmware).
-#define RT_PERIOD 0.0002f
-#define FRT_PERIOD 0.00005f
-#define FRT_PER_RT 4  // FRT_PERIOD * FRT_PER_RT == RT_PERIOD
-#define RT_PER_NRT 5  // device runs nrt at ~1 kHz, rt at 5 kHz
+#include <time.h>
 
-// 1 kHz millisecond counter that the firmware exposes via SysTick.
-volatile uint64_t systime = 0;
-static double sim_time_s  = 0.0;
+extern volatile uint64_t systime;
 
-// In serve mode, nrt is run periodically while time advances, so the 'term'
-// component drains and emits scope frames continuously (as on the device).
-static int serve_mode  = 0;
-static int nrt_divider = 0;
+// --- LinuxCNC side of the smart-serial link (drive mode) --------------------
+// Stands in for the LinuxCNC servo thread: once per ms it sends the held
+// command, and pos_cmd advances by vel_cmd (a constant-velocity jog).
+static int lcnc_on = 0;
+static int rt_count = 0;
 
-// --- Low-level hardware stubs -----------------------------------------------
-// On the STM32 these read the SysTick peripheral; here we only need a non-zero
-// frequency so the HAL's timing-statistics math does not divide by zero.
-uint32_t hal_get_systick_value(void) {
-  return 0;
-}
-uint32_t hal_get_systick_reload(void) {
-  return 0xFFFFFF;
-}
-uint32_t hal_get_systick_freq(void) {
-  return 168000000;  // matches the F4 HCLK
-}
-void hal_init_watchdog(float time) {
-  (void)time;
-}
-void hal_reset_watchdog(void) {
-}
-void Wait(uint32_t ms) {
-  (void)ms;
-}
-
-// --- Software tick loop -----------------------------------------------------
-static void tick_rt_cycle(void) {
-  for(int i = 0; i < FRT_PER_RT; i++) {
-    hal_run_frt();
-    sim_time_s += FRT_PERIOD;
-  }
-  hal_run_rt();
-  systime = (uint64_t)(sim_time_s * 1000.0);
-
-  if(serve_mode && ++nrt_divider >= RT_PER_NRT) {
-    nrt_divider = 0;
-    hal_run_nrt();  // drains/streams scope frames during a run, like the device
-  }
+static void lcnc_servo(void) {
+  sim_sserial_io_t *io = &sim_sserial_io;
+  io->pos_cmd += io->vel_cmd * 0.001;
+  io->seq++;
 }
 
 static void run_cycles(long n) {
   for(long i = 0; i < n; i++) {
-    tick_rt_cycle();
+    if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
+      lcnc_servo();
+    }
+    drive_tick();
   }
 }
 
@@ -110,9 +81,31 @@ COMMAND("nrt", cmd_nrt, "run one non-realtime pass");
 
 void cmd_time(char *ptr) {
   (void)ptr;
-  printf("sim time: %.6f s (%llu ms)\n", sim_time_s, (unsigned long long)systime);
+  printf("sim time: %.6f s (%llu ms)\n", drive_time(), (unsigned long long)systime);
 }
 COMMAND("time", cmd_time, "print simulated time");
+
+void cmd_lcnc(char *ptr) {
+  sim_sserial_io_t *io = &sim_sserial_io;
+  int en;
+  float vel, pos;
+  int n = sscanf(ptr, " %i %f %f", &en, &vel, &pos);
+  if(n >= 1) {
+    lcnc_on    = 1;
+    io->enable = en > 0;
+  }
+  if(n >= 2) {
+    io->vel_cmd = vel;
+  }
+  if(n >= 3) {
+    io->pos_cmd = pos;
+  }
+  if(n < 1) {
+    printf("lcnc: en %i pos_cmd %f vel_cmd %f pos_fb %f vel_fb %f fault %i\n",
+           io->enable, io->pos_cmd, io->vel_cmd, io->pos_fb, io->vel_fb, io->fault);
+  }
+}
+COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd]], or show feedback");
 
 void cmd_exit(char *ptr) {
   (void)ptr;
@@ -160,7 +153,8 @@ static int run_script(FILE *in) {
 // 'run'/'step', and nrt (scope drain) is interleaved while it does.
 static int serve(void) {
   setvbuf(stdout, NULL, _IONBF, 0);
-  serve_mode = 1;
+  drive_set_nrt(1);
+  cdc_host_set_mode(CDC_STDIO);
   cdc_host_set_connected(1);
   load_comp(comp_by_name("term"));  // term0: the comms / scope channel
 
@@ -172,16 +166,60 @@ static int serve(void) {
   return 0;
 }
 
+// Drive mode, in real time: the console is on a pty, and time advances by
+// itself at 1 ms per ms. Nothing plays LinuxCNC, so the drive shows a command
+// error, as a real drive does with LinuxCNC not running.
+static int drive_realtime(void) {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  for(;;) {
+    for(int i = 0; i < RT_PER_NRT; i++) {
+      drive_tick();
+    }
+    t.tv_nsec += 1000000;
+    if(t.tv_nsec >= 1000000000) {
+      t.tv_nsec -= 1000000000;
+      t.tv_sec++;
+    }
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
+  }
+  return 0;
+}
+
+static void usage(void) {
+  fprintf(stderr,
+          "usage: stmbl_host [SCRIPT]                 run a script (or stdin)\n"
+          "       stmbl_host --serve                  device wire protocol on stdin/stdout\n"
+          "       stmbl_host --drive CONF [--sim FILE] [--pty LINK] [SCRIPT]\n"
+          "  --drive CONF  boot a simulated drive from CONF, its flash config\n"
+          "                (with --pty, flashsaveconf writes back to CONF)\n"
+          "  --sim FILE    sim-only settings, parsed after host/sim_board.txt\n"
+          "  --pty LINK    real time, console on a pty symlinked at LINK;\n"
+          "                without it, SCRIPT drives the clock (step/run)\n");
+}
+
 // --- Main -------------------------------------------------------------------
 int main(int argc, char **argv) {
   hal_init(RT_PERIOD, FRT_PERIOD);
   hal_set_debug_level(0);
 
   const char *script = NULL;
+  const char *conf   = NULL;
+  const char *sim    = NULL;
+  const char *pty    = NULL;
   int do_serve       = 0;
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "--serve") == 0) {
       do_serve = 1;
+    } else if(strcmp(argv[i], "--drive") == 0 && i + 1 < argc) {
+      conf = argv[++i];
+    } else if(strcmp(argv[i], "--sim") == 0 && i + 1 < argc) {
+      sim = argv[++i];
+    } else if(strcmp(argv[i], "--pty") == 0 && i + 1 < argc) {
+      pty = argv[++i];
+    } else if(argv[i][0] == '-' && argv[i][1]) {
+      usage();
+      return 1;
     } else {
       script = argv[i];
     }
@@ -189,6 +227,35 @@ int main(int argc, char **argv) {
 
   if(do_serve) {
     return serve();
+  }
+
+  if(conf) {
+    char *text = sim_read_file(conf);
+    if(!text) {
+      fprintf(stderr, "cannot read %s\n", conf);
+      return 1;
+    }
+    drive_set_flash(text);
+    free(text);
+    if(sim) {
+      char *extra = sim_read_file(sim);
+      if(!extra) {
+        fprintf(stderr, "cannot read %s\n", sim);
+        return 1;
+      }
+      drive_set_sim_extra(extra);
+      free(extra);
+    }
+    drive_set_nrt(1);
+    if(pty) {
+      if(sim_io_start(pty, conf) < 0) {
+        return 1;
+      }
+      drive_boot();
+      fprintf(stderr, "simulated drive on %s\n", pty);
+      return drive_realtime();
+    }
+    drive_boot();
   }
 
   FILE *in = stdin;

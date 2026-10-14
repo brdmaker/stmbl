@@ -274,3 +274,58 @@ Entry format:
   in +. Hint: if id_pmsm's pole pairs are not a plausible integer for the
   motor, or catches repeat at a non-integer fraction of a rev, check
   mot_fb_res against the encoder datasheet.
+
+## 2026-10-14  vel_int keeps an extrapolated overshoot when a move stops
+- Area:    `shared/comps/vel_int.c` (sserial template: `vel_int0`)
+- Status:  Open (seen in the simulated drive; not yet checked on hardware)
+- Symptom: After a move stops, the drive holds a position offset from
+  LinuxCNC's `pos_cmd`: 15 mrad (0.024 mm) after a 19.7 rad/s jog in
+  `host/examples/drive_jog.txt`; LinuxCNC on the sim shows ~0.016 mm ferror
+  after each G0. `pid0.pos_error` itself is ~0.
+- Cause:   `vel_int` extrapolates `pos_in` by `vel_in` between updates and
+  only resets to `pos_in` when it changes (`EDGE(p)`). If the last update of a
+  move has vel != 0 and the next one repeats the same position with vel = 0,
+  the extrapolation over that 1 ms (minus the 0.2 ms first cycle) stays.
+- Fix:     Idea: also reset to `pos_in` when `vel_in` changes, or on the first
+  cycle with `vel_in` == 0. Check the standstill ferror on the real drive first.
+
+## 2026-10-14  Simulated drive: what differs from the real one
+- Area:    `host/hw/*.c`, `host/drive.c`, `host/lcnc/`
+- Status:  Note
+- Symptom: n/a. The sim runs the drive's own config and control comps, but:
+  hv (F3) is modelled as curpid at 20 kHz + a PMSM at 80 kHz, without PWM
+  delay, dead time, ADC noise or the F3 packet delay; the encoder is ideal
+  (exact counts, index); no hv/thermal faults; `hv0.dc_cur` doesn't exist on
+  the real hv either, so it is left out. `pe`/`velbuf`/`res` links fail the
+  same way as on the drive ("not found").
+- Cause:   by design.
+- Fix:     n/a. Two gotchas from building it: the drive's HAL symbols
+  (`hal_init`, ...) clash with LinuxCNC's, so `host/lcnc/Makefile` makes all
+  but the `stmbl_sim_*` API local with objcopy; and the sim's printf buffer
+  must hold a whole `showconf` (15 kB), or `servoterm-cli --dump` is cut off.
+
+## 2026-10-14  linuxcnc started without a tty: output only in /tmp, deleted on success
+- Area:    `/usr/bin/linuxcnc` (LinuxCNC 2.9.1), headless tests
+- Status:  Known
+- Symptom: `linuxcnc stmbl.ini > log` from a script leaves an empty log. With
+  `$DISPLAY` set, a failed start pops the error-report dialog on the desktop.
+- Cause:   Without a tty the script redirects to `/tmp/linuxcnc.{print,debug}.*`
+  and only copies them to `~/linuxcnc_{print,debug}.txt` on failure. The
+  DISPLAY program is started as `<DISPLAY> -ini <file>`.
+- Fix:     For headless tests: `env -u DISPLAY linuxcnc ...`, a display program
+  that ignores its arguments and writes its own result file.
+
+## 2026-10-14  idm inertia reads high by a constant: current-loop lag
+- Area:    `shared/comps/idm.c` (least-squares fit), `conf0.cur_bw`
+- Status:  Open (found in the simulated drive)
+- Symptom: `link id_mot` on the simulated ECMA motor (tuned config,
+  `cur_bw` 1000) reports j = true + ~0.000045 kg*m^2 at any true j
+  (0.00003 -> 0.000075, 0.0003 -> 0.000349). f, d and o come out right.
+  The bench motor measured 0.000044 against a 0.000030 datasheet value.
+- Cause:   The fit relates the commanded torque (`pid0.torque_cmd`) to the
+  measured acceleration, but the real torque lags it (current loop
+  bandwidth, one rt cycle to the F3). With `cur_bw` 4000 the error drops to
+  +0.000013.
+- Fix:     Idea: fit against the torque from the measured current
+  (`hv0.iq_fb` * 1.5 * polecount * psi) instead of the command, or delay the
+  command by the loop lag before fitting. Check with the sim first.

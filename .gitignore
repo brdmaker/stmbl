@@ -33,6 +33,14 @@ host/stmbl_host
 host/servoterm
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/
+host/lcnc/gen
+host/lcnc/obj
+host/lcnc/*.so
+host/lcnc/*.tmp
+host/lcnc/*.sym
+host/lcnc/*.ver
+hwtest/burnin-sim/sim.conf.tmp
+hwtest/burnin-sim/conf-backup-*.txt
 
 
 # Ignore list for Eagle, a PCB layout tool
