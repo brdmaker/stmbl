@@ -412,14 +412,24 @@ Entry format:
 
 ## 2026-10-14  idpmsm L reads about 4x high
 - Area:    `shared/comps/idpmsm.c` (state 1.3)
-- Status:  Open
-- Symptom: Simulated drive, true L 0.023 H: id_pmsm prints l = 0.091. The
+- Status:  Fixed (simulated drive; not yet run on hardware)
+- Symptom: Simulated drive, true L 0.023 H: id_pmsm printed l = 0.091. The
   bench motor read 0.023 against a 6.71 mH datasheet value (3.4x).
-- Cause:   Not checked. The method toggles ud between 1.5x and 0.5x every rt
-  cycle and takes L = dU / dI * period from the averaged currents of the two
-  halves. Those are the ripple's peaks, so even ideally dI is the
-  peak-to-peak ripple, U*T/(2L): the estimate is 2L. The rest is probably
-  the sample timing (current lag, the one-cycle delay).
-- Fix:     Idea: model the ripple exactly (include the factor 2 and the
-  delay), or fit L from a single voltage step's current slope. Test on the
-  simulated drive (voltage mode works there now).
+- Cause:   ud toggled every rt cycle, and L came from the mean currents of
+  the two halves: L = dU / dI * period. That assumes the current is sampled
+  exactly at the ripple's peaks, and even then dI is the peak-to-peak
+  ripple, U*T/(2L), so the result is at least 2L. The sim samples 3/4 into
+  the cycle, which halves the measured swing again: 4L. The real F3's
+  sample timing gave 3.4x.
+- Fix:     Square wave with `l_half` (8) rt cycles per half. From each pair of
+  samples at the same voltage, l * di = period * (u - r * i_mean), so
+  l = (u_hi - u_lo - r * (i_hi - i_lo)) / (slope_hi - slope_lo), with the
+  voltage per sample taken from ud_fb (it comes with id_fb) and pairs near
+  a switch skipped. Sample timing and feedback delay don't change slopes.
+  Simulated drive, L 0.1 mH..100 mH (L/R 0.4..20 ms), 0..2 cycles delay,
+  up to +-0.1 A noise: within 1.5% (0.2% for the bench motor). Full
+  id_pmsm with delay and noise: `host/examples/drive_id_pmsm.txt`.
+  On the bench expect about 0.0067 if the datasheet's 6.71 mH is the dq
+  inductance, or about 0.0034 if it is line to line. The bench config has
+  conf0.l = 0.023, so its current loop (kp = cur_bw * l) runs about 3x
+  faster than cur_bw says; after re-measuring, raise cur_bw if needed.

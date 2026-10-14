@@ -1,0 +1,20 @@
+# id_pmsm (conf/template/id_pmsm.txt) on the simulated drive, booted
+# from the tuned bench config, with one rt cycle of current feedback
+# delay and +-0.02 A current noise. The simulated motor is the config's:
+# r 2.1517, l 0.022957, polecount 5, psi 0.047433; index at
+# conf0.mot_fb_offset. fault0.cmd_error = 0 / fault0.en = 1 stand in
+# for LinuxCNC.
+# Expected: r ~ 2.154, l ~ 0.0229 (the old toggle method read 0.094),
+# polecount 5, mot_fb_offset = -0.6308 + k * 2pi/5, psi ~ 0.0474.
+hv0.sim_fb_delay = 1
+hv0.sim_cur_noise = 0.02
+debug_level 1
+link id_pmsm
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 40

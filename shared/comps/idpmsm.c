@@ -52,10 +52,24 @@ HAL_PIN(tmp1);
 HAL_PIN(tmp2);
 HAL_PIN(tmp3);
 HAL_PIN(avg_test_volt);
+HAL_PIN(l_half);  // L step: rt cycles per half of the square wave
+
+// L step: current slope and voltage, summed per half (high / low voltage)
+struct idpmsm_ctx_t {
+  float prev_u;   // previous sample
+  float prev_i;
+  int run;        // samples in a row at the same voltage
+  int n[2];       // [0] low, [1] high
+  float di[2];    // sum of the current steps between samples
+  float u[2];     // sum of the applied voltage
+  float i[2];     // sum of the mean current between two samples
+  unsigned cycle;
+};
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //struct idpmsm_ctx_t * ctx = (struct idpmsm_ctx_t *)ctx_ptr;
   struct idpmsm_pin_ctx_t *pins = (struct idpmsm_pin_ctx_t *)pin_ptr;
+  PIN(l_half) = 8.0;
   PIN(test_cur) = 3.0;
   PIN(test_vel) = 50.0;
   PIN(ki) = 1.0;
@@ -162,7 +176,7 @@ static void nrt(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  //struct idpmsm_ctx_t * ctx = (struct idpmsm_ctx_t *)ctx_ptr;
+  struct idpmsm_ctx_t * ctx = (struct idpmsm_ctx_t *)ctx_ptr;
   struct idpmsm_pin_ctx_t *pins = (struct idpmsm_pin_ctx_t *)pin_ptr;
 
   if(PIN(en) <= 0.0){
@@ -200,10 +214,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(state) = 1.3;
         PIN(d_cmd) = 0.0;
         PIN(en_out) = 0.0;
-        PIN(tmp0) = 0.0;  // the L step's averages, low and high voltage
-        PIN(tmp1) = 0.0;
-        PIN(tmp2) = 0.0;
-        PIN(tmp3) = 0.0;
+        ctx->run   = 0;  // the L step's sums
+        ctx->cycle = 0;
+        for(int k = 0; k < 2; k++) {
+          ctx->n[k]  = 0;
+          ctx->di[k] = 0.0;
+          ctx->u[k]  = 0.0;
+          ctx->i[k]  = 0.0;
+        }
 
         PIN(avg_test_volt) = PIN(test_cur) * MAX(PIN(r), 0.01);
         PIN(avg_test_volt) = LIMIT(PIN(avg_test_volt), PIN(pwm_volt) / 2.0);
@@ -215,28 +233,54 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(cmd_mode) = 0.0;
       PIN(q_cmd) = 0.0;
       PIN(cur_bw) = 1.0;
-      
-      //PIN(l) = PIN(l) * 0.995 + ABS(PIN(ud_fb) - avg_test_volt / 2.0) / MAX(ABS(PIN(id_fb) - PIN(test_cur)), 0.001) * period * 0.005;
-      if(PIN(d_cmd) < PIN(avg_test_volt)){
-        PIN(tmp0) = PIN(tmp0) * 0.99 + PIN(id_fb) * 0.01;
-        PIN(tmp1) = PIN(tmp1) * 0.99 + PIN(ud_fb) * 0.01;
-        PIN(d_cmd) = PIN(avg_test_volt) * 1.5;
-      }
-      else{
-        PIN(tmp2) = PIN(tmp2) * 0.99 + PIN(id_fb) * 0.01;
-        PIN(tmp3) = PIN(tmp3) * 0.99 + PIN(ud_fb) * 0.01;
-        PIN(d_cmd) = PIN(avg_test_volt) * 0.5;
+
+      // Square wave in ud, l_half rt cycles at 1.5x then 0.5x the voltage that
+      // drives test_cur. Between two samples at the same voltage,
+      // l * di = period * (u - r * i), with i the mean current in between, so
+      //   l = (u_high - u_low - r * (i_high - i_low)) / (di/dt_high - di/dt_low).
+      // The r term is small when the halves are short against l / r, and a
+      // delay of the current sample doesn't change a slope. Each sample's voltage is ud_fb, which comes with id_fb from the
+      // F3; a pair of samples counts once the voltage has been the same for
+      // three samples, so pairs that straddle a switch are left out.
+      // (Before, ud toggled every cycle and l came from the two halves' mean
+      // currents, which assumes the current is sampled exactly at the ripple
+      // peaks: it read 2x to 4x high, depending on the sample timing.)
+      {
+        int half = MAX((int)PIN(l_half), 2);
+        PIN(d_cmd) = PIN(avg_test_volt) * (((ctx->cycle++ / half) & 1) ? 0.5 : 1.5);
+
+        float u = PIN(ud_fb);
+        float i = PIN(id_fb);
+        if(ABS(u - ctx->prev_u) < 0.05 * PIN(avg_test_volt)) {
+          ctx->run++;
+        } else {
+          ctx->run = 0;
+        }
+        if(ctx->run >= 2) {
+          int k = u > PIN(avg_test_volt);
+          ctx->n[k]++;
+          ctx->di[k] += i - ctx->prev_i;
+          ctx->u[k] += u;
+          ctx->i[k] += (i + ctx->prev_i) * 0.5;
+        }
+        ctx->prev_u = u;
+        ctx->prev_i = i;
       }
 
       PIN(timer) += period;
       if(PIN(timer) >= 1.0){
-        PIN(l) = ABS(PIN(tmp1) - PIN(tmp3)) / ABS(PIN(tmp0) - PIN(tmp2)) * period;
+        if(ctx->n[0] > 0 && ctx->n[1] > 0) {
+          float ds = (ctx->di[1] / ctx->n[1] - ctx->di[0] / ctx->n[0]) / period;
+          float du = ctx->u[1] / ctx->n[1] - ctx->u[0] / ctx->n[0];
+          du -= PIN(r) * (ctx->i[1] / ctx->n[1] - ctx->i[0] / ctx->n[0]);
+          if(ds > 0.0) {
+            PIN(l) = du / ds;
+          }
+        }
         PIN(timer) = 0.0;
         PIN(state) = 1.4;
         PIN(d_cmd) = PIN(avg_test_volt);
         PIN(en_out) = 0.0;
-        // PIN(tmp0) = 0.0;
-        // PIN(tmp1) = 0.0;
       }
     break;
 
@@ -345,6 +389,6 @@ hal_comp_t idpmsm_comp_struct = {
     .frt_start = 0,
     .rt_stop   = 0,
     .frt_stop  = 0,
-    .ctx_size  = 0,//sizeof(struct idpmsm_ctx_t),
+    .ctx_size  = sizeof(struct idpmsm_ctx_t),
     .pin_count = sizeof(struct idpmsm_pin_ctx_t) / sizeof(struct hal_pin_inst_t),
 };
