@@ -58,7 +58,7 @@ int rb_read(struct ringbuf *rb, void *data, int len) {
 
   rb->len -= len;
   rb->pos += len;
-  if(rb->pos > rb->bufsize)
+  if(rb->pos >= rb->bufsize)  // was '>': pos could stay at bufsize, one past the end
     rb->pos -= rb->bufsize;
 
   return len;

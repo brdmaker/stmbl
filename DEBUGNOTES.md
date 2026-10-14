@@ -370,3 +370,12 @@ Entry format:
   stays). Now 0 own warnings in all three builds. The 7 left are in `lib/`
   (CMSIS `sp` clobber, USB `packed` attribute, F3 HAL `CLEAR_BIT` on IDR)
   and are left alone.
+
+## 2026-10-14  rb_read leaves pos at bufsize after a read to the end
+- Area:    `shared/ringbuf.c` (`rb_read`)
+- Status:  Fixed
+- Symptom: none seen; found while reworking rb_getline.
+- Cause:   `if(pos > bufsize)` instead of `>=`: a read that ends exactly at the
+  end of the buffer leaves pos = bufsize. rb_read itself copes on the next
+  call, but rb_getc then reads buf[bufsize], one byte past the buffer.
+- Fix:     `>=`.
