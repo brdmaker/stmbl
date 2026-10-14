@@ -90,8 +90,11 @@ static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(cdc_is_connected()) {
     char rx_buf[64];
-    if(cdc_getline(rx_buf, sizeof(rx_buf))) {
+    int n = cdc_getline(rx_buf, sizeof(rx_buf));
+    if(n > 0) {
       hal_parse(rx_buf);
+    } else if(n < 0) {
+      printf("error: line too long, max %i chars, dropped\n", (int)sizeof(rx_buf) - 1);
     }
   }
 }

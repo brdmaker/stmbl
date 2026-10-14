@@ -98,21 +98,41 @@ int rb_write(struct ringbuf *rb, const void *data, int len) {
 }
 
 int rb_getline(struct ringbuf *rb, char *ptr, int len) {
-  int ret = 0;
   char c;
-  if(rb->len == 0) {
-    return 0;
-  }
 
-  while(rb_getc(rb, &c) && ret < len) {
-    ret++;
-    *ptr++ = c;
+  // still dropping the rest of a line that was too long
+  while(rb->skip) {
+    if(!rb_getc(rb, &c)) {
+      return 0;
+    }
     if(c == '\n') {
-      *--ptr = '\0';
-      return ret;
+      rb->skip = 0;
     }
   }
-  rb_undo(rb, ret);
+
+  // Look for the end of the line without consuming anything, so an
+  // incomplete line stays in place (no rb_undo while the writer adds to it).
+  unsigned avail = rb->len;
+  unsigned n     = avail < (unsigned)len ? avail : (unsigned)len;
+  unsigned p     = rb->pos;
+  for(unsigned i = 0; i < n; i++) {
+    if(rb->buf[p] == '\n') {
+      rb_read(rb, ptr, i + 1);
+      ptr[i] = '\0';
+      return i + 1;
+    }
+    if(++p >= rb->bufsize) {
+      p = 0;
+    }
+  }
+
+  // len bytes and no '\n': the line can never fit. Drop it, up to and
+  // including its '\n', instead of keeping it at the head of the buffer
+  // (which blocked every later line).
+  if(avail >= (unsigned)len) {
+    rb->skip = 1;
+    return -1;
+  }
   return 0;
 }
 

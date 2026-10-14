@@ -109,7 +109,7 @@ Entry format:
 
 ## 2026-10-14  Command lines >= 64 bytes jam the drive's USB input
 - Area:    `shared/comps/term.c` (`rx_buf[64]`), `shared/ringbuf.c` (`rb_getline`)
-- Status:  Known
+- Status:  Fixed (firmware; servoterm-cli keeps its limits for older firmware)
 - Symptom: After sending a command line of 64+ bytes (including `\n`), the
   drive ignores that line and every line after it.
 - Cause:   `rb_getline` only returns a line that fits in `len`. Otherwise it
@@ -117,10 +117,14 @@ Entry format:
   head of the ring buffer for good. `call_cmd()` also caps the command name
   and argument at 64 chars each, and its argument stops at the first
   non-printable char (`%[ -~]`), so a tab cuts an `appendconf` line short.
-- Fix:     Not fixed in firmware. `servoterm-cli --load` rejects config lines
-  over 52 chars (63 - len("appendconf ")) and turns tabs into spaces. A
-  firmware fix would discard the line when the buffer is full and no `\n`
-  has come.
+- Fix:     rb_getline looks for the '\n' without consuming, so a partial line
+  stays in place (no rb_undo). A line with no '\n' in len bytes is dropped up
+  to and including its '\n' (ringbuf.skip), and rb_getline returns -1; term
+  prints "error: line too long, max 63 chars, dropped". The old loop also
+  consumed one byte more than it rewound. Tested on the simulated drive's
+  pty: 90- and 250-char lines are dropped with the error, the next lines
+  work, a 63-char line still works. `call_cmd()`'s 64-char caps on name and
+  argument are unchanged, so servoterm-cli's 52-char appendconf limit stays.
 
 ## 2026-10-14  Drive loses bytes when a command arrives split across USB packets
 - Area:    `shared/ringbuf.c` (`rb_putc` vs `rb_getc`/`rb_undo`), `src/usb_cdc.c`
