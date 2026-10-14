@@ -22,6 +22,7 @@ idpmsm0.iq_fb = hv0.iq_fb
 idpmsm0.pwm_volt = hv0.pwm_volt
 
 idpmsm0.pos_fb = fb_switch0.mot_abs_fb_no_offset
+idpmsm0.fb_rev = conf0.mot_fb_rev
 idpmsm0.vel_fb = vel1.vel
 
 idpmsm0.vel_fb = vel1.vel

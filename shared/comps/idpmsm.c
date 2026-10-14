@@ -28,6 +28,9 @@ HAL_PIN(l);
 HAL_PIN(pp);
 HAL_PIN(com_offset);
 HAL_PIN(out_rev);
+// conf0.mot_fb_rev. pos_fb comes reversed by fb_switch, and fb_switch also
+// reverses mot_fb_offset, so the printed offset must be reversed too.
+HAL_PIN(fb_rev);
 
 HAL_PIN(test_cur);
 HAL_PIN(test_vel);
@@ -121,7 +124,7 @@ static void nrt(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
     case 25: // pp, out_rev, com_offset
       printf("conf0.polecount = %f <font color='green'># append to config</font>\n", PIN(pp));
-      printf("conf0.mot_fb_offset = %f <font color='green'># append to config</font>\n", PIN(com_offset));
+      printf("conf0.mot_fb_offset = %f <font color='green'># append to config</font>\n", PIN(fb_rev) > 0.0 ? -PIN(com_offset) : PIN(com_offset));
       if(PIN(out_rev) > 0.0){
         printf("conf0.out_rev = 1 <font color='green'># append to config</font>\n");
       }

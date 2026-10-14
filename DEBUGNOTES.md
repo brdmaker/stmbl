@@ -388,3 +388,19 @@ Entry format:
   end of the buffer leaves pos = bufsize. rb_read itself copes on the next
   call, but rb_getc then reads buf[bufsize], one byte past the buffer.
 - Fix:     `>=`.
+
+## 2026-10-14  idpmsm prints mot_fb_offset with the wrong sign when mot_fb_rev = 1
+- Area:    `shared/comps/idpmsm.c` (state 2.5 print), `shared/comps/fb_switch.c`
+- Status:  Fixed (simulated drive; not yet run on hardware)
+- Symptom: Simulated drive, tuned bench config (mot_fb_rev = 1), id_pmsm at
+  several encoder index positions, then the printed offset put in the
+  config: commutation error -0.05, -0.44, +0.40, -2.44, -1.17 rad electrical
+  depending on the index. The bench motor's -0.6308 happens to be about
+  -pi/5, where the sign doesn't matter (offset = -offset mod 2pi/5).
+- Cause:   idpmsm commutes with (pos_fb + offset) * pp, where pos_fb
+  (fb_switch0.mot_abs_fb_no_offset) is already reversed. fb_switch reverses
+  mot_fb_offset together with the position: (pos_fb - offset) * pp.
+- Fix:     idpmsm gets `fb_rev` (id_pmsm.txt: conf0.mot_fb_rev) and prints the
+  offset negated when it is set. Error is now 0.021 rad at every index
+  position (the lock is held off by friction). Re-run id_pmsm on any motor
+  with mot_fb_rev = 1 whose offset is not near a multiple of pi/polecount.
