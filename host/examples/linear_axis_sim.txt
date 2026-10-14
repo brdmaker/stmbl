@@ -1,0 +1,5 @@
+# 1 m stroke around the start, one reference mark near the home end
+hv0.sim_min_pos = -52.36
+hv0.sim_max_pos = 52.36
+enc_fb0.sim_ref_mode = 1
+enc_fb0.sim_ref_pos = -50

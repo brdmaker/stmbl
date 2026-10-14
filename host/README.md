@@ -284,8 +284,8 @@ use the same component and pin names as `src/comps/`:
 
 | Stand-in | Simulates |
 |---|---|
-| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply voltage. |
-| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3 |
+| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply voltage. `sim_abs_pos` is the unwrapped position; `sim_min_pos`/`sim_max_pos` (both 0 = off) are hard end stops for a linear axis, counted in `sim_stop_hits`. |
+| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3. `sim_ref_mode` 1 puts a single reference mark at `sim_ref_pos` on `sim_abs_pos` (a linear scale), 2 repeats it every `sim_ref_period` |
 | `hw/sserial.c` | smart-serial link to LinuxCNC; process data in `sim_io.h`, with timeout to `CMD error` as on the drive |
 | `hw/adc.c`, `hw/io.c` | pins only |
 | `src/comps/conf.c` | unchanged |
@@ -306,6 +306,25 @@ to test an autotune), override those pins with `--sim FILE`.
   `flashsaveconf` writes back to CONF, so `servoterm-cli --load ... -c reset`
   works as on the drive. Nothing plays LinuxCNC, so the drive shows
   `CMD error`, as a real drive does without LinuxCNC.
+
+### Linear motors
+
+The drive has no linear mode; a linear motor runs as a rotary one where one
+revolution is one electrical period (magnet pitch N-N). For a 60 mm period:
+`conf0.polecount = 1`, `conf0.mot_fb_res` = encoder counts per 60 mm (12000
+for a 5 um quadrature scale), `linrev0.scale = 60` so LinuxCNC works in mm.
+Motor constants convert with p/2pi (p = period in m): mass m gives
+`j = m (p/2pi)^2`, force constant Kf (N/A) gives `psi = Kf p / (3 pi)`
+(Kt = 1.5 psi per pole pair), friction F (N) gives `f = F p/2pi`, and
+`max_force` is the peak force times p/2pi.
+
+`examples/linear_axis.conf` with `--sim examples/linear_axis_sim.txt` is an
+ironless motor on a 1 m stroke with end stops and one reference mark at
+-477 mm (tests `linear_*.test`). It autophases at enable and switches to
+absolute commutation on the reference mark (`conf0.mot_fb_offset` = the
+encoder angle of the mark). `enc_fb` re-latches on every index pulse, so a
+scale with periodic marks whose pitch is not a multiple of the electrical
+period commutates wrong after the next mark (`linear_periodic_marks.test`).
 
 ## LinuxCNC module (`lcnc/`)
 

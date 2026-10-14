@@ -8,6 +8,11 @@
  * shared/comps/motsim.c) is integrated at 80 kHz. The sim_* pins describe the
  * simulated motor and supply; host/sim_board.txt links them to conf0 so the
  * simulated motor matches what the config says about it.
+ *
+ * Linear motors are simulated as rotary with one revolution = one electrical
+ * period (e.g. 60 mm): j = mass * (period / 2pi)^2. sim_min_pos / sim_max_pos
+ * (on sim_abs_pos, rad) are end stops: the carriage stops dead there, and
+ * sim_stop_hits counts the contacts. Both 0: no stops.
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -78,6 +83,10 @@ HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
+HAL_PIN(sim_abs_pos);    // mechanical position [rad], not wrapped (double inside)
+HAL_PIN(sim_min_pos);    // end stops on sim_abs_pos [rad] (both 0: none)
+HAL_PIN(sim_max_pos);
+HAL_PIN(sim_stop_hits);  // end stop contacts
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
@@ -97,6 +106,8 @@ struct hv_ctx_t {
   float iq_error_sum;
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
+  double abs_pos;  // sim_abs_pos (a float sum drifts over long travel)
+  int at_stop;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -251,7 +262,26 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_acc) = acc;
         PIN(sim_vel) = nv;
         PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
+        ctx->abs_pos += (v + nv) * 0.5 * mot_dt;
       }
+      // end stops: the carriage stops dead
+      if(PIN(sim_min_pos) != 0.0 || PIN(sim_max_pos) != 0.0) {
+        double lim = ctx->abs_pos < PIN(sim_min_pos) ? PIN(sim_min_pos) :
+                     ctx->abs_pos > PIN(sim_max_pos) ? PIN(sim_max_pos) : ctx->abs_pos;
+        if(lim != ctx->abs_pos) {
+          PIN(sim_pos) = mod(PIN(sim_pos) + (float)(lim - ctx->abs_pos));
+          ctx->abs_pos = lim;
+          PIN(sim_vel) = 0.0;
+          PIN(sim_acc) = 0.0;
+          if(!ctx->at_stop) {
+            PIN(sim_stop_hits) += 1.0;
+          }
+          ctx->at_stop = 1;
+        } else {
+          ctx->at_stop = 0;
+        }
+      }
+      PIN(sim_abs_pos) = ctx->abs_pos;
       PIN(sim_torque) = te;
     }
   }

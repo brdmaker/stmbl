@@ -15,3 +15,4 @@ hv0.sim_udc = 300
 enc_fb0.sim_pos = hv0.sim_pos
 enc_fb0.sim_rev = conf0.mot_fb_rev
 enc_fb0.sim_index = conf0.mot_fb_offset
+enc_fb0.sim_abs_pos = hv0.sim_abs_pos

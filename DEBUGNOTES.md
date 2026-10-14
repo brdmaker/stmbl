@@ -727,3 +727,25 @@ Entry format:
   a pipe is block-buffered, so replies sat in the buffer.
 - Fix:     `run_script` flushes stdout after each line read from stdin
   (file scripts unchanged).
+
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
+- Status:  Fixed
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
+
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
+- Status:  Known
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
