@@ -529,3 +529,13 @@ Entry format:
 - Fix:     Exchange, run the rt cycle in which sserial0 replies, then return
   that reply. The index handshake now compares against the current request.
   Soak cycle on the sim: ferror max 0.040 mm.
+
+## 2026-10-14  hwtest/burnin-sim/sim.txt was cut short by a 64-char line
+- Area:    `hwtest/burnin-sim/sim.txt`
+- Status:  Fixed
+- Symptom: The simulated bus stayed at 300 V although sim.txt set 297 V.
+- Cause:   A comment line in sim.txt was 64 characters; hal_parse stops
+  there (see "Config/template lines >= 64 chars"), so nothing after it was
+  applied. sim.txt is not a template, so the build-time check doesn't see it.
+- Fix:     Shorter lines (max 58), and the file now sets the bench motor as
+  measured (l 0.0049, r 2.3, j 0.00003) where the config differs.

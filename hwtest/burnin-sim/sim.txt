@@ -1,10 +1,16 @@
-# Sim-only HAL commands for the simulated drive, parsed after
-# host/sim_board.txt. That file makes the simulated motor match
-# conf0; change it here, e.g. to test an autotune against a motor
-# that differs from the config. Max 63 chars per line.
+# Sim-only HAL commands, parsed after host/sim_board.txt
+# (which makes the simulated motor match conf0). Set the
+# motor here where it differs from the config, e.g. to
+# test an autotune. Max 63 chars per line: a longer line
+# ends the parse.
 #
-# Datasheet ECMA-C30604FS inertia, with brake (conf0.j = 0.000044):
-# hv0.sim_j = 0.00003
+# Bench motor as measured 2026-10-14 (new id_pmsm/id_mot).
+# conf0.l 0.023 is from the old L method; the current loop
+# gain uses it, so on this motor that loop is ~4.7x faster
+# than cur_bw says.
+hv0.sim_l = 0.0049
+hv0.sim_r = 2.3
+hv0.sim_j = 0.00003
 # Constant load torque [Nm]:
 # hv0.sim_load = -0.2
 # Holding brake [Nm], engaged while io0.out0 = 0:
