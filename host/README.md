@@ -258,9 +258,11 @@ speed within 1.2 x vmax, phase current within max_ac_cur.
 `conf0.cur_ind = 1` is set: without back-EMF feedforward the current loop
 loses control at high electrical speed (see `DEBUGNOTES.md`).
 
-Four motors are known to fail with their `id_pid` gains (soft or underdamped
-tuning). They are marked `@todo` in the generator: TAP prints them as
-`not ok ... # TODO`, and they do not fail the run.
+Three motors are known to fail (see `DEBUGNOTES.md`, "id_pid tunes some
+motors too soft"): rx60_456 (id_pid tunes it soft), syn_torque_14p
+(underdamped), sgmph_01a1 (stick-slip at rest). They are marked `@todo` in
+the generator: TAP prints them as `not ok ... # TODO`, and they do not fail
+the run. `tests/drive_id_pid.test` checks id_pid itself on the spindle.
 
 ## Simulated drive
 

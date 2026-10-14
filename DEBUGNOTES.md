@@ -688,16 +688,42 @@ Entry format:
   high-speed use.
 
 ## 2026-10-14  id_pid tunes some motors too soft / underdamped
-- Area:    `shared/comps/ids.c` (id_pid), `host` soak (`make soak`)
-- Status:  Open
-- Symptom: With id_pid gains, 4 of 35 motors fail the soak: rx60_456
-  (vel_bw 113, ferror 1.1 rad), sgmph_01a1 (j 1.5e-6, vel_bw 77: position
-  error fault), syn_spindle (j 0.02, vel_bw 70, ferror 0.7 rad),
-  syn_torque_14p (vel_bw 77: speed rings to ~2x the command). rx60_456
-  passes with the bench gains (vel_bw 500).
-- Cause:   Not investigated. ids tunes on a gentle move (max_vel 100,
-  max_acc 1000, +-10 rad) and caps vel_bw at cur_bw / 2.
-- Fix:     Marked @todo in gen_soak_tests.py (TAP TODO, not fatal). With
-  the bench gains for all motors instead, heavy rotors chatter at the
-  current limit (encoder quantization x j x vel_bw), so per-motor tuning
-  is needed.
+- Area:    `shared/comps/ids.c` (id_pid), `conf/template/id_pid.txt`,
+           `host` soak (`make soak`)
+- Status:  Fixed (2 causes) / Known (3 motors)
+- Symptom: With id_pid gains, 4 of 35 motors failed the soak: rx60_456
+  (vel_bw 113), sgmph_01a1 (vel_bw 77, position error fault), syn_spindle
+  (vel_bw 70, pos_bw 8.5, ferror 0.7 rad), syn_torque_14p (vel_bw 77,
+  speed rings to 2x).
+- Cause:   (1) The first cycle starts from rest and costs far more or less
+  than later ones, and was compared with a fixed min_cost of
+  (max_pos - min_pos)^2 / max_vel * 100 = 400: the spindle's 577 cut vel_bw
+  at once; sgmph_01a1's and the torque motor's low first cycle made the
+  first step up look 20% worse. (2) The test move is fixed (100 rad/s,
+  1000 rad/s^2): the spindle needs 20 Nm (peak 14.4) and the torque motor
+  can only reach ~33 rad/s, so the loop saturates and the cost measures
+  that. Known: (3) id_pid supplies ideal velocity/acceleration
+  feedforward (ff = 1), so only noise is left and on rx60_456 it rises
+  with vel_bw past 133; through the real command path (LinuxCNC, vel0
+  feedforward) vel_bw 500 is 4x better. ff = 0.5 reaches vel_bw 500 but
+  drops pos_bw to ~8. (4) The search only lowers vel_d, from 10 to its
+  bound 1, and never revisits a parameter: the torque motor ends
+  underdamped (75% speed overshoot). (5) sgmph_01a1's rest error is
+  stick-slip (friction / j = 40000 rad/s^2), not tuning.
+- Fix:     (1) First cycle is a warm-up (`ids0.rep` cycles, default 1);
+  the first scored cycle sets min_cost. (2) New inputs ids0.max_torque,
+  ids0.j, ids0.mot_max_vel (linked to conf0.max_force, j, max_vel in
+  id_pid.txt) limit the move to half the motor's acceleration and speed;
+  `ids0.move_vel` / `move_acc` show what is used. Spindle now 500 / 32.2,
+  soak passes (`host/tests/drive_id_pid.test`). sgmph_01a1 and the torque
+  motor reach vel_bw 500. (3)-(5) are @todo in gen_soak_tests.py.
+
+## 2026-10-14  stmbl_host script mode on a pipe: replies stay buffered
+- Area:    `host/main.c` (`run_script`)
+- Status:  Fixed
+- Symptom: A program driving `stmbl_host --drive CONF` over stdin/stdout
+  (the soak generator's id_pid tuning) waited forever for a reply.
+- Cause:   Only serve mode set stdout unbuffered; in script mode stdout on
+  a pipe is block-buffered, so replies sat in the buffer.
+- Fix:     `run_script` flushes stdout after each line read from stdin
+  (file scripts unchanged).

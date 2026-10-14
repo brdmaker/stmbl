@@ -1,0 +1,39 @@
+# id_pid (conf/template/id_pid.txt, shared/comps/ids.c) on the simulated
+# drive with a heavy spindle-like motor (j 0.02, peak 14.4 Nm). Before the
+# fixes its first cycle (577) was compared with a fixed min_cost of 400, and
+# the fixed test move (1000 rad/s^2 = 20 Nm) saturated the drive: id_pid
+# ended at vel_bw 70, pos_bw 8.5 (ferror 0.7 rad in the soak). Now the
+# first cycle is a warm-up and the move is limited to half the motor's
+# torque (ids0.max_torque / ids0.j) and speed (ids0.mot_max_vel).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+conf0.r = 0.15
+conf0.l = 0.002
+conf0.psi = 0.12
+conf0.polecount = 2
+conf0.j = 0.02
+conf0.f = 0.288
+conf0.d = 0.000403
+conf0.max_ac_cur = 40
+conf0.max_force = 14.4
+conf0.max_vel = 320
+conf0.cur_ind = 1
+debug_level 1
+link id_pid
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 120
+ids0.state
+ids0.vel_bw
+ids0.pos_bw
+ids0.move_acc
+fault0.fault
+@expect ids0.state == 1.4
+@expect ids0.move_acc ~ 360 1%
+@expect ids0.vel_bw > 300
+@expect ids0.pos_bw > 20
+@expect fault0.fault == 0

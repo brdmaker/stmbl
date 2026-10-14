@@ -13,7 +13,8 @@ The profile (one cycle; --cycles repeats it), with vmax = half the
 voltage-limited speed (capped at 0.9 * max_vel) and amax = 40% of peak
 torque / j (capped at 3000 rad/s^2):
   hold, creep +-2% vmax, long trapezoids at vmax, medium moves, 10 reversals,
-  sines at 1, 5 and 20 Hz, 20 micro-steps, small velocity steps, a 2 s
+  sines at 1, 5 and 20 Hz, 20 micro-steps, unramped velocity steps
+  (10% vmax, at most amax * 10 ms), a 2 s
   cruise each way, disable/enable, and a move back to the start.
 Rest checkpoints print fault0.pos_error (= pid0.pos_error) so the rest limit
 is checked separately from the motion samples.
@@ -159,8 +160,9 @@ def build(vmax, amax, cycles):
             p.move((1 if k % 2 == 0 else -1) * 0.01, vmax, amax)
             p.hold(0.05)
         p.rest_check()
-        p.section("vsteps")  # no ramp
-        for v in (0.1 * vmax, 0.0, -0.1 * vmax, 0.0):
+        p.section("vsteps")  # no ramp; at most what amax reaches in 10 ms
+        dv = min(0.1 * vmax, amax * 0.01)
+        for v in (dv, 0.0, -dv, 0.0):
             p.tick(v)
             p.cruise(0.3)
         p.rest_check()
@@ -184,37 +186,51 @@ def build(vmax, amax, cycles):
 # fixed one prints "ok ... # TODO"). See DEBUGNOTES "id_pid tunes some
 # motors too soft".
 KNOWN = {
-    "rx60_456":       "id_pid picks soft gains (vel_bw ~113): ferror ~1.1 rad",
-    "sgmph_01a1":     "id_pid picks soft gains (vel_bw ~77): position error fault",
-    "syn_spindle":    "id_pid picks soft gains (vel_bw ~70): ferror ~0.7 rad",
-    "syn_torque_14p": "id_pid loop underdamped: speed rings to ~2x vmax",
+    "rx60_456":       "id_pid tunes with ideal feedforward: noise caps vel_bw at ~113",
+    "sgmph_01a1":     "stick-slip at rest (friction / j = 40000 rad/s^2): rest error",
+    "syn_torque_14p": "id_pid leaves vel_d at its bound 1: speed rings 75% over",
 }
 
 HOST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH_CONF = "../hwtest/burnin/ECMA-C30604FS/stmbl.conf"
 
 
-def tune(conf_lines):
-    """Run id_pid on the simulated drive; return (pos_bw, vel_bw, vel_d) or
-    None if it did not finish."""
-    script = conf_lines + [
-        "debug_level 1", "link id_pid", "relink", "start", "debug_level 0",
-        "fault0.cmd_error = 0", "fault0.en = 0", "run 0.5", "fault0.en = 1"]
-    for _ in range(60):  # up to 120 s; the bench motor takes ~40 s
-        script += ["run 2", "ids0.state"]
-    script += ["ids0.pos_bw", "ids0.vel_bw", "ids0.vel_d"]
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-        f.write("\n".join(script) + "\n")
-    try:
-        out = subprocess.run(["./stmbl_host", "--drive", BENCH_CONF, f.name], cwd=HOST_DIR,
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             universal_newlines=True, timeout=300).stdout
-    finally:
-        os.unlink(f.name)
-    if "\ndone\n" not in out:
+def tune(conf_lines, max_sec=900):
+    """Run id_pid on the simulated drive until ids0 reports done (state 1.4);
+    return (pos_bw, vel_bw, vel_d), or None if it does not finish within
+    max_sec simulated seconds."""
+    p = subprocess.Popen(["./stmbl_host", "--drive", BENCH_CONF], cwd=HOST_DIR,
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
+
+    def ask(cmd, pin):
+        p.stdin.write(cmd + "\n%s\n" % pin)
+        p.stdin.flush()
+        for line in p.stdout:
+            m = re.match(r"^%s = (\S+)$" % re.escape(pin), line.strip())
+            if m:
+                return float(m.group(1))
         return None
-    val = lambda pin: float(re.findall(r"^ids0\.%s = (\S+)$" % pin, out, re.M)[-1])
-    return val("pos_bw"), val("vel_bw"), val("vel_d")
+
+    try:
+        for c in conf_lines + ["debug_level 1", "link id_pid", "relink", "start",
+                               "debug_level 0", "fault0.cmd_error = 0", "fault0.en = 0",
+                               "run 0.5", "fault0.en = 1"]:
+            p.stdin.write(c + "\n")
+        done = False
+        for _ in range(int(max_sec / 2)):
+            st = ask("run 2", "ids0.state")
+            if st is None:
+                break
+            if st >= 1.35:
+                done = True
+                break
+        if not done:
+            return None
+        return ask("", "ids0.pos_bw"), ask("", "ids0.vel_bw"), ask("", "ids0.vel_d")
+    finally:
+        p.kill()
+        p.wait()
 
 
 TEMPLATE = """\

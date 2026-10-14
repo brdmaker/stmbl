@@ -143,6 +143,9 @@ static int run_script(FILE *in) {
   char line[256];
   while(fgets(line, sizeof(line), in)) {
     run_line(line);
+    if(in == stdin) {
+      fflush(stdout);  // a program driving us over a pipe waits for the reply
+    }
   }
   return 0;
 }

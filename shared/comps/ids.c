@@ -18,6 +18,14 @@ HAL_PIN(min_pos);
 HAL_PIN(max_pos);
 HAL_PIN(max_vel);
 HAL_PIN(max_acc);
+// Motor limits (0 = none). The test move uses at most half the motor's peak
+// acceleration and half its top speed: a move it cannot follow saturates
+// the loop, and the cost then measures the saturation, not the tuning.
+HAL_PIN(max_torque);   // peak torque [Nm] (conf0.max_force)
+HAL_PIN(j);            // inertia [kg*m^2] (conf0.j)
+HAL_PIN(mot_max_vel);  // top speed [rad/s] (conf0.max_vel)
+HAL_PIN(move_vel);     // limits of the test move in use
+HAL_PIN(move_acc);
 
 HAL_PIN(pos);
 HAL_PIN(vel);
@@ -50,6 +58,7 @@ HAL_PIN(min_cost);
 HAL_PIN(auto_step);
 
 HAL_PIN(timer);
+HAL_PIN(warm);  // warm-up cycles left: run, but neither score nor step
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //struct ids_ctx_t * ctx = (struct ids_ctx_t *)ctx_ptr;
@@ -76,7 +85,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   PIN(param) = 0.0;
   PIN(step) = 0.1;  // relative step of each parameter in the search
-  PIN(rep)  = 1.0;  // unused
+  PIN(rep)  = 1.0;  // warm-up cycles before the search
 
   PIN(auto_step) = 1.0;
 }
@@ -140,11 +149,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PINA(max_params, 0) = PIN(cur_bw) / 2.0;
       PINA(max_params, 1) = 1.0;
 
-      PIN(min_cost) = (PIN(max_pos) - PIN(min_pos)) * (PIN(max_pos) - PIN(min_pos)) / PIN(max_vel) * 100.0;
-      // start each run with cost 0. It used to start at min_cost, so the first
-      // cycle's cost was min_cost + real cost; that almost always counted as
-      // worse than min_cost * kt, and vel_bw was cut by kd without ever being
-      // tuned.
+      // The first cycle starts from rest with the loop settling, so it costs far
+      // more (or less) than the next ones. It is a warm-up: not compared, no
+      // step. The first scored cycle then sets min_cost (no fixed initial
+      // value: the old (max_pos - min_pos)^2 / max_vel * 100 = 400 was below a
+      // heavy rotor's first cycle, so vel_bw was cut before any comparison).
+      PIN(min_cost) = 1e30;
+      PIN(warm) = PIN(rep);
       PIN(cost) = 0.0;
 
       if(PIN(en) > 0.0){
@@ -152,14 +163,25 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
     break;
 
-    case 12:
+    case 12: {
+      float max_vel = PIN(max_vel);
+      float max_acc = PIN(max_acc);
+      if(PIN(mot_max_vel) > 0.0){
+        max_vel = MIN(max_vel, 0.5 * PIN(mot_max_vel));
+      }
+      if(PIN(max_torque) > 0.0 && PIN(j) > 0.0){
+        max_acc = MIN(max_acc, 0.5 * PIN(max_torque) / PIN(j));
+      }
+      PIN(move_vel) = max_vel;
+      PIN(move_acc) = max_acc;
+
       PIN(pos) += PIN(vel) * period + PIN(acc) * period * period / 2.0;
       PIN(vel) += PIN(acc) * period;
       float to_go = PIN(target) - PIN(pos);
-      float time_to_go = sqrtf(2.0 * ABS(to_go) / PIN(max_acc));
-      float acc = PIN(max_acc) * SIGN(to_go);
+      float time_to_go = sqrtf(2.0 * ABS(to_go) / max_acc);
+      float acc = max_acc * SIGN(to_go);
       float vel = acc * time_to_go;
-      vel = LIMIT(vel, PIN(max_vel));
+      vel = LIMIT(vel, max_vel);
       acc = (vel - PIN(vel)) / period;
 
       if(time_to_go < period){
@@ -172,7 +194,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(acc) = 0.0;
       }
 
-      PIN(acc) = LIMIT(acc, PIN(max_acc));
+      PIN(acc) = LIMIT(acc, max_acc);
 
       PIN(pos_cmd) = mod(PIN(pos));
       PIN(vel_cmd) = PIN(vel) * PIN(ff);
@@ -184,17 +206,20 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       
 
       PIN(timer) += period;
-      if(PIN(timer) < (ABS(PIN(max_pos) - PIN(min_pos)) / PIN(max_vel) + 2.0 * PIN(max_vel) / PIN(max_acc))){
+      if(PIN(timer) < (ABS(PIN(max_pos) - PIN(min_pos)) / max_vel + 2.0 * max_vel / max_acc)){
         PIN(target) = PIN(max_pos);
       }
       else{
         PIN(target) = PIN(min_pos);
       }
-      if(PIN(timer) > 2.0 * (ABS(PIN(max_pos) - PIN(min_pos)) / PIN(max_vel) + 2.0 * PIN(max_vel) / PIN(max_acc))){
+      if(PIN(timer) > 2.0 * (ABS(PIN(max_pos) - PIN(min_pos)) / max_vel + 2.0 * max_vel / max_acc)){
         PIN(timer) = 0.0;
       }
       
-      if(PIN(timer) == 0.0){
+      if(PIN(timer) == 0.0 && PIN(warm) > 0.0){
+        PIN(warm) -= 1.0;
+        PIN(cost) = 0.0;
+      } else if(PIN(timer) == 0.0){
         PIN(min_cost) = MIN(PIN(cost), PIN(min_cost));
 
         PINA(max_params, 2) = PINA(params, 0) * 2.0;
@@ -227,7 +252,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
         PIN(state) = 1.3;
       }
-    break;
+    } break;
   }
 }
 
