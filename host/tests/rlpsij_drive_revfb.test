@@ -1,0 +1,20 @@
+# rlpsij reading the reversed encoder feedback (conf0.mot_fb_rev = 1;
+# rlpsij has no fb_rev input). Commutation turns the wrong way and the
+# state 4 velocity loop ran away to ~518 rad/s; the runaway guard now
+# switches the output off and goes to state 7 (aborted). It trips at
+# 2 * max_vel = 125.7 rad/s; the rotor peaks just above (~127).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/light_motor.txt
+@include tests/inc/rlpsij_hv0.txt
+rlpsij0.abs_pos_fb = fb_switch0.mot_abs_fb_no_offset
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+rlpsij0.en = 1
+@sample hv0.sim_vel 0.001 14
+rlpsij0.state
+rlpsij0.en_out
+@expect rlpsij0.state == 7
+@expect rlpsij0.en_out == 0
+@expect max|hv0.sim_vel| < 140

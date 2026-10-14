@@ -1,0 +1,10 @@
+# examples/drive_id_pmsm.txt (idpmsm on the simulated drive, with
+# current feedback delay and noise) finds the bench config's motor.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include examples/drive_id_pmsm.txt
+idpmsm0.r
+idpmsm0.l
+idpmsm0.psi
+@expect idpmsm0.r ~ 2.1517 1%
+@expect idpmsm0.l ~ 0.022957 2%
+@expect idpmsm0.psi ~ 0.047433 2%

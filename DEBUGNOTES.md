@@ -558,7 +558,8 @@ Entry format:
 - Status:  Open (state 5 overspeed and J estimate fixed; state 4 open)
 - Symptom: True motor r=1.8, psi=0.06, pp=5, j=3e-5, f=0.02. rlpsij gives
   r=1.8005 and polecount=5 (good) but psi=0.026, j=0.0062, d<0. In state 5
-  the rotor ran away to 535 rad/s (motor max_vel 320 rad/s).
+  the rotor ran away to 535 rad/s (peak 711 with 1 ms sampling; motor
+  max_vel 320 rad/s).
 - Cause:   State 4's velocity loop (vel_kp=0.1, vel_ki=0.01) never reaches
   test_vel (rlpsij0.vel stayed ~0.2 rad/s vs 6.28), so the back-EMF fit
   runs near standstill. State 5 applied +-test_cur for 2 s each with no
@@ -582,7 +583,8 @@ Entry format:
   commutation turns the wrong way after state 3.
 - Fix:     TODO: add an fb_rev pin to rlpsij (as idpmsm) or wire a
   direction-corrected position. Meanwhile this ran away to 518 rad/s in
-  state 4; the runaway guard now aborts it (state 7) at ~69 rad/s.
+  state 4; the runaway guard now aborts it (state 7), peak ~127 rad/s
+  (trips at 2 * max_vel = 125.7).
 
 ## 2026-10-14  servoterm-cli autotune wrote first of duplicate conf0 keys
 - Area:    `servoterm-cli/servoterm-cli.c` (`conf_patch`, `autotune_run`)

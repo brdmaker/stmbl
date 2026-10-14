@@ -70,7 +70,12 @@ $(GEN)/commandslist.h: $(CMD_SCAN) | $(GEN)
 $(GEN):
 	@mkdir -p $(GEN)
 
-test: all
+# Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
+# unmet expectation.
+check: stmbl_host
+	@$(PYTHON) tests/run_tests.py tests/*.test
+
+test: all check
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
 	@for f in examples/drive_*.txt; do echo "=== $$f ==="; \
@@ -79,4 +84,4 @@ test: all
 clean:
 	rm -rf $(GEN) stmbl_host servoterm
 
-.PHONY: all test clean
+.PHONY: all check test clean

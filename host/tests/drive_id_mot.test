@@ -1,0 +1,12 @@
+# examples/drive_id_mot.txt: idm's least-squares fit (against measured
+# torque) finds the simulated motor j 0.00003, d 0.0001, f 0.02.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include examples/drive_id_mot.txt
+idm0.ls_j
+idm0.ls_d
+idm0.ls_f
+idm0.ls_o
+@expect idm0.ls_j ~ 0.000033 10%
+@expect idm0.ls_d ~ 0.0001 10%
+@expect idm0.ls_f ~ 0.02 5%
+@expect idm0.ls_o ~ 0 0.0005

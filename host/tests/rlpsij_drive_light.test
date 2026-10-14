@@ -1,0 +1,25 @@
+# rlpsij on the simulated drive, light rotor: state 5 reverses at
+# +-max_vel (62.8 rad/s) instead of spinning up to ~535 rad/s, then
+# brakes to standstill. psi/j read low (state 4, see DEBUGNOTES).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/light_motor.txt
+@include tests/inc/rlpsij_hv0.txt
+rlpsij0.abs_pos_fb = hv0.sim_pos
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+rlpsij0.en = 1
+@sample hv0.sim_vel 0.001 14
+rlpsij0.state
+rlpsij0.en_out
+rlpsij0.r
+rlpsij0.polecount
+rlpsij0.j
+@expect rlpsij0.state == 6
+@expect rlpsij0.en_out == 1
+@expect rlpsij0.r ~ 1.8 2%
+@expect rlpsij0.polecount == 5
+@expect rlpsij0.j_n > 50
+@expect max|hv0.sim_vel| < 80
+@expect hv0.sim_vel ~ 0 1

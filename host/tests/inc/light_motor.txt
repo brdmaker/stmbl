@@ -1,0 +1,6 @@
+# Light motor that differs from the bench config (r 2.15, psi 0.047).
+hv0.sim_r = 1.8
+hv0.sim_psi = 0.06
+hv0.sim_j = 0.00003
+hv0.sim_f = 0.02
+hv0.sim_d = 0.0001

@@ -42,6 +42,7 @@ host/
   Makefile          builds stmbl_host + servoterm, runs codegen from ../tools
   examples/         test assets (*.hal = deterministic console; *.servoterm = protocol + scope;
                     drive_*.txt = scripts for a simulated drive, run with --drive)
+  tests/            self-checking suite: *.test scripts with @expect checks, run_tests.py
   gen/              generated tables/headers (git-ignored)
 ```
 
@@ -55,7 +56,8 @@ Two binaries are produced:
 ```sh
 cd host
 make            # builds ./stmbl_host and ./servoterm
-make test       # runs every examples/*.hal, *.servoterm and drive_*.txt
+make check      # runs the test suite (tests/*.test), fails on any unmet check
+make test       # make check, then every examples/*.hal, *.servoterm and drive_*.txt
 make clean
 ```
 
@@ -167,6 +169,41 @@ The CSV has a header `frame,ch0..ch7` and one row per frame.
 
 Both are byte-for-byte reproducible, so captured output (and `--scope` CSVs) can
 be compared against golden files in CI.
+
+## Test suite (`tests/`)
+
+`make check` runs every `tests/*.test` through `tests/run_tests.py` and prints
+TAP (`ok N - ...` / `not ok N - ...`, then `# passed/total`). It exits non-zero
+if any check fails. Run some of them with
+`python3 tests/run_tests.py [-v] tests/rlpsij_*.test` (`-v` also shows the
+values that passed).
+
+A `.test` file is an ordinary `stmbl_host` script plus `@` directives:
+
+```
+# rlpsij state 5 stays bounded on a light rotor.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/rlpsij_hv0.txt        # shared wiring (tests/inc/ is not run)
+rlpsij0.abs_pos_fb = hv0.sim_pos
+relink
+start
+rlpsij0.en = 1
+@sample hv0.sim_vel 0.001 14             # run 14 s, print the pin every 1 ms
+rlpsij0.state
+@expect rlpsij0.state == 6               # last printed value
+@expect rlpsij0.r ~ 1.8 2%               # tolerance: N% or absolute
+@expect hv0.sim_vel[1] > 0               # [k]: k-th printed value, [-1] last
+@expect max|hv0.sim_vel| < 80            # also: max PIN, min PIN
+```
+
+Other directives: `@timeout SEC` (default 120) and `@reject REGEX` (fails if
+any output line matches). Paths are relative to `host/`. A check fails if the
+pin was never printed or is nan, and the test also checks that `stmbl_host`
+exits cleanly. Peak checks need `@sample`: a coarse sample misses peaks (a
+0.1 s trace showed 69 rad/s where the 1 ms one shows 127).
+
+The drive tests `@include` the `examples/drive_*.txt` scripts, so their
+documented expectations are checked rather than just printed.
 
 ## Simulated drive
 

@@ -1,0 +1,19 @@
+# rlpsij on the simulated drive, heavy rotor (j 0.01): max_vel is not
+# reached, so state 5 reverses after vel_time / 2 as before.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include tests/inc/light_motor.txt
+hv0.sim_j = 0.01
+@include tests/inc/rlpsij_hv0.txt
+rlpsij0.abs_pos_fb = hv0.sim_pos
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+rlpsij0.en = 1
+@sample hv0.sim_vel 0.002 22
+rlpsij0.state
+rlpsij0.j
+@expect rlpsij0.state == 6
+@expect rlpsij0.j ~ 0.01 5%
+@expect rlpsij0.j_n >= 2
+@expect max|hv0.sim_vel| < 70

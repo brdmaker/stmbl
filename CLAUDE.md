@@ -16,7 +16,9 @@ in that file: a dated heading plus `Area`, `Status`
 ## Host simulator
 
 The native x86 build of the control core lives in `host/` (see
-`host/README.md`). Prefer it for running and testing control logic. The ARM
+`host/README.md`). Prefer it for running and testing control logic. After
+changing control code run `make -C host check`, and add a `host/tests/*.test`
+with `@expect` checks for behaviour you fix or add. The ARM
 firmware builds with `make all` at the repo root on the bench Pi (binutils
 2.40); with binutils 2.42 a post-link tool hangs, see `DEBUGNOTES.md`.
 

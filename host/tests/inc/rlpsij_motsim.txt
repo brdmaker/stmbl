@@ -1,0 +1,29 @@
+# rlpsij against motsim in one process (no drive); the including test
+# sets motsim0.mot_j. True motor: r 1.5, psi 0.05, pp 1.
+load rlpsij
+load motsim
+rlpsij0.rt_prio = 1
+motsim0.rt_prio = 2
+motsim0.mot_r = 1.5
+motsim0.mot_l = 0.001
+motsim0.mot_psi = 0.05
+motsim0.mot_pp = 1
+motsim0.mot_f = 0.001
+motsim0.mot_d = 0.0003
+motsim0.pwm_volt = 48
+motsim0.r = 1.5
+motsim0.l = 0.001
+motsim0.psi = 0.05
+motsim0.cur_bw = 500
+rlpsij0.test_cur = 3
+motsim0.d_cmd = rlpsij0.d_cmd
+motsim0.q_cmd = rlpsij0.q_cmd
+motsim0.com_pos = rlpsij0.com_pos
+motsim0.cmd_mode = rlpsij0.cmd_mode
+motsim0.en = rlpsij0.en_out
+motsim0.com_vel = rlpsij0.vel
+rlpsij0.id_fb = motsim0.id_fb
+rlpsij0.iq_fb = motsim0.iq_fb
+rlpsij0.ud_fb = motsim0.ud_fb
+rlpsij0.uq_fb = motsim0.uq_fb
+rlpsij0.abs_pos_fb = motsim0.pos

@@ -1,0 +1,15 @@
+# rlpsij wired to the simulated hv0 the way conf/template/id_pmsm.txt
+# wires idpmsm. The including test sets rlpsij0.abs_pos_fb.
+load rlpsij
+rlpsij0.rt_prio = 4
+pid0.en = 0
+hv0.en = rlpsij0.en_out
+hv0.cmd_mode = rlpsij0.cmd_mode
+hv0.d_cmd = rlpsij0.d_cmd
+hv0.q_cmd = rlpsij0.q_cmd
+hv0.pos = rlpsij0.com_pos
+rlpsij0.ud_fb = hv0.ud_fb
+rlpsij0.uq_fb = hv0.uq_fb
+rlpsij0.id_fb = hv0.id_fb
+rlpsij0.iq_fb = hv0.iq_fb
+rlpsij0.test_cur = 2

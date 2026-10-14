@@ -1,0 +1,19 @@
+# rlpsij against motsim (pp 1, mot_j 0.001): state 4 measures psi
+# accurately here, so j checks the state 5 momentum method directly
+# (the old acceleration-based estimate read ~j/90).
+@include tests/inc/rlpsij_motsim.txt
+motsim0.mot_j = 0.001
+rlpsij0.en = 1
+start
+@sample motsim0.vel 0.01 16
+rlpsij0.state
+rlpsij0.r
+rlpsij0.psi
+rlpsij0.polecount
+rlpsij0.j
+@expect rlpsij0.state == 6
+@expect rlpsij0.r ~ 1.5 2%
+@expect rlpsij0.psi ~ 0.05 2%
+@expect rlpsij0.polecount == 1
+@expect rlpsij0.j ~ 0.001 3%
+@expect max|motsim0.vel| < 75

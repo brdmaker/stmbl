@@ -1,0 +1,10 @@
+# examples/drive_jog.txt: enable via the simulated LinuxCNC link, jog
+# 19.7 rad/s both ways, index switches commutation 4 -> 1, no fault.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@include examples/drive_jog.txt
+@expect sserial0.error == 0
+@expect fault0.fault == 0
+@expect hv0.sim_vel[1] ~ 19.7 3%
+@expect hv0.sim_vel[2] ~ -19.7 3%
+@expect fb_switch0.current_com_pos[1] == 4
+@expect fb_switch0.current_com_pos[-1] == 1
