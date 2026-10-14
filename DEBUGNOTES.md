@@ -222,11 +222,14 @@ Entry format:
     +pi and -pi and the offset comes out wrong.
   - FIXED (now en_out) idpmsm state 2.3 writes `PIN(en) = 0`, but `en` is linked to
     `fault0.en_out` and gets overwritten next cycle, so it has no effect.
-  - ids state 0 resets `step = 0.1`, `rep = 1` every time, so nrt_init's
+  - FIXED ids state 0 resets `step = 0.1`, `rep = 1` every time, so nrt_init's
     0.25 / 2 never apply. `rep` is not used anywhere.
   - idm: `inertia_sum/damping_sum/friction_sum/offset_sum` are computed but
     never used or printed. Only the adaptive estimates are reported.
-- Fix:     None yet. Each is small. Check in the host sim before changing.
+- Fix:     2026-10-14: all but the idm sums fixed, see the FIXED items and
+  their commits. ids: nrt_init now sets the step that runs (0.1) and
+  state 0 no longer overwrites it, so `ids0.step` can be set. The idm sums
+  stay: they are readable pins and cost nothing.
 
 ## 2026-10-14  Firmware build: duplicate shared/crc.c after the sys_id merge
 - Area:    `Makefile` (SOURCES), merge `03a901d6`

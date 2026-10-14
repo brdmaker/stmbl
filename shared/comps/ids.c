@@ -75,8 +75,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(max_pos) = 10.0;
 
   PIN(param) = 0.0;
-  PIN(step) = 0.25;
-  PIN(rep) = 2.0;
+  PIN(step) = 0.1;  // relative step of each parameter in the search
+  PIN(rep)  = 1.0;  // unused
 
   PIN(auto_step) = 1.0;
 }
@@ -129,8 +129,6 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(vel) = 0.0;
 
       PIN(param) = 0.0;
-      PIN(step) = 0.1;
-      PIN(rep) = 1.0;
 
       PIN(pos_bw) = 10.0;
       PIN(vel_bw) = 100.0;
