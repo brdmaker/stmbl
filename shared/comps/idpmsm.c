@@ -200,8 +200,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(state) = 1.3;
         PIN(d_cmd) = 0.0;
         PIN(en_out) = 0.0;
-        PIN(tmp0) = 0.0;
+        PIN(tmp0) = 0.0;  // the L step's averages, low and high voltage
         PIN(tmp1) = 0.0;
+        PIN(tmp2) = 0.0;
+        PIN(tmp3) = 0.0;
 
         PIN(avg_test_volt) = PIN(test_cur) * MAX(PIN(r), 0.01);
         PIN(avg_test_volt) = LIMIT(PIN(avg_test_volt), PIN(pwm_volt) / 2.0);

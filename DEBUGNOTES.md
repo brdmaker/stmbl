@@ -213,9 +213,9 @@ Entry format:
 - Area:    `shared/comps/idpmsm.c`, `shared/comps/ids.c`
 - Status:  Note
 - Symptom/Cause:
-  - idpmsm state 1.3 (L): resets `tmp0/tmp1` but not `tmp2/tmp3`. So on a
-    second run in the same boot, the "low" averages start from the previous
-    run's values.
+  - FIXED idpmsm state 1.3 (L): resets `tmp0/tmp1` but not `tmp2/tmp3`. So
+    on a second run in the same boot, the "low" averages start from the
+    previous run's values.
   - idpmsm state 2.3 (mot_fb_offset): low-pass filters `-pos_fb` without
     handling angle wrap. If the locked rotor sits near ±pi, the average mixes
     +pi and -pi and the offset comes out wrong.
