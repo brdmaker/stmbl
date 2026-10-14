@@ -555,7 +555,7 @@ Entry format:
 ## 2026-10-14  rlpsij on the simulated drive: bad psi/J, overspeed in state 5
 - Area:    `shared/comps/rlpsij.c`, tested via `servoterm-cli --autotune`
            against `stmbl_host --drive ECMA-C30604FS/stmbl.conf --pty`
-- Status:  Open (state 5 overspeed and J estimate fixed; state 4 open)
+- Status:  Fixed (see "rlpsij redesign" below)
 - Symptom: True motor r=1.8, psi=0.06, pp=5, j=3e-5, f=0.02. rlpsij gives
   r=1.8005 and polecount=5 (good) but psi=0.026, j=0.0062, d<0. In state 5
   the rotor ran away to 535 rad/s (peak 711 with 1 ms sampling; motor
@@ -596,3 +596,63 @@ Entry format:
 - Fix:     conf_patch replaces the last line for the key, drops earlier
   duplicates, tags it `# autotune <date>`. Non-physical results (r, psi, j
   <= 0, f, d < 0, polecount < 1) are shown as IMPLAUSIBLE and not written.
+
+## 2026-10-14  rlpsij redesign: 20 real motors identified
+- Area:    `shared/comps/rlpsij.c`, `host/tests/motor_*.test`
+           (`host/tests/gen_motor_tests.py`, motors from `conf/*.txt`)
+- Status:  Fixed
+- Symptom: On 20 motors (r 0.4-25.5 ohm, j 1.5e-6-3.5e-4, pp 1-5) the old
+  rlpsij got r and polecount right but psi wrong on all 20 and j on 19;
+  r = 0 on a 25.5 ohm motor; overshoot to 125 rad/s and aborts on very
+  light rotors.
+- Cause:   (1) state 1 integrator fixed at 10 V/(A*s): ~2.5 s to settle on
+  25 ohm, longer than rl_time. (2) psi needed a speed loop with fixed gains
+  (kp 0.1, ki 0.01) that cannot hold speed against friction (0.07 A vs
+  0.2 A breakaway). (3) At full test_cur a light rotor gains ~240 rad/s
+  inside the current loop's ~1 ms rise time. (4) Existing bug: friction was
+  never converted from A to Nm and load was multiplied by kt twice.
+- Fix:     Gain-scheduled state 1 (settles in ~50 ms for any r); l measured
+  in state 2 (voltage square wave at standstill); state 4 = drive segments
+  with adaptive current (start test_cur/8, segments >= 10 ms) + coasts,
+  psi from a 2-parameter fit uq - r*iq = l'*diq/dt + psi*w_el over all
+  samples, j/friction/load/damping from a 4-parameter momentum fit per
+  segment; state 5 speed loop tuned from j/kt with the state 4 fit as
+  feedforward. vel_kp/vel_ki replaced by vel_bw. New output com_vel for
+  hv0.vel. Result: r, psi within 1%, j within 7.4%, friction within 9%,
+  l within 7% where l/r >= 0.9 ms, peak speed <= 66 rad/s on all 20.
+
+## 2026-10-14  curpid predictor needs hv0.vel during identification
+- Area:    `host/hw/hv.c` (as `stm32f303` curpid), `rlpsij0.com_vel`
+- Status:  Note
+- Symptom: With rlpsij driving hv0 and hv0.vel unwired (0), the measured
+  current fell short of the command at speed (p50b: 0.107 A for 0.375 A
+  at 38 rad/s), and in "coasts" (q_cmd 0) held ~ +-friction current.
+- Cause:   curpid predicts the next current from the applied voltage minus
+  back-EMF computed from hv0.vel * hv0.psi; with vel 0 the predictor is off
+  by back-EMF * dt / l. Normal templates wire hv0.vel = vel2.vel.
+- Fix:     rlpsij outputs com_vel (electrical speed of com_pos); wire
+  `hv0.vel = rlpsij0.com_vel` (host/tests/inc/rlpsij_hv0.txt). The fits
+  use the measured current, so they were right anyway; the state 5 speed
+  loop was not.
+
+## 2026-10-14  Zero current at speed is not reachable with cur_ind = 0
+- Area:    hv current loop (default `cur_ind = 0`, `cur_ff = 0`)
+- Status:  Note
+- Symptom: Commanding iq = 0 at speed (a "coast") gave -2.5 A of braking
+  current on fanuc_a06b; the back-EMF ramps faster than the 1000 rad/s PI
+  follows, and the braking it causes feeds the ramp (loop gain ~3.9).
+- Cause:   No back-EMF feedforward by default (firmware ls.c defaults).
+- Fix:     Identification must not assume i = 0 or settled current: rlpsij
+  fits uq - r*iq = l'*diq/dt + psi*w_el over all samples instead.
+
+## 2026-10-14  Identification limits: l at short l/r, damping, 6 decimals
+- Area:    `rlpsij0.l`, `rlpsij0.damping`, console pin printing
+- Status:  Known
+- Symptom: l reads +22..+160% when l/r is 39-260 us; damping (1e-4) reads
+  up to 38x off on some motors; j = 1.5e-6 prints as 0.000001.
+- Cause:   l/r below ~1 rt period (200 us) is unobservable at 5 kHz.
+  Damping torque at test_vel (0.0006 Nm) is lost against friction. The
+  console prints pins with %f (6 decimals).
+- Fix:     Tests check l only when l/r >= 0.5 ms and read j, l through
+  `scale` x1e6. servoterm-cli does not write values < 1e-5 (LOW
+  RESOLUTION) and notes the damping/l limits.

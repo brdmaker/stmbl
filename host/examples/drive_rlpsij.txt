@@ -1,11 +1,13 @@
 # rlpsij (shared/comps/rlpsij.c) on the simulated drive, booted from the
-# bench config, wired to hv0 like conf/template/id_pmsm.txt wires idpmsm.
+# bench config, wired to hv0 like conf/template/id_pmsm.txt wires idpmsm,
+# plus hv0.vel = rlpsij0.com_vel for the current loop's predictor.
 # rlpsij has no fb_rev input, so it reads the true shaft angle here.
-# Light motor, differs from the config: r 1.8, psi 0.06, j 0.00003.
-# Expected: state 6, en_out 1, r ~ 1.8, polecount 5, j_n in the hundreds
-# (state 5 reverses at +-max_vel = 62.8 rad/s instead of spinning up to
-# ~535 rad/s), sim_vel 0 at the end (braked). psi and j read low: the
-# state 4 velocity loop does not reach test_vel (see DEBUGNOTES).
+# Light motor, differs from the config the current loop runs with:
+# r 1.8, psi 0.06, j 0.00003, f 0.02, d 0.0001 (l 0.022957 from conf).
+# Expected: state 6, r ~ 1.8, l ~ 0.023, polecount 5, psi ~ 0.06,
+# j ~ 0.00003, friction ~ 0.02; speed stays within ~ +-65 rad/s
+# (max_vel 62.8) and ends at 0. host/tests/motor_*.test check this on
+# 20 motors.
 hv0.sim_r = 1.8
 hv0.sim_psi = 0.06
 hv0.sim_j = 0.00003
@@ -24,16 +26,20 @@ rlpsij0.uq_fb = hv0.uq_fb
 rlpsij0.id_fb = hv0.id_fb
 rlpsij0.iq_fb = hv0.iq_fb
 rlpsij0.abs_pos_fb = hv0.sim_pos
+hv0.vel = rlpsij0.com_vel
 rlpsij0.test_cur = 2
 relink
 start
 debug_level 0
 fault0.cmd_error = 0
 rlpsij0.en = 1
-run 14
+run 16
 rlpsij0.state
 rlpsij0.en_out
 rlpsij0.r
+rlpsij0.l
 rlpsij0.polecount
+rlpsij0.psi
 rlpsij0.j
+rlpsij0.friction
 hv0.sim_vel

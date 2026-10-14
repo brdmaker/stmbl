@@ -10,7 +10,7 @@ start
 debug_level 0
 fault0.cmd_error = 0
 rlpsij0.en = 1
-@sample hv0.sim_vel 0.001 14
+@sample hv0.sim_vel 0.001 16
 rlpsij0.state
 rlpsij0.en_out
 rlpsij0.r

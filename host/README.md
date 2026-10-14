@@ -205,6 +205,15 @@ exits cleanly. Peak checks need `@sample`: a coarse sample misses peaks (a
 The drive tests `@include` the `examples/drive_*.txt` scripts, so their
 documented expectations are checked rather than just printed.
 
+`tests/motor_*.test` run the `rlpsij` autotune on 20 motors taken from
+`conf/*.txt` (r 0.4-25.5 ohm, j 1.5e-6-3.5e-4 kg*m^2, polecount 1-5) on the
+simulated drive. They check that it finishes and finds r (3%), polecount,
+psi (5%), j (10%) and friction (15%), and l (10%) where l / r >= 0.5 ms,
+with the speed kept under 80 rad/s. They are generated: edit the table in
+`tests/gen_motor_tests.py` and run `python3 tests/gen_motor_tests.py`.
+Small j and l are read through a `scale` comp (x 1e6), because the console
+prints 6 decimals.
+
 ## Simulated drive
 
 `--drive` boots a whole simulated drive the way `src/main.c` boots the real

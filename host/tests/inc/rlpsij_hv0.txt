@@ -13,3 +13,4 @@ rlpsij0.uq_fb = hv0.uq_fb
 rlpsij0.id_fb = hv0.id_fb
 rlpsij0.iq_fb = hv0.iq_fb
 rlpsij0.test_cur = 2
+hv0.vel = rlpsij0.com_vel

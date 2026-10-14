@@ -47,6 +47,7 @@
  */
 
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -725,10 +726,10 @@ static const char *autotune_state_label(int s) {
   case 1: return "R measurement";
   case 2: return "transition";
   case 3: return "polecount";
-  case 4: return "psi / friction / damping";
-  case 5: return "J (inertia)";
+  case 4: return "psi / l / J (drive and coast)";
+  case 5: return "friction / damping / load";
   case 6: return "done";
-  case 7: return "ABORTED: overspeed";
+  case 7: return "ABORTED";
   default: return "?";
   }
 }
@@ -769,14 +770,15 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
     return 1;
   }
   if(last_state == 7) {
-    fprintf(stderr, "\nservoterm-cli: autotune aborted, motor exceeded 2 x %s.max_vel.\n"
-                    "  Output was switched off and results are invalid; nothing written.\n"
-                    "  Check commutation and feedback direction (rlpsij has no fb_rev).\n",
+    fprintf(stderr, "\nservoterm-cli: autotune aborted: motor exceeded 2 x %s.max_vel, or\n"
+                    "  psi / j could not be measured. Output was switched off and results\n"
+                    "  are invalid; nothing written. Check commutation and feedback\n"
+                    "  direction (rlpsij has no fb_rev), and test_cur.\n",
             comp);
     return 1;
   }
 
-  // Read the six identified parameters.
+  // Read the identified parameters.
   struct { const char *pin; const char *conf_key; double val; } params[] = {
     { "r",        "r"         },
     { "psi",      "psi"       },
@@ -784,6 +786,7 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
     { "j",        "j"         },
     { "friction", "f"         },
     { "damping",  "d"         },
+    { "l",        "l"         },
   };
   int nparams = (int)(sizeof(params) / sizeof(params[0]));
   int read_ok = 1;
@@ -802,28 +805,36 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
 
   int polecount_int = (int)(params[2].val + 0.5);
 
-  // Physically impossible values are reported but never written.
-  int ok[6];
+  // Physically impossible values are reported but never written, and so are
+  // values the console's 6 decimals cannot resolve to 5% (e.g. j < 1e-5).
+  int ok[7];
   ok[0] = params[0].val > 0.0;
   ok[1] = params[1].val > 0.0;
   ok[2] = polecount_int >= 1;
   ok[3] = params[3].val > 0.0;
   ok[4] = params[4].val >= 0.0;
   ok[5] = params[5].val >= 0.0;
-  const char *units[] = {"ohm", "Wb", "", "kg*m^2", "Nm", "Nm*s/rad"};
+  ok[6] = params[6].val > 0.0;
+  const char *units[] = {"ohm", "Wb", "", "kg*m^2", "Nm", "Nm*s/rad", "H"};
   int nok = 0;
 
   fprintf(stderr, "\n--- Autotune results ---\n");
   for(int i = 0; i < nparams; i++) {
+    const char *why = ok[i] ? "" : "   IMPLAUSIBLE, will not be written";
+    if(ok[i] && i != 2 && params[i].val != 0.0 && fabs(params[i].val) < 1e-5) {
+      ok[i] = 0;
+      why   = "   LOW RESOLUTION (console prints 6 decimals), will not be written";
+    }
     if(i == 2)
       fprintf(stderr, "  %-9s = %d", params[i].pin, polecount_int);
     else
       fprintf(stderr, "  %-9s = %.6g %s", params[i].pin, params[i].val, units[i]);
-    fprintf(stderr, "%s\n", ok[i] ? "" : "   IMPLAUSIBLE, will not be written");
+    fprintf(stderr, "%s\n", why);
     nok += ok[i];
   }
   fprintf(stderr, "------------------------\n\n");
-  fprintf(stderr, "  Note: j and friction/damping scale with psi; check psi first.\n\n");
+  fprintf(stderr, "  Note: damping is only resolved when it is a sizeable part of the\n"
+                  "  torque at test_vel; l is unreliable when l / r is below ~0.25 ms.\n\n");
   if(!nok) {
     fprintf(stderr, "servoterm-cli: no plausible results, nothing to write\n");
     return 1;
