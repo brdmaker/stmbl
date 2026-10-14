@@ -555,18 +555,21 @@ Entry format:
 ## 2026-10-14  rlpsij on the simulated drive: bad psi/J, overspeed in state 5
 - Area:    `shared/comps/rlpsij.c`, tested via `servoterm-cli --autotune`
            against `stmbl_host --drive ECMA-C30604FS/stmbl.conf --pty`
-- Status:  Open
+- Status:  Open (state 5 overspeed and J estimate fixed; state 4 open)
 - Symptom: True motor r=1.8, psi=0.06, pp=5, j=3e-5, f=0.02. rlpsij gives
   r=1.8005 and polecount=5 (good) but psi=0.026, j=0.0062, d<0. In state 5
   the rotor ran away to 535 rad/s (motor max_vel 320 rad/s).
 - Cause:   State 4's velocity loop (vel_kp=0.1, vel_ki=0.01) never reaches
   test_vel (rlpsij0.vel stayed ~0.2 rad/s vs 6.28), so the back-EMF fit
-  runs near standstill. State 5 applies +-test_cur steps with no speed
-  limit; with a low-inertia motor that overspeeds within seconds. The
-  earlier `test_autotune` hid this (pp=1, j=1e-3).
-- Fix:     TODO: retune/scale the state-4 loop by test_cur and expected
-  inertia, and bound state 5 (abort or reverse at a max speed). Until then
-  trust only r and polecount from rlpsij on real hardware.
+  runs near standstill. State 5 applied +-test_cur for 2 s each with no
+  speed limit. J used acc = (raw - filtered vel) / period, ~90x too large.
+- Fix:     State 5 now reverses torque at +-max_vel (new pin, default
+  10 * test_vel, raw velocity) or after vel_time/2, brakes to standstill at
+  the end, and computes j per segment as torque integral / velocity change.
+  Drive sim peak 70 rad/s (was 535); motsim j 0.000997 for 0.001, 4.9e-5
+  for 5e-5. j inherits state 4's psi error. A runaway guard (|vel| >
+  2 * max_vel in states 4/5) switches the output off and sets state 7
+  (aborted). TODO: state 4 velocity loop / psi.
 
 ## 2026-10-14  rlpsij ignores feedback direction (mot_fb_rev)
 - Area:    `shared/comps/rlpsij.c`
@@ -578,7 +581,8 @@ Entry format:
   fb_rev input (idpmsm has `fb_rev`), so with reversed feedback the
   commutation turns the wrong way after state 3.
 - Fix:     TODO: add an fb_rev pin to rlpsij (as idpmsm) or wire a
-  direction-corrected position.
+  direction-corrected position. Meanwhile this ran away to 518 rad/s in
+  state 4; the runaway guard now aborts it (state 7) at ~69 rad/s.
 
 ## 2026-10-14  servoterm-cli autotune wrote first of duplicate conf0 keys
 - Area:    `servoterm-cli/servoterm-cli.c` (`conf_patch`, `autotune_run`)

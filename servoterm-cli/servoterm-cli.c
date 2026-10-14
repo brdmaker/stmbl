@@ -728,6 +728,7 @@ static const char *autotune_state_label(int s) {
   case 4: return "psi / friction / damping";
   case 5: return "J (inertia)";
   case 6: return "done";
+  case 7: return "ABORTED: overspeed";
   default: return "?";
   }
 }
@@ -765,6 +766,13 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
 
   if(!done) {
     fprintf(stderr, "\nservoterm-cli: autotune timed out (state %d)\n", last_state);
+    return 1;
+  }
+  if(last_state == 7) {
+    fprintf(stderr, "\nservoterm-cli: autotune aborted, motor exceeded 2 x %s.max_vel.\n"
+                    "  Output was switched off and results are invalid; nothing written.\n"
+                    "  Check commutation and feedback direction (rlpsij has no fb_rev).\n",
+            comp);
     return 1;
   }
 
@@ -815,7 +823,7 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
     nok += ok[i];
   }
   fprintf(stderr, "------------------------\n\n");
-  fprintf(stderr, "  Note: j is approximate (rlpsij filter lag ~90×; use as feedforward seed)\n\n");
+  fprintf(stderr, "  Note: j and friction/damping scale with psi; check psi first.\n\n");
   if(!nok) {
     fprintf(stderr, "servoterm-cli: no plausible results, nothing to write\n");
     return 1;

@@ -37,6 +37,7 @@ HAL_PIN(vel_ki);
 HAL_PIN(vel_kp);
 HAL_PIN(rl_time);
 HAL_PIN(vel_time);
+HAL_PIN(max_vel);  // state 5 reverses torque at +-max_vel, aborts at 2x [rad/s]
 HAL_PIN(lpf);
 
 HAL_PIN(timer);
@@ -46,6 +47,10 @@ HAL_PIN(vel);
 HAL_PIN(acc);
 HAL_PIN(last_pos);
 HAL_PIN(error_sum);
+HAL_PIN(seg_vel);  // state 5: velocity at the last torque reversal
+HAL_PIN(seg_t);    // state 5: net torque integral since then
+HAL_PIN(seg_start);  // state 5: timer at the last reversal
+HAL_PIN(j_n);      // state 5: segments averaged into j
 HAL_PINA(i, 4);
 
 
@@ -58,6 +63,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(vel_kp) = 0.1;
   PIN(rl_time) = 1.0;
   PIN(vel_time) = 4.0;
+  PIN(max_vel) = 10.0 * PIN(test_vel);
   PIN(lpf) = 0.9955;
 }
 
@@ -75,6 +81,16 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   float vel_cmd = 0.0;
   float error = 0.0;
+
+  // Runaway guard for the spinning states (wrong commutation, reversed
+  // feedback, bad psi). Uses the raw velocity: the filtered one lags ~20 ms,
+  // which on a light rotor is hundreds of rad/s.
+  if((PIN(state) == 4.0 || PIN(state) == 5.0) && ABS(vel) > 2.0 * PIN(max_vel)){
+    PIN(q_cmd) = 0.0;
+    PIN(d_cmd) = 0.0;
+    PIN(en_out) = 0.0;
+    PIN(state) = 7.0;
+  }
 
   switch((int)PIN(state)){
     case 0: // disabled
@@ -173,39 +189,66 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(load) *= 3.0 / 2.0 * PIN(polecount) * PIN(psi);
 
         PIN(q_cmd) = 0.0;
+        PIN(j) = 0.0;
+        PIN(j_n) = 0.0;
         PIN(timer) = 0.0;
         PIN(state) = 5.0;
       }
     break;
 
-    case 5: // j
-      if(PIN(timer) < PIN(vel_time) / 2.0){
-        PIN(q_cmd) = PIN(test_cur);
-      }
-      else{
-        PIN(q_cmd) = -PIN(test_cur);
+    case 5: { // j: torque steps, reversed at +-max_vel
+      PIN(com_pos) = mod(minus(PIN(abs_pos_fb), PIN(fb_offset)) * PIN(polecount));
+
+      if(PIN(timer) > PIN(vel_time)){ // brake to standstill
+        PIN(q_cmd) = -SIGN(vel) * PIN(test_cur);
+        if(ABS(vel) < PIN(test_vel) * 0.1 || PIN(timer) > PIN(vel_time) * 1.5){
+          PIN(q_cmd) = 0.0;
+          PIN(d_cmd) = 0.0;
+          PIN(state) = 6.0;
+        }
+        break;
       }
 
-      PIN(com_pos) = mod(minus(PIN(abs_pos_fb), PIN(fb_offset)) * PIN(polecount));
+      if(PIN(q_cmd) == 0.0){
+        PIN(q_cmd) = PIN(test_cur);
+        PIN(seg_vel) = vel;
+        PIN(seg_t) = 0.0;
+        PIN(seg_start) = PIN(timer);
+        break;
+      }
 
       float t = 3.0 / 2.0 * PIN(polecount) * PIN(psi) * PIN(iq_fb);
       t -= PIN(load);
-      t -= PIN(friction) * SIGN(PIN(vel));
-      t -= PIN(damping) * PIN(vel);
+      t -= PIN(friction) * SIGN(vel);
+      t -= PIN(damping) * vel;
+      PIN(seg_t) += t * period;
 
-      if(ABS(PIN(acc)) > PIN(test_vel)){
-        PIN(j) = PIN(j) * PIN(lpf) + t / PIN(acc) * (1.0 - PIN(lpf));
+      // j = momentum change / velocity change over each segment, so no
+      // acceleration estimate is needed. A heavy rotor that never reaches
+      // max_vel reverses after vel_time / 2.
+      if((PIN(q_cmd) > 0.0 && vel >= PIN(max_vel)) || (PIN(q_cmd) < 0.0 && vel <= -PIN(max_vel)) ||
+         PIN(timer) - PIN(seg_start) > PIN(vel_time) / 2.0){
+        float dv = vel - PIN(seg_vel);
+        if(ABS(dv) > PIN(test_vel)){
+          PIN(j) = (PIN(j) * PIN(j_n) + PIN(seg_t) / dv) / (PIN(j_n) + 1.0);
+          PIN(j_n) += 1.0;
+        }
+        PIN(q_cmd) = -PIN(q_cmd);
+        PIN(seg_vel) = vel;
+        PIN(seg_t) = 0.0;
+        PIN(seg_start) = PIN(timer);
       }
+    } break;
 
-      if(PIN(timer) > PIN(vel_time)){
-        PIN(state) = 6.0;
-        PIN(q_cmd) = 0.0;
-        PIN(d_cmd) = 0.0;
+    case 6: // done
+      PIN(com_pos) = mod(minus(PIN(abs_pos_fb), PIN(fb_offset)) * PIN(polecount));
+      if(PIN(en) <= 0.0){
+        PIN(state) = 0.0;
       }
     break;
 
-    case 6:
-      PIN(com_pos) = mod(minus(PIN(abs_pos_fb), PIN(fb_offset)) * PIN(polecount));
+    case 7: // aborted: overspeed, output off, results invalid
+      PIN(en_out) = 0.0;
       if(PIN(en) <= 0.0){
         PIN(state) = 0.0;
       }
