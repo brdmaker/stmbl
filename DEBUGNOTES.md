@@ -128,7 +128,7 @@ Entry format:
 
 ## 2026-10-14  Drive loses bytes when a command arrives split across USB packets
 - Area:    `shared/ringbuf.c` (`rb_putc` vs `rb_getc`/`rb_undo`), `src/usb_cdc.c`
-- Status:  Fixed (firmware, not yet run on hardware; servoterm-cli workaround kept)
+- Status:  Workaround
 - Symptom: During `servoterm-cli --load`, one `appendconf` line got no ack.
   Its `\n` was lost, so the next command (`showconf`) was glued onto it:
   the drive answered `adding ...# append to configshowconf`.
@@ -144,11 +144,6 @@ Entry format:
   `adding <line>` ack exactly. With these changes, load/verify/restore passed.
   Firmware fix: disable the USB IRQ around `rb_getline`, or make `rb_undo`
   unnecessary by peeking for `\n` before consuming.
-  Fixed 2026-10-14: rb_getline no longer rewinds (see the 64-byte entry),
-  and both cdc_getline()s keep the writer out while reading: the F4 masks
-  OTG_FS_IRQn, the F3 (whose rx_buf is filled from the rt interrupt, ls)
-  disables interrupts for the copy. rb_getc in src/syscalls.c `_read` is
-  still unguarded; nothing calls it.
 
 ## 2026-10-14  id_mot template links non-existent pins (offset not fed back)
 - Area:    `conf/template/id_mot.txt`, `shared/comps/idm.c`, `shared/comps/pid.c`

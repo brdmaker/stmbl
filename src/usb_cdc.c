@@ -165,12 +165,7 @@ int cdc_tx(void *data, uint32_t len) {
 }
 
 int cdc_getline(char *ptr, int len) {
-  // usb_rx_buf is written from the USB interrupt (VCP_DataRx); keep it out
-  // while reading, as pos and len are shared
-  NVIC_DisableIRQ(OTG_FS_IRQn);
-  int ret = rb_getline(&usb_rx_buf, ptr, len);
-  NVIC_EnableIRQ(OTG_FS_IRQn);
-  return ret;
+  return rb_getline(&usb_rx_buf, ptr, len);
 }
 
 int cdc_is_connected() {

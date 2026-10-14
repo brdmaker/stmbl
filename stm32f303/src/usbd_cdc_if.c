@@ -1,6 +1,5 @@
 #include "usbd_cdc_if.h"
 #include "ringbuf.h"
-#include "stm32f3xx.h"  // __disable_irq
 #define RX_QUEUE_SIZE 1024
 #define TX_QUEUE_SIZE 4096
 
@@ -20,13 +19,7 @@ int cdc_is_connected() {
 }
 
 int cdc_getline(char *ptr, int len) {
-  // rx_buf is written from the rt interrupt (ls, one byte per packet from
-  // the F4); keep interrupts out while reading, as pos and len are shared
-  uint32_t primask = __get_PRIMASK();
-  __disable_irq();
-  int ret = rb_getline(&rx_buf, ptr, len);
-  __set_PRIMASK(primask);
-  return ret;
+  return rb_getline(&rx_buf, ptr, len);
 }
 
 int _write(int file, char *ptr, int len) {
