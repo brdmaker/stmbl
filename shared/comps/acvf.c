@@ -25,8 +25,13 @@
 //   of tripping. The thermal derating (fault0.scale) lowers this limit; it
 //   does not scale the voltage, which would collapse the flux and leave a hot
 //   motor unable to start again.
-// - stall: set while the limit has held the speed below half the command for
-//   stall_time (a blocked belt); for LinuxCNC (sserial in2).
+// - blocked: set while the limit has held the speed below half the command
+//   for block_time (a blocked belt); for LinuxCNC (sserial in2).
+// - active damping: the oscillating part of the torque (filtered at 50 Hz
+//   minus filtered at lp) moves the frequency, damp * slip_n * vel_n per
+//   torque_n. V/f with ir compensation hunts at light load on the larger
+//   motors (370 W: 17 rad/s, 750 W: 79 rad/s peak to peak); damp 0.5..4
+//   stops it, damp < 0 makes it worse.
 // - speed / position estimate: vel = synchronous speed - slip, pos its
 //   integral, for the LinuxCNC feedback (sserial_acvf template).
 // Speeds are mechanical [rad/s], voltages and currents dq amplitudes.
@@ -48,7 +53,8 @@ HAL_PIN(u_boost);    // minimum voltage while running [V]
 HAL_PIN(max_cur);    // current limit [A]
 HAL_PIN(lim_ki);     // current limit gain [rad/s / (A*s)]
 HAL_PIN(scale);      // current limit derating (fault0.scale)
-HAL_PIN(stall_time); // [s]
+HAL_PIN(block_time); // [s]
+HAL_PIN(damp);       // active damping gain (see below)
 HAL_PIN(max_volt);   // available voltage [V] (hv0.pwm_volt)
 HAL_PIN(id);         // measured current, voltage frame (hv0.id_fb, iq_fb)
 HAL_PIN(iq);
@@ -67,11 +73,15 @@ HAL_PIN(torque);     // estimated torque [Nm]
 HAL_PIN(load);       // torque / torque_n
 HAL_PIN(cur);        // filtered |i| [A]
 HAL_PIN(lim);        // current limit correction [rad/s]
-HAL_PIN(stall);      // 1: blocked (see above)
-HAL_PIN(stall_timer);
+HAL_PIN(blocked);    // 1: blocked (see above)
+HAL_PIN(jtimer);
 
+HAL_PIN(tfast);      // torque filtered at DAMP_HZ
+HAL_PIN(tdamp);      // damping term [rad/s]
 HAL_PIN(idf);
 HAL_PIN(iqf);
+
+#define DAMP_HZ 50.0
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct acvf_pin_ctx_t *pins = (struct acvf_pin_ctx_t *)pin_ptr;
@@ -85,7 +95,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(scale)     = 1.0;
   PIN(max_volt)  = 1000.0;
   PIN(lp)        = 5.0;
-  PIN(stall_time) = 3.0;
+  PIN(block_time) = 3.0;
+  PIN(damp)       = 1.0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -111,8 +122,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(torque)   = 0.0;
     PIN(load)     = 0.0;
     PIN(lim)      = 0.0;
-    PIN(stall)    = 0.0;
-    PIN(stall_timer) = 0.0;
+    PIN(blocked)    = 0.0;
+    PIN(jtimer) = 0.0;
     return;
   }
 
@@ -121,6 +132,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float p_gap  = 1.5 * (PIN(u_cmd) * PIN(id) - r * (PIN(id) * PIN(id) + PIN(iq) * PIN(iq)));
   float torque = ABS(ws) > 0.05 * vel_n ? p_gap / ws : 0.0;
   PIN(torque)  = PIN(torque) * (1.0 - lp) + torque * lp;
+  float lpd    = LP_HZ(DAMP_HZ);
+  PIN(tfast)   = PIN(tfast) * (1.0 - lpd) + torque * lpd;
   PIN(load)    = PIN(torque) / MAX(PIN(torque_n), 1e-6);
 
   float slip;
@@ -154,6 +167,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // motoring: lower |ws|; braking (torque against the motion): raise it
   float dir = SIGN(vel_cmd) * (PIN(torque) * vel_cmd >= 0.0 ? -1.0 : 1.0);
   ws += dir * PIN(lim);
+  // active damping: the oscillating part of the torque moves the frequency
+  PIN(tdamp) = -PIN(damp) * PIN(slip_n) * vel_n * (PIN(tfast) - PIN(torque)) / MAX(PIN(torque_n), 1e-6);
+  ws += PIN(tdamp);
   PIN(vel_sync) = ws;
 
   // voltage: rated stator flux plus the resistive drop
@@ -175,11 +191,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(vel)     = ws - slip;
 
   if(PIN(lim) > 0.5 * ABS(vel_cmd) && ABS(vel_cmd) > 0.05 * vel_n) {
-    PIN(stall_timer) += period;
+    PIN(jtimer) += period;
   } else {
-    PIN(stall_timer) = 0.0;
+    PIN(jtimer) = 0.0;
   }
-  PIN(stall) = PIN(stall_timer) > PIN(stall_time);
+  PIN(blocked) = PIN(jtimer) > PIN(block_time);
   PIN(pos)     = mod(PIN(pos) + PIN(vel) * period);
 }
 

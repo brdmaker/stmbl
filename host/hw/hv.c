@@ -91,6 +91,7 @@ HAL_PIN(sim_lm);         // induction: magnetizing inductance [H]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
+HAL_PIN(sim_abs_pos);  // mechanical position [rad], not wrapped (kept in double)
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
@@ -114,6 +115,8 @@ struct hv_ctx_t {
   float uq;
   float isa, isb;  // induction motor: stator current, stationary frame
   float fra, frb;  // rotor flux, stationary frame
+  double abs_pos;  // sim_abs_pos: a float sum drifts (2000 rad: 2.4e-4 ulp vs
+                   // ~1.8e-3 rad per motor step at 140 rad/s)
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -276,6 +279,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_acc) = acc;
         PIN(sim_vel) = nv;
         PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
+        ctx->abs_pos += (v + nv) * 0.5 * mot_dt;
+        PIN(sim_abs_pos) = ctx->abs_pos;
       }
       PIN(sim_torque) = te;
       float flux = sqrtf(ctx->fra * ctx->fra + ctx->frb * ctx->frb);
@@ -321,6 +326,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_acc) = acc;
         PIN(sim_vel) = nv;
         PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
+        ctx->abs_pos += (v + nv) * 0.5 * mot_dt;
+        PIN(sim_abs_pos) = ctx->abs_pos;
       }
       PIN(sim_torque) = te;
     }

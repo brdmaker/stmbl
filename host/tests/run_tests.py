@@ -18,10 +18,12 @@ A .test file is a stmbl_host script plus directives:
   @expect CHECK            check printed pin values after the run
 
 CHECK forms (PIN[k] is the k-th printed value of PIN, 1-based, -1 = last;
-plain PIN means the last one):
+plain PIN means the last one; link echoes "OK sink <= source = v" count as
+printed values of sink, so index from the end for linked pins):
 
   PIN OP VALUE             OP is one of == != < <= > >=
   PIN ~ VALUE TOL          |got - VALUE| <= TOL; TOL is absolute or "N%"
+                           (VALUE may be =PIN2: the last printed value of PIN2)
   max|PIN| OP VALUE        over every printed value of PIN
   max PIN OP VALUE / min PIN OP VALUE
 
@@ -141,7 +143,13 @@ def check(expr, values):
             return False, "%s printed %d times, wanted [%d]" % (pin, len(seq), idx)
     if math.isnan(got):
         return False, "got nan"
-    want = float(val)
+    if val.startswith("="):
+        ref = values.get(val[1:])
+        if not ref:
+            return False, "%s was never printed" % val[1:]
+        want = ref[-1]
+    else:
+        want = float(val)
     if op == "~":
         if tol is None:
             return False, "~ needs a tolerance"
