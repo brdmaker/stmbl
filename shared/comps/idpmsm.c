@@ -265,6 +265,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         }
         PIN(pp) = (int)(PIN(pp) + 0.5);
 
+        PIN(tmp0) = 0.0;  // the offset step's average, as sin / cos
+        PIN(tmp1) = 0.0;
         PIN(state) = 2.3;
       }
     break;
@@ -279,7 +281,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       PIN(com_pos) = 0.0;
 
-      PIN(com_offset) = PIN(com_offset) * 0.99 - PIN(pos_fb) * 0.01;
+      // average -pos_fb as a unit vector: a plain average of the angle mixes
+      // +pi and -pi when the rotor locks near the wrap
+      PIN(tmp0) = PIN(tmp0) * 0.99 - sinf(PIN(pos_fb)) * 0.01;
+      PIN(tmp1) = PIN(tmp1) * 0.99 + cosf(PIN(pos_fb)) * 0.01;
+      PIN(com_offset) = atan2f(PIN(tmp0), PIN(tmp1));
 
       PIN(timer) += period;
       if(PIN(timer) >= 2.0){

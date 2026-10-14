@@ -216,8 +216,9 @@ Entry format:
   - FIXED idpmsm state 1.3 (L): resets `tmp0/tmp1` but not `tmp2/tmp3`. So
     on a second run in the same boot, the "low" averages start from the
     previous run's values.
-  - idpmsm state 2.3 (mot_fb_offset): low-pass filters `-pos_fb` without
-    handling angle wrap. If the locked rotor sits near ±pi, the average mixes
+  - FIXED idpmsm state 2.3 (mot_fb_offset): low-pass filters `-pos_fb`
+    without handling angle wrap (now a sin/cos average; the noiseless sim
+    can't show the flicker across +-pi, only that results don't change). If the locked rotor sits near ±pi, the average mixes
     +pi and -pi and the offset comes out wrong.
   - idpmsm state 2.3 writes `PIN(en) = 0`, but `en` is linked to
     `fault0.en_out` and gets overwritten next cycle, so it has no effect.
