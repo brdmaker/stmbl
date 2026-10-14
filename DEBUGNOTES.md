@@ -539,3 +539,15 @@ Entry format:
   applied. sim.txt is not a template, so the build-time check doesn't see it.
 - Fix:     Shorter lines (max 58), and the file now sets the bench motor as
   measured (l 0.0049, r 2.3, j 0.00003) where the config differs.
+
+## 2026-10-14  rt worst case 168.5 us of 200 under LinuxCNC motion
+- Area:    F4 rt loop (`hal` rt time), second bench drive, v0.9.18-243
+- Status:  Note
+- Symptom: First hardware soak run (LinuxCNC moves up to 500 mm/s, console
+  checks between cycles): `hal` rt max 168.5 us of the 200 us period (84%).
+  Idle and during id_mot it was 104..134 us. The first drive's RT_TOO_LONG
+  stops are recorded above.
+- Cause:   Not known which rt function peaks; `hal` lists per-function max.
+- Fix:     The soak suite logs rt max every cycle and notes it above 90% of
+  the period (`rt_load_high`); run it for hours and compare per-function
+  maxima from `console.log`.
