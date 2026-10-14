@@ -11,7 +11,6 @@ struct ringbuf {
   unsigned bufsize;       ///< Size of buffer memory
   volatile unsigned pos;  ///< Current read position
   volatile unsigned len;  ///< Length of data in buffer
-  unsigned skip;          ///< rb_getline: dropping a line that was too long
 };
 
 #define RINGBUF(size) \
@@ -62,19 +61,4 @@ int rb_write(struct ringbuf *rb, const void *data, int len);
  */
 int rb_undo(struct ringbuf *rb, int len);
 
-/**
- * Read one line, up to and including '\n'
- *
- * The '\n' is replaced by '\0'. A line needs at most len bytes including
- * its '\n'. A longer line is dropped, up to and including its '\n'.
- *
- * Not safe against a concurrent writer: the caller must keep the writer
- * (an interrupt) out while it runs, as rb_getc/rb_read also require.
- *
- * \param   rb    pointer to ringbuffer struct
- * \param   ptr   destination, len bytes
- * \param   len   size of ptr
- * \return  length including '\n'; 0 if no complete line yet; -1 if a line
- *          was too long and is being dropped
- */
 int rb_getline(struct ringbuf *rb, char *ptr, int len);
