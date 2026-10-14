@@ -8,6 +8,16 @@
  * shared/comps/motsim.c) is integrated at 80 kHz. The sim_* pins describe the
  * simulated motor and supply; host/sim_board.txt links them to conf0 so the
  * simulated motor matches what the config says about it.
+ *
+ * sim_type = 1 simulates an induction motor instead (T equivalent circuit,
+ * stationary frame, states: stator current is and rotor flux psir):
+ *   dpsir/dt = rr / lr * (lm * is - psir) + j * we * psir
+ *   dis/dt   = (us - rs * is - lm / lr * dpsir/dt) / (sigma * ls)
+ *   torque   = 3/2 * pp * lm / lr * (psir x is)
+ * with rs = sim_r, rr = sim_rr, lm = sim_lm, leakage sim_l split evenly
+ * between stator and rotor (ls = lr = lm + sim_l / 2), sigma = 1 - lm^2 /
+ * (ls * lr), we = pp * sim_vel. sim_psi is not used. sim_id / sim_iq are
+ * then the stator current in the rotor flux frame (magnetizing / torque).
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -75,6 +85,9 @@ HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // supply voltage [V]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
+HAL_PIN(sim_type);       // 0 = PMSM, 1 = induction motor
+HAL_PIN(sim_rr);         // induction: rotor resistance [ohm]
+HAL_PIN(sim_lm);         // induction: magnetizing inductance [H]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -83,6 +96,8 @@ HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
 HAL_PIN(sim_iq);
+HAL_PIN(sim_flux);    // induction: rotor flux magnitude [V*s]
+HAL_PIN(sim_slip);    // induction: slip, electrical [rad/s]
 
 #define F3_PER_RT 4    // F3 current loop at 20 kHz
 #define MOT_PER_F3 4   // motor model at 80 kHz
@@ -97,6 +112,8 @@ struct hv_ctx_t {
   float iq_error_sum;
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
+  float isa, isb;  // induction motor: stator current, stationary frame
+  float fra, frb;  // rotor flux, stationary frame
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -161,6 +178,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float pp   = MAX(PIN(sim_pp), 1.0);
   float mj   = MAX(PIN(sim_j), 1e-7);
   float prev = PIN(sim_phase_rev) > 0.0 ? -1.0 : 1.0;
+  int acim   = PIN(sim_type) > 0.5;
+  float rr   = MAX(PIN(sim_rr), 0.001);
+  float lm   = MAX(PIN(sim_lm), 0.0001);
+  float lsr  = lm + ml / 2.0;  // ls = lr
+  float sls  = lsr - lm * lm / lsr;  // sigma * ls
+  float kr   = lm / lsr;
 
   float f3_dt  = period / F3_PER_RT;
   float mot_dt = f3_dt / MOT_PER_F3;
@@ -177,6 +200,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
     float ia = PIN(sim_id) * cm - PIN(sim_iq) * sm;
     float ib = (PIN(sim_id) * sm + PIN(sim_iq) * cm) * prev;
+    if(acim) {
+      ia = ctx->isa;
+      ib = ctx->isb * prev;
+    }
     id       = ia * ca + ib * sa;
     iq       = -ia * sa + ib * ca;
 
@@ -218,7 +245,50 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     float ua = ud * ca - uq * sa;
     float ub = (ud * sa + uq * ca) * prev;
 
-    for(int m = 0; m < MOT_PER_F3; m++) {
+    for(int m = 0; m < MOT_PER_F3 && acim; m++) {
+      float we = PIN(sim_vel) * pp;
+      if(en) {
+        float dfa = rr / lsr * (lm * ctx->isa - ctx->fra) - we * ctx->frb;
+        float dfb = rr / lsr * (lm * ctx->isb - ctx->frb) + we * ctx->fra;
+        ctx->isa += (ua - mr * ctx->isa - kr * dfa) / sls * mot_dt;
+        ctx->isb += (ub - mr * ctx->isb - kr * dfb) / sls * mot_dt;
+        ctx->fra += dfa * mot_dt;
+        ctx->frb += dfb * mot_dt;
+      } else {  // bridge off: no stator current, the rotor flux decays
+        ctx->isa = 0.0;
+        ctx->isb = 0.0;
+        ctx->fra -= rr / lsr * ctx->fra * mot_dt;
+        ctx->frb -= rr / lsr * ctx->frb * mot_dt;
+      }
+      float te     = 1.5 * pp * kr * (ctx->fra * ctx->isb - ctx->frb * ctx->isa);
+      float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
+      float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
+      float v      = PIN(sim_vel);
+      if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
+        PIN(sim_vel) = 0.0;
+        PIN(sim_acc) = 0.0;
+      } else {
+        float acc = (torque - (fabsf(v) < 1e-4 ? SIGN(torque) : SIGN(v)) * tf) / mj;
+        float nv  = v + acc * mot_dt;
+        if(v * nv < 0.0) {
+          nv = 0.0;
+        }
+        PIN(sim_acc) = acc;
+        PIN(sim_vel) = nv;
+        PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
+      }
+      PIN(sim_torque) = te;
+      float flux = sqrtf(ctx->fra * ctx->fra + ctx->frb * ctx->frb);
+      PIN(sim_flux) = flux;
+      if(flux > 1e-6) {
+        float c = ctx->fra / flux, sn = ctx->frb / flux;
+        PIN(sim_id) = ctx->isa * c + ctx->isb * sn;
+        PIN(sim_iq) = -ctx->isa * sn + ctx->isb * c;
+        PIN(sim_slip) = rr / lsr * lm * PIN(sim_iq) / flux;  // slip w_e - w_r
+      }
+    }
+
+    for(int m = 0; m < MOT_PER_F3 && !acim; m++) {
       sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
       float mud = ua * cm + ub * sm;
       float muq = -ua * sm + ub * cm;
