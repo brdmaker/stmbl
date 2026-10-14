@@ -289,7 +289,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       PIN(timer) += period;
       if(PIN(timer) >= 2.0){
-        PIN(en) = 0.0;
+        PIN(en_out) = 0.0;  // was en, an input linked to fault0.en_out
         PIN(d_cmd) = 0.0;
         PIN(state) = 2.5;
         PIN(timer) = 0.0;
