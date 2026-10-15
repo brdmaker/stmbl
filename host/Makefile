@@ -73,6 +73,7 @@ $(GEN):
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
 check: stmbl_host
+	@$(PYTHON) tests/check_sserial_table.py
 	@$(PYTHON) tests/run_tests.py tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
