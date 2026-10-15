@@ -55,12 +55,26 @@ Observer note: a torque that changes much faster than the 1 kHz samples
 gone after ~0.2 s). Thresholds need a jerk-dependent term or a hold-off
 after enable.
 
+## Status (2026-10-15)
+
+1. `shared/robot`: dynamics library, tested against Robotics Toolbox.
+2. `host/arm`: six simulated drives (dlmopen) on the arm plant
+   (`arm_sim`, `armcore.c`, `plant.c`).
+3. `hwtest/arcmate-sim`: LinuxCNC 2.9 (genserkins) as the master through
+   the `stmbl_arm` module; prebuilt LinuxCNC for cloud sessions on the
+   orphan branch `linuxcnc-bin`.
+4. `linuxcnc/armcollide` (`shared/robot/collide.c`): the collision
+   detector; host tests (no false trips over a motion suite with a
+   perturbed model, detection while moving and at rest) and the LinuxCNC
+   test (push mid-move -> estop).
+
 ## Next
 
-1. Instantiable drive core; six drives in one process; the arm plant
-   (two-mass joints, backlash, friction, brakes, stops) between them.
-2. LinuxCNC (built from source, cached on an orphan branch) with
-   genserkins driving the six simulated drives.
-3. Collision `.comp` (observer + thresholds + reaction request), tests
-   against the plant with perturbed parameters: false trips, smallest
-   detected force per joint, detection time, stop-and-release.
+- Reaction component: stop -> compliant with gravity compensation
+  (100-300 ms, the arm backs off the obstacle) -> brakes, instead of the
+  plain estop.
+- Identification scripts for Phases 4-6 (friction sweeps, gravity fit,
+  base parameters), first checked on `arm_sim` logs with known values.
+- Joint-level tuning of the drives on the arm (id_pid per joint, gear
+  resonance).
+- Fill the arm's values from `RECORD.md` as they are measured.

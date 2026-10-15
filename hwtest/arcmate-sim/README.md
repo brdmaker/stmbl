@@ -27,6 +27,7 @@ LinuxCNC (genserkins, motion) --joint.N pos/vel/enable--> stmbl-arm.0.N --> driv
 ```sh
 make -C ../../host/arm all                     # libstmbl_drive.so, arm_sim
 make -C ../../host/arm/lcnc all install        # stmbl_arm.so -> LinuxCNC rtlib
+make -C ../../linuxcnc/armcollide all install  # the collision detector
 make test        # headless: lcnc_test.py as the display, TAP output
 make run         # with AXIS
 ```
@@ -36,7 +37,19 @@ config to /tmp, sets `DISPLAY = ./lcnc_test.py` and absolute paths, and
 runs LinuxCNC: machine on, home, MDI lines through genserkins (with a
 wrist reorientation), a rapid back, machine off. It checks the tool point,
 LinuxCNC's joint following error, the true link angles against the
-command, faults, stop hits and that the brakes hold.
+command, faults, stop hits, that the collision detector stays quiet, then
+pushes the flange with 150 N mid-move: `armcollide` detects it (J3,
+~13 ms), LinuxCNC goes to estop, the arm stops within 0.5 deg; estop reset
+and machine on again; machine off: the brakes hold.
+
+## Collision detection
+
+`armcollide` (`linuxcnc/armcollide`) runs in the servo thread on the
+drives' feedback and currents, with `[ARMCOLLIDE] MODEL` (here the arm
+model with identification-sized errors, `model_perturbed.arm`). Its
+`collision` drops `iocontrol.0.emc-enable-in`: estop, drives off, brakes
+on. A softer reaction (stop, compliant with gravity compensation, then
+brakes) is the next step.
 
 ## In a cloud session
 

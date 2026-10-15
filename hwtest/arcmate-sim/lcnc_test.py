@@ -53,6 +53,7 @@ class Sampler:
         self.ferr = [0.0] * 6
         self.link = [0.0] * 6
         self.faults = 0
+        self.collisions = 0
 
     def sample(self):
         s = poll()
@@ -63,6 +64,7 @@ class Sampler:
             cmd = hal.get_value("joint.%d.motor-pos-cmd" % j)
             self.link[j] = max(self.link[j], abs(cmd - q))
             self.faults += int(hal.get_value("stmbl-arm.0.%d.fault" % j))
+        self.collisions += int(hal.get_value("armcollide.0.collision"))
 
     def run_until_done(self, timeout):
         t = time.time() + timeout
@@ -122,12 +124,14 @@ def main():
     check(max(smp.ferr) < 0.2, "line: LinuxCNC joint ferror < 0.2 deg (%.3f)" % max(smp.ferr))
     check(max(smp.link) < 0.3, "line: true link angle within 0.3 deg of command (%.3f)" % max(smp.link))
     check(smp.faults == 0, "line: no drive fault")
+    check(smp.collisions == 0, "line: no collision detected")
 
     # reorient the wrist about A and B while moving
     ok, smp = mdi("G1 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f F2000" % (x + 50, y + 100, z, a + 20, b - 15, c))
     check(ok, "MDI line with reorientation done")
     check(max(smp.ferr) < 0.3, "reorient: LinuxCNC joint ferror < 0.3 deg (%.3f)" % max(smp.ferr))
     check(smp.faults == 0, "reorient: no drive fault")
+    check(smp.collisions == 0, "reorient: no collision detected")
 
     # back home in joint space (G53-free: MDI in world, then joint jog home)
     ok, smp = mdi("G0 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f" % tuple(home_pos))
@@ -135,8 +139,43 @@ def main():
     j_err = max(abs(s.joint_actual_position[j] - home_joints[j]) for j in range(6))
     check(ok and j_err < 0.05, "rapid back home: joints within 0.05 deg (%.4f)" % j_err)
     check(max(smp.ferr) < 0.5, "rapid: LinuxCNC joint ferror < 0.5 deg (%.3f)" % max(smp.ferr))
+    check(smp.collisions == 0, "rapid: no collision detected")
     hits = sum(int(hal.get_value("stmbl-arm.0.%d.stop-hits" % j)) for j in range(6))
     check(hits == 0, "no hard stop hit")
+
+    # collision: 150 N down on the flange in the middle of a line; the
+    # detector drops emc-enable-in: LinuxCNC goes to estop, drives off,
+    # brakes on
+    check(hal.get_value("armcollide.0.armed"), "collision detector armed")
+    C.mode(linuxcnc.MODE_MDI)
+    C.wait_complete()
+    C.mdi("G1 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f F3000" % (x + 200, y - 100, z - 100, a, b, c))
+    time.sleep(1.0)
+    q_force = [hal.get_value("stmbl-arm.0.%d.q" % j) for j in range(6)]
+    hal.set_p("stmbl-arm.0.force-z", "-150")
+    hal.set_p("stmbl-arm.0.force-rz", "0.1")
+    hal.set_p("stmbl-arm.0.force-link", "6")
+    t0 = time.time()
+    seen = []  # the joint, caught while collision is up (estop clears it)
+    t_end = t0 + 2.0
+    while time.time() < t_end and not seen:
+        if hal.get_value("armcollide.0.collision"):
+            seen = [hal.get_value("armcollide.0.joint"), time.time() - t0]
+        time.sleep(0.0005)
+    hit = wait(lambda s: s.task_state == linuxcnc.STATE_ESTOP, 2.0, 0.001)
+    dt = time.time() - t0
+    check(seen, "collision: detected (joint %s, %.0f ms wall clock after the push)" %
+          (seen[0] if seen else "-", seen[1] * 1000 if seen else 0))
+    check(hit, "collision: LinuxCNC in estop %.0f ms (wall clock) after the push" % (dt * 1000))
+    time.sleep(0.5)
+    hal.set_p("stmbl-arm.0.force-link", "0")
+    q_stop = [hal.get_value("stmbl-arm.0.%d.q" % j) for j in range(6)]
+    moved = max(abs(q_stop[j] - q_force[j]) for j in range(6))
+    check(moved < 5.0, "collision: arm stopped within 5 deg of where it was pushed (%.2f)" % moved)
+    C.state(linuxcnc.STATE_ESTOP_RESET)
+    C.state(linuxcnc.STATE_ON)
+    check(wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5), "machine on again after the collision")
+    time.sleep(0.5)
 
     # machine off: brakes hold
     q0 = [hal.get_value("stmbl-arm.0.%d.q" % j) for j in range(6)]

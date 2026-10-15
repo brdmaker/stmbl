@@ -9,13 +9,16 @@ kt 3 1.1112
 kt 4 0.36
 kt 5 0.36
 kt 6 0.36
-# thresholds: J thr0 [Nm] thr_v [Nm s/rad] (0: not checked)
-thresh 1 0 0
-thresh 2 0 0
-thresh 3 0 0
-thresh 4 0 0
-thresh 5 0 0
-thresh 6 0 0
+# thresholds: J thr0 [Nm] thr_v [Nm s/rad] thr_s [Nm] vs [rad/s]
+# (0: not checked); ~1.5 x the residual floor of model_perturbed.arm
+# over tests/inc_motion_suite.txt: moving (thr0), and the stiction band
+# near standstill (thr_s, gone by ~2 vs)
+thresh 1 14 0 15 0.15
+thresh 2 17 0 21 0.15
+thresh 3 13 0 18 0.15
+thresh 4 2.7 0 2.5 0.15
+thresh 5 2.8 0 2 0.15
+thresh 6 0.9 0 1.2 0.15
 dh 1 0     0    0.45 0
 dh 2 0.15 -90   0    -90
 dh 3 0.60  0    0    0

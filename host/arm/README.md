@@ -36,3 +36,41 @@ Tests: `arm_move` (hold, a 1.5 s move of all joints, brakes on disable),
 `arm_energy` (energy conserved in a free fall through the backlash),
 `arm_force` (gear torques change by -Jᵀf under a push), `arm_brake`
 (brakes hold; without J2's the arm falls onto its stop).
+
+## Collision detector
+
+`detector FILE` runs `shared/robot/collide.c` (the code of
+`linuxcnc/armcollide`) every 1 ms on what LinuxCNC sees: each drive's
+position and speed feedback and motor current. `arcmate/model_exact.arm`
+is the plant's own model; `arcmate/model_perturbed.arm`
+(`gen_model_perturbed.py`) has identification-sized errors (masses ±10 %,
+centres of mass 1-2 cm off, inertias +15 %, rotor inertias +10 %, friction
+±20 %) and is what the tests and `hwtest/arcmate-sim` use.
+
+Residual floor over `tests/inc_motion_suite.txt` [Nm] (perturbed model):
+
+| | J1 | J2 | J3 | J4 | J5 | J6 |
+|---|---|---|---|---|---|---|
+| moving (> 0.1 rad/s) | 9 | 11 | 8 | 1.7 | 1.8 | 0.5 |
+| near standstill | 19 | 25 | 20 | 3.4 | 2.7 | 1.4 |
+
+Near standstill gearbox stiction holds an unknown part of the load, so the
+thresholds have a stiction band (`thresh J thr0 thr_v thr_s vs`), set to
+~1.5 x these.
+
+Sensitivity, force on the flange (100 mm out on its z), detection time
+(`detected joint`, ms after the push; `-` = not detected within 0.3 s):
+
+| | 20 N | 40 N | 80 N | 120 N | 300 N |
+|---|---|---|---|---|---|
+| moving, down | J3 16 | J3 11 | J3 8 | J3 7 | J3 5 |
+| moving, +x | J2 47 | J5 17 | J5 8 | J5 6 | J5 4 |
+| moving, +y | J4 15 | J4 8 | J4 5 | J4 4 | J4 3 |
+| at rest (home), down | - | J3 78 | J3 19 | J3 14 | J3 9 |
+| at rest (home), +x | J5 137 | J5 12 | J5 6 | J5 5 | J5 3 |
+| at rest (home), +y | J4 84 | J4 15 | J4 7 | J4 6 | J4 4 |
+
+These are simulation numbers: ideal current measurement, no torque
+ripple, a friction model of the same form as the plant's. The real arm
+will need larger thresholds; Phase 7 of `hwtest/arcmate/MEASUREMENT_PLAN.md`
+measures its floor.

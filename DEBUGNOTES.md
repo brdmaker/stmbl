@@ -769,3 +769,16 @@ Entry format:
   ./configure ... --disable-gtk2`; a stub a2x on PATH; run as user `lcnc`;
   the test display writes its TAP to a file; pack `configs/common`. See
   `build_linuxcnc.sh` on `linuxcnc-bin` and `hwtest/arcmate-sim/README.md`.
+
+## 2026-10-15  Collision residual at standstill: gearbox stiction
+- Area:    `shared/robot/collide.c`, `linuxcnc/armcollide`
+- Status:  Known
+- Symptom: Simulated ARC Mate, detector with the exact model: the
+  residual is ~1-4 Nm while moving but 15-25 Nm on J1-J3 at standstill,
+  with no contact.
+- Cause:   Stiction in the gears holds an unknown part (up to the
+  breakaway friction) of the load once a joint stops; the motor torque the
+  servo leaves is not the model's.
+- Fix:     Thresholds with a stiction band near zero speed (`thresh J thr0
+  thr_v thr_s vs`); the detector is less sensitive at rest. Set it from the
+  measured floor (MEASUREMENT_PLAN Phase 7).

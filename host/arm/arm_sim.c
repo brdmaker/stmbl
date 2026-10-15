@@ -30,6 +30,8 @@
  *   detector FILE                 run the collision detector (collide.h) on
  *                                 what LinuxCNC sees, every 1 ms
  *   detset LINE                   change one detector model line
+ *   rlog FILE                     log t, then qd [rad/s] and residual [Nm]
+ *                                 per joint, every 1 ms while armed
  *   print WHAT                    q qd qm fb ferr te tau_g tau_f jtf gres hits
  *                                 fault res thr rmax rmaxm taum coll energy
  *                                 time
@@ -66,6 +68,7 @@ static int det_on = 0;
 static double det_rmax[NJ];             // max |residual| since "mark"
 static double det_rmaxm[NJ];            // the same while moving (> 0.1 rad/s)
 static double det_t_hit = -1.0;         // time of the first detection
+static FILE *rlog = NULL;               // residual log (rlog FILE)
 
 static void detector_ms(void) {
   double q[NJ], qd[NJ], cur[NJ];
@@ -80,6 +83,13 @@ static void detector_ms(void) {
   rb_collide_step(&det, enabled, q, qd, cur, 0.001);
   if(det.hit && !was) {
     det_t_hit = arm_ticks * ARM_RT;
+  }
+  if(rlog && det.armed) {
+    fprintf(rlog, "%.4f", arm_ticks * ARM_RT);
+    for(int j = 0; j < nj; j++) {
+      fprintf(rlog, " %.5f %.4f", qd[j], det.r[j]);
+    }
+    fprintf(rlog, "\n");
   }
   for(int j = 0; j < nj; j++) {
     if(det.armed && fabs(det.r[j]) > det_rmax[j]) {
@@ -290,6 +300,12 @@ static void script_line(char *line) {
     } else {
       det_on = 1;
     }
+  } else if(!strcmp(kw, "rlog")) {
+    char path[512];
+    if(rlog) {
+      fclose(rlog);
+    }
+    rlog = sscanf(p, " %511s", path) == 1 ? fopen(path, "w") : NULL;
   } else if(!strcmp(kw, "detset")) {  // a model line for the detector
     if(!rb_collide_line(&det, p)) {
       printf("ERROR detset: %s\n", p);
