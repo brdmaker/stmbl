@@ -582,6 +582,8 @@ static void print_vals(const char *what) {
       v = det.tau[j];
     } else if(!strcmp(what, "speedr")) {  // max |speed| / motor limit since mark
       v = speedr[j];
+    } else if(!strcmp(what, "power")) {  // the drive's input power over smart-serial [W]
+      v = drv[j].pd.power;
     } else if(!strcmp(what, "cmd")) {
       v = cmd_q[j];
     }

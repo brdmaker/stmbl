@@ -1,0 +1,13 @@
+# The ARC Mate cell's supply for linuxcnc/powerquota (powerquota.hal): a
+# three-phase 400 V supply, C 16 A per phase; the six single-phase drives
+# two per phase (J1 J2 on L1, J3 J4 on L2, J5 J6 on L3). Rectifier input:
+# power factor 0.65. Joint N's power is powerquota.0.power-N (0-based).
+quota L1 C 16 230 0.65
+quota L2 C 16 230 0.65
+quota L3 C 16 230 0.65
+load L1 0 1
+load L1 1 1
+load L2 2 1
+load L2 3 1
+load L3 4 1
+load L3 5 1

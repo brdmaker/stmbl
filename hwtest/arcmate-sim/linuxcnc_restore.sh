@@ -50,4 +50,5 @@ make -s -C "$REPO/linuxcnc/armguard" MODINC="$LCNC/src/Makefile.modinc" all inst
 make -s -C "$REPO/linuxcnc/armgrip" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
 make -s -C "$REPO/linuxcnc/armkins" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
 make -s -C "$REPO/linuxcnc/armtool" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
+make -s -C "$REPO/linuxcnc/powerquota" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
 echo "LinuxCNC $(cat "$LCNC/VERSION") ready at $LCNC"

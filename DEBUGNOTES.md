@@ -1014,3 +1014,15 @@ Entry format:
 - Cause:   The drive's HAL parser stops at a line longer than 63
   characters, a comment line included. sim.txt says so; easy to miss.
 - Fix:     Keep sim file lines short (sim_quota_test.txt).
+
+## 2026-10-15  stmbl_arm hung in its first servo call after a struct change
+- Area:    `host/arm/lcnc/Makefile`, `host/lcnc/stmbl_sim_api.h`
+- Status:  Fixed
+- Symptom: After master's `power` field came in, every arm LinuxCNC config
+  failed with "USRMOT: ERROR: command timeout". A bare halrun showed the
+  servo thread's time stuck at 0: stmbl-arm.0 never returned.
+- Cause:   `stmbl_sim_pd_t` grew a field. armcore.o and stmbl_arm_rt.o did
+  not depend on stmbl_sim_api.h, so an incremental build kept the old
+  layout in them while libstmbl_drive.so had the new one.
+- Fix:     Both now depend on stmbl_sim_api.h. After a header change in
+  host/lcnc, `make clean` is the safe way.

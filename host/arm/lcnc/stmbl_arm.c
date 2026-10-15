@@ -9,7 +9,7 @@
  * smart-serial link, in joint degrees in genserkins' convention (the DH
  * theta, i.e. the model angle + theta0):
  *   stmbl-arm.0.J.pos-cmd, .vel-cmd, .enable  (in)
- *   stmbl-arm.0.J.pos-fb, .vel-fb, .current, .fault  (out)
+ *   stmbl-arm.0.J.pos-fb, .vel-fb, .current, .power, .fault  (out)
  * and the truth of the simulation, for tests:
  *   stmbl-arm.0.J.q          link angle [deg, DH theta]
  *   stmbl-arm.0.J.tau-ext    joint torque of the external force (J^T f) [Nm]
@@ -30,7 +30,7 @@
  * With a gripper in the arm file (gripper drive ..., host/arm/gripsim.h),
  * its drive's smart-serial pins, in mm of finger gap:
  *   stmbl-arm.0.grip.pos-cmd, .vel-cmd, .enable  (in)
- *   stmbl-arm.0.grip.pos-fb, .current, .fault  (out)
+ *   stmbl-arm.0.grip.pos-fb, .current, .power, .fault  (out)
  * and the truth: .grip.force (contact force per finger [N]), .grip.held
  * (the part held, -1 none); .grip.drop (in, rising edge): the held part
  * slips out. Parts: `part` lines in the cell file.
@@ -69,7 +69,7 @@ RTAPI_MP_STRING(cell, "cell file: its obstacle and contact lines become the plan
 #define D2R (M_PI / 180.0)
 
 typedef struct {
-  hal_float_t *pos_cmd, *vel_cmd, *pos_fb, *vel_fb, *current, *q, *tau_ext, *tau_gear;
+  hal_float_t *pos_cmd, *vel_cmd, *pos_fb, *vel_fb, *current, *power, *q, *tau_ext, *tau_gear;
   hal_bit_t *enable, *fault, *link_lost;
   hal_s32_t *stop_hits;
   int lost;  // servo periods without a reply
@@ -83,7 +83,7 @@ typedef struct {
   double pay_now[4];
   hal_float_t *contact_force, *clearance;
   // the gripper
-  hal_float_t *g_cmd, *g_vel, *g_fb, *g_cur, *g_force;
+  hal_float_t *g_cmd, *g_vel, *g_fb, *g_cur, *g_pow, *g_force;
   hal_bit_t *g_en, *g_fault, *g_drop;
   hal_s32_t *g_held;
   int g_drop_last;
@@ -152,6 +152,7 @@ static void update(void *arg, long period) {
   if(arm_has_grip) {
     *p->g_fb = armcore_grip_fb();
     *p->g_cur = arm_gdrv.pd.current;
+    *p->g_pow = arm_gdrv.pd.power;
     *p->g_fault = arm_gdrv.pd.fault;
     *p->g_force = arm_gs.force;
     *p->g_held = gs_held(&arm_gs);
@@ -175,6 +176,7 @@ static void update(void *arg, long period) {
     *jp->pos_fb = armcore_fb(j) + theta0(j);
     *jp->vel_fb = armcore_fb_vel(j);
     *jp->current = arm_drv[j].pd.current;
+    *jp->power = arm_drv[j].pd.power;
     *jp->fault = arm_drv[j].pd.fault || jp->lost >= 3;
     *jp->q = arm_P.q[j] / D2R + theta0(j);
     *jp->tau_ext = jtf[j];
@@ -193,6 +195,7 @@ static int export_pins(void) {
     r |= hal_pin_float_newf(HAL_OUT, &jp->pos_fb, comp_id, PREFIX ".%d.pos-fb", j);
     r |= hal_pin_float_newf(HAL_OUT, &jp->vel_fb, comp_id, PREFIX ".%d.vel-fb", j);
     r |= hal_pin_float_newf(HAL_OUT, &jp->current, comp_id, PREFIX ".%d.current", j);
+    r |= hal_pin_float_newf(HAL_OUT, &jp->power, comp_id, PREFIX ".%d.power", j);
     r |= hal_pin_bit_newf(HAL_OUT, &jp->fault, comp_id, PREFIX ".%d.fault", j);
     r |= hal_pin_float_newf(HAL_OUT, &jp->q, comp_id, PREFIX ".%d.q", j);
     r |= hal_pin_float_newf(HAL_OUT, &jp->tau_ext, comp_id, PREFIX ".%d.tau-ext", j);
@@ -229,6 +232,7 @@ static int export_pins(void) {
     r |= hal_pin_bit_newf(HAL_IN, &pins->g_en, comp_id, PREFIX ".grip.enable");
     r |= hal_pin_float_newf(HAL_OUT, &pins->g_fb, comp_id, PREFIX ".grip.pos-fb");
     r |= hal_pin_float_newf(HAL_OUT, &pins->g_cur, comp_id, PREFIX ".grip.current");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->g_pow, comp_id, PREFIX ".grip.power");
     r |= hal_pin_bit_newf(HAL_OUT, &pins->g_fault, comp_id, PREFIX ".grip.fault");
     r |= hal_pin_float_newf(HAL_OUT, &pins->g_force, comp_id, PREFIX ".grip.force");
     r |= hal_pin_s32_newf(HAL_OUT, &pins->g_held, comp_id, PREFIX ".grip.held");

@@ -22,9 +22,9 @@ all: stmbl_arm.so ../libstmbl_drive.so
 ../libstmbl_drive.so:
 	$(MAKE) -C .. libstmbl_drive.so
 
-stmbl_arm_rt.o: stmbl_arm.c ../armcore.h ../plant.h ../changersim.h
+stmbl_arm_rt.o: stmbl_arm.c ../armcore.h ../plant.h ../changersim.h ../../lcnc/stmbl_sim_api.h
 	$(CC) -o $@ $(EXTRA_CFLAGS) -I.. -I../../lcnc -I$(ROOT)/shared/robot -c $<
-armcore.o: ../armcore.c ../armcore.h ../plant.h ../gripsim.h ../changersim.h
+armcore.o: ../armcore.c ../armcore.h ../plant.h ../gripsim.h ../changersim.h ../../lcnc/stmbl_sim_api.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 plant.o: ../plant.c ../plant.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@

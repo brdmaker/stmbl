@@ -35,6 +35,7 @@ make -C ../../linuxcnc/armtool all install     # the tool changer (test-tool)
 make test        # headless: lcnc_test.py as the display, TAP output
 make test-grip   # the same with the electric gripper (lcnc_grip_test.py)
 make test-tool   # the pneumatic tool changer (lcnc_tool_test.py)
+make test-quota  # power quotas: two drives per phase (lcnc_quota_test.py)
 make run         # with AXIS
 ```
 
@@ -165,6 +166,25 @@ for the motion to end first. `lcnc_tool_test.py` checks:
 - the tool slipping off mid-move: estop, reason 3;
 - recovery onto the flange;
 - an unlock away from the dock: refused, estop, reason 4.
+
+## Power quotas (`make test-quota`)
+
+Each drive reports its input power over smart-serial
+(`stmbl-arm.0.J.power`; `hm2_*.stbl.*.power` on the real drives).
+`powerquota.hal`, a HALFILE right after `arcmate.hal`, feeds the six into
+`linuxcnc/powerquota`. It puts the feed scale on `motion.adaptive-feed`
+(the program needs `M52 P1`) and goes into the estop chain after the
+collision guard. `quota.txt` is the cell's supply: three phases, C 16 A
+each, J1 J2 on L1, J3 J4 on L2, J5 J6 on L3.
+
+`make test-quota` uses `quota_test.txt`. The simulated arm draws little
+(about 15 W idle per drive, up to about 100 W for J1 + J2), so L1 is scaled
+to a 0.17 A breaker that the test's sweeps overload about 3x.
+- **M52 P1:** the sweeps are slowed (feed down to about 0.3). L1 works
+  near its limit (damage about 0.43, under the 0.5 margin); L2 and L3 are
+  untouched; no collision hit.
+- **M52 P0:** the same sweeps at full speed heat L1 until the alarm stops
+  the machine at damage 0.9, before the breaker would trip.
 
 ## In a cloud session
 

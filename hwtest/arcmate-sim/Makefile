@@ -7,13 +7,15 @@
 #   make test-tool lcnc_tool_test.py with the pneumatic tool changer
 #                  (arcmate_changer.arm, cell_changer.txt, grip.hal +
 #                  changer.hal, armkins, M6 = toolchange.ngc)
+#   make test-quota lcnc_quota_test.py with powerquota (powerquota.hal,
+#                  quota_test.txt: three phases, two drives each)
 #   make soak      soak.ngc SOAK_CYCLES times and error scenarios (lcnc_soak.py)
 #   make run       LinuxCNC with AXIS
 #
 # LINUXCNC: a run-in-place LinuxCNC 2.9 (sourced rip-environment), or
 # empty for the installed one. Needs host/arm built and stmbl_arm.so
 # installed (make -C ../../host/arm/lcnc all install), and armcollide.so,
-# armguard.so, armgrip.so, armkins.so, armtool.so
+# armguard.so, armgrip.so, armkins.so, armtool.so, powerquota.so
 # (make -C ../../linuxcnc/<name> all install). Not as root
 # (rtapi_app refuses).
 
@@ -55,6 +57,15 @@ test-tool:
 	test -f lcnc_tool_test.result && test "$$(cat lcnc_tool_test.result)" = 0 || \
 	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
 
+test-quota:
+	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_quota_test.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(CELL)|; s|^HALFILE = arcmate.hal|HALFILE = arcmate.hal\nHALFILE = powerquota.hal|' arcmate.ini && \
+	printf '\n[POWERQUOTA]\nCONFIG = quota_test.txt\n' >> arcmate.ini && \
+	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
+	cat lcnc_quota_test.tap 2>/dev/null; \
+	test -f lcnc_quota_test.result && test "$$(cat lcnc_quota_test.result)" = 0 || \
+	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
+
 # soak: soak.ngc SOAK_CYCLES times, then error scenarios (lcnc_soak.py)
 SOAK_CYCLES ?= 1
 soak:
@@ -76,4 +87,4 @@ genserkins-ref:
 run:
 	@$(ENV) cd $(HERE) && linuxcnc arcmate.ini
 
-.PHONY: test test-grip test-tool run genserkins-ref soak
+.PHONY: test test-grip test-tool test-quota run genserkins-ref soak
