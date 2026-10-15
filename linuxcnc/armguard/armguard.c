@@ -39,6 +39,8 @@
  *   armguard.0.prevent-enable in  prevention on (default on if prevent > 0)
  *   armguard.0.clearance     out  the arm's clearance at motion's command [mm]
  *   armguard.0.clearance-stop out the smallest along the stop path [mm]
+ *   armguard.0.tool          in   (s32) the tool on the tool changer now:
+ *                                 its bodies (`body ... tool N`) count
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
@@ -66,6 +68,7 @@ typedef struct {
   hal_float_t *mcmd[RB_MAXJ], *mvel[RB_MAXJ], *dfb[RB_MAXJ], *res[RB_MAXJ];
   hal_float_t *cmd[RB_MAXJ], *vel[RB_MAXJ], *fb[RB_MAXJ];
   hal_bit_t *collision, *enable, *reset, *estop, *active, *prevent_en;
+  hal_s32_t *tool;
   hal_s32_t *state, *reason;
   hal_float_t *clear_now, *clear_stop;
   int last_reset;
@@ -104,6 +107,7 @@ static void update(void *arg, long period) {
       q[j] = *p->mcmd[j] * D2R - mdl.link[j].theta0;
       qd[j] = *p->mvel[j] * D2R;
     }
+    geo.tool = *p->tool;
     rb_guard_watch(&guard, &mdl, &geo, q, qd);
     *p->clear_now = guard.clear_now * 1000.0;
     *p->clear_stop = guard.clear_stop * 1000.0;
@@ -158,6 +162,7 @@ static int export_pins(void) {
   r |= hal_pin_bit_newf(HAL_IN, &pins->prevent_en, comp_id, PREFIX ".prevent-enable");
   r |= hal_pin_float_newf(HAL_OUT, &pins->clear_now, comp_id, PREFIX ".clearance");
   r |= hal_pin_float_newf(HAL_OUT, &pins->clear_stop, comp_id, PREFIX ".clearance-stop");
+  r |= hal_pin_s32_newf(HAL_IN, &pins->tool, comp_id, PREFIX ".tool");
   if(!r) {
     *pins->prevent_en = guard.margin > 0.0;
   }

@@ -1,1 +1,2 @@
-T1 P1 ;
+T1 P1 ; torch (tool changer tool 1)
+T2 P2 ; gripper (tool changer tool 2)

@@ -30,6 +30,8 @@
  *                                 flange [kg, m in the last link's frame];
  *                                 an undeclared payload is a collision. A
  *                                 change resets the observer.
+ *   armcollide.0.tool-mass, .tool-cx/-cy/-cz  in: the tool changer's tool
+ *                                 (armtool), a second payload
  *   armcollide.0.mute        in   no detection (residuals still computed):
  *                                 armgrip, while a grip settles or an
  *                                 unknown part is being weighed
@@ -57,8 +59,8 @@ typedef struct {
   hal_bit_t *enable, *collision, *armed, *reset, *mute;
   hal_s32_t *joint;
   int latched, joint_latched, last_reset;
-  hal_float_t *pay[4];
-  double pay_now[4];
+  hal_float_t *pay[4], *tpay[4];
+  double pay_now[4], tpay_now[4];
 } pins_t;
 
 static int comp_id;
@@ -80,6 +82,14 @@ static void update(void *arg, long period) {
       p->pay_now[k] = *p->pay[k];
     }
     rb_collide_payload(&det, p->pay_now[0], p->pay_now + 1);
+    rb_observer_reset(&det.obs);
+  }
+  if(*p->tpay[0] != p->tpay_now[0] || *p->tpay[1] != p->tpay_now[1] || *p->tpay[2] != p->tpay_now[2] ||
+     *p->tpay[3] != p->tpay_now[3]) {
+    for(int k = 0; k < 4; k++) {
+      p->tpay_now[k] = *p->tpay[k];
+    }
+    rb_collide_tool(&det, p->tpay_now[0], p->tpay_now + 1);
     rb_observer_reset(&det.obs);
   }
   det.mute = *p->mute;
@@ -120,6 +130,7 @@ static int export_pins(void) {
   static const char *pn[4] = {"mass", "cx", "cy", "cz"};
   for(int k = 0; k < 4 && !r; k++) {
     r |= hal_pin_float_newf(HAL_IN, &pins->pay[k], comp_id, PREFIX ".payload-%s", pn[k]);
+    r |= hal_pin_float_newf(HAL_IN, &pins->tpay[k], comp_id, PREFIX ".tool-%s", pn[k]);
   }
   return r;
 }

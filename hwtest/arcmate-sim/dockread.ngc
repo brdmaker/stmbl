@@ -1,0 +1,31 @@
+; the dock of tool #1 from armtool (changer.hal): #<_dk0>..#<_dk11> =
+; dock x y z a b c [mm, deg], approach point x y z, slide-out point x y z
+o<dockread> sub
+M68 E5 Q#1
+G4 P0.05
+M66 E0 L0
+#<_dk0> = #5399
+M66 E1 L0
+#<_dk1> = #5399
+M66 E2 L0
+#<_dk2> = #5399
+M66 E3 L0
+#<_dk3> = #5399
+M66 E4 L0
+#<_dk4> = #5399
+M66 E5 L0
+#<_dk5> = #5399
+M66 E6 L0
+#<_dk6> = #5399
+M66 E7 L0
+#<_dk7> = #5399
+M66 E8 L0
+#<_dk8> = #5399
+M66 E9 L0
+#<_dk9> = #5399
+M66 E10 L0
+#<_dk10> = #5399
+M66 E11 L0
+#<_dk11> = #5399
+o<dockread> endsub
+M2

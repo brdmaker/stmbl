@@ -943,3 +943,40 @@ Entry format:
   margin of the forearm capsule. Both bodies are guesses.
 - Fix:     The test's second part sits higher (flange at z 1200). Re-check
   once the real housing and forearm are measured.
+
+## 2026-10-15  Tool changer docks: flange-up hits the forearm, flange-forward is the wrist singularity
+- Area:    `host/arm/arcmate/tools.txt`, `arcmate_changer.arm`
+- Status:  Known (guessed geometry)
+- Symptom: Flange-up docks at z 1050 caused protective stops: the forearm
+  vs the changer plate, with self-clearance 10 mm at z 1000 and negative
+  at 950. With docks flange-forward (B 90), J4 overspeed-faulted (off 1)
+  moving to a part.
+- Cause:   Flange up at low poses tilts the forearm towards the plate.
+  Flange forward with the forearm level is J5 = 0, the wrist singularity:
+  a small Cartesian change spins J4 and J6.
+- Fix:     Docks and working poses at B 45 (J5 -41 to -66 deg, clearance
+  56 mm or more). Changer plate r 40 mm. Re-check with the real geometry.
+
+## 2026-10-15  LinuxCNC 2.9: tool TCP through switchable kinematics works
+- Area:    `linuxcnc/armkins`, `hwtest/arcmate-sim/toolchange.ngc`
+- Status:  Note
+- Symptom: genserkins has no tool orientation, and a TCP change mid-program
+  would make the Cartesian position jump.
+- Cause:   --
+- Fix:     armkins exports kinematicsSwitchable() / kinematicsSwitch(type)
+  with type = tool ID. `M68 E3 Q<tool>` drives motion.switchkins-type, then
+  `M66 E0 L0`: motion recomputes the Cartesian position from the joints
+  and the interpreter resyncs (checked: the position jumps to the TCP,
+  later moves are clean, back to 0 too). M64/M65/M68 are immediate (not
+  queued with motion), so each needs an `M66 E0 L0` before it, or the lock
+  would open while the arm still moves into the dock.
+
+## 2026-10-15  armtool: kinematics check tripped on the settling at enable
+- Area:    `linuxcnc/armtool/armtool.c`
+- Status:  Fixed
+- Symptom: After a lost tool, the machine went straight back to estop at
+  enable (reason 5), so the kinematics could not be put back to the flange.
+- Cause:   "Moving" was any joint over 0.01 deg/s; the settling after
+  enable exceeds that.
+- Fix:     Moving = a joint over 0.1 deg in 50 ms. Standing still, the
+  operator can set `M68 E3 Q0`, `M66 E0 L0`, `M61 Q0`.

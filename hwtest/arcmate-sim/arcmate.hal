@@ -2,7 +2,7 @@
 # the six simulated drives and the arm in the servo thread). The pins are
 # a drive's smart-serial pins (as hm2_*.stbl.*), per joint.
 loadrt [KINS]KINEMATICS
-loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS num_dio=8 num_aio=16
 loadrt stmbl_arm arm=[STMBL_ARM]ARM lib=[STMBL_ARM]LIB cell=[ARMGUARD]CELL
 loadrt armcollide model=[ARMCOLLIDE]MODEL
 loadrt armguard model=[ARMCOLLIDE]MODEL cell=[ARMGUARD]CELL
@@ -16,26 +16,6 @@ addf stmbl-arm.0            servo-thread
 addf armcollide.0           servo-thread
 addf coll-not               servo-thread
 addf estop-and              servo-thread
-
-# Craig DH (genserkins), from host/arm/arcmate/arcmate.arm [mm, rad]
-setp genserkins.A-0 0
-setp genserkins.ALPHA-0 0.000000000
-setp genserkins.D-0 450
-setp genserkins.A-1 150
-setp genserkins.ALPHA-1 -1.570796327
-setp genserkins.D-1 0
-setp genserkins.A-2 600
-setp genserkins.ALPHA-2 0.000000000
-setp genserkins.D-2 0
-setp genserkins.A-3 120
-setp genserkins.ALPHA-3 -1.570796327
-setp genserkins.D-3 650
-setp genserkins.A-4 0
-setp genserkins.ALPHA-4 1.570796327
-setp genserkins.D-4 0
-setp genserkins.A-5 0
-setp genserkins.ALPHA-5 -1.570796327
-setp genserkins.D-5 100
 
 net j0-pos-cmd joint.0.motor-pos-cmd  => armguard.0.0.motion-cmd
 net j0-vel-cmd joint.0.vel-cmd        => armguard.0.0.motion-vel

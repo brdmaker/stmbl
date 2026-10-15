@@ -34,6 +34,12 @@
  * and the truth: .grip.force (contact force per finger [N]), .grip.held
  * (the part held, -1 none); .grip.drop (in, rising edge): the held part
  * slips out. Parts: `part` lines in the cell file.
+ * With a tool changer (changer ..., host/arm/changersim.h):
+ *   stmbl-arm.0.changer.valve      in   the lock valve (locked when set)
+ *   stmbl-arm.0.changer.locked, .unlocked, .present  out  its sensors
+ *   stmbl-arm.0.changer.id         out  (s32) the coded tool ID (0 none)
+ *   stmbl-arm.0.changer.slip       in   rising edge: the tool comes off
+ *   stmbl-arm.0.changer.plant-tool out  (s32) the truth: the tool on it
  * The cell file's obstacle, contact and part lines are the plant's;
  * `include FILE` reads another (relative to the including one).
  * Each drive's console is not exposed; its config is the ARMFILE's.
@@ -81,6 +87,10 @@ typedef struct {
   hal_bit_t *g_en, *g_fault, *g_drop;
   hal_s32_t *g_held;
   int g_drop_last;
+  // the tool changer
+  hal_bit_t *c_valve, *c_locked, *c_unlocked, *c_present, *c_slip;
+  hal_s32_t *c_id, *c_tool;
+  int c_slip_last;
 } pins_t;
 
 static int comp_id;
@@ -122,7 +132,22 @@ static void update(void *arg, long period) {
     p->g_drop_last = *p->g_drop;
   }
 
+  if(arm_cs.on) {
+    armcore_changer_valve(*p->c_valve);
+    if(*p->c_slip && !p->c_slip_last) {
+      arm_cs.slip = 1;
+    }
+    p->c_slip_last = *p->c_slip;
+  }
+
   armcore_servo(period);
+
+  if(arm_cs.on) {
+    int l, u, pr, id;
+    armcore_changer_sensors(&l, &u, &pr, &id);
+    *p->c_locked = l, *p->c_unlocked = u, *p->c_present = pr, *p->c_id = id;
+    *p->c_tool = arm_cs.mounted;
+  }
 
   if(arm_has_grip) {
     *p->g_fb = armcore_grip_fb();
@@ -185,6 +210,18 @@ static int export_pins(void) {
   static const char *pn[4] = {"mass", "cx", "cy", "cz"};
   for(int k = 0; k < 4 && !r; k++) {
     r |= hal_pin_float_newf(HAL_IN, &pins->pay[k], comp_id, PREFIX ".payload-%s", pn[k]);
+  }
+  if(arm_cs.on && !r) {
+    r |= hal_pin_bit_newf(HAL_IN, &pins->c_valve, comp_id, PREFIX ".changer.valve");
+    r |= hal_pin_bit_newf(HAL_OUT, &pins->c_locked, comp_id, PREFIX ".changer.locked");
+    r |= hal_pin_bit_newf(HAL_OUT, &pins->c_unlocked, comp_id, PREFIX ".changer.unlocked");
+    r |= hal_pin_bit_newf(HAL_OUT, &pins->c_present, comp_id, PREFIX ".changer.present");
+    r |= hal_pin_s32_newf(HAL_OUT, &pins->c_id, comp_id, PREFIX ".changer.id");
+    r |= hal_pin_bit_newf(HAL_IN, &pins->c_slip, comp_id, PREFIX ".changer.slip");
+    r |= hal_pin_s32_newf(HAL_OUT, &pins->c_tool, comp_id, PREFIX ".changer.plant-tool");
+    if(!r) {
+      *pins->c_valve = arm_cs.valve;  // as at start (a tool on: locked)
+    }
   }
   if(arm_has_grip && !r) {
     r |= hal_pin_float_newf(HAL_IN, &pins->g_cmd, comp_id, PREFIX ".grip.pos-cmd");

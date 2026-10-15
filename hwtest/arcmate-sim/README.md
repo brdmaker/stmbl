@@ -30,8 +30,11 @@ make -C ../../host/arm/lcnc all install        # stmbl_arm.so -> LinuxCNC rtlib
 make -C ../../linuxcnc/armcollide all install  # the collision detector
 make -C ../../linuxcnc/armguard all install    # the collision reaction
 make -C ../../linuxcnc/armgrip all install     # the gripper (test-grip)
+make -C ../../linuxcnc/armkins all install     # kinematics with the TCP (test-tool)
+make -C ../../linuxcnc/armtool all install     # the tool changer (test-tool)
 make test        # headless: lcnc_test.py as the display, TAP output
 make test-grip   # the same with the electric gripper (lcnc_grip_test.py)
+make test-tool   # the pneumatic tool changer (lcnc_tool_test.py)
 make run         # with AXIS
 ```
 
@@ -125,8 +128,43 @@ on the lift (2.8 kg with model_perturbed.arm's floor: ok within 1 kg),
 places and releases it, then lets box2 slip out mid-carry (estop, 7),
 picks box1 declared as 4.5 kg (estop, 6) and closes on nothing (estop, 8).
 
-`cell.txt` and `cell_grip.txt` share `cell_base.txt` (`include`): the
-arm's bodies, the guard's settings, the fixture.
+`cell.txt`, `cell_grip.txt` and `cell_changer.txt` share
+`cell_base.txt` (`include`): the arm's bodies, the guard's settings, the
+fixture.
+
+## The tool changer (`make test-tool`)
+
+`host/arm/arcmate/arcmate_changer.arm` puts a pneumatic changer on the
+flange. The tools are in `tools.txt`: 1 a bent-neck torch, 2 the electric
+gripper. Each tool has its TCP, mass, bodies and a dock, with the flange
+pointing forward and up (B 45). The config is arcmate.ini with `armkins`
+as the kinematics, `cell_changer.txt`, `grip.hal` + `changer.hal`
+(armtool) and M6 remapped to `toolchange.ngc`. `make test-tool` builds it
+in /tmp; the genserkins DH setps live in `genserkins.hal`, which only the
+genserkins configs load.
+
+```
+T2 M6        ; the gripper: toolchange.ngc puts the current tool back,
+             ; picks tool 2, switches the kinematics to its TCP
+G1 X1150 Y0 Z1100 A0 B45 C0 F6000   ; on the gripper's TCP
+T1 M6        ; the torch
+T0 M6        ; no tool
+```
+
+For the change, toolchange.ngc runs on the flange's kinematics (`M68 E3
+Q0`). For the current tool, it reads the dock (`dockread.ngc`: armtool's
+dock pins on analog-in 0..11), goes above the fork, down into the dock,
+unlocks and backs out along the approach. For the new tool, it comes in
+along the approach, locks (expecting the tool: M68 E4), lifts out of the
+fork, then `M61 Q<tool>` and `M68 E3 Q<tool>` + `M66 E0 L0`. Its
+M64/M65/M68 are immediate outputs, so an `M66 E0 L0` before each waits
+for the motion to end first. `lcnc_tool_test.py` checks:
+- the three changes: the right tool, the TCP, armcollide's tool mass;
+- a TCP move, and a reorientation about the torch tip, which stays within
+  0.06 mm;
+- the tool slipping off mid-move: estop, reason 3;
+- recovery onto the flange;
+- an unlock away from the dock: refused, estop, reason 4.
 
 ## In a cloud session
 

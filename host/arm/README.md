@@ -203,3 +203,46 @@ retract), `arm_grip_drop` (slips out mid-carry: off 7), `arm_grip_empty`,
 `arm_grip_learn`. The soak has grip_cycles / grip_learn (parts of random
 mass back and forth between two places) and grip_drop / grip_mismatch /
 grip_wrong / grip_empty.
+
+## Tool changer (`arcmate_changer.arm`)
+
+A pneumatic changer on the flange (`changersim.c`): one valve drives the
+lock piston over 0.1 s. Its sensors are "locked", "unlocked", "present"
+and the tool's coded ID. The tools come from the tool table
+(`arcmate/tools.txt`, `shared/robot/tool.h`), which gives each tool its
+TCP (6D, in the flange frame), mass, bodies (`body ... tool N`) and dock.
+- **Locking:** a docked tool is captured when the flange sits at its dock
+  pose (2 mm / 2 deg). It then rides on the flange: its mass is the plant's
+  tool payload and its bodies count in the geometry.
+- **Unlocking:** at the dock, the tool goes back into it; anywhere else it
+  falls.
+- **Gripper:** it is tool 2 (`gripper tool 2`), and its jaws act only while
+  it is on.
+
+The control side is `rb_changer` (`shared/robot/tool.c`, as armtool runs
+it). It drives the valve from `lock 1|0`, checks the sensors against it,
+and knows the mounted tool, giving its mass to the detector's model and
+its bodies to the guard. `ktool N` puts Cartesian moves (and `print pose`)
+on tool N's TCP. Faults turn the machine off:
+- off_reason 9 is a changer fault; off_joint gives the kind: 1 sensors
+  timeout, 2 wrong tool, 3 tool lost, 4 unlock away from the dock (the
+  valve is kept locked).
+- off_reason 10 is a Cartesian move on the TCP of a tool that is not on.
+  The flange, `ktool 0`, is always allowed: changes run on it.
+
+The docks have the flange pointing forward and up (B 45). The tool sits
+in a fork open at the top: the bare flange comes and goes along its axis,
+and with the tool on it lifts out (`dock x y z a b c dx dy dz sx sy sz`).
+Flange up at the dock height brings the forearm onto the changer plate.
+Straight forward is the wrist singularity (J5 0): J4 faults on overspeed
+on the way to a part.
+
+Tests: `arm_tool_change` (gripper and torch picked and put back; moves on
+their TCPs; a reorientation about the torch tip keeps it within 0.05
+deg / 0.2 mm), `arm_tool_errors` (slip, wrong tool, kinematics on another
+tool, unlock away from the dock), `arm_tool_grip` (the gripper as tool 2
+picks and weighs a part on top of its own 1.8 kg). Includes
+`inc_tool_pick1/2`, `inc_tool_drop1/2` are the change sequences. The soak
+has tool_cycles (both tools in turn, random TCP moves; the path error is
+the TCP's, up to 5 mm 290 mm out) and tool_slip / tool_wrong /
+tool_undocked.
