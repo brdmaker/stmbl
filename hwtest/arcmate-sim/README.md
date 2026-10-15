@@ -43,6 +43,26 @@ pushes the flange with 150 N mid-move: `armcollide` detects it (J3,
 ~13 ms), LinuxCNC goes to estop, the arm stops within 0.5 deg; estop reset
 and machine on again; machine off: the brakes hold.
 
+## The cell from Fusion 360
+
+`tools/step2cell.py` turns a STEP export into collider boxes, one per
+solid (body), placed in the robot's base frame:
+
+```sh
+python3 ../../tools/step2cell.py cell.step --base 1200 -350 0 0 0 90 --margin 10 \
+        --min-size 20 > cell_obstacles.txt      # then paste/append into cell.txt
+```
+
+`--base`: where the robot base frame is in the Fusion design (origin in
+mm, A B C in deg); `--margin` grows the boxes; `--min-size` drops screws
+and the like. Each box is the smallest of a few orientations (the CAD axes,
+the body's principal axes, frames from its largest flat faces: exact for
+machined parts). The report on stderr gives each body's fill (body volume
+/ box volume); a low one (an L bracket: 0.25) means the box is much larger
+than the part - split the body in Fusion (Modify > Split Body) into
+box-like pieces. Needs `pip install gmsh numpy` (OpenCascade reads STEP);
+tested by `host/tests/robot/test_step2cell.py` in `make -C host check`.
+
 ## Collision prevention
 
 `cell.txt` sets `prevent 10`: `armguard` stops the arm if it could not

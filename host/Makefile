@@ -79,6 +79,7 @@ $(GEN):
 # unmet expectation.
 check: stmbl_host test_robot
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate.arm
+	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
 	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test
 
