@@ -266,18 +266,3 @@ script that drove the `linuxcnc` Python module:
 | Encoder index | found; commutation switches from autophasing to absolute |
 | `--load` + `reset` over the pty | 36 lines written and verified; the drive reboots with the new config |
 | Servo-thread time | about 41 µs per 1 ms period (sim, motion and planner), worst case 172 µs |
-
-## Power quotas (`make test-quota`)
-
-The drive reports its input power over smart-serial (`stmbl-sim.0.power`;
-on the real drive `hm2_7c81.0.stbl.0.0.power`). `powerquota.hal` (a second
-HALFILE) feeds it to `linuxcnc/powerquota`, which slows the motion through
-adaptive feed before the supply's fuse could blow. `quota.txt` is the
-burn-in machine's supply (C 10 A, 230 V). `make test-quota` runs
-`pq_test.py` headless with `quota_test.txt`, a 0.48 A quota that the
-moves overload 3x, and `sim_quota_test.txt`, a load on the simulated motor
-(about 300 W at 500 mm/s). With M52 P1 the moves are slowed (feed down to
-0.55, fuse damage 0.34). Without it, the alarm estops the machine at
-damage 0.9, and an estop reset clears it once the fuse model has cooled
-a little. Needs `stmbl_sim.so` and `powerquota.so` installed (see
-`linuxcnc/powerquota/README.md`).

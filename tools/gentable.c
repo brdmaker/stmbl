@@ -100,8 +100,6 @@ void print_pd(process_data_descriptor_t *pd) {
     case DATA_TYPE_SIGNED:
       if(pd->data_size == 8) {
         printf("int8_t %s;\n", name);
-      } else if(pd->data_size == 16) {
-        printf("int16_t %s;\n", name);
       } else {
         printf("warning: unsupported int size!\n");
       }
@@ -156,10 +154,6 @@ int main() {
   metadata(&(pd_table.vel_fb), last_pd);
   ADD_PROCESS_VAR(("current", "A", 8, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -30, 30));
   metadata(&(pd_table.current), last_pd);
-  // the drive's input power (pe0.p_in), for LinuxCNC's power quotas; here,
-  // after current, it stays byte aligned (the struct and the bit stream agree)
-  ADD_PROCESS_VAR(("power", "W", 16, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -16384, 16384));
-  metadata(&(pd_table.power), last_pd);
   ADD_PROCESS_VAR(("in", "none", 4, DATA_TYPE_BITS, DATA_DIRECTION_INPUT, -100, 100));
   metadata(&(pd_table.input_pins), last_pd);
   ADD_PROCESS_VAR(("fault", "none", 1, DATA_TYPE_BOOLEAN, DATA_DIRECTION_INPUT, 0, 1));

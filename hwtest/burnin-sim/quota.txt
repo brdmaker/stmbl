@@ -1,7 +1,0 @@
-# Power quotas for linuxcnc/powerquota (powerquota.hal): the supply's
-# fuses and which drive's power goes through which (see quota.h in
-# linuxcnc/powerquota for every line). The burn-in machine: one drive on
-# a single-phase 230 V supply behind a C 10 A breaker. Rectifier input:
-# power factor 0.65.
-quota L1 C 10 230 0.65
-load L1 0 1

@@ -19,7 +19,6 @@ typedef struct {
   float pos_fb;
   float vel_fb;
   float current;
-  float power;  // the drive's input power [W]
   uint8_t in[4];
   uint8_t fault;
   uint8_t index_enable_fb;
