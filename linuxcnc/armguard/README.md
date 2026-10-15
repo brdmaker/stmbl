@@ -41,3 +41,25 @@ bodies and the cell's obstacles (`shared/robot/geom.h`) and the guard's
 settings. Example and test: `hwtest/arcmate-sim` (`cell.txt`,
 `lcnc_test.py`: the wrist runs into a fixture plate, backs off, the tool
 ends 18 mm clear with no force).
+
+## Collision prevention (`prevent MM` in the cell)
+
+Every servo period, before motion's command is passed on, the guard asks:
+*if the arm started its stop now, would it keep the margin?* Its stop is
+known (all joints together within `astop`), so it checks the clearance of
+the arm's bodies to the cell's obstacles and to each other along that stop
+path (4 points). If the arm would come within `MM` and is approaching
+(the stop path is closer than the arm now; moving away is always
+allowed), it stops now, holds, and requests estop: a protective stop
+(`armguard.0.reason` 2), no backoff, no contact.
+
+Pins: `armguard.0.prevent-enable` (in, on by default when `prevent > 0`),
+`armguard.0.clearance` and `.clearance-stop` (out, mm).
+
+The check is honest about the stop: a fast joint near an obstacle or a
+fold of the arm itself is stopped if its stop could not end clear, even
+if the planned path turns away later. Set `astop` to the decelerations the
+drives can really do in a stop (the simulated cell: 2 x the joints'
+MAX_ACCELERATION); too gentle values make prevention stop early. The
+bodies must cover the real arm and tool (with some margin); bodies that
+overlap by construction need `selfignore`.

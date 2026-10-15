@@ -19,11 +19,11 @@ thresh 3 13 0 18 0.15
 thresh 4 2.7 0 2.5 0.15
 thresh 5 2.8 0 2 0.15
 thresh 6 0.9 0 1.2 0.15
-# plus 20 % of the dynamic torque |tau - g(q)|: inertia errors at full
+# plus 30 % (J1-J3; 20 % the wrist) of the dynamic torque |tau - g(q)|: inertia errors at full
 # acceleration from standstill (LinuxCNC's trapezoidal moves and jogs)
-threl 1 0.2
-threl 2 0.2
-threl 3 0.2
+threl 1 0.3
+threl 2 0.3
+threl 3 0.3
 threl 4 0.2
 threl 5 0.2
 threl 6 0.2

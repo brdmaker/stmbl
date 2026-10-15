@@ -12,6 +12,16 @@
  *              frees a tool pressed against the obstacle
  *   3 hold:    hold [s], then request estop (drives off, brakes on)
  *
+ * Prevention (rb_guard_watch, every servo period, before the motion is
+ * passed on): "if the arm started its stop now, would it keep the margin?"
+ * The stop is the guard's own (all joints together, within a_stop), so its
+ * path in joint space is known: q + qd t - qd t^2 / (2 T). The clearance of
+ * the arm's bodies to the cell's obstacles and to each other (geom.h) is
+ * checked at points along it; if it would come within `margin`, and the
+ * motion is approaching (the stop path is closer than the arm now: moving
+ * away is always allowed), the guard stops now (GD_CLEARANCE: stop, hold,
+ * estop; no backoff).
+ *
  * Joint angles in robot.h's q [rad], positions in m.
  */
 #ifndef GUARD_H
@@ -41,6 +51,11 @@ typedef struct {
   double p0[3], R0[3][3];           // flange at the start of the backoff
   int estop;                        // estop requested (stays until reset)
   int ik_fail;
+  // prevention
+  double margin;                    // [m], 0: off
+  int samples;                      // points checked along the stop path (4)
+  double clear_now, clear_stop;     // clearance now and on the stop path [m]
+  int near_body, near_other, near_self;  // the closest pair (stop path)
 } rb_guard;
 
 void rb_guard_init(rb_guard *g);
@@ -51,6 +66,9 @@ void rb_guard_trigger(rb_guard *g, const rb_model *mdl, int reason, const double
                       const double *r);
 // One servo period: g->q, g->qd are the commands while state != GD_PASS.
 void rb_guard_step(rb_guard *g, const rb_model *mdl, double dt);
+// Prevention: q, qd the command about to be passed on; geo the arm's
+// bodies and the cell. Triggers a stop (GD_CLEARANCE) when needed; 1 then.
+int rb_guard_watch(rb_guard *g, const rb_model *mdl, struct gm_world_s *geo, const double *q, const double *qd);
 // Back to pass-through (e.g. the drives were disabled); estop stays.
 void rb_guard_release(rb_guard *g);
 // Clear the estop request (the operator's reset).
@@ -60,6 +78,7 @@ void rb_guard_reset(rb_guard *g);
 // geometry (geom.h lines) and the guard settings:
 //   backoff MM [T]          retract [mm] over T [s]
 //   astop J DEG_S2          stop deceleration of joint J [deg/s^2]
+//   prevent MM              prevention margin [mm] (0: off)
 // Other lines are ignored. 0, or -1 with a message in err.
 int rb_guard_file(rb_guard *g, rb_model *mdl, struct gm_world_s *geo, const char *path, char *err, int errlen);
 

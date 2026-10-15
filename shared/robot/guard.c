@@ -15,6 +15,8 @@ void rb_guard_init(rb_guard *g) {
   g->t_backoff = 0.4;
   g->hold = 0.1;
   g->v_moving = 0.005;
+  g->samples = 4;
+  g->clear_now = g->clear_stop = 1e9;
   for(int j = 0; j < RB_MAXJ; j++) {
     g->a_stop[j] = 5.0;
   }
@@ -183,6 +185,43 @@ void rb_guard_step(rb_guard *g, const rb_model *mdl, double dt) {
   }
 }
 
+int rb_guard_watch(rb_guard *g, const rb_model *mdl, gm_world *geo, const double *q, const double *qd) {
+  int n = mdl->n;
+  if(!geo || geo->nb == 0) {
+    return 0;
+  }
+  gm_update(geo, mdl, q);
+  g->clear_now = gm_clearance(geo, NULL);
+  double T = 0.0;  // the stop, as rb_guard_trigger plans it
+  for(int j = 0; j < n; j++) {
+    double t = fabs(qd[j]) / g->a_stop[j];
+    T = t > T ? t : T;
+  }
+  double cmin = g->clear_now;
+  gm_pair bp, best = {0};
+  int have = 0;
+  for(int k = 1; k <= g->samples && T > 0.0; k++) {
+    double t = T * k / g->samples, qs[RB_MAXJ];
+    for(int j = 0; j < n; j++) {
+      qs[j] = q[j] + qd[j] * t - 0.5 * qd[j] / T * t * t;
+    }
+    gm_update(geo, mdl, qs);
+    double c = gm_clearance(geo, &bp);
+    if(c < cmin) {
+      cmin = c, best = bp, have = 1;
+    }
+  }
+  g->clear_stop = cmin;
+  if(have) {
+    g->near_body = best.body, g->near_other = best.other, g->near_self = best.self;
+  }
+  if(g->margin > 0.0 && g->state == GD_PASS && !g->estop && cmin < g->margin && cmin < g->clear_now - 1e-4) {
+    rb_guard_trigger(g, mdl, GD_CLEARANCE, q, qd, NULL);
+    return 1;
+  }
+  return 0;
+}
+
 void rb_guard_release(rb_guard *g) {
   g->state = GD_PASS;
   g->reason = GD_NONE;
@@ -232,6 +271,8 @@ int rb_guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, c
       int n = sscanf(line + off, " %lf %lf", v, v + 1);
       g->backoff = n >= 1 ? v[0] / 1000.0 : g->backoff;
       g->t_backoff = n == 2 && v[1] > 0.05 ? v[1] : g->t_backoff;
+    } else if(!strcmp(kw, "prevent") && sscanf(line + off, " %lf", &a) == 1) {
+      g->margin = a / 1000.0;
     } else if(!strcmp(kw, "astop") && sscanf(line + off, " %d %lf", &j, &a) == 2 && j >= 1 && j <= RB_MAXJ && a > 0) {
       g->a_stop[j - 1] = a * M_PI / 180.0;
     }

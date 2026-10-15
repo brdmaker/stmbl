@@ -127,3 +127,21 @@ a tool pressed against them is really under tension: `arm_backoff.test`
 (guard off: estop, the brakes hold the wrist pressed into the wall at
 ~190 N) against `arm_backoff_guard.test` (guard on: no force left, ~15 mm
 clear) and `arm_backoff_slow.test` (direction from the contact force).
+
+## Collision prevention (`prevent MM`)
+
+`prevent MM` (after the `obstacle` lines: it takes the cell as defined so
+far) runs the guard's check every 1 ms on the command about to go out:
+could the arm still stop (`astop J DEG_S2`, its own synchronised stop)
+without coming within MM of an obstacle or of itself? If not, and it is
+approaching, it stops now and estops (off_reason 5). Tests:
+`arm_prevent.test` (a line at the wall: stopped ~10 mm before it, no
+contact), `arm_prevent_free.test` (a line 30 mm from the wall runs
+through; after a stop the arm may move away, not closer),
+`arm_prevent_self.test` (the wrist folded onto the forearm). The soak runs
+every movement scenario with prevention on and has prevent_* scenarios.
+
+Found on the way: with the guessed bodies the forearm folds onto the
+lower arm from q3 ~ 85 deg (the guessed J3 limit, 160, allows poses that
+cannot exist; the real stop will tell); reorienting the tool by 25 deg at
+(850, 0, 1150) brings the torch within 5 mm of the forearm.

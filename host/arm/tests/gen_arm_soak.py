@@ -6,16 +6,18 @@ errors) and LinuxCNC's reactions emulated (amp fault / link loss / following
 error -> machine off, collision -> estop, moves over a joint's speed limit
 aborted). One test per scenario, into gen/arm_soak (make soak).
 
-Movement scenarios (no reaction may fire):
+Movement scenarios (no reaction may fire; collision prevention on, margin
+10 mm, against the arm itself):
   joint_smooth      the joint motion suite (smooth profiles, reversals,
                     slow moves, pauses)
   joint_trapezoid   LinuxCNC-like trapezoids: joint jogs at 30 deg/s and the
                     joints' max acceleration, synchronised trapezoids
-  joint_random      random joint moves within the limits (seeded), smooth
-                    and trapezoidal, up to ~70 % of each motor's speed
+  joint_random      random joint moves within the limits and away from the
+                    arm's own folds (seeded), smooth and trapezoidal, up to
+                    ~70 % of each motor's speed
   cart_lines        straight lines through the workspace (a cube's edges),
                     smooth and trapezoidal
-  cart_reorient     tool reorientation about the tool point, +-30 deg
+  cart_reorient     tool reorientation about the tool point, +-20 deg
   cart_arcs         full circles in three planes, partial arcs
   weld_weave        welding weaves along lines (2-6 mm, 1-3 Hz, 10 mm/s)
   pick_place        a pick-and-place cycle repeated (the end pose must
@@ -41,6 +43,9 @@ Error scenarios (the expected reaction must fire, the arm must stop safely):
                     brakes stop the arm
   brake_fail        machine off with J2's brake failing: the arm falls
                     onto its stop (documents the hazard)
+  prevent_*         collision prevention (margin 10 mm): lines at a wall, a
+                    table, a fixture plate, and the wrist folded onto the
+                    forearm are stopped before contact (protective stop)
   backoff_*         the arm runs into a wall (fast, and creeping), a table
                     and a fixture plate, with the guard on: stop, 20 mm back
                     (along the path, or along the estimated contact force),
@@ -87,6 +92,11 @@ print off fault hits ikfail speedr perr ferr
 @expect arm.limitabort == 0
 {joints}@reject ^ERROR
 """
+
+
+# collision prevention on in every movement scenario; the guard's stop
+# decelerations: 2 x LinuxCNC's joint accelerations
+PREVENT = "".join("astop %d %d\n" % (j + 1, 2 * a) for j, a in enumerate(ACC)) + "prevent 10\n"
 
 
 def quiet_expects(perr=3.0, ferr=0.5):
@@ -143,8 +153,19 @@ def joint_trapezoid(cycles, rnd):
 def joint_random(cycles, rnd):
     body, q = "", list(HOME)
     for k in range(12 * cycles):
-        target = [rnd.uniform(lo, hi) for lo, hi in LIMITS]
-        target[0] = rnd.uniform(-90, 90)   # stay clear of the base's cables
+        # within the joint limits and away from the arm's own folds
+        # (collision prevention rightly stops those): with the guessed
+        # bodies the forearm folds onto the lower arm from q3 ~ 85 deg (from
+        # ~70 with the shoulder forward), so q3 <= 60 and q2 + q3 <= 110
+        # (>= 23 mm clear; linear, so the straight joint paths between such
+        # targets keep to it too); the wrist not folded onto the forearm
+        # (|q5| <= 100)
+        while True:
+            target = [rnd.uniform(lo, hi) for lo, hi in LIMITS]
+            target[0] = rnd.uniform(-90, 90)   # stay clear of the base's cables
+            target[4] = rnd.uniform(-100, 100)
+            if target[2] <= 60 and target[1] + target[2] <= 110:
+                break
         if k % 2:
             body += "trapfrac %.2f\n" % rnd.uniform(0.1, 0.4)
             T = trap_T(q, target, 0.4)
@@ -180,8 +201,10 @@ def cart_lines(cycles, rnd):
 def cart_reorient(cycles, rnd):
     body = "lmove 1.5 850 0 1150 0 0 0\nrun 1.7\n"
     for _ in range(cycles):
-        for a, b, c in ((30, 0, 0), (-30, 0, 0), (0, 30, 0), (0, -30, 0), (0, 0, -30),
-                        (0, 0, 30), (20, -20, 15), (-20, 20, -15), (0, 0, 0)):
+        # +-20 deg: at +-25 the torch comes within 5 mm of the forearm
+        # (collision prevention stops that, margin 10 mm)
+        for a, b, c in ((20, 0, 0), (-20, 0, 0), (0, 20, 0), (0, -20, 0), (0, 0, -30),
+                        (0, 0, 30), (15, -15, 10), (-15, 15, -10), (0, 0, 0)):
             body += "lmove 1.2 850 0 1150 %d %d %d\nrun 1.4\n" % (a, b, c)
     body += "print pose\n@expect arm.pose_x ~ 850 0.05\n@expect arm.pose_z ~ 1150 0.05\n" \
             "@expect arm.pose_a ~ 0 0.01\n@expect arm.pose_b ~ 0 0.01\n"
@@ -374,6 +397,37 @@ def backoff_side(cycles, rnd):
     return backoff("fixture box 0.85 -0.40 1.15 0.30 0.05 0.30", "850 -150 1150", "850 -400 1150", 4)
 
 
+def prevent(obstacle, start, target, T):
+    """move towards an obstacle with prevention on (margin 10 mm): the guard
+    stops in time, never a contact, a protective stop (off_reason 5)"""
+    # the obstacle first: prevention takes the cell as defined so far
+    body = "obstacle %s\n" % obstacle + PREVENT + "lmove 2 %s 0 0 0\nrun 2.2\nmark\n" % start
+    body += "lmove %g %s 0 0 0\nrun %g\n" % (T, target, T + 0.5)
+    return body + ("print prevent contact off clear\n@expect arm.off_reason == 5\n@expect arm.contact_max == 0\n"
+                   "@expect arm.clear_min > 3\n@reject ^ERROR\n")
+
+
+@scen("prevent_wall", "a line at a wall, prevention on: stopped before it, no contact")
+def prevent_wall(cycles, rnd):
+    return prevent("wall box 1.05 0 1.17 0.05 0.5 0.5", "850 0 1271", "1100 0 1271", 3)
+
+
+@scen("prevent_table", "down towards a table, prevention on: stopped before it")
+def prevent_table(cycles, rnd):
+    return prevent("table box 0.85 0 0.9 0.3 0.3 0.05", "850 0 1271", "850 0 1000", 3)
+
+
+@scen("prevent_side", "sideways towards a fixture plate, prevention on: stopped before it")
+def prevent_side(cycles, rnd):
+    return prevent("fixture box 0.85 -0.40 1.15 0.30 0.05 0.30", "850 -150 1150", "850 -400 1150", 3)
+
+
+@scen("prevent_self", "the wrist folded towards the forearm: stopped before the torch hits it")
+def prevent_self(cycles, rnd):
+    return (PREVENT + "tmove 1.5 0 0 0 0 -129 0\nrun 2\nprint prevent off q\n@expect arm.off_reason == 5\n"
+            "@expect arm.prev_self == 1\n@expect arm.clear_min > 2\n@reject ^ERROR\n")
+
+
 MOVES = {
     "joint_smooth": ("the joint motion suite: smooth profiles, reversals, slow moves", joint_smooth),
     "joint_trapezoid": ("LinuxCNC jogs and synchronised trapezoids", joint_trapezoid),
@@ -402,6 +456,8 @@ def main():
     for name, (doc, fn) in list(MOVES.items()) + list(ERRORS.items()):
         rnd = random.Random("%s-%d" % (name, args.seed))
         body = fn(args.cycles, rnd)
+        if name in MOVES:  # prevention on (the arm itself; these cells are empty)
+            body = PREVENT + body
         text = HEADER.format(name=name, doc=doc, timeout=300 * args.cycles) + body
         with open(os.path.join(args.out, "arm_%s.test" % name), "w") as f:
             f.write(text)

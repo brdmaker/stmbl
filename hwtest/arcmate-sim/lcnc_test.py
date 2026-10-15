@@ -183,6 +183,7 @@ def main():
     ok, smp = mdi("G0 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f" % (850, -150, 1150, a, b, c))
     check(ok and hal.get_value("stmbl-arm.0.clearance") > 30, "next to the fixture, clear (%.1f mm)"
           % hal.get_value("stmbl-arm.0.clearance"))
+    hal.set_p("armguard.0.prevent-enable", "0")  # let it hit: the reaction
     C.mdi("G1 Y-400 F3000")
     t0 = time.time()
     fmax, states = 0.0, set()
@@ -202,6 +203,32 @@ def main():
     C.state(linuxcnc.STATE_ON)
     check(wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5), "machine on again after the backoff")
     time.sleep(0.5)
+
+    # collision prevention (cell.txt: prevent 10): the same move towards
+    # the fixture stops before contact (protective stop, then estop)
+    hal.set_p("armguard.0.prevent-enable", "1")
+    C.teleop_enable(1)
+    ok, smp = mdi("G0 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f" % (850, -150, 1150, a, b, c))
+    C.mdi("G1 Y-400 F3000")
+    t0, fmax, cmin, reason = time.time(), 0.0, 1e9, 0
+    while time.time() - t0 < 4.0:
+        fmax = max(fmax, hal.get_value("stmbl-arm.0.contact-force"))
+        cmin = min(cmin, hal.get_value("stmbl-arm.0.clearance"))
+        reason = hal.get_value("armguard.0.reason") or reason
+        if poll().task_state == linuxcnc.STATE_ESTOP:
+            break
+        time.sleep(0.001)
+    time.sleep(0.5)
+    check(poll().task_state == linuxcnc.STATE_ESTOP and reason == 2,
+          "prevention: protective stop before the fixture (reason %d)" % reason)
+    check(fmax == 0 and cmin > 3, "  ...no contact: peak force %.0f N, closest %.1f mm" % (fmax, cmin))
+    C.state(linuxcnc.STATE_ESTOP_RESET)
+    C.state(linuxcnc.STATE_ON)
+    check(wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5), "machine on again")
+    time.sleep(0.5)
+    C.teleop_enable(1)
+    ok, smp = mdi("G0 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f" % (850, -150, 1150, a, b, c))
+    check(ok and poll().task_state == linuxcnc.STATE_ON, "  ...and may move away from it")
 
     # machine off: brakes hold
     q0 = [hal.get_value("stmbl-arm.0.%d.q" % j) for j in range(6)]

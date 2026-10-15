@@ -78,10 +78,15 @@ after enable.
    (`shared/robot/guard.c`, `linuxcnc/armguard`): stop, 20 mm backoff,
    estop.
 
+7. 3D collision prevention (`shared/robot/guard.c` rb_guard_watch,
+   `armguard`): the arm stops if its stop could not end clear of the
+   cell's obstacles or of itself.
+
 ## Next
 
-- 3D collision prevention: clearance of the arm's bodies to the cell
-  and to themselves, a protective stop before contact.
+- Speed scaling near obstacles (motion.adaptive-feed) instead of a
+  protective stop; obstacles from a cell description / CAD; tool
+  geometry per tool (T word).
 - Identification scripts for Phases 4-6 (friction sweeps, gravity fit,
   base parameters), first checked on `arm_sim` logs with known values.
 - Joint-level tuning of the drives on the arm (id_pid per joint, gear

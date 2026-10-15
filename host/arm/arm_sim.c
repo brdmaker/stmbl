@@ -46,6 +46,10 @@
  *   backoff MM [T]                its retract (default 20 mm in 0.4 s)
  *   obstacle ... / body ...       geometry (geom.h): the plant's obstacles
  *                                 push back on the bodies
+ *   astop J DEG_S2                the guard's stop deceleration of joint J
+ *   prevent MM                    collision prevention (guard.h) with margin
+ *                                 MM against the geometry defined so far;
+ *                                 a protective stop: off_reason 5
  *   react 0|1                     LinuxCNC's reactions (default 1): amp fault
  *                                 -> machine off, collision -> estop, |command
  *                                 - feedback| > ferror -> machine off, no reply
@@ -67,7 +71,7 @@
  *   print WHAT                    q qd qm fb cmd ferr te tau_g tau_f jtf gres
  *                                 hits fault res thr rmax rmaxm taum speedr
  *                                 coll pose tcp perr ikfail off guard clear
- *                                 contact bodies energy time
+ *                                 contact bodies prevent energy time
  *                                 -> "arm.WHAT1 = v" ...
  *   dJ LINE                       console LINE on drive J; a bare pin name
  *                                 prints "dJ_pin = v" (e.g. d2_hv0.iq_fb)
@@ -105,9 +109,12 @@ static int ik_fails = 0;                // Cartesian moves aborted: no IK soluti
 // the collision reaction (shared/robot/guard.c): stop, back off, estop
 static rb_guard guard;
 static int guard_on = 0;
+static gm_world guard_geo;              // the guard's view of the cell (prevention)
+static double clear_min = 1e9;          // smallest true clearance since "mark" [m]
 static double off_time = -1.0;          // when LinuxCNC turned the machine off
 static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror,
-                                        // 4 smart-serial link (no reply)
+                                        // 4 smart-serial link (no reply), 5 protective
+                                        // stop (collision prevention)
 static int lost[NJ];                    // consecutive servo periods without a reply
 static int limit_aborts = 0;            // moves aborted: joint speed over its limit
 static int off_joint = 0;
@@ -290,10 +297,6 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
         }
         rb_guard_trigger(&guard, &P.arm, GD_COLLISION, q, qd, r);
         seg.type = SEG_NONE;
-        if(guard.estop) {
-          rb_guard_release(&guard);
-          machine_off(2, det.joint);
-        }
       } else {
         machine_off(2, det.joint);
       }
@@ -316,6 +319,11 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       cmd_q[j] = guard.q[j] / D2R;
       cmd_v[j] = guard.qd[j] / D2R;
       armcore_set_cmd(j, en, cmd_q[j], cmd_v[j]);
+    }
+    if(guard.state == GD_DONE) {  // estop (collision) / protective stop (clearance)
+      int reason = guard.reason == GD_CLEARANCE ? 5 : 2;
+      rb_guard_release(&guard);
+      machine_off(reason, reason == 2 ? det.joint : 0);
     }
     return;
   }
@@ -366,12 +374,32 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       break;
     }
   }
+  if(guard.margin > 0.0 && guard.state == GD_PASS) {  // prevention: could it still stop?
+    double q[NJ] = {0}, qd[NJ] = {0};
+    for(int j = 0; j < nj; j++) {
+      q[j] = qn[j] * D2R;
+      qd[j] = (qn[j] - cmd_q[j]) / 0.001 * D2R;
+    }
+    if(rb_guard_watch(&guard, &P.arm, &guard_geo, q, qd)) {
+      seg.type = SEG_NONE;
+    }
+  }
   for(int j = 0; j < nj; j++) {
     cmd_v[j] = (qn[j] - cmd_q[j]) / 0.001;
     cmd_q[j] = qn[j];
     double r = fabs(cmd_v[j]) / vlim[j];
     speedr[j] = r > speedr[j] ? r : speedr[j];
     armcore_set_cmd(j, en, cmd_q[j], cmd_v[j]);
+  }
+  if(guard_geo.nb > 0 && guard.margin > 0.0) {  // the true clearance (links, after the gears)
+    double q[NJ] = {0};
+    for(int j = 0; j < nj; j++) {
+      q[j] = P.q[j];
+    }
+    gm_world tmp = guard_geo;
+    gm_update(&tmp, &P.arm, q);
+    double c = gm_clearance(&tmp, NULL);
+    clear_min = c < clear_min ? c : clear_min;
   }
   if(seg.have_cart) {  // path error: commanded tool point vs the true one
     double p[3], R[3][3], q[NJ];
@@ -480,6 +508,11 @@ static void print_vals(const char *what) {
     gm_pair bp;
     double d = gm_clearance(&P.geo, &bp);
     printf("arm.clear = %.4f\narm.clear_body = %d\narm.clear_other = %d\n", d * 1000.0, bp.body, bp.other);
+  }
+  if(!strcmp(what, "prevent")) {
+    printf("arm.prev_now = %.4f\narm.prev_stop = %.4f\narm.prev_body = %d\narm.prev_other = %d\n"
+           "arm.prev_self = %d\narm.clear_min = %.4f\n", guard.clear_now * 1e3, guard.clear_stop * 1e3,
+           guard.near_body, guard.near_other, guard.near_self, clear_min * 1e3);
   }
   if(!strcmp(what, "contact")) {  // the plant's contacts with the obstacles
     printf("arm.contact_f = %.4f\narm.contact_max = %.4f\narm.pen_max = %.6f\n", P.contact_f, P.contact_max,
@@ -667,6 +700,14 @@ static void script_line(char *line) {
     nums(p, v, 2);
     guard.backoff = v[0] / 1000.0;
     guard.t_backoff = v[1] > 0.05 ? v[1] : 0.4;
+  } else if(!strcmp(kw, "astop")) {  // astop J DEG_S2: the guard's stop deceleration
+    double v[2];
+    if(nums(p, v, 2) == 2 && v[0] >= 1 && v[0] <= NJ && v[1] > 0) {
+      guard.a_stop[(int)v[0] - 1] = v[1] * D2R;
+    }
+  } else if(!strcmp(kw, "prevent")) {  // prevent MM: collision prevention margin (0: off)
+    guard.margin = atof(p) / 1000.0;
+    guard_geo = P.geo;  // the cell as defined so far
   } else if(!strcmp(kw, "react")) {
     react = atoi(p);
   } else if(!strcmp(kw, "ferror")) {
@@ -697,6 +738,7 @@ static void script_line(char *line) {
     P.contact_max = 0.0, P.pen_max = 0.0;
     memset(speedr, 0, sizeof(speedr));
     perr_max = 0.0;
+    clear_min = 1e9;
     off_time = -1.0, off_reason = 0, off_joint = 0;
     memset(det_rmax, 0, sizeof(det_rmax));
     memset(det_rmaxm, 0, sizeof(det_rmaxm));

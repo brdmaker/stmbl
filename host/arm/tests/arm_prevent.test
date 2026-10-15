@@ -1,0 +1,20 @@
+# Collision prevention (shared/robot/guard.c rb_guard_watch, margin 10 mm):
+# a line straight at a wall at up to ~95 mm/s. Every 1 ms the guard asks
+# whether the arm could still stop (its own synchronised stop) without
+# coming within the margin; it stops in time: the wrist never touches the
+# wall (no contact force), the true clearance stays above ~5 mm, protective
+# stop (off_reason 5). Without prevention the same line hits the wall.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+@include arm/tests/inc_wall.txt
+mark
+prevent 10
+lmove 6 1100 0 1271 0 0 0
+run 6.5
+print prevent contact off clear
+@expect arm.off_reason == 5
+@expect arm.contact_max == 0
+@expect arm.clear_min > 5
+@expect arm.clear > 5
+@expect arm.prev_body == 4
+@reject ^ERROR

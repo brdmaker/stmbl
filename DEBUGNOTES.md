@@ -839,3 +839,28 @@ Entry format:
   forearm (3) and the wrist (5) at the wrist.
 - Fix:     `selfignore 0 2`, `selfignore 3 4` in the arm's geometry; check a
   new arm's self-clearance at a few poses before relying on it.
+
+## 2026-10-15  Collision prevention: stop-path check, findings
+- Area:    `shared/robot/guard.c` (rb_guard_watch), arm soak
+- Status:  Note
+- Symptom: With prevention on, random joint moves within the joint limits
+  were stopped (protective stop) though the true clearance stayed > 50 mm.
+- Cause:   (1) The check uses the guard's real stop: with the default 5
+  rad/s^2 the fast wrist would coast ~33 deg, into the fold of the torch on
+  the forearm. (2) The random targets themselves folded the forearm onto
+  the lower arm: with the guessed bodies that happens from q3 ~ 85 deg,
+  inside the guessed J3 limit (160).
+- Fix:     astop per joint = what the drives can do in a stop (sim: 2 x
+  MAX_ACCELERATION); random targets keep q3 <= 60, q2 + q3 <= 110,
+  |q5| <= 100. On the real arm: measure J3's range (the hard stop will be
+  earlier) and the bodies; check self-clearance over the range.
+
+## 2026-10-15  Collision detector: 20 % model error too tight for fast multi-joint moves
+- Area:    `host/arm/arcmate/model_exact.arm` (threl)
+- Status:  Fixed
+- Symptom: A false collision in a long random-move soak (J2 residual 58 Nm
+  against 55 Nm) with J2 and J3 both near 0.7 of their speed limits.
+- Cause:   The joint torque swings by ~300 Nm within ~70 ms there (elastic
+  gears, coupling); 20 % of the dynamic torque left too little margin.
+- Fix:     threl 0.3 on J1-J3 (worst residual/threshold 0.90 over 36 random
+  moves); detection tests unchanged.

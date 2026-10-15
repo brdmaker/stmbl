@@ -30,6 +30,15 @@
  *   armguard.0.estop         out  estop request, latched until reset
  *   armguard.0.active        out  the guard commands the drives
  *   armguard.0.state         out  0 pass, 1 stop, 2 backoff, 3 hold, 4 done
+ *   armguard.0.reason        out  1 collision, 2 clearance (prevention)
+ * Collision prevention (cell: prevent MM, the arm's bodies, obstacles):
+ * every period, before motion's command is passed on, the guard checks
+ * that the arm could still stop (its own stop) without coming within the
+ * margin of an obstacle or of itself; if not, and it is approaching, it
+ * stops now, then estop (a protective stop, no backoff).
+ *   armguard.0.prevent-enable in  prevention on (default on if prevent > 0)
+ *   armguard.0.clearance     out  the arm's clearance at motion's command [mm]
+ *   armguard.0.clearance-stop out the smallest along the stop path [mm]
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
@@ -56,8 +65,9 @@ RTAPI_MP_STRING(cell, "cell file: geometry and guard settings");
 typedef struct {
   hal_float_t *mcmd[RB_MAXJ], *mvel[RB_MAXJ], *dfb[RB_MAXJ], *res[RB_MAXJ];
   hal_float_t *cmd[RB_MAXJ], *vel[RB_MAXJ], *fb[RB_MAXJ];
-  hal_bit_t *collision, *enable, *reset, *estop, *active;
-  hal_s32_t *state;
+  hal_bit_t *collision, *enable, *reset, *estop, *active, *prevent_en;
+  hal_s32_t *state, *reason;
+  hal_float_t *clear_now, *clear_stop;
   int last_reset;
   double last_mcmd[RB_MAXJ];
 } pins_t;
@@ -88,6 +98,16 @@ static void update(void *arg, long period) {
     }
     rb_guard_trigger(&guard, &mdl, GD_COLLISION, q, qd, r);
   }
+  if(*p->enable && *p->prevent_en && guard.margin > 0.0 && guard.state == GD_PASS && !guard.estop) {
+    double q[RB_MAXJ], qd[RB_MAXJ];
+    for(int j = 0; j < n; j++) {  // the command about to be passed on
+      q[j] = *p->mcmd[j] * D2R - mdl.link[j].theta0;
+      qd[j] = *p->mvel[j] * D2R;
+    }
+    rb_guard_watch(&guard, &mdl, &geo, q, qd);
+    *p->clear_now = guard.clear_now * 1000.0;
+    *p->clear_stop = guard.clear_stop * 1000.0;
+  }
   int act = guard.state != GD_PASS && guard.state != GD_DONE;
   if(act) {
     rb_guard_step(&guard, &mdl, dt);
@@ -109,6 +129,12 @@ static void update(void *arg, long period) {
   *p->estop = guard.estop;
   *p->active = act;
   *p->state = guard.state;
+  if(guard.reason) {
+    *p->reason = guard.reason;
+  }
+  if(!guard.estop && guard.state == GD_PASS) {
+    *p->reason = 0;
+  }
 }
 
 static int export_pins(void) {
@@ -128,6 +154,13 @@ static int export_pins(void) {
   r |= hal_pin_bit_newf(HAL_OUT, &pins->estop, comp_id, PREFIX ".estop");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->active, comp_id, PREFIX ".active");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->state, comp_id, PREFIX ".state");
+  r |= hal_pin_s32_newf(HAL_OUT, &pins->reason, comp_id, PREFIX ".reason");
+  r |= hal_pin_bit_newf(HAL_IN, &pins->prevent_en, comp_id, PREFIX ".prevent-enable");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->clear_now, comp_id, PREFIX ".clearance");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->clear_stop, comp_id, PREFIX ".clearance-stop");
+  if(!r) {
+    *pins->prevent_en = guard.margin > 0.0;
+  }
   return r;
 }
 

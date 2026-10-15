@@ -1,0 +1,41 @@
+# Prevention must not get in the way: a line parallel to the wall ~30 mm
+# from it (margin 10 mm) runs through, then after a protective stop at the
+# wall (machine on again) the arm may move away from it, but not closer.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+@include arm/tests/inc_wall.txt
+prevent 10
+lmove 2 910 -200 1271 0 0 0
+run 2.2
+mark
+lmove 4 910 200 1271 0 0 0
+run 4.2
+print off prevent
+lmove 2 1100 200 1271 0 0 0
+run 2.5
+print off
+lcnc 0
+run 0.5
+lcnc 1
+run 1
+mark
+lmove 2 800 200 1271 0 0 0
+run 2.2
+print off pose
+lcnc 0
+run 0.3
+lcnc 1
+run 1
+mark
+lmove 3 1100 200 1271 0 0 0
+run 3.2
+print off contact
+@expect arm.en[1] == 1
+@expect arm.off_reason[1] == 0
+@expect arm.clear_min[1] > 25
+@expect arm.off_reason[2] == 5
+@expect arm.off_reason[3] == 0
+@expect arm.pose_x ~ 800 0.1
+@expect arm.off_reason[4] == 5
+@expect arm.contact_max == 0
+@reject ^ERROR

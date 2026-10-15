@@ -43,6 +43,15 @@ pushes the flange with 150 N mid-move: `armcollide` detects it (J3,
 ~13 ms), LinuxCNC goes to estop, the arm stops within 0.5 deg; estop reset
 and machine on again; machine off: the brakes hold.
 
+## Collision prevention
+
+`cell.txt` sets `prevent 10`: `armguard` stops the arm if it could not
+stop 10 mm clear of the cell's obstacles or of itself (a protective stop,
+then estop). `lcnc_test.py`: the same move that hits the fixture plate
+with prevention off (`armguard.0.prevent-enable 0`, then backoff) is
+stopped 9.5 mm before it with prevention on, and the arm may move away
+afterwards. The soak runs with prevention on.
+
 ## Soak (`make soak`)
 
 `soak.ngc` (lines along a cube, tool reorientation, circles in XY and XZ,
