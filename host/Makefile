@@ -40,7 +40,12 @@ CFLAGS  += -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv -D_GNU_SOUR
            -include host_compat.h $(INCLUDES)
 LDLIBS   = -lm -lpthread
 
-all: stmbl_host servoterm
+all: stmbl_host servoterm test_robot
+
+# shared/robot (arm dynamics) and its tests (tests/robot/test_robot.c)
+ROBOT_SRCS = $(ROOT)/shared/robot/robot.c
+test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(ROOT)/shared/robot -o $@ tests/robot/test_robot.c $(ROBOT_SRCS) -lm
 
 stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
@@ -72,7 +77,8 @@ $(GEN):
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host
+check: stmbl_host test_robot
+	@./test_robot tests/robot/rtb_ref.txt
 	@$(PYTHON) tests/run_tests.py tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
@@ -90,6 +96,6 @@ test: all check
 	  ./stmbl_host --drive $(ROOT)/hwtest/burnin/ECMA-C30604FS/stmbl.conf $$f | grep -v "^OK \|^not found"; done
 
 clean:
-	rm -rf $(GEN) stmbl_host servoterm
+	rm -rf $(GEN) stmbl_host servoterm test_robot
 
 .PHONY: all check soak test clean

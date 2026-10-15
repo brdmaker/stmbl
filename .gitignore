@@ -31,6 +31,7 @@ stmblx
 host/gen
 host/stmbl_host
 host/servoterm
+host/test_robot
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/
 host/lcnc/gen
