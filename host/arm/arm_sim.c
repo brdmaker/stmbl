@@ -904,9 +904,8 @@ int main(int argc, char **argv) {
   if(armcore_load(argv[1], lib)) {
     return 1;
   }
-  if(arm_has_grip) {  // fingers from the simulated gripper's limits, start open
+  if(arm_has_grip) {  // fingers from the simulated gripper's limits (armcore starts them open)
     grip.gap_open = arm_gs.gap_max - 5.0;
-    gs_set_gap(&arm_gs, grip.gap_open);
     grip.cmd = grip_cmd_prev = grip.gap_open;
   }
   FILE *in = argc > 2 ? fopen(argv[2], "r") : stdin;

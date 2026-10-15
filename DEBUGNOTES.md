@@ -932,3 +932,14 @@ Entry format:
   `rb_collide_load` (a `detector` file) do not.
 - Fix:     test_robot reads arcmate_base.arm. Detector models stay
   self-contained (model_exact.arm, model_perturbed.arm).
+
+## 2026-10-15  Gripper housing vs forearm: self-clearance at low poses
+- Area:    `hwtest/arcmate-sim/cell_grip.txt`, `host/arm/arcmate/gripper.tool`
+- Status:  Known (guessed geometry)
+- Symptom: In lcnc_grip_test, a G0 to the flange at (850, 50, 1050) mm,
+  flange up, was stopped by collision prevention (armguard reason 2).
+- Cause:   With the flange up, lower poses tilt the forearm. The gripper
+  housing (r 45 mm, vs the torch's 25 mm) then comes within the 10 mm
+  margin of the forearm capsule. Both bodies are guesses.
+- Fix:     The test's second part sits higher (flange at z 1200). Re-check
+  once the real housing and forearm are measured.

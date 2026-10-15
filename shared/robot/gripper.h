@@ -41,7 +41,9 @@
  *      J2 creeping at 1 deg/s in its stiction band);
  *   3. GP_OK when the measured mass m_meas = m_model + dm is m_expect within
  *      the tolerance, else GP_MISMATCH (a wrong or a lost part).
- * A release does the same with 0 kg. With m_expect = 0 on a grip (part
+ * A release empties the model at once, unchecked: the residual floor (up to
+ * ~0.8 kg on a lift) is too close to the tolerance to tell a part stuck to
+ * a finger from none. With m_expect = 0 on a grip (part
  * unknown) the model learns the measured mass instead: detection stays
  * muted until then, so lift such a part slowly and clear of everything.
  */

@@ -79,6 +79,7 @@ void rb_guard_reset(rb_guard *g);
 //   backoff MM [T]          retract [mm] over T [s]
 //   astop J DEG_S2          stop deceleration of joint J [deg/s^2]
 //   prevent MM              prevention margin [mm] (0: off)
+//   include FILE            another such file (relative to this one)
 // Other lines are ignored. 0, or -1 with a message in err.
 int rb_guard_file(rb_guard *g, rb_model *mdl, struct gm_world_s *geo, const char *path, char *err, int errlen);
 

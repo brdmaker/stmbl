@@ -2,13 +2,15 @@
 #
 #   make test      run lcnc_test.py as LinuxCNC's display (headless), in a
 #                  copy of this config under /tmp; prints TAP
+#   make test-grip lcnc_grip_test.py with the electric gripper
+#                  (arcmate_gripper.arm, cell_grip.txt, grip.hal)
 #   make soak      soak.ngc SOAK_CYCLES times and error scenarios (lcnc_soak.py)
 #   make run       LinuxCNC with AXIS
 #
 # LINUXCNC: a run-in-place LinuxCNC 2.9 (sourced rip-environment), or
 # empty for the installed one. Needs host/arm built and stmbl_arm.so
-# installed (make -C ../../host/arm/lcnc all install), and armcollide.so
-# (make -C ../../linuxcnc/armcollide all install). Not as root
+# installed (make -C ../../host/arm/lcnc all install), and armcollide.so,
+# armguard.so, armgrip.so (make -C ../../linuxcnc/<name> all install). Not as root
 # (rtapi_app refuses).
 
 SHELL = /bin/bash
@@ -26,6 +28,16 @@ test:
 	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
 	cat lcnc_test.tap 2>/dev/null; \
 	test -f lcnc_test.result && test "$$(cat lcnc_test.result)" = 0 || \
+	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
+
+GRIP_ARM := $(abspath ../../host/arm/arcmate/arcmate_gripper.arm)
+GRIP_CELL := $(abspath cell_grip.txt)
+test-grip:
+	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_grip_test.py|; s|^ARM = .*|ARM = $(GRIP_ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(GRIP_CELL)|; s|^HALFILE = arcmate.hal|HALFILE = arcmate.hal\nHALFILE = grip.hal|' arcmate.ini && \
+	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
+	cat lcnc_grip_test.tap 2>/dev/null; \
+	test -f lcnc_grip_test.result && test "$$(cat lcnc_grip_test.result)" = 0 || \
 	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
 
 # soak: soak.ngc SOAK_CYCLES times, then error scenarios (lcnc_soak.py)
@@ -49,4 +61,4 @@ genserkins-ref:
 run:
 	@$(ENV) cd $(HERE) && linuxcnc arcmate.ini
 
-.PHONY: test run genserkins-ref soak
+.PHONY: test test-grip run genserkins-ref soak

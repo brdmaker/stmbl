@@ -328,6 +328,9 @@ int armcore_load(const char *armfile, const char *lib) {
   for(int j = 0; j < arm_nj; j++) {
     arm_drv[j].pd.scale = 360.0 / arm_drv[j].ratio;
   }
+  if(arm_has_grip) {  // the fingers start open, 5 mm from the end stop
+    gs_set_gap(&arm_gs, arm_gs.gap_max - 5.0);
+  }
   return rc;
 }
 

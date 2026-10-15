@@ -774,8 +774,8 @@ static void payload_tests(void) {
      gp.m_meas, 3.5);
   // released while the model still has it: residual = -its weight; 0 kg left
   rb_grip_payload_step(&gp, &ref, -1, q, mov, r0, 0.001);
-  ok(gp.update && gp.m_model == 0.0 && gp.m_expect == 5.0, "  ...release: model empties at once, m_expect kept",
-     gp.m_model, 0);
+  ok(gp.update && gp.m_model == 0.0 && gp.m_expect == 5.0 && gp.state == GP_IDLE && !gp.mute,
+     "  ...release: model empties at once, unchecked, m_expect kept", gp.m_model, 0);
 
   // the fingers: close on a 30 mm part, empty, wrong width, lost
   rb_gripper g;

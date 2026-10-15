@@ -29,7 +29,9 @@ make -C ../../host/arm all                     # libstmbl_drive.so, arm_sim
 make -C ../../host/arm/lcnc all install        # stmbl_arm.so -> LinuxCNC rtlib
 make -C ../../linuxcnc/armcollide all install  # the collision detector
 make -C ../../linuxcnc/armguard all install    # the collision reaction
+make -C ../../linuxcnc/armgrip all install     # the gripper (test-grip)
 make test        # headless: lcnc_test.py as the display, TAP output
+make test-grip   # the same with the electric gripper (lcnc_grip_test.py)
 make run         # with AXIS
 ```
 
@@ -96,6 +98,35 @@ model with identification-sized errors, `model_perturbed.arm`). Its
 enable` -> `armcollide.0.reset`) drops `iocontrol.0.emc-enable-in`: estop,
 drives off, brakes on. A softer reaction (stop, compliant with gravity compensation, then
 brakes) is the next step.
+
+## The electric gripper (`make test-grip`)
+
+The arm with the gripper (`host/arm/arcmate/arcmate_gripper.arm`: a 7th
+simulated stmbl drive moving two fingers), `cell_grip.txt` (the gripper's
+housing and two 2 kg parts, 30 mm wide) and `grip.hal`, a second HALFILE:
+`armgrip` (`linuxcnc/armgrip`) runs the fingers and the payload check
+and feeds armcollide's payload and mute pins. G-code:
+
+```
+M68 E0 Q30        ; part width [mm] (0: any)
+M68 E1 Q2.0       ; its mass [kg] (0: unknown, weighed on the lift)
+M68 E2 Q0.15      ; its centre of mass on the flange z [m]
+M64 P0            ; close
+M66 P0 L3 Q5      ; wait for "gripped" (armcollide's model has the part now)
+G1 Z+150 F9000    ; lift: the payload check (M66 P1 L3 waits for it)
+...
+M65 P0            ; open: released, the model drops it
+```
+
+A grip fault drops the estop chain after armguard's (armgrip.0.chain-in
+/ chain-out): 6 payload mismatch, 7 part lost, 8 wrong width or nothing
+gripped (`armgrip.0.reason`). `lcnc_grip_test.py` picks box1, weighs it
+on the lift (2.8 kg with model_perturbed.arm's floor: ok within 1 kg),
+places and releases it, then lets box2 slip out mid-carry (estop, 7),
+picks box1 declared as 4.5 kg (estop, 6) and closes on nothing (estop, 8).
+
+`cell.txt` and `cell_grip.txt` share `cell_base.txt` (`include`): the
+arm's bodies, the guard's settings, the fixture.
 
 ## In a cloud session
 

@@ -27,7 +27,9 @@ resets: LinuxCNC's I/O controller samples `emc-enable-in` only every
 `[EMCIO] CYCLE_TIME`), `.joint` (first joint over its threshold, 1-based),
 `.armed` (hold-off after enable over). Inputs also `.payload-mass`,
 `.payload-cx/-cy/-cz`: the payload on the flange; an undeclared one looks
-like a collision.
+like a collision (a change resets the observer), and `.mute`: no
+detection while set (armgrip: while a grip settles, or an unknown part is
+weighed).
 
 ## The model file
 

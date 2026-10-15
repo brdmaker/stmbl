@@ -27,6 +27,15 @@
  *                            hm2's smart-serial error wired into amp-fault
  *   stmbl-arm.0.payload-mass, .payload-cx/-cy/-cz  [kg, m in the last link's
  *                            frame], applied when they change
+ * With a gripper in the arm file (gripper drive ..., host/arm/gripsim.h),
+ * its drive's smart-serial pins, in mm of finger gap:
+ *   stmbl-arm.0.grip.pos-cmd, .vel-cmd, .enable  (in)
+ *   stmbl-arm.0.grip.pos-fb, .current, .fault  (out)
+ * and the truth: .grip.force (contact force per finger [N]), .grip.held
+ * (the part held, -1 none); .grip.drop (in, rising edge): the held part
+ * slips out. Parts: `part` lines in the cell file.
+ * The cell file's obstacle, contact and part lines are the plant's;
+ * `include FILE` reads another (relative to the including one).
  * Each drive's console is not exposed; its config is the ARMFILE's.
  */
 #include "rtapi.h"
@@ -67,6 +76,11 @@ typedef struct {
   hal_float_t *pay[4];
   double pay_now[4];
   hal_float_t *contact_force, *clearance;
+  // the gripper
+  hal_float_t *g_cmd, *g_vel, *g_fb, *g_cur, *g_force;
+  hal_bit_t *g_en, *g_fault, *g_drop;
+  hal_s32_t *g_held;
+  int g_drop_last;
 } pins_t;
 
 static int comp_id;
@@ -100,7 +114,23 @@ static void update(void *arg, long period) {
     }
   }
 
+  if(arm_has_grip) {
+    armcore_grip_cmd(*p->g_en, *p->g_cmd, *p->g_vel);
+    if(*p->g_drop && !p->g_drop_last) {
+      armcore_grip_drop();
+    }
+    p->g_drop_last = *p->g_drop;
+  }
+
   armcore_servo(period);
+
+  if(arm_has_grip) {
+    *p->g_fb = armcore_grip_fb();
+    *p->g_cur = arm_gdrv.pd.current;
+    *p->g_fault = arm_gdrv.pd.fault;
+    *p->g_force = arm_gs.force;
+    *p->g_held = gs_held(&arm_gs);
+  }
 
   double jtf[RB_MAXJ] = {0};
   if(arm_P.fe_on) {
@@ -156,7 +186,52 @@ static int export_pins(void) {
   for(int k = 0; k < 4 && !r; k++) {
     r |= hal_pin_float_newf(HAL_IN, &pins->pay[k], comp_id, PREFIX ".payload-%s", pn[k]);
   }
+  if(arm_has_grip && !r) {
+    r |= hal_pin_float_newf(HAL_IN, &pins->g_cmd, comp_id, PREFIX ".grip.pos-cmd");
+    r |= hal_pin_float_newf(HAL_IN, &pins->g_vel, comp_id, PREFIX ".grip.vel-cmd");
+    r |= hal_pin_bit_newf(HAL_IN, &pins->g_en, comp_id, PREFIX ".grip.enable");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->g_fb, comp_id, PREFIX ".grip.pos-fb");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->g_cur, comp_id, PREFIX ".grip.current");
+    r |= hal_pin_bit_newf(HAL_OUT, &pins->g_fault, comp_id, PREFIX ".grip.fault");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->g_force, comp_id, PREFIX ".grip.force");
+    r |= hal_pin_s32_newf(HAL_OUT, &pins->g_held, comp_id, PREFIX ".grip.held");
+    r |= hal_pin_bit_newf(HAL_IN, &pins->g_drop, comp_id, PREFIX ".grip.drop");
+  }
   return r;
+}
+
+// the cell's obstacle, contact and part lines (and its includes)
+static int read_cell(const char *path, int depth) {
+  FILE *f = fopen(path, "r");
+  char line[512];
+  if(!f || depth > 4) {
+    if(f) {
+      fclose(f);
+    }
+    return -1;
+  }
+  while(fgets(line, sizeof(line), f)) {
+    char kw[16], name[256], inc[768];
+    if(sscanf(line, " %15s", kw) != 1) {
+      continue;
+    }
+    if(!strcmp(kw, "include") && sscanf(line, " include %255s", name) == 1) {
+      const char *sl = strrchr(path, '/');
+      if(name[0] == '/' || !sl) {
+        snprintf(inc, sizeof(inc), "%s", name);
+      } else {
+        snprintf(inc, sizeof(inc), "%.*s/%s", (int)(sl - path), path, name);
+      }
+      if(read_cell(inc, depth + 1)) {
+        fclose(f);
+        return -1;
+      }
+    } else if(!strcmp(kw, "obstacle") || !strcmp(kw, "contact") || (!strcmp(kw, "part") && arm_has_grip)) {
+      armcore_line(line);
+    }
+  }
+  fclose(f);
+  return 0;
 }
 
 int rtapi_app_main(void) {
@@ -174,21 +249,10 @@ int rtapi_app_main(void) {
     hal_exit(comp_id);
     return -EINVAL;
   }
-  if(cell && cell[0]) {  // the cell's obstacles push back on the arm
-    FILE *f = fopen(cell, "r");
-    char line[512];
-    while(f && fgets(line, sizeof(line), f)) {
-      char kw[16];
-      if(sscanf(line, " %15s", kw) == 1 && (!strcmp(kw, "obstacle") || !strcmp(kw, "contact"))) {
-        armcore_line(line);
-      }
-    }
-    if(!f) {
-      rtapi_print_msg(RTAPI_MSG_ERR, "stmbl_arm: cannot read %s\n", cell);
-      hal_exit(comp_id);
-      return -EINVAL;
-    }
-    fclose(f);
+  if(cell && cell[0] && read_cell(cell, 0)) {  // the cell's obstacles push back on the arm
+    rtapi_print_msg(RTAPI_MSG_ERR, "stmbl_arm: cannot read %s\n", cell);
+    hal_exit(comp_id);
+    return -EINVAL;
   }
   pins = hal_malloc(sizeof(pins_t));
   if(!pins || export_pins()) {

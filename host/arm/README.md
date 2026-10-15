@@ -184,8 +184,9 @@ would):
   the gravity torque per kg; fitted over the joints moving faster than
   0.15 rad/s (a standing joint's friction holds an unknown part of the
   weight - at standstill J2 takes 2 of the 12 Nm a 2 kg part adds). Off by
-  more than 1 kg (or 15 %): mismatch. A release empties the model at once
-  and checks the same way. `grip expect W 0 ...` (mass unknown): the model
+  more than 1 kg (or 15 %): mismatch. A release empties the model at once,
+  unchecked (the residual floor, up to ~0.8 kg, is too close to the
+  tolerance to tell a part stuck to a finger). `grip expect W 0 ...` (mass unknown): the model
   learns the measured mass; detection stays muted until then.
 - LinuxCNC's reactions: mismatch -> off_reason 6, LOST -> 7, WRONG or
   EMPTY with a width expected -> 8.

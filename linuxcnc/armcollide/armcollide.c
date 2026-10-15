@@ -28,7 +28,11 @@
  *   armcollide.0.armed       out  past the hold-off after enable
  *   armcollide.0.payload-mass, .payload-cx/-cy/-cz  in: the payload on the
  *                                 flange [kg, m in the last link's frame];
- *                                 an undeclared payload is a collision
+ *                                 an undeclared payload is a collision. A
+ *                                 change resets the observer.
+ *   armcollide.0.mute        in   no detection (residuals still computed):
+ *                                 armgrip, while a grip settles or an
+ *                                 unknown part is being weighed
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
@@ -50,7 +54,7 @@ RTAPI_MP_STRING(model, "arm model file (shared/robot/collide.h)");
 
 typedef struct {
   hal_float_t *pos[RB_MAXJ], *vel[RB_MAXJ], *cur[RB_MAXJ], *res[RB_MAXJ], *thr[RB_MAXJ];
-  hal_bit_t *enable, *collision, *armed, *reset;
+  hal_bit_t *enable, *collision, *armed, *reset, *mute;
   hal_s32_t *joint;
   int latched, joint_latched, last_reset;
   hal_float_t *pay[4];
@@ -76,7 +80,9 @@ static void update(void *arg, long period) {
       p->pay_now[k] = *p->pay[k];
     }
     rb_collide_payload(&det, p->pay_now[0], p->pay_now + 1);
+    rb_observer_reset(&det.obs);
   }
+  det.mute = *p->mute;
   rb_collide_step(&det, *p->enable, q, qd, cur, period * 1e-9);
   for(int j = 0; j < n; j++) {
     *p->res[j] = det.r[j];
@@ -109,6 +115,7 @@ static int export_pins(void) {
   r |= hal_pin_bit_newf(HAL_OUT, &pins->collision, comp_id, PREFIX ".collision");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->armed, comp_id, PREFIX ".armed");
   r |= hal_pin_bit_newf(HAL_IN, &pins->reset, comp_id, PREFIX ".reset");
+  r |= hal_pin_bit_newf(HAL_IN, &pins->mute, comp_id, PREFIX ".mute");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->joint, comp_id, PREFIX ".joint");
   static const char *pn[4] = {"mass", "cx", "cy", "cz"};
   for(int k = 0; k < 4 && !r; k++) {

@@ -6,7 +6,7 @@
 # least-squares mass over the moving joints (here J3; J2 creeps under
 # v_min) reads 2.8 kg with the perturbed model, 2.3 with the exact one - a
 # constant offset, the model's residual floor on this motion: ok (1 kg). Carried, placed, released: the model
-# drops it at once, checked on the retract. No collision
+# drops it at once (unchecked). No collision
 # hit, no fault anywhere.
 @program arm/arm_sim
 @args arm/arcmate/arcmate_gripper.arm
@@ -42,9 +42,8 @@ print grip coll off hits
 @expect arm.grip_state[3] == 0
 @expect arm.grip_held[3] == -1
 @expect arm.pay_model[3] == 0
-@expect arm.pay_state[4] == 3
-@expect arm.pay_meas[4] < 1.0
-@expect arm.pay_meas[4] > -1.0
+@expect arm.pay_state[4] == 0
+@expect arm.pay_model[4] == 0
 @expect arm.coll == 0
 @expect arm.off_reason == 0
 @expect max arm.hits2 == 0

@@ -149,6 +149,11 @@ void rb_grip_payload_step(rb_grip_payload *p, const rb_model *mdl, int event, co
     p->learn = event > 0 && p->m_expect <= 0.0;
     p->m_model = p->m_target;  // the model takes the part (or loses it) now
     p->update = 1;
+    if(event < 0) {  // released: nothing to weigh (the model's floor, up to
+      p->state = GP_IDLE;  // ~0.8 kg, is too close to the tolerance to
+      p->mute = 0;         // tell a part stuck to a finger)
+      return;
+    }
   }
   if(p->state != GP_SETTLE && p->state != GP_MEASURE) {
     return;

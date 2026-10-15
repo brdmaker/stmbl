@@ -234,7 +234,8 @@ void rb_guard_reset(rb_guard *g) {
   }
 }
 
-int rb_guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, char *err, int errlen) {
+static int guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, char *err, int errlen,
+                      int depth) {
   FILE *f = fopen(path, "r");
   if(!f) {
     snprintf(err, errlen, "cannot read %s", path);
@@ -250,6 +251,25 @@ int rb_guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, c
       *h = 0;
     }
     if(sscanf(line, " %15s%n", kw, &off) != 1) {
+      continue;
+    }
+    if(!strcmp(kw, "include")) {  // include FILE, relative to this file
+      char name[256], inc[768];
+      const char *sl = strrchr(path, '/');
+      if(sscanf(line + off, " %255s", name) != 1 || depth >= 4) {
+        snprintf(err, errlen, "%s:%d: bad include", path, ln);
+        fclose(f);
+        return -1;
+      }
+      if(name[0] == '/' || !sl) {
+        snprintf(inc, sizeof(inc), "%s", name);
+      } else {
+        snprintf(inc, sizeof(inc), "%.*s/%s", (int)(sl - path), path, name);
+      }
+      if(guard_file(g, mdl, geo, inc, err, errlen, depth + 1)) {
+        fclose(f);
+        return -1;
+      }
       continue;
     }
     int r = geo ? gm_line(geo, line) : 0, j;
@@ -279,4 +299,8 @@ int rb_guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, c
   }
   fclose(f);
   return 0;
+}
+
+int rb_guard_file(rb_guard *g, rb_model *mdl, gm_world *geo, const char *path, char *err, int errlen) {
+  return guard_file(g, mdl, geo, path, err, errlen, 0);
 }
