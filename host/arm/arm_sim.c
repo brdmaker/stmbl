@@ -18,6 +18,9 @@
  *   fric J fc fs vs fv            gearbox friction (vs, fv in rad/s units)
  *   limits J min max              hard stops
  *   home q1 .. qn                 start pose
+ *   payload M cx cy cz            payload on the last link [kg, m from its
+ *                                 frame] (M 0: none); detset payload ... for
+ *                                 the detector's model
  *
  * Script commands (plus all of ARMFILE's arm lines to change the arm):
  *   run T                         simulate T seconds
@@ -40,7 +43,10 @@
  *                                 deg/s at 300 deg/s^2 over 30 deg: 0.091)
  *   react 0|1                     LinuxCNC's reactions (default 1): amp fault
  *                                 -> machine off, collision -> estop, |command
- *                                 - feedback| > ferror -> machine off
+ *                                 - feedback| > ferror -> machine off, no reply
+ *                                 from a drive for 3 ms -> machine off; and
+ *                                 always: a Cartesian move that would exceed
+ *                                 a joint's speed limit is aborted (limitabort)
  *   ferror DEG                    LinuxCNC's FERROR (default 2)
  *   linkloss J 1|0                drive J gets no more smart-serial packets
  *   force J fx fy fz [rx ry rz]   force [N, base frame] at r [m, link J frame]
@@ -55,7 +61,7 @@
  *                                 per joint, every 1 ms while armed
  *   print WHAT                    q qd qm fb cmd ferr te tau_g tau_f jtf gres
  *                                 hits fault res thr rmax rmaxm taum speedr
- *                                 coll pose tcp perr off energy time
+ *                                 coll pose tcp perr ikfail off energy time
  *                                 -> "arm.WHAT1 = v" ...
  *   dJ LINE                       console LINE on drive J; a bare pin name
  *                                 prints "dJ_pin = v" (e.g. d2_hv0.iq_fb)
@@ -88,8 +94,12 @@ static double vlim[NJ];                 // joint speed limits [deg/s] (motors)
 static double speedr[NJ];               // max |speed| / limit since "mark"
 static double perr_max = 0.0;           // max Cartesian path error since "mark" [mm]
 static int react = 1;                   // LinuxCNC's reactions (see servo_ms)
+static int ik_fails = 0;                // Cartesian moves aborted: no IK solution
 static double off_time = -1.0;          // when LinuxCNC turned the machine off
-static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror
+static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror,
+                                        // 4 smart-serial link (no reply)
+static int lost[NJ];                    // consecutive servo periods without a reply
+static int limit_aborts = 0;            // moves aborted: joint speed over its limit
 static int off_joint = 0;
 
 // motion segments, as LinuxCNC's planner would send them
@@ -247,9 +257,14 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
   }
   // LinuxCNC's reactions: amp fault -> machine off; collision -> estop;
   // following error over FERROR -> machine off
+  for(int j = 0; j < nj; j++) {  // hm2: a drive that stops answering
+    lost[j] = drv[j].link_lost ? lost[j] + 1 : 0;
+  }
   if(react && en) {
     for(int j = 0; j < nj; j++) {
-      if(drv[j].pd.fault) {
+      if(lost[j] >= 3) {  // the sserial error pins wired into amp-fault
+        machine_off(4, j + 1);
+      } else if(drv[j].pd.fault) {
         machine_off(1, j + 1);
       } else if(fabs(cmd_q[j] - armcore_fb(j)) > ferror_lim) {
         machine_off(3, j + 1);
@@ -269,6 +284,7 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
   }
   double qn[NJ];
   memcpy(qn, cmd_q, sizeof(qn));
+  int cart_seg = seg.type == SEG_LINE || seg.type == SEG_ARC || seg.type == SEG_WEAVE;
   if(seg.type != SEG_NONE) {
     seg.t += 0.001;
     double t = seg.t < seg.T ? seg.t : seg.T;
@@ -282,7 +298,7 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       seg_pose(t, p, R);
       q_rad(cmd_q, q);
       if(rb_ik(&P.arm, p, R, q, 1e-7, 1e-7, 50) < 0) {
-        printf("ERROR ik: no solution at t %.3f of the segment\n", seg.t);
+        ik_fails++;  // as LinuxCNC: the move is aborted
         seg.type = SEG_NONE;
       } else {
         for(int j = 0; j < nj; j++) {
@@ -299,6 +315,18 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
   } else {
     for(int j = 0; j < nj; j++) {
       qn[j] += jog[j] * 0.001;
+    }
+  }
+  // LinuxCNC aborts a Cartesian move whose kinematics would exceed a
+  // joint's speed limit (near a singularity, or an unreachable target):
+  // stop there. Joint moves are planned within the INI's joint limits; an
+  // INI that allows more than the motors can do lets them through.
+  for(int j = 0; j < nj && cart_seg; j++) {
+    if(fabs(qn[j] - cmd_q[j]) / 0.001 > vlim[j]) {
+      limit_aborts++;
+      seg.type = SEG_NONE;
+      memcpy(qn, cmd_q, sizeof(qn));
+      break;
     }
   }
   for(int j = 0; j < nj; j++) {
@@ -402,6 +430,9 @@ static void print_vals(const char *what) {
   }
   if(!strcmp(what, "perr")) {
     printf("arm.perr = %.6f\n", perr_max);
+  }
+  if(!strcmp(what, "ikfail")) {
+    printf("arm.ikfail = %d\narm.limitabort = %d\n", ik_fails, limit_aborts);
   }
   if(!strcmp(what, "off")) {
     printf("arm.en = %d\narm.off_time = %.4f\narm.off_reason = %d\narm.off_joint = %d\n", en,

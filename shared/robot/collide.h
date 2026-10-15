@@ -34,6 +34,8 @@
  *   threl J value               thr_rel (relative model error, e.g. 0.2)
  *   thrrot J value              thr_rot (share of the rotor torque, ~1)
  *   envelope T                  decay time of D and A [s]
+ *   payload M cx cy cz          payload on the last link [kg, m] (M 0: none);
+ *                               an undeclared payload looks like a collision
  *   observer k holdoff eps      (gain [1/s], s, friction smoothing [rad/s])
  * Other lines (drive, gear, limits, home) are ignored.
  */
@@ -53,6 +55,7 @@ typedef struct {
   double thr_rot[RB_MAXJ];
   double holdoff;               // [s]
   double envelope;              // decay time of the dynamic threshold terms [s]
+  double pay_m, pay_c[3];       // payload now in the model
   rb_observer obs;
 
   // state / outputs

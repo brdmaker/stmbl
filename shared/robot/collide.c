@@ -38,6 +38,23 @@ int rb_collide_line(rb_collide *c, const char *line) {
     }
     return 1;
   }
+  if(!strcmp(kw, "payload")) {  // payload M cx cy cz on the last link (M 0: none)
+    double v4[4] = {0}, ic[6] = {0};
+    int k = sscanf(p, " %lf %lf %lf %lf", v4, v4 + 1, v4 + 2, v4 + 3);
+    int last = c->mdl.n - 1;
+    if(k < 1 || last < 0) {
+      return 0;
+    }
+    if(c->pay_m != 0.0) {
+      rb_add_payload(&c->mdl, last, -c->pay_m, c->pay_c, ic);
+    }
+    c->pay_m = v4[0];
+    memcpy(c->pay_c, v4 + 1, sizeof(c->pay_c));
+    if(c->pay_m != 0.0) {
+      rb_add_payload(&c->mdl, last, c->pay_m, c->pay_c, ic);
+    }
+    return 1;
+  }
   if(!strcmp(kw, "drive") || !strcmp(kw, "gear") || !strcmp(kw, "limits") || !strcmp(kw, "home")) {
     return 1;  // the plant's, not the model's
   }
