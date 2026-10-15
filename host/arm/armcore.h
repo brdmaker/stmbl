@@ -18,6 +18,7 @@
 #define ARMCORE_H
 
 #include "plant.h"
+#include "gripsim.h"
 #include "stmbl_sim_api.h"
 
 #define ARM_RT 0.0002
@@ -41,11 +42,17 @@ extern arm_drive arm_drv[RB_MAXJ];
 extern int arm_nj;
 extern arm_plant arm_P;
 extern long arm_ticks;
+extern gs_gripper arm_gs;      // the simulated gripper (gripsim.h)
+extern arm_drive arm_gdrv;     // its drive
+extern int arm_has_grip;
 
 // Load ARMFILE (format: arm_sim.c); drive configs relative to its
 // directory, the drive library from libpath. 0, or -1 with a message on
 // stderr.
 int armcore_load(const char *armfile, const char *libpath);
+// Read a description file (its "include FILE" lines too, relative to the
+// arm file's directory): 0, or -1 with a message.
+int armcore_include(const char *file);
 // One arm description line (dh, link, motor, couple, gear, fric, limits,
 // home, drive): 1 if understood.
 int armcore_line(char *line);
@@ -58,6 +65,11 @@ double armcore_fb(int j);       // position feedback [deg, model q]
 double armcore_fb_vel(int j);   // [deg/s]
 double armcore_qm(int j);       // joint angle the motor encoder sees [deg]
 int armcore_synced(void);       // the feedback offsets are set
+// The gripper's drive (LinuxCNC side): enable, gap [mm], gap rate [mm/s];
+// its gap feedback [mm]; let the held part slip out.
+void armcore_grip_cmd(int en, double gap, double vel);
+double armcore_grip_fb(void);
+void armcore_grip_drop(void);
 // Payload on the last link: mass [kg] at c [m, its frame]; replaces the
 // previous one (m 0: none).
 int armcore_payload(double m, const double c[3]);

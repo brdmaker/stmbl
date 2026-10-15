@@ -11,8 +11,14 @@ the drive, the rotor and everything behind it are in the plant.
 ```
 make                 # libstmbl_drive.so, arm_sim
 make check           # tests/*.test (also part of make -C .. check)
-./arm_sim arcmate/arcmate.arm SCRIPT
+./arm_sim arcmate/arcmate.arm SCRIPT            # the arm with the torch
+./arm_sim arcmate/arcmate_gripper.arm SCRIPT    # with the electric gripper
 ```
+
+Arm files can `include` others (paths relative to the including file):
+`arcmate_base.arm` is the arm without a tool, `torch.tool` /
+`gripper.tool` add a tool's bodies (and drive), `arcmate.arm` and
+`arcmate_gripper.arm` put them together.
 
 Per 200 µs rt cycle: rotor angle and speed into each drive (`hv0.sim_pos`,
 `hv0.sim_vel`), one drive tick, the mean electrical torque back
@@ -145,3 +151,54 @@ Found on the way: with the guessed bodies the forearm folds onto the
 lower arm from q3 ~ 85 deg (the guessed J3 limit, 160, allows poses that
 cannot exist; the real stop will tell); reorienting the tool by 25 deg at
 (850, 0, 1150) brings the torch within 5 mm of the forearm.
+
+## Electric gripper (`arcmate_gripper.arm`)
+
+A parallel gripper on the flange driven by a 7th stmbl drive
+(`gripper.conf`, `gripper drive CONF SIM` in `gripper.tool`): one motor
+turning a screw that moves both fingers, 4 mm/turn each; the gap is the
+drive's position (sserial scale = 8 mm per motor turn), 0-80 mm.
+`gripsim.c` simulates the mechanics (rotor + fingers' mass, friction, end
+stops) and box parts (`part NAME cx cy cz hx hy hz MASS [a b c]`,
+`partmass NAME M`): a part between the jaws (centre on the flange's x
+axis at the jaw height) pushes the fingers back once the gap is under its
+width (2 MN/m per finger); above 20 N it is held and follows the flange,
+and its mass is the plant's payload.
+
+The control side (`shared/robot/gripper.c`, run by arm_sim as LinuxCNC
+would):
+
+- **Fingers** (`rb_gripper`): closing is a 40 mm/s position move with the
+  drive's current limit as the grip force (2 A = 0.24 Nm, ~185 N per
+  finger). More than 1 mm of lag means contact: the gap then is the
+  part's measured width, the command goes 1.2 mm inside it (the drive
+  presses at its current limit) and the state is GRIPPED if the width is
+  the expected one (+-1 mm), else WRONG; closing to 0 is EMPTY. A gripped
+  part slipping out lets the fingers close on: LOST. Lag and squeeze stay
+  under the drive's `max_pos_error` (1.5 rad = 1.9 mm); holding at the
+  current limit needs `conf0.max_sat = 0`.
+- **Payload** (`rb_grip_payload`): on GRIPPED the collision detector's
+  model takes the declared part (`grip expect W M CX CY CZ`) at once
+  (detection muted 0.3 s while the fingers squeeze). The mass is then
+  checked on the lift: a mass error dm shows in the residuals as dm times
+  the gravity torque per kg; fitted over the joints moving faster than
+  0.15 rad/s (a standing joint's friction holds an unknown part of the
+  weight - at standstill J2 takes 2 of the 12 Nm a 2 kg part adds). Off by
+  more than 1 kg (or 15 %): mismatch. A release empties the model at once
+  and checks the same way. `grip expect W 0 ...` (mass unknown): the model
+  learns the measured mass; detection stays muted until then.
+- LinuxCNC's reactions: mismatch -> off_reason 6, LOST -> 7, WRONG or
+  EMPTY with a width expected -> 8.
+
+Accuracy: the check sees the dynamic model's residual floor on the lift
+motion as mass. With the exact model a 2 kg part reads 2.3 kg, with
+model_perturbed.arm 2.8 kg; the offset is the same for 0.5-4 kg parts.
+Hence the 1 kg tolerance; a smaller error stays under the collision
+thresholds anyway.
+
+Tests: `arm_grip_cycle` (pick, lift and check, carry, place, release,
+retract), `arm_grip_drop` (slips out mid-carry: off 7), `arm_grip_empty`,
+`arm_grip_wrong` (wrong width: off 8; 4.5 kg declared for 2 kg: off 6),
+`arm_grip_learn`. The soak has grip_cycles / grip_learn (parts of random
+mass back and forth between two places) and grip_drop / grip_mismatch /
+grip_wrong / grip_empty.

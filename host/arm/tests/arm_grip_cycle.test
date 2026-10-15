@@ -1,0 +1,51 @@
+# The electric gripper (gripper.tool: a 7th stmbl drive, gripper.conf) in a
+# pick-and-place cycle. Closing on the 30 mm part: the fingers stop on it
+# (lag > 1 mm: contact), width measured, GRIPPED; the detector's model takes
+# the expected 2 kg at once, muted 0.3 s. The payload is checked on the
+# lift (standing still, J2's stiction carries most of the new weight): the
+# least-squares mass over the moving joints (here J3; J2 creeps under
+# v_min) reads 2.8 kg with the perturbed model, 2.3 with the exact one - a
+# constant offset, the model's residual floor on this motion: ok (1 kg). Carried, placed, released: the model
+# drops it at once, checked on the retract. No collision
+# hit, no fault anywhere.
+@program arm/arm_sim
+@args arm/arcmate/arcmate_gripper.arm
+@include arm/tests/inc_grip_pick.txt
+grip expect 30 2.0 0 0 0.15
+grip close
+run 1.5
+tlmove 1.0 799.3 0 1370.9 0 0 0
+run 1.2
+print grip
+tmove 2.0 30 10 10 0 -80 0
+run 2.2
+print grip
+tmove 2.0 30 0 0 0 -90 0
+run 2.2
+grip open
+run 1.5
+print grip
+tmove 1.5 30 10 10 0 -80 0
+run 1.7
+print grip coll off hits
+@expect arm.grip_state[1] == 2
+@expect arm.grip_width[1] > 29.5
+@expect arm.grip_width[1] < 30.2
+@expect arm.grip_force[1] > 150
+@expect arm.pay_state[1] == 3
+@expect arm.pay_meas[1] > 1.5
+@expect arm.pay_meas[1] < 3.0
+@expect arm.pay_model[1] == 2
+@expect arm.part_z[1] > 1515
+@expect arm.part_z[2] < 1200
+@expect arm.grip_held[2] == 0
+@expect arm.grip_state[3] == 0
+@expect arm.grip_held[3] == -1
+@expect arm.pay_model[3] == 0
+@expect arm.pay_state[4] == 3
+@expect arm.pay_meas[4] < 1.0
+@expect arm.pay_meas[4] > -1.0
+@expect arm.coll == 0
+@expect arm.off_reason == 0
+@expect max arm.hits2 == 0
+@reject ^ERROR

@@ -70,6 +70,7 @@ typedef struct {
   double t_en;                  // time since enable
   int armed;
   int hit;                      // collision latched (until disabled)
+  int mute;                     // set: no detection (e.g. a payload change)
   int joint;                    // first joint over its threshold (1-based)
 } rb_collide;
 

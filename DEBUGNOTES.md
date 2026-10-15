@@ -864,3 +864,71 @@ Entry format:
   gears, coupling); 20 % of the dynamic torque left too little margin.
 - Fix:     threl 0.3 on J1-J3 (worst residual/threshold 0.90 over 36 random
   moves); detection tests unchanged.
+
+## 2026-10-15  sserial position feedback is raw while the drive is disabled
+- Area:    `shared/comps/sserial.c`, `fb_switch`; `host/arm/arm_sim.c` (gripper)
+- Status:  Known
+- Symptom: The simulated gripper drive faulted with POS_ERROR at enable, and
+  closing reported "gripped" at once, at 78 mm.
+- Cause:   While disabled, `fb_switch` makes the drive's command track
+  LinuxCNC's command, not the motor, and sserial's pos_fb is the raw
+  `mot_fb_no_offset` plus revolutions (linrev) scaled by the `scale` LinuxCNC
+  sends. arm_sim sent the gripper's command and scale only while enabled, so
+  the scale was 0 while disabled. At enable the raw encoder fraction (9.4
+  turns) then appeared as a position jump. The arm joints only escaped
+  because their motors sit at whole turns at home.
+- Fix:     LinuxCNC (and arm_sim) must keep sending pos_cmd = feedback and
+  the scale while disabled. The gripper block in arm_sim's servo now runs
+  before the `!en` return.
+
+## 2026-10-15  stmbl config files take no comments
+- Area:    drive config (`host/arm/arcmate/gripper.conf`), `shared/config.c`
+- Status:  Known
+- Symptom: `conf0.max_sat = 0` in gripper.conf had no effect
+  (`conf0.max_sat` read back 0.2), so the gripper still saturation-faulted.
+- Cause:   `#` comment lines in the config break the boot's parsing of the
+  lines after them. Nothing is reported, since the boot echo is silenced
+  in armcore.
+- Fix:     Keep configs comment-free and put notes in the `.tool` / `.arm`
+  file. armcore strips comments only from the sim file.
+
+## 2026-10-15  Gripper drive: holding a part is saturation, squeeze vs max_pos_error
+- Area:    `host/arm/arcmate/gripper.conf`, `shared/robot/gripper.c`
+- Status:  Note
+- Symptom: Gripping faulted the drive after 0.2 s with SAT_ERROR (fault 6).
+  A 4 mm squeeze gave POS_ERROR (fault 5).
+- Cause:   A gripper holds its fingers at the current limit (the grip force)
+  for as long as it holds a part, and the default `max_sat` is 0.2 s. A
+  squeeze is a following error: 4 mm of gap is 0.5 motor turns (8 mm/turn),
+  over the stock `max_pos_error` of 1.5 rad (1.9 mm).
+- Fix:     gripper.conf sets `conf0.max_sat = 0`. Squeeze is 1.2 mm and
+  lost_tol 0.8 mm: a part slipping out still lets the fingers close past
+  lost_tol (LOST).
+
+## 2026-10-15  Payload check: no measurement at standstill; accuracy = model floor
+- Area:    `shared/robot/gripper.c` (rb_grip_payload)
+- Status:  Note
+- Symptom: Measured after the grip at standstill, a 2 kg part read 4.2 kg
+  (5.7 kg relative to a pre-grip baseline). The 6-DOF flange wrench gave
+  2.6 kg even with the exact model.
+- Cause:   1. At standstill, static friction takes an unknown share of a new
+  load: J2's gear torque rose 2.2 Nm of the ~12 Nm expected.
+  2. The flange wrench has 6 unknowns, so every joint's model error becomes
+  mass (J5's 0.8 Nm alone reads 0.8 kg).
+  3. On the lift itself the residual floor (J3 ~2 Nm exact, ~5 Nm perturbed)
+  is a constant offset: +0.3 / +0.8 kg for any mass from 0.5 to 4 kg.
+- Fix:     On a grip the model takes the declared part at once. The mass is
+  checked while moving: a 1-parameter least-squares fit (r = dm * gravity
+  torque per kg at the part's centre of mass) over the joints faster than
+  0.15 rad/s (3x the Stribeck speed). Tolerance is 1 kg; a smaller error
+  stays under the collision thresholds anyway.
+
+## 2026-10-15  arcmate.arm split into arm + tool; readers without `include`
+- Area:    `host/arm/arcmate/*.arm`, `*.tool`, `host/tests/robot/test_robot.c`
+- Status:  Note
+- Symptom: The genserkins cross-check in test_robot failed (no DH read) once
+  arcmate.arm became `include arcmate_base.arm` + `include torch.tool`.
+- Cause:   armcore supports `include`, but test_robot's DH reader and
+  `rb_collide_load` (a `detector` file) do not.
+- Fix:     test_robot reads arcmate_base.arm. Detector models stay
+  self-contained (model_exact.arm, model_perturbed.arm).

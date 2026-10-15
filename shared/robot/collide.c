@@ -251,7 +251,7 @@ int rb_collide_step(rb_collide *c, int enabled, const double *q, const double *q
     c->rot[i] = dr > c->rot[i] * decay ? dr : c->rot[i] * decay;
     c->thr[i] = c->thr0[i] + c->thr_v[i] * fabs(qd[i]) + c->thr_s[i] * exp(-sv * sv) +
                 c->thr_rel[i] * c->dyn[i] + c->thr_rot[i] * c->rot[i];
-    if(c->armed && !c->hit && c->thr0[i] > 0.0 && fabs(c->r[i]) > c->thr[i]) {
+    if(c->armed && !c->mute && !c->hit && c->thr0[i] > 0.0 && fabs(c->r[i]) > c->thr[i]) {
       c->hit = 1;
       c->joint = i + 1;
     }

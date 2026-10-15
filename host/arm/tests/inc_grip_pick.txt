@@ -1,0 +1,10 @@
+# A 2 kg part, 30 x 40 x 40 mm, between the open jaws of arcmate_gripper.arm
+# at the home pose (flange up: the jaw centre 150 mm above the flange), the
+# collision detector with model_perturbed.arm, LinuxCNC enabled.
+part box1 0.7993 0.0002 1.4209 0.015 0.02 0.02 2.0
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark

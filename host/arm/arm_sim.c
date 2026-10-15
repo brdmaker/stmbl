@@ -41,6 +41,16 @@
  *   trapfrac F                    trapezoids accelerate over F of the time at
  *                                 each end (default 0.25; LinuxCNC jog 30
  *                                 deg/s at 300 deg/s^2 over 30 deg: 0.091)
+ *   grip close|open               the gripper (gripper.h): close / open
+ *   grip expect W M CX CY CZ      the part to expect: width [mm], mass [kg],
+ *                                 centre of mass [m, flange frame]
+ *   grip auto 0|1                 measure the payload after a grip / release
+ *                                 and update the model (default 1, with a
+ *                                 detector): mismatch -> off_reason 6; a part
+ *                                 lost from the fingers -> off_reason 7; with
+ *                                 W > 0 a part of another width or none
+ *                                 (fingers closed) -> off_reason 8
+ *   gripdrop                      the held part slips out
  *   guard on|off                  collision reaction (guard.h): stop, back off,
  *                                 then estop, instead of estop at once
  *   backoff MM [T]                its retract (default 20 mm in 0.4 s)
@@ -71,10 +81,12 @@
  *   print WHAT                    q qd qm fb cmd ferr te tau_g tau_f jtf gres
  *                                 hits fault res thr rmax rmaxm taum speedr
  *                                 coll pose tcp perr ikfail off guard clear
- *                                 contact bodies prevent energy time
+ *                                 contact bodies prevent grip energy
+ *                                 time
  *                                 -> "arm.WHAT1 = v" ...
  *   dJ LINE                       console LINE on drive J; a bare pin name
  *                                 prints "dJ_pin = v" (e.g. d2_hv0.iq_fb)
+ *   dg LINE                       the same on the gripper drive
  *   all LINE                      LINE on every drive
  */
 #include <math.h>
@@ -87,6 +99,7 @@
 #include "collide.h"
 #include "kin.h"
 #include "guard.h"
+#include "gripper.h"
 
 #define NJ RB_MAXJ
 #define D2R (M_PI / 180.0)
@@ -110,11 +123,18 @@ static int ik_fails = 0;                // Cartesian moves aborted: no IK soluti
 static rb_guard guard;
 static int guard_on = 0;
 static gm_world guard_geo;              // the guard's view of the cell (prevention)
+// the gripper (shared/robot/gripper.c) and the payload it picks up
+static rb_gripper grip;
+static rb_grip_payload gpay;
+static int grip_close = 0, grip_auto = 1, grip_prev_state = GR_OPEN;
+static double grip_cmd_prev = 0.0;
 static double clear_min = 1e9;          // smallest true clearance since "mark" [m]
 static double off_time = -1.0;          // when LinuxCNC turned the machine off
 static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror,
                                         // 4 smart-serial link (no reply), 5 protective
-                                        // stop (collision prevention)
+                                        // stop (collision prevention), 6 payload
+                                        // mismatch, 7 part lost from the gripper,
+                                        // 8 grip failed (wrong width, empty)
 static int lost[NJ];                    // consecutive servo periods without a reply
 static int limit_aborts = 0;            // moves aborted: joint speed over its limit
 static int off_joint = 0;
@@ -299,6 +319,46 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
         seg.type = SEG_NONE;
       } else {
         machine_off(2, det.joint);
+      }
+    }
+  }
+  if(arm_has_grip) {  // the gripper: fingers, events, payload
+    double gap = armcore_grip_fb();
+    if(en) {
+      rb_gripper_step(&grip, grip_close, gap, 0.001);
+    } else {
+      grip.cmd = gap;
+    }
+    armcore_grip_cmd(en, grip.cmd, (grip.cmd - grip_cmd_prev) / 0.001);
+    grip_cmd_prev = grip.cmd;
+    int ev = 0;
+    if(grip.state == GR_GRIPPED && grip_prev_state != GR_GRIPPED) {
+      ev = +1;
+    } else if(grip_prev_state == GR_GRIPPED && (grip.state == GR_OPENING || grip.state == GR_OPEN)) {
+      ev = -1;
+    } else if(grip.state == GR_LOST && grip_prev_state != GR_LOST) {
+      machine_off(7, 0);
+    } else if(grip.w_expect > 0.0 && grip.state != grip_prev_state &&
+              (grip.state == GR_WRONG || grip.state == GR_EMPTY)) {
+      machine_off(8, 0);
+    }
+    grip_prev_state = grip.state;
+    if(grip_auto && det_on) {
+      double q[NJ] = {0}, qd[NJ] = {0}, r[NJ] = {0};
+      for(int j = 0; j < nj; j++) {
+        q[j] = armcore_fb(j) * D2R;
+        qd[j] = cmd_v[j] * D2R;
+        r[j] = det.r[j];
+      }
+      int was = gpay.state;
+      rb_grip_payload_step(&gpay, &det.mdl, ev, q, qd, r, 0.001);
+      det.mute = gpay.mute;
+      if(gpay.update) {  // the model takes the part (or loses it)
+        rb_collide_payload(&det, gpay.m_model, gpay.c_expect);
+        rb_observer_reset(&det.obs);
+      }
+      if(gpay.state == GP_MISMATCH && was != GP_MISMATCH && en) {
+        machine_off(6, 0);
       }
     }
   }
@@ -491,6 +551,16 @@ static void print_vals(const char *what) {
     const char *nm[6] = {"x", "y", "z", "a", "b", "c"};
     for(int i = 0; i < 6; i++) {
       printf("arm.%s_%s = %.6f\n", what, nm[i], i < 3 ? pp[i] * 1000.0 : rpy[i - 3] / D2R);
+    }
+  }
+  if(!strcmp(what, "grip")) {
+    int h = gs_held(&arm_gs);
+    printf("arm.grip_state = %d\narm.grip_width = %.3f\narm.grip_gap = %.3f\narm.grip_force = %.2f\n"
+           "arm.grip_held = %d\narm.pay_state = %d\narm.pay_meas = %.4f\narm.pay_model = %.4f\n",
+           grip.state, grip.width, armcore_grip_fb(), arm_gs.force,
+           h, gpay.state, gpay.m_meas, gpay.m_model);
+    if(h >= 0) {
+      printf("arm.part_z = %.4f\n", arm_gs.parts[h].c[2] * 1000.0);
     }
   }
   if(!strcmp(what, "guard")) {
@@ -693,6 +763,25 @@ static void script_line(char *line) {
   } else if(!strcmp(kw, "trapfrac")) {
     double f = atof(p);
     trap_f = f > 0.01 && f <= 0.5 ? f : 0.25;
+  } else if(!strcmp(kw, "grip")) {  // grip close|open|expect W M CX CY CZ|auto 0/1
+    char sub[16];
+    double v[5] = {0};
+    int o2 = 0;
+    if(sscanf(p, " %15s%n", sub, &o2) == 1) {
+      if(!strcmp(sub, "close")) {
+        grip_close = 1;
+      } else if(!strcmp(sub, "open")) {
+        grip_close = 0;
+      } else if(!strcmp(sub, "expect") && nums(p + o2, v, 5) >= 2) {
+        grip.w_expect = v[0];
+        gpay.m_expect = v[1];
+        gpay.c_expect[0] = v[2], gpay.c_expect[1] = v[3], gpay.c_expect[2] = v[4];
+      } else if(!strcmp(sub, "auto")) {
+        grip_auto = atoi(p + o2);
+      }
+    }
+  } else if(!strcmp(kw, "gripdrop")) {  // the held part slips out
+    armcore_grip_drop();
   } else if(!strcmp(kw, "guard")) {  // guard on|off
     guard_on = strstr(p, "on") != NULL;
   } else if(!strcmp(kw, "backoff")) {  // backoff MM [T]
@@ -772,6 +861,14 @@ static void script_line(char *line) {
     }
   } else if(kw[0] == 'd' && kw[1] >= '1' && kw[1] <= '9' && kw[2] == 0) {
     drive_line(joint(kw + 1), p);
+  } else if(!strcmp(kw, "dg") && arm_has_grip) {  // console line on the gripper drive
+    char name[64];
+    float *pp = NULL;
+    if(sscanf(p, " %63[A-Za-z0-9_.] %c", name, (char[2]){0}) == 1 && strchr(name, '.') && (pp = arm_gdrv.pin(name))) {
+      printf("dg_%s = %.6f\n", name, *pp);
+    } else {
+      arm_gdrv.cmd(p);
+    }
   } else if(!strcmp(kw, "all")) {
     for(int j = 0; j < nj; j++) {
       drive_line(j, p);
@@ -802,8 +899,15 @@ int main(int argc, char **argv) {
     snprintf(lib, sizeof(lib), "%s/libstmbl_drive.so", exe);
   }
   rb_guard_init(&guard);
+  rb_gripper_init(&grip);
+  rb_grip_payload_init(&gpay);
   if(armcore_load(argv[1], lib)) {
     return 1;
+  }
+  if(arm_has_grip) {  // fingers from the simulated gripper's limits, start open
+    grip.gap_open = arm_gs.gap_max - 5.0;
+    gs_set_gap(&arm_gs, grip.gap_open);
+    grip.cmd = grip_cmd_prev = grip.gap_open;
   }
   FILE *in = argc > 2 ? fopen(argv[2], "r") : stdin;
   if(!in) {

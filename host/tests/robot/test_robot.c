@@ -15,6 +15,7 @@
 #include "robot.h"
 #include "kin.h"
 #include "geom.h"
+#include "gripper.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -690,6 +691,132 @@ static void geom_tests(void) {
   ok(ep < 1e-12, "bodies placed on their links (rb_point)", ep, 1e-12);
 }
 
+static void payload_tests(void) {
+  // the flange wrench: a known force/moment at the flange back from J^T F
+  double ew = 0;
+  for(int t = 0; t < 20; t++) {
+    double q[6], R[RB_MAXJ][3][3], p[RB_MAXJ][3], r[6], F[6], z[6] = {0};
+    rand_state(6, q, 0, 0);
+    rb_force fe = {.link = 5, .r = {0, 0, 0}, .f = {urand(-50, 50), urand(-50, 50), urand(-50, 50)}};
+    double a[6], b[6];
+    rb_rnea(&ref, q, z, z, 0, 0, 0, a);
+    rb_rnea(&ref, q, z, z, 0, &fe, 1, b);
+    for(int j = 0; j < 6; j++) {
+      r[j] = a[j] - b[j];  // J^T f
+    }
+    double J[6][RB_MAXJ];
+    rb_jacobian(&ref, q, J);
+    if(fabs(det6(J)) < 0.05) {  // away from singular poses
+      continue;
+    }
+    rb_flange_wrench(&ref, q, r, F);
+    rb_fk(&ref, q, R, p);
+    for(int i = 0; i < 3; i++) {
+      double d = fabs(F[i] - fe.f[i]) + fabs(F[3 + i]);
+      ew = d > ew ? d : ew;
+    }
+  }
+  ok(ew < 1e-6, "flange wrench from joint torques = the applied force", ew, 1e-6);
+
+  // the payload procedure: 3.5 kg at (0.03, -0.02, 0.08) in the flange
+  // frame. Residual = what the model lacks: g_model - g_true (moving at
+  // constant speed, the model's friction right).
+  rb_model withp = ref;
+  double c[3] = {0.03, -0.02, 0.08}, ic[6] = {0};
+  rb_add_payload(&withp, 5, 3.5, c, ic);
+  double q[6] = {0.3, -0.4, 0.6, 0.5, -0.7, 0.2}, g0[6], g1[6], r[6], r0[6] = {0};
+  double still[6] = {0}, mov[6] = {0.2, -0.2, 0.2, 0.2, 0.2, 0.2};
+  rb_gravity(&ref, q, g0);
+  rb_gravity(&withp, q, g1);
+  for(int j = 0; j < 6; j++) {
+    r[j] = g0[j] - g1[j];
+  }
+  rb_grip_payload gp;
+  rb_grip_payload_init(&gp);
+  gp.m_expect = 0.0;  // unknown part: learn it
+  memcpy(gp.c_expect, c, sizeof(c));
+  rb_grip_payload_step(&gp, &ref, +1, q, still, r, 0.001);
+  int muted = gp.mute, updates = gp.update;
+  for(int k = 0; k < 1000; k++) {  // standing still: nothing measured
+    rb_grip_payload_step(&gp, &ref, 0, q, still, r, 0.001);
+    updates += gp.update;
+  }
+  ok(muted && gp.mute && gp.state == GP_MEASURE && updates == 1, "payload: unknown part, still: muted, waits",
+     gp.state, GP_MEASURE);
+  for(int k = 0; k < 400; k++) {  // the lift
+    rb_grip_payload_step(&gp, &ref, 0, q, mov, r, 0.001);
+    updates += gp.update;
+  }
+  ok(!gp.mute && gp.state == GP_OK && updates == 2, "  ...moving: measured, learnt, unmuted", gp.state, GP_OK);
+  ok(fabs(gp.m_meas - 3.5) < 1e-3 && fabs(gp.m_model - 3.5) < 1e-3, "  ...mass 3.5 kg measured", gp.m_meas, 3.5);
+  // a known part: the model has it at once; the residual is then ~0
+  gp.m_expect = 3.4;
+  rb_grip_payload_step(&gp, &ref, +1, q, still, r0, 0.001);
+  ok(gp.update && gp.m_model == 3.4 && gp.mute, "  ...expected part: model has it at the grip", gp.m_model, 3.4);
+  for(int k = 0; k < 1000; k++) {
+    rb_grip_payload_step(&gp, &ref, 0, q, k < 400 ? still : mov, r0, 0.001);
+  }
+  ok(gp.state == GP_OK && !gp.mute && fabs(gp.m_meas - 3.4) < 1e-6, "  ...checked while moving: ok", gp.state, GP_OK);
+  // a wrong part: 3.5 kg in the plant where the model took 5
+  for(int j = 0; j < 6; j++) {
+    rb_model w5 = ref;
+    double g5[6];
+    rb_add_payload(&w5, 5, 5.0, c, ic);
+    rb_gravity(&w5, q, g5);
+    r[j] = g5[j] - g1[j];
+  }
+  gp.m_expect = 5.0;
+  rb_grip_payload_step(&gp, &ref, +1, q, mov, r, 0.001);
+  for(int k = 0; k < 1000; k++) {
+    rb_grip_payload_step(&gp, &ref, 0, q, mov, r, 0.001);
+  }
+  ok(gp.state == GP_MISMATCH && fabs(gp.m_meas - 3.5) < 1e-3, "  ...a wrong part (5 kg expected): mismatch",
+     gp.m_meas, 3.5);
+  // released while the model still has it: residual = -its weight; 0 kg left
+  rb_grip_payload_step(&gp, &ref, -1, q, mov, r0, 0.001);
+  ok(gp.update && gp.m_model == 0.0 && gp.m_expect == 5.0, "  ...release: model empties at once, m_expect kept",
+     gp.m_model, 0);
+
+  // the fingers: close on a 30 mm part, empty, wrong width, lost
+  rb_gripper g;
+  rb_gripper_init(&g);
+  g.w_expect = 30.0;
+  double gap = g.gap_open, part = 30.0;
+  for(int k = 0; k < 3000; k++) {  // a finger follows its command, blocked at the part
+    rb_gripper_step(&g, 1, gap, 0.001);
+    double target = g.cmd < part ? part : g.cmd;
+    gap += (target - gap) * 0.05;
+  }
+  ok(g.state == GR_GRIPPED && fabs(g.width - 30.0) < 1.0 && g.cmd < g.width, "fingers: gripped a 30 mm part",
+     g.width, 30);
+  for(int k = 0; k < 100; k++) {  // the part slips out
+    gap += (g.cmd - 5.0 - gap) * 0.05;
+    rb_gripper_step(&g, 1, gap, 0.001);
+  }
+  ok(g.state == GR_LOST, "  ...it slips out: lost", g.state, GR_LOST);
+  for(int k = 0; k < 4000; k++) {
+    rb_gripper_step(&g, 0, gap, 0.001);
+    gap += (g.cmd - gap) * 0.05;
+  }
+  ok(g.state == GR_OPEN, "  ...opened", g.state, GR_OPEN);
+  for(int k = 0; k < 4000; k++) {  // nothing there
+    rb_gripper_step(&g, 1, gap, 0.001);
+    gap += (g.cmd - gap) * 0.05;
+  }
+  ok(g.state == GR_EMPTY, "  ...closing on nothing: empty", g.state, GR_EMPTY);
+  for(int k = 0; k < 4000; k++) {
+    rb_gripper_step(&g, 0, gap, 0.001);
+    gap += (g.cmd - gap) * 0.05;
+  }
+  part = 45.0;
+  for(int k = 0; k < 3000; k++) {
+    rb_gripper_step(&g, 1, gap, 0.001);
+    double target = g.cmd < part ? part : g.cmd;
+    gap += (target - gap) * 0.05;
+  }
+  ok(g.state == GR_WRONG && fabs(g.width - 45.0) < 1.0, "  ...a 45 mm part where 30 was expected: wrong", g.width, 45);
+}
+
 int main(int argc, char **argv) {
   srand(1203);
   reference_tests(argc > 1 ? argv[1] : "tests/robot/rtb_ref.txt");
@@ -701,6 +828,7 @@ int main(int argc, char **argv) {
   observer_test();
   kinematics_tests();
   geom_tests();
+  payload_tests();
   if(argc > 3) {
     genserkins_tests(argv[2], argv[3]);
   }
