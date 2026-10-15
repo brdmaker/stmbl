@@ -1,0 +1,34 @@
+# The drive's power estimate (pe0, sent to LinuxCNC as sserial0.power):
+# jogging at 19.7 rad/s against a 0.5 Nm load, the motor's electrical
+# input 3/2 (ud id + uq iq) = electrical torque * speed + copper loss
+# 3/2 R (id^2 + iq^2) = 0.539 * 19.71 + 7.42 = 18.06 W (the simulated
+# motor's truth); the drive's input p_in = 18.0 / 0.95 + 15 W idle. The
+# load pushing the other way (the motor brakes, regenerates): 3/2 (ud id +
+# uq iq) negative, p_in = p * 0.95 + 15. (sserial0.power[1] is the link
+# set up at boot.)
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+hv0.sim_load = -0.5
+lcnc 1 31.4
+run 2
+pe0.p_el_ac
+pe0.p_t
+pe0.p_in
+sserial0.power
+hv0.sim_load = 0.5
+run 1
+pe0.p_el_ac
+pe0.p_in
+lcnc 1 0
+run 0.5
+fault0.fault
+@expect pe0.p_el_ac[1] ~ 18.06 3%
+@expect pe0.p_t[1] ~ 7.42 3%
+@expect pe0.p_in[1] ~ 34.0 3%
+@expect sserial0.power[2] ~ 34.0 3%
+@expect pe0.p_el_ac[2] < -2
+@expect pe0.p_in[2] < 15
+@expect fault0.fault == 0

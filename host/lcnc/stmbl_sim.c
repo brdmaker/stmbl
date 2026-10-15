@@ -43,6 +43,7 @@ typedef struct {
   hal_float_t *pos_fb;
   hal_float_t *vel_fb;
   hal_float_t *current;
+  hal_float_t *power;
   hal_bit_t *enable;
   hal_bit_t *fault;
   hal_bit_t *index_enable;
@@ -72,6 +73,7 @@ static void update(void *arg, long period) {
   *p->pos_fb  = pd.pos_fb;
   *p->vel_fb  = pd.vel_fb;
   *p->current = pd.current;
+  *p->power   = pd.power;
   *p->fault   = pd.fault;
   for(int i = 0; i < 4; i++) {
     *p->in[i] = pd.in[i];
@@ -91,6 +93,7 @@ static int export_pins(void) {
   r |= hal_pin_float_newf(HAL_OUT, &pins->pos_fb, comp_id, PREFIX ".pos_fb");
   r |= hal_pin_float_newf(HAL_OUT, &pins->vel_fb, comp_id, PREFIX ".vel_fb");
   r |= hal_pin_float_newf(HAL_OUT, &pins->current, comp_id, PREFIX ".current");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->power, comp_id, PREFIX ".power");
   r |= hal_pin_float_newf(HAL_IN, &pins->scale, comp_id, PREFIX ".scale");
   r |= hal_pin_bit_newf(HAL_IN, &pins->enable, comp_id, PREFIX ".enable");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->fault, comp_id, PREFIX ".fault");

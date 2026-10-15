@@ -31,6 +31,7 @@ stmblx
 # host simulation build
 host/gen
 host/stmbl_host
+host/test_quota
 host/servoterm
 host/test_robot
 host/servoterm.dSYM/

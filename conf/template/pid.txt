@@ -11,6 +11,7 @@ load hv
 load sim
 load io
 load iit
+load pe
 link conf
 hv0.rt_prio = 0.9
 adc0.rt_prio = 1
@@ -25,6 +26,7 @@ io0.frt_prio = 3
 pid0.rt_prio = 8
 fault0.rt_prio = 10
 iit0.rt_prio = 13
+pe0.rt_prio = 13
 sim0.rt_prio = 13
 term0.rt_prio = 16
 rev0.rev = conf0.cmd_rev
@@ -119,8 +121,8 @@ io0.fault = fault0.fault
 io0.state = fault0.state
 pe0.udc = hv0.dc_volt
 pe0.idc = 0
-pe0.ud = 0
-pe0.uq = 0
+pe0.ud = hv0.ud_fb
+pe0.uq = hv0.uq_fb
 pe0.id = hv0.id_fb
 pe0.iq = hv0.iq_fb
 pe0.torque = pid0.torque_cmd

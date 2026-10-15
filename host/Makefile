@@ -77,9 +77,16 @@ $(GEN)/commandslist.h: $(CMD_SCAN) | $(GEN)
 $(GEN):
 	@mkdir -p $(GEN)
 
+# linuxcnc/powerquota's fuse models and feed scale (unit tests)
+QUOTA_DIR = ../linuxcnc/powerquota
+test_quota: tests/test_quota.c $(QUOTA_DIR)/quota.c $(QUOTA_DIR)/quota.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(QUOTA_DIR) -o $@ tests/test_quota.c $(QUOTA_DIR)/quota.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot
+check: stmbl_host test_robot test_quota
+	@$(PYTHON) tests/check_sserial_table.py
+	@./test_quota
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
