@@ -85,7 +85,12 @@ time constant below it.
 ## Pins
 
 - `powerquota.0.power-N` (in): drive N's input power [W].
-- `.feed-scale`, `.limiting`, `.total-power`.
+- `.feed-scale`, `.limiting`.
+- For meters and debugging: `.total-power` (the drives' sum each period),
+  `.total-power-avg` (low-passed over `.avg-time`, default 1 s),
+  `.total-power-peak` and `.energy` (net Wh, regeneration negative), both
+  since a rising edge on `.meter-reset`. Each drive's own power is its
+  smart-serial `power` pin; each fuse's is `.NAME.power`.
 - `.alarm`, `.alarm-quota`: latched; an estop reset (`.reset`) clears it
   once the fuse model has cooled below `trip`.
 - `.chain-in` / `.chain-out`: the estop chain.
