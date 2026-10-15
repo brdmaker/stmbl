@@ -32,3 +32,19 @@ void stmbl_sim_close(void);
 // One LinuxCNC servo period: exchange process data, then run the drive for
 // period_ns (in 200 us rt cycles; the remainder carries over).
 void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns);
+
+// --- for hosts that run several drives (host/arm: one copy per dlmopen
+// namespace) and couple them to their own mechanics ---------------------
+
+// Boot from config text (and optional sim-only text) without the console
+// pty and its thread; console output goes to stdout. 0 on success.
+int stmbl_sim_boot(const char *conf_text, const char *sim_text);
+// One 200 us rt cycle (frt cycles included), no process data exchange.
+void stmbl_sim_tick(void);
+// The value of pin "comp<inst>.pin" (e.g. "hv0.sim_load"), or NULL. Reads
+// follow links; write only unlinked pins.
+float *stmbl_sim_pin(const char *name);
+// Run one console line (output to stdout).
+void stmbl_sim_cmd(const char *line);
+double stmbl_sim_time(void);
+

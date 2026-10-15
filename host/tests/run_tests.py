@@ -4,6 +4,8 @@
 A .test file is a stmbl_host script plus directives:
 
   @args ARGS...            extra stmbl_host arguments, paths relative to host/
+  @program PATH            run PATH (relative to host/) instead of ./stmbl_host,
+                           e.g. arm/arm_sim
                            (e.g. --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf)
   @include FILE            insert FILE (relative to host/) into the script
   @sample PIN DT T         run T seconds, printing PIN every DT seconds
@@ -55,7 +57,7 @@ class TestError(Exception):
     pass
 
 
-Script = collections.namedtuple("Script", "text args expects rejects timeout fails todo")
+Script = collections.namedtuple("Script", "text args expects rejects timeout fails todo program")
 
 
 def build_script(path):
@@ -63,9 +65,10 @@ def build_script(path):
     args, expects, rejects, out, fails = [], [], [], [], []
     timeout = 120.0
     todo = None
+    program = "./stmbl_host"
 
     def walk(p, depth):
-        nonlocal timeout, todo
+        nonlocal timeout, todo, program
         if depth > 4:
             raise TestError("@include nested too deep")
         with open(p) as f:
@@ -87,6 +90,8 @@ def build_script(path):
                     for _ in range(int(round(float(t) / float(dt)))):
                         out.append("run %s" % dt)
                         out.append(pin)
+                elif word == "@program":
+                    program = "./" + rest
                 elif word == "@timeout":
                     timeout = float(rest)
                 elif word == "@fail":
@@ -103,7 +108,7 @@ def build_script(path):
                     raise TestError("%s: unknown directive %s" % (where, word))
 
     walk(path, 0)
-    return Script("\n".join(out) + "\n", args, expects, rejects, timeout, fails, todo)
+    return Script("\n".join(out) + "\n", args, expects, rejects, timeout, fails, todo, program)
 
 
 def parse_values(output):
@@ -170,7 +175,7 @@ def _run_checks(name, sc, verbose):
         f.write(sc.text)
         tmp = f.name
     try:
-        proc = subprocess.run(["./stmbl_host"] + args + [tmp], cwd=HOST_DIR,
+        proc = subprocess.run([sc.program] + args + [tmp], cwd=HOST_DIR,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=timeout, universal_newlines=True)
         output, rc = proc.stdout, proc.returncode
@@ -182,7 +187,7 @@ def _run_checks(name, sc, verbose):
         os.unlink(tmp)
 
     tail = output.splitlines()[-15:]
-    yield rc == 0, "%s: stmbl_host exits cleanly" % name, (
+    yield rc == 0, "%s: %s exits cleanly" % (name, os.path.basename(sc.program)), (
         ["exit status: %s" % rc] + tail if rc != 0 else [])
     for rx, where in rejects:
         hits = [l for l in output.splitlines() if rx.search(l)]

@@ -1,0 +1,61 @@
+# FANUC ARC Mate (A05B-1203-B255) as simulated by arm_sim.
+# EVERY NUMBER IS A GUESS until hwtest/arcmate/RECORD.md has the
+# measured value; the layout is a typical 6-axis welding arm.
+#
+# drives: one stmbl drive per joint (motor parameters in jN.conf)
+drive 1 j1.conf sim.txt
+drive 2 j2.conf sim.txt
+drive 3 j3.conf sim.txt
+drive 4 j4.conf sim.txt
+drive 5 j5.conf sim.txt
+drive 6 j6.conf sim.txt
+#
+# Craig DH (genserkins): J a alpha d theta0  [m, deg]
+dh 1 0     0    0.45 0
+dh 2 0.15 -90   0    -90
+dh 3 0.60  0    0    0
+dh 4 0.12 -90   0.65 0
+dh 5 0     90   0    0
+dh 6 0    -90   0.10 0
+#
+# links: J m cx cy cz Ixx Iyy Izz Ixy Ixz Iyz (about the COM)
+link 1 40  0     0     -0.10  1.2  1.2  0.8  0 0 0
+link 2 25  0.30  0     0.05   0.20 1.00 1.00 0 0 0
+link 3 15  0.05  0.10  0      0.40 0.40 0.15 0 0 0
+link 4 6   0     0     0.15   0.06 0.06 0.02 0 0 0
+link 5 3   0     0.03  0      0.01 0.01 0.01 0 0 0
+link 6 1   0     0     0.04   0.002 0.002 0.002 0 0 0
+#
+# motor: J ratio rotor_j bearing_friction brake [-, kg m^2, Nm, Nm]
+motor 1 120 0.00035 0.02 8
+motor 2 120 0.00035 0.02 8
+motor 3 100 0.00035 0.02 8
+motor 4 80  0.00003 0.01 1.5
+motor 5 80  0.00003 0.01 1.5
+motor 6 50  0.00003 0.01 1.5
+#
+# gear: J stiffness[Nm/rad] damping[Nm s/rad] backlash[arcmin]
+gear 1 2e5 200 1
+gear 2 2e5 200 1
+gear 3 1.5e5 150 1
+gear 4 2e4 20 3
+gear 5 2e4 20 3
+gear 6 1e4 10 3
+#
+# gearbox friction: J fc fs vs fv  [Nm, Nm, rad/s, Nm s/rad]
+fric 1 10 15 0.05 20
+fric 2 12 18 0.05 25
+fric 3 8  12 0.05 15
+fric 4 1  1.5 0.05 1
+fric 5 1  1.5 0.05 1
+fric 6 0.5 0.8 0.05 0.5
+#
+# hard stops [deg]
+limits 1 -170 170
+limits 2 -60  90
+limits 3 -90  160
+limits 4 -190 190
+limits 5 -130 130
+limits 6 -360 360
+#
+home 0 0 0 0 -90 0

@@ -79,7 +79,8 @@ $(GEN):
 # unmet expectation.
 check: stmbl_host test_robot
 	@./test_robot tests/robot/rtb_ref.txt
-	@$(PYTHON) tests/run_tests.py tests/*.test
+	@$(MAKE) -s -C arm all
+	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
@@ -97,5 +98,6 @@ test: all check
 
 clean:
 	rm -rf $(GEN) stmbl_host servoterm test_robot
+	$(MAKE) -C arm clean
 
 .PHONY: all check soak test clean

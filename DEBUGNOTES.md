@@ -727,3 +727,28 @@ Entry format:
   a pipe is block-buffered, so replies sat in the buffer.
 - Fix:     `run_script` flushes stdout after each line read from stdin
   (file scripts unchanged).
+
+## 2026-10-15  Arm: start-up phasing under gravity load trips POS_ERROR
+- Area:    drive commutation at enable (`fb_switch`, incremental encoder),
+           `host/arm` (simulated ARC Mate)
+- Status:  Known
+- Symptom: Simulated arm at a raised pose, no friction: J2's drive faulted
+  (fault 5) right after enable, and the brake then let the arm sag.
+- Cause:   With an incremental encoder (enc_fb state 1) the drive phases
+  (fb_switch current_com_pos 4) by moving the motor; on a gravity-loaded
+  joint with the brake released the arm moves during phasing.
+- Fix:     Absolute encoders (FANUC serial pulse coders: commutation known
+  at power-on); sim `enc_fb0.sim_absolute = 1`. On the real arm with an
+  incremental encoder, phase only with the arm supported or at a
+  gravity-neutral pose.
+
+## 2026-10-15  Several simulated drives in one process: dlmopen
+- Area:    `host/arm` (arm_sim, libstmbl_drive.so)
+- Status:  Note
+- Symptom: The firmware HAL is one set of globals: one drive per process.
+- Cause:   by design (one drive per MCU).
+- Fix:     Build the drive as `libstmbl_drive.so` (only `stmbl_sim_*`
+  exported) and load it once per drive with `dlmopen(LM_ID_NEWLM)`: each
+  copy has its own globals, no source change. No threads in the copies
+  (boot with `stmbl_sim_boot`, not `stmbl_sim_open`); flush the copy's own
+  stdout via `stmbl_sim_cmd`.

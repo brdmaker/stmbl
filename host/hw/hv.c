@@ -75,6 +75,12 @@ HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // supply voltage [V]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
+// sim_ext = 1: the mechanics are simulated outside (host/arm). Before every
+// rt cycle the host sets sim_pos and sim_vel; within the cycle the rotor
+// advances at sim_vel, and sim_te_int accumulates te * dt for the host to
+// read and clear. sim_j/d/f/load/brake are then unused.
+HAL_PIN(sim_ext);
+HAL_PIN(sim_te_int);
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -235,6 +241,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
 
       float te     = 1.5 * pp * mpsi * PIN(sim_iq);
+      if(PIN(sim_ext) > 0.0) {
+        PIN(sim_pos) = mod(PIN(sim_pos) + PIN(sim_vel) * mot_dt);
+        PIN(sim_te_int) += te * mot_dt;
+        PIN(sim_torque) = te;
+        continue;
+      }
       float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
       float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
       float v      = PIN(sim_vel);
