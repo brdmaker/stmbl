@@ -13,7 +13,7 @@ MODINC ?= $(firstword $(wildcard $(HOME)/linuxcnc-2.9/src/Makefile.modinc /home/
 ARM_CFLAGS = -O2 -g -fPIC -std=gnu11 -Wall -D_GNU_SOURCE -I.. -I../../lcnc -I$(ROOT)/shared/robot
 
 obj-m += stmbl_arm.o
-stmbl_arm-objs := stmbl_arm_rt.o armcore.o plant.o robot.o
+stmbl_arm-objs := stmbl_arm_rt.o armcore.o plant.o robot.o kin.o geom.o
 EXTRA_LDFLAGS += -ldl
 include $(MODINC)
 
@@ -29,6 +29,10 @@ armcore.o: ../armcore.c ../armcore.h ../plant.h
 plant.o: ../plant.c ../plant.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 robot.o: $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/robot.h
+	$(CC) $(ARM_CFLAGS) -c $< -o $@
+kin.o: $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/kin.h
+	$(CC) $(ARM_CFLAGS) -c $< -o $@
+geom.o: $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/geom.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 
 clean:

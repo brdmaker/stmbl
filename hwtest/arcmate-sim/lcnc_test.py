@@ -177,6 +177,32 @@ def main():
     check(wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5), "machine on again after the collision")
     time.sleep(0.5)
 
+    # collision with the fixture plate (cell.txt, face at y = -350 mm):
+    # armguard stops, backs off 20 mm along the path, then estop. The tool
+    # is free (no contact force) and held clear.
+    ok, smp = mdi("G0 X%.3f Y%.3f Z%.3f A%.3f B%.3f C%.3f" % (850, -150, 1150, a, b, c))
+    check(ok and hal.get_value("stmbl-arm.0.clearance") > 30, "next to the fixture, clear (%.1f mm)"
+          % hal.get_value("stmbl-arm.0.clearance"))
+    C.mdi("G1 Y-400 F3000")
+    t0 = time.time()
+    fmax, states = 0.0, set()
+    while time.time() - t0 < 4.0:
+        fmax = max(fmax, hal.get_value("stmbl-arm.0.contact-force"))
+        states.add(hal.get_value("armguard.0.state"))
+        if poll().task_state == linuxcnc.STATE_ESTOP:
+            break
+        time.sleep(0.001)
+    time.sleep(0.5)
+    f_end, clr = hal.get_value("stmbl-arm.0.contact-force"), hal.get_value("stmbl-arm.0.clearance")
+    check(poll().task_state == linuxcnc.STATE_ESTOP, "fixture: collision -> estop")
+    check(2 in states, "  ...after a backoff (guard states seen %s)" % sorted(states))
+    check(fmax > 50, "  ...the wrist did hit the fixture (peak %.0f N)" % fmax)
+    check(f_end == 0 and clr > 10, "  ...tool free: no contact force (%.1f N), %.1f mm clear" % (f_end, clr))
+    C.state(linuxcnc.STATE_ESTOP_RESET)
+    C.state(linuxcnc.STATE_ON)
+    check(wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5), "machine on again after the backoff")
+    time.sleep(0.5)
+
     # machine off: brakes hold
     q0 = [hal.get_value("stmbl-arm.0.%d.q" % j) for j in range(6)]
     C.state(linuxcnc.STATE_OFF)

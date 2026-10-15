@@ -2,7 +2,7 @@
  * stmbl_arm: the simulated arm with one simulated STMBL drive per joint
  * (host/arm/armcore.c) as a LinuxCNC realtime component (uspace).
  *
- *   loadrt stmbl_arm arm=/path/arcmate.arm lib=/path/libstmbl_drive.so
+ *   loadrt stmbl_arm arm=/path/arcmate.arm lib=/path/libstmbl_drive.so [cell=/path/cell.txt]
  *   addf stmbl-arm.0 servo-thread
  *
  * Per joint J (0-based, as LinuxCNC's joints), the pins of a drive's
@@ -15,6 +15,9 @@
  *   stmbl-arm.0.J.tau-ext    joint torque of the external force (J^T f) [Nm]
  *   stmbl-arm.0.J.tau-gear   gear torque [Nm]
  *   stmbl-arm.0.J.stop-hits  hard stop hits
+ *   stmbl-arm.0.contact-force  sum of the contact forces with the cell's
+ *                            obstacles [N]; .clearance: the arm's smallest
+ *                            distance to them [mm] (cell=, else 0)
  * An external force on a link (collision tests):
  *   stmbl-arm.0.force-link (s32, 1..6, 0 = none), .force-x/-y/-z [N, base
  *   frame], .force-rx/-ry/-rz [m, link frame]
@@ -31,6 +34,7 @@
 #include "hal.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "armcore.h"
@@ -43,6 +47,8 @@ static char *arm = "";
 RTAPI_MP_STRING(arm, "arm description file (host/arm/arcmate/arcmate.arm)");
 static char *lib = "";
 RTAPI_MP_STRING(lib, "libstmbl_drive.so");
+static char *cell = "";
+RTAPI_MP_STRING(cell, "cell file: its obstacle and contact lines become the plant's");
 
 #define PREFIX "stmbl-arm.0"
 #define D2R (M_PI / 180.0)
@@ -60,6 +66,7 @@ typedef struct {
   hal_float_t *force[6];
   hal_float_t *pay[4];
   double pay_now[4];
+  hal_float_t *contact_force, *clearance;
 } pins_t;
 
 static int comp_id;
@@ -104,6 +111,10 @@ static void update(void *arg, long period) {
       jtf[j] = a[j] - b[j];
     }
   }
+  *p->contact_force = arm_P.contact_f;
+  if(arm_P.geo.no > 0) {
+    *p->clearance = gm_clearance(&arm_P.geo, NULL) * 1000.0;  // bodies placed by the plant
+  }
   for(int j = 0; j < arm_nj; j++) {
     jpins_t *jp = &p->j[j];
     *jp->pos_fb = armcore_fb(j) + theta0(j);
@@ -139,6 +150,8 @@ static int export_pins(void) {
   for(int k = 0; k < 6 && !r; k++) {
     r |= hal_pin_float_newf(HAL_IN, &pins->force[k], comp_id, PREFIX ".force-%s", fn[k]);
   }
+  r |= hal_pin_float_newf(HAL_OUT, &pins->contact_force, comp_id, PREFIX ".contact-force");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->clearance, comp_id, PREFIX ".clearance");
   static const char *pn[4] = {"mass", "cx", "cy", "cz"};
   for(int k = 0; k < 4 && !r; k++) {
     r |= hal_pin_float_newf(HAL_IN, &pins->pay[k], comp_id, PREFIX ".payload-%s", pn[k]);
@@ -160,6 +173,22 @@ int rtapi_app_main(void) {
     rtapi_print_msg(RTAPI_MSG_ERR, "stmbl_arm: cannot load %s\n", arm);
     hal_exit(comp_id);
     return -EINVAL;
+  }
+  if(cell && cell[0]) {  // the cell's obstacles push back on the arm
+    FILE *f = fopen(cell, "r");
+    char line[512];
+    while(f && fgets(line, sizeof(line), f)) {
+      char kw[16];
+      if(sscanf(line, " %15s", kw) == 1 && (!strcmp(kw, "obstacle") || !strcmp(kw, "contact"))) {
+        armcore_line(line);
+      }
+    }
+    if(!f) {
+      rtapi_print_msg(RTAPI_MSG_ERR, "stmbl_arm: cannot read %s\n", cell);
+      hal_exit(comp_id);
+      return -EINVAL;
+    }
+    fclose(f);
   }
   pins = hal_malloc(sizeof(pins_t));
   if(!pins || export_pins()) {

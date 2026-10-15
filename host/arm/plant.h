@@ -15,6 +15,7 @@
 #define PLANT_H
 
 #include "robot.h"
+#include "geom.h"
 
 typedef struct {
   rb_model arm;                  // links; its armature must be 0 (rotors are here)
@@ -33,6 +34,12 @@ typedef struct {
   // external force on a link (collision tests)
   rb_force fe;
   int fe_on;
+  // geometry: obstacles push back on penetrating bodies (spring k, damper c)
+  gm_world geo;
+  double contact_f;            // sum of the contact forces, last step [N]
+  double contact_max;          // peak since cleared [N]
+  double pen_max;              // deepest penetration since cleared [m]
+  double prev_d[GM_MAXBODY][GM_MAXOBS];
 
   // state
   double q[RB_MAXJ], qd[RB_MAXJ];      // links
@@ -43,7 +50,8 @@ typedef struct {
   int at_stop[RB_MAXJ];
 } arm_plant;
 
-// Defaults: no lash, stiff gears, no friction, no stops, K = identity.
+// Defaults: no lash, stiff gears, no friction, no stops, K = identity, no
+// geometry.
 void plant_defaults(arm_plant *p, int n);
 // Put the arm at rest at q, rotors where the gears are unloaded (gravity
 // preload taken up by the gear springs).

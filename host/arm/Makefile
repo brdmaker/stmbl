@@ -43,8 +43,8 @@ libstmbl_drive.so: $(OBJS)
 	$(CC) -shared -o $@ drive_core.o -lm -lpthread
 	rm -f drive_core.tmp
 
-ARM_SRCS = arm_sim.c armcore.c plant.c $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/collide.c $(ROOT)/shared/robot/kin.c
-arm_sim: $(ARM_SRCS) armcore.h plant.h $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/collide.h $(HOST)/lcnc/stmbl_sim_api.h
+ARM_SRCS = arm_sim.c armcore.c plant.c $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/collide.c $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/guard.c
+arm_sim: $(ARM_SRCS) armcore.h plant.h $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/collide.h $(ROOT)/shared/robot/geom.h $(HOST)/lcnc/stmbl_sim_api.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Wno-format-truncation -D_GNU_SOURCE -I$(ROOT)/shared/robot -I$(HOST)/lcnc \
 	      -o $@ $(ARM_SRCS) -ldl -lm
 

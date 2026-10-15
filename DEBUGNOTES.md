@@ -817,7 +817,7 @@ Entry format:
 - Cause:   A/B/C come from the rotation matrix: at +-180 the sign is
   arbitrary, and LinuxCNC treats C as a linear axis.
 - Fix:     Keep working orientations away from +-180: the flange frame is
-  turned (J6 theta0 180), tool down is A0 B0 C0.
+  turned (J6 theta0 180): the home orientation is A0 B0 C0.
 
 ## 2026-10-15  Collision estop request missed by LinuxCNC's I/O controller
 - Area:    `linuxcnc/armcollide`, estop chain in `hwtest/arcmate-sim`
@@ -829,3 +829,13 @@ Entry format:
   [EMCIO] CYCLE_TIME (100 ms).
 - Fix:     `collision` latched until `armcollide.0.reset` (wired to
   `iocontrol.0.user-request-enable`, the estop reset).
+
+## 2026-10-15  Arm geometry: bodies two links apart overlap by design
+- Area:    `shared/robot/geom.c` (self-clearance), `host/arm/arcmate`
+- Status:  Note
+- Symptom: Self-clearance -92 mm at the home pose.
+- Cause:   Only bodies on neighbouring links are skipped (selfskip 1); the
+  pedestal (link 0) and the upper arm (link 2) overlap at the shoulder, the
+  forearm (3) and the wrist (5) at the wrist.
+- Fix:     `selfignore 0 2`, `selfignore 3 4` in the arm's geometry; check a
+  new arm's self-clearance at a few poses before relying on it.

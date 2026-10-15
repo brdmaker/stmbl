@@ -41,6 +41,11 @@
  *   trapfrac F                    trapezoids accelerate over F of the time at
  *                                 each end (default 0.25; LinuxCNC jog 30
  *                                 deg/s at 300 deg/s^2 over 30 deg: 0.091)
+ *   guard on|off                  collision reaction (guard.h): stop, back off,
+ *                                 then estop, instead of estop at once
+ *   backoff MM [T]                its retract (default 20 mm in 0.4 s)
+ *   obstacle ... / body ...       geometry (geom.h): the plant's obstacles
+ *                                 push back on the bodies
  *   react 0|1                     LinuxCNC's reactions (default 1): amp fault
  *                                 -> machine off, collision -> estop, |command
  *                                 - feedback| > ferror -> machine off, no reply
@@ -61,7 +66,8 @@
  *                                 per joint, every 1 ms while armed
  *   print WHAT                    q qd qm fb cmd ferr te tau_g tau_f jtf gres
  *                                 hits fault res thr rmax rmaxm taum speedr
- *                                 coll pose tcp perr ikfail off energy time
+ *                                 coll pose tcp perr ikfail off guard clear
+ *                                 contact bodies energy time
  *                                 -> "arm.WHAT1 = v" ...
  *   dJ LINE                       console LINE on drive J; a bare pin name
  *                                 prints "dJ_pin = v" (e.g. d2_hv0.iq_fb)
@@ -76,6 +82,7 @@
 #include "armcore.h"
 #include "collide.h"
 #include "kin.h"
+#include "guard.h"
 
 #define NJ RB_MAXJ
 #define D2R (M_PI / 180.0)
@@ -95,6 +102,9 @@ static double speedr[NJ];               // max |speed| / limit since "mark"
 static double perr_max = 0.0;           // max Cartesian path error since "mark" [mm]
 static int react = 1;                   // LinuxCNC's reactions (see servo_ms)
 static int ik_fails = 0;                // Cartesian moves aborted: no IK solution
+// the collision reaction (shared/robot/guard.c): stop, back off, estop
+static rb_guard guard;
+static int guard_on = 0;
 static double off_time = -1.0;          // when LinuxCNC turned the machine off
 static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror,
                                         // 4 smart-serial link (no reply)
@@ -271,14 +281,41 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       }
     }
     if(det_on && det.hit) {
-      machine_off(2, det.joint);
+      if(guard_on) {  // stop and back off first, estop when done
+        double q[NJ], qd[NJ], r[NJ];
+        for(int j = 0; j < NJ; j++) {
+          q[j] = j < nj ? cmd_q[j] * D2R : 0.0;
+          qd[j] = j < nj ? cmd_v[j] * D2R : 0.0;
+          r[j] = j < nj ? det.r[j] : 0.0;
+        }
+        rb_guard_trigger(&guard, &P.arm, GD_COLLISION, q, qd, r);
+        seg.type = SEG_NONE;
+        if(guard.estop) {
+          rb_guard_release(&guard);
+          machine_off(2, det.joint);
+        }
+      } else {
+        machine_off(2, det.joint);
+      }
     }
+  }
+  if(!en && guard.state != GD_PASS) {
+    rb_guard_release(&guard);
   }
   if(!en) {  // LinuxCNC follows the feedback while disabled
     for(int j = 0; j < nj; j++) {
       cmd_q[j] = armcore_synced() ? armcore_fb(j) : armcore_qm(j);
       cmd_v[j] = 0.0;
       armcore_set_cmd(j, 0, cmd_q[j], 0.0);
+    }
+    return;
+  }
+  if(guard.state != GD_PASS && guard.state != GD_DONE) {  // the guard commands
+    rb_guard_step(&guard, &P.arm, 0.001);
+    for(int j = 0; j < nj; j++) {
+      cmd_q[j] = guard.q[j] / D2R;
+      cmd_v[j] = guard.qd[j] / D2R;
+      armcore_set_cmd(j, en, cmd_q[j], cmd_v[j]);
     }
     return;
   }
@@ -428,6 +465,38 @@ static void print_vals(const char *what) {
       printf("arm.%s_%s = %.6f\n", what, nm[i], i < 3 ? pp[i] * 1000.0 : rpy[i - 3] / D2R);
     }
   }
+  if(!strcmp(what, "guard")) {
+    printf("arm.guard_state = %d\narm.guard_estop = %d\narm.guard_ikfail = %d\n", guard.state, guard.estop,
+           guard.ik_fail);
+    printf("arm.guard_dx = %.4f\narm.guard_dy = %.4f\narm.guard_dz = %.4f\n", guard.dir[0], guard.dir[1],
+           guard.dir[2]);
+  }
+  if(!strcmp(what, "clear")) {  // the true clearance of the arm to the obstacles [mm]
+    double q[NJ];
+    for(int j = 0; j < NJ; j++) {
+      q[j] = j < nj ? P.q[j] : 0.0;
+    }
+    gm_update(&P.geo, &P.arm, q);
+    gm_pair bp;
+    double d = gm_clearance(&P.geo, &bp);
+    printf("arm.clear = %.4f\narm.clear_body = %d\narm.clear_other = %d\n", d * 1000.0, bp.body, bp.other);
+  }
+  if(!strcmp(what, "contact")) {  // the plant's contacts with the obstacles
+    printf("arm.contact_f = %.4f\narm.contact_max = %.4f\narm.pen_max = %.6f\n", P.contact_f, P.contact_max,
+           P.pen_max * 1000.0);
+  }
+  if(!strcmp(what, "bodies")) {  // where the bodies are [mm]
+    double q[NJ];
+    for(int j = 0; j < NJ; j++) {
+      q[j] = j < nj ? P.q[j] : 0.0;
+    }
+    gm_update(&P.geo, &P.arm, q);
+    for(int i = 0; i < P.geo.nb; i++) {
+      gm_shape *b = &P.geo.body[i];
+      printf("# body %d link %d: %.0f %.0f %.0f -> %.0f %.0f %.0f r %.0f\n", i, b->link, b->wa[0] * 1e3,
+             b->wa[1] * 1e3, b->wa[2] * 1e3, b->wb[0] * 1e3, b->wb[1] * 1e3, b->wb[2] * 1e3, b->r * 1e3);
+    }
+  }
   if(!strcmp(what, "perr")) {
     printf("arm.perr = %.6f\n", perr_max);
   }
@@ -500,7 +569,7 @@ static void script_line(char *line) {
     for(long i = 0; i < n; i++) {
       run_tick();
     }
-  } else if(!strcmp(kw, "lcnc")) {
+  } else if(!strcmp(kw, "lcnc") && (rb_guard_reset(&guard), 1)) {
     char *end;
     en = (int)strtol(p, &end, 10);
     for(int j = 0; j < NJ; j++) {
@@ -591,6 +660,13 @@ static void script_line(char *line) {
   } else if(!strcmp(kw, "trapfrac")) {
     double f = atof(p);
     trap_f = f > 0.01 && f <= 0.5 ? f : 0.25;
+  } else if(!strcmp(kw, "guard")) {  // guard on|off
+    guard_on = strstr(p, "on") != NULL;
+  } else if(!strcmp(kw, "backoff")) {  // backoff MM [T]
+    double v[2] = {20, 0.4};
+    nums(p, v, 2);
+    guard.backoff = v[0] / 1000.0;
+    guard.t_backoff = v[1] > 0.05 ? v[1] : 0.4;
   } else if(!strcmp(kw, "react")) {
     react = atoi(p);
   } else if(!strcmp(kw, "ferror")) {
@@ -618,6 +694,7 @@ static void script_line(char *line) {
     }
   } else if(!strcmp(kw, "mark")) {
     memcpy(mark_tau_g, P.tau_g, sizeof(mark_tau_g));
+    P.contact_max = 0.0, P.pen_max = 0.0;
     memset(speedr, 0, sizeof(speedr));
     perr_max = 0.0;
     off_time = -1.0, off_reason = 0, off_joint = 0;
@@ -682,6 +759,7 @@ int main(int argc, char **argv) {
     *strrchr(exe, '/') = 0;
     snprintf(lib, sizeof(lib), "%s/libstmbl_drive.so", exe);
   }
+  rb_guard_init(&guard);
   if(armcore_load(argv[1], lib)) {
     return 1;
   }

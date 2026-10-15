@@ -41,6 +41,10 @@ Error scenarios (the expected reaction must fire, the arm must stop safely):
                     brakes stop the arm
   brake_fail        machine off with J2's brake failing: the arm falls
                     onto its stop (documents the hazard)
+  backoff_*         the arm runs into a wall (fast, and creeping), a table
+                    and a fixture plate, with the guard on: stop, 20 mm back
+                    (along the path, or along the estimated contact force),
+                    estop; the tool ends free and clear
 
 usage: gen_arm_soak.py [--cycles N] [--out DIR] [--seed S]
 """
@@ -338,6 +342,36 @@ def estop_weave(cycles, rnd):
 def brake_fail(cycles, rnd):
     return ("lmove 2 950 0 1170 0 0 0\nrun 2.3\nlcnc 0\nrun 0.5\nprint q\nmotor 2 120 0.00035 0.02 0\n"
             "run 2\nprint q hits\n@expect arm.hits2 >= 1\n@expect arm.q2[2] > 85\n@reject ^ERROR\n")
+
+
+def backoff(obstacle, start, target, T, slow=False):
+    """run into an obstacle with the guard on: stop, back off 20 mm, estop;
+    the tool ends free (no contact force) and clear"""
+    body = "obstacle %s\nguard on\nlmove 2 %s 0 0 0\nrun 2.2\nmark\n" % (obstacle, start)
+    body += ("tlmove" if slow else "lmove") + " %g %s 0 0 0\nrun %g\n" % (T, target, T)
+    return body + ("print clear contact guard off\n"
+                   "@expect arm.off_reason == 2\n@expect arm.guard_estop == 1\n@expect arm.contact_max > 30\n"
+                   "@expect arm.contact_f == 0\n@expect arm.clear > 8\n@reject ^ERROR\n")
+
+
+@scen("backoff_wall", "the wrist runs into a wall at ~95 mm/s: stop, 20 mm back along the path, estop")
+def backoff_wall(cycles, rnd):
+    return backoff("wall box 1.05 0 1.17 0.05 0.5 0.5", "850 0 1271", "1100 0 1271", 4)
+
+
+@scen("backoff_wall_slow", "a creeping approach (~3 mm/s): backoff along the estimated contact force")
+def backoff_wall_slow(cycles, rnd):
+    return backoff("wall box 1.05 0 1.17 0.05 0.5 0.5", "930 0 1271", "960 0 1271", 15, slow=True)
+
+
+@scen("backoff_table", "the wrist goes down onto a table: stop, back off upwards 20 mm, estop")
+def backoff_table(cycles, rnd):
+    return backoff("table box 0.85 0 0.9 0.3 0.3 0.05", "850 0 1271", "850 0 1000", 4)
+
+
+@scen("backoff_side", "the wrist moves sideways into a fixture plate: back off, estop")
+def backoff_side(cycles, rnd):
+    return backoff("fixture box 0.85 -0.40 1.15 0.30 0.05 0.30", "850 -150 1150", "850 -400 1150", 4)
 
 
 MOVES = {

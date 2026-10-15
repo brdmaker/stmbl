@@ -17,6 +17,7 @@ void plant_defaults(arm_plant *p, int n) {
   }
   p->kstop = 1e5;
   p->cstop = 500.0;
+  gm_init(&p->geo);
 }
 
 // Solve A x = b (n x n, partial pivoting); 0 or -1 if singular.
@@ -126,9 +127,54 @@ void plant_step(arm_plant *p, const double *te, const int *released, double dt) 
     }
     p->at_stop[i] = out;
   }
+  // contact with the obstacles: penalty spring + damper along the normal
+  rb_force fe[1 + 8];
+  int nf = 0;
+  if(p->fe_on) {
+    fe[nf++] = p->fe;
+  }
+  p->contact_f = 0.0;
+  if(p->geo.no > 0 && p->geo.nb > 0) {
+    gm_pair cp[8];
+    double R[RB_MAXJ][3][3], pl[RB_MAXJ][3];
+    gm_update(&p->geo, &p->arm, p->q);
+    int nc = gm_contacts(&p->geo, cp, 8);
+    if(nc) {
+      rb_fk(&p->arm, p->q, R, pl);
+    }
+    static int was[GM_MAXBODY][GM_MAXOBS];
+    int now[GM_MAXBODY][GM_MAXOBS] = {{0}};
+    for(int k = 0; k < nc; k++) {
+      int b = cp[k].body, o = cp[k].other, L = p->geo.body[b].link;
+      double dd = was[b][o] ? (cp[k].d - p->prev_d[b][o]) / dt : 0.0;
+      double f = -p->geo.k * cp[k].d - p->geo.c * dd;
+      p->prev_d[b][o] = cp[k].d;
+      now[b][o] = 1;
+      if(-cp[k].d > p->pen_max) {
+        p->pen_max = -cp[k].d;
+      }
+      if(f <= 0.0 || L < 1) {
+        continue;
+      }
+      rb_force *F = &fe[nf++];
+      F->link = L - 1;
+      for(int i = 0; i < 3; i++) {
+        F->f[i] = f * cp[k].n[i];
+      }
+      for(int i = 0; i < 3; i++) {  // the contact point in the link frame
+        F->r[i] = R[L - 1][0][i] * (cp[k].pa[0] - pl[L - 1][0]) + R[L - 1][1][i] * (cp[k].pa[1] - pl[L - 1][1]) +
+                  R[L - 1][2][i] * (cp[k].pa[2] - pl[L - 1][2]);
+      }
+      p->contact_f += f;
+    }
+    memcpy(was, now, sizeof(was));
+    if(p->contact_f > p->contact_max) {
+      p->contact_max = p->contact_f;
+    }
+  }
   double M[RB_MAXJ][RB_MAXJ];
   rb_mass(&p->arm, p->q, M);
-  rb_rnea(&p->arm, p->q, p->qd, z, 1, &p->fe, p->fe_on ? 1 : 0, h);
+  rb_rnea(&p->arm, p->q, p->qd, z, 1, fe, nf, h);
   rb_chol(n, M);
   for(int i = 0; i < n; i++) {
     b[i] = tau[i] - h[i];

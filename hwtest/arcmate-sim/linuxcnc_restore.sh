@@ -46,4 +46,5 @@ make -s -C "$REPO/host/arm" all >/dev/null
 make -s -C "$REPO/host/arm/lcnc" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
 # the collision detector
 make -s -C "$REPO/linuxcnc/armcollide" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
+make -s -C "$REPO/linuxcnc/armguard" MODINC="$LCNC/src/Makefile.modinc" all install >/dev/null
 echo "LinuxCNC $(cat "$LCNC/VERSION") ready at $LCNC"

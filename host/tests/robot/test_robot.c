@@ -14,6 +14,7 @@
  */
 #include "robot.h"
 #include "kin.h"
+#include "geom.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -605,6 +606,90 @@ static void genserkins_tests(const char *refpath, const char *armpath) {
   ok(ea < 1e-5, "A B C = LinuxCNC genserkins (deg)", ea, 1e-5);
 }
 
+// signed distance of a point to the placed shape, brute force reference
+static double ref_point_dist(const gm_shape *o, const double x[3]) {
+  if(o->type == GM_BOX) {
+    double l[3], qd[3], out = 0, mx = -1e9;
+    for(int i = 0; i < 3; i++) {
+      l[i] = o->R[0][i] * (x[0] - o->a[0]) + o->R[1][i] * (x[1] - o->a[1]) + o->R[2][i] * (x[2] - o->a[2]);
+      qd[i] = fabs(l[i]) - o->b[i];
+      out += qd[i] > 0 ? qd[i] * qd[i] : 0;
+      mx = qd[i] > mx ? qd[i] : mx;
+    }
+    return mx > 0 ? sqrt(out) : mx;
+  }
+  return 0;
+}
+
+static void geom_tests(void) {
+  gm_world w;
+  gm_init(&w);
+  ok(gm_line(&w, "body 0 capsule 0 0 0 1 0 0 0.1") == 1 && gm_line(&w, "obstacle a capsule 0 0.5 0 1 0.5 0 0.05") == 1 &&
+         gm_line(&w, "obstacle f plane 0 0 -0.3 0 0 2") == 1 && gm_line(&w, "obstacle s sphere 2 0 0 0.2") == 1 &&
+         gm_line(&w, "obstacle b box 0.5 0 1 0.1 0.2 0.3 10 20 30") == 1 && gm_line(&w, "dh 1 0 0 0 0") == 0,
+     "geometry lines parsed", w.no, 4);
+  rb_model none;
+  memset(&none, 0, sizeof(none));
+  gm_update(&w, &none, (double[RB_MAXJ]){0});
+  gm_pair p;
+  double e = 0;
+  e += fabs(gm_dist(&w.body[0], &w.obs[0], 0, &p) - (0.5 - 0.15));   // parallel capsules
+  e += fabs(p.n[1] + 1.0);                                            // pushed towards -y
+  e += fabs(gm_dist(&w.body[0], &w.obs[1], 0, &p) - (0.3 - 0.1));    // floor
+  e += fabs(gm_dist(&w.body[0], &w.obs[2], 0, &p) - (1.0 - 0.3));    // sphere off the end
+  ok(e < 1e-12, "capsule vs capsule, plane, sphere: exact distances and normal", e, 1e-12);
+
+  // capsule vs rotated box: against brute force sampling of the segment
+  double eb = 0, en = 0;
+  for(int t = 0; t < 300; t++) {
+    gm_world v;
+    gm_init(&v);
+    char line[256];
+    snprintf(line, sizeof(line), "obstacle b box %f %f %f %f %f %f %f %f %f", urand(-0.2, 0.2), urand(-0.2, 0.2),
+             urand(-0.2, 0.2), urand(0.05, 0.3), urand(0.05, 0.3), urand(0.05, 0.3), urand(-180, 180), urand(-80, 80),
+             urand(-180, 180));
+    gm_line(&v, line);
+    snprintf(line, sizeof(line), "body 0 capsule %f %f %f %f %f %f %f", urand(-0.6, 0.6), urand(-0.6, 0.6),
+             urand(-0.6, 0.6), urand(-0.6, 0.6), urand(-0.6, 0.6), urand(-0.6, 0.6), urand(0, 0.05));
+    gm_line(&v, line);
+    gm_update(&v, &none, (double[RB_MAXJ]){0});
+    double d = gm_dist(&v.body[0], &v.obs[0], 0, &p), ref = 1e9;
+    for(int k = 0; k <= 20000; k++) {
+      double x[3], s = k / 20000.0;
+      for(int i = 0; i < 3; i++) {
+        x[i] = v.body[0].wa[i] + s * (v.body[0].wb[i] - v.body[0].wa[i]);
+      }
+      double f = ref_point_dist(&v.obs[0], x);
+      ref = f < ref ? f : ref;
+    }
+    ref -= v.body[0].r;
+    double de = fabs(d - ref);
+    eb = de > eb ? de : eb;
+    // the normal is the distance's gradient: moving the body by h n adds h
+    if(d > 0.01) {
+      gm_shape mv = v.body[0];
+      for(int i = 0; i < 3; i++) {
+        mv.wa[i] += 1e-4 * p.n[i], mv.wb[i] += 1e-4 * p.n[i];
+      }
+      double d2 = gm_dist(&mv, &v.obs[0], 0, NULL);
+      double g = fabs((d2 - d) / 1e-4 - 1.0);
+      en = g > en ? g : en;
+    }
+  }
+  ok(eb < 1e-4, "capsule vs rotated box = brute force (300 cases, incl. crossing)", eb, 1e-4);
+  ok(en < 1e-2, "  ...normal = gradient of the distance", en, 1e-2);
+
+  // bodies follow the links
+  gm_world a;
+  gm_init(&a);
+  gm_line(&a, "body 5 sphere 0.05 -0.1 0.2 0.03");
+  double q[6] = {0.3, -0.2, 0.4, 1.0, -0.7, 0.2}, x[3];
+  gm_update(&a, &ref, q);
+  rb_point(&ref, q, 4, (double[3]){0.05, -0.1, 0.2}, x);
+  double ep = maxabs(a.body[0].wa, x, 3);
+  ok(ep < 1e-12, "bodies placed on their links (rb_point)", ep, 1e-12);
+}
+
 int main(int argc, char **argv) {
   srand(1203);
   reference_tests(argc > 1 ? argv[1] : "tests/robot/rtb_ref.txt");
@@ -615,6 +700,7 @@ int main(int argc, char **argv) {
   armature_test();
   observer_test();
   kinematics_tests();
+  geom_tests();
   if(argc > 3) {
     genserkins_tests(argv[2], argv[3]);
   }

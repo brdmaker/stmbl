@@ -28,6 +28,7 @@ LinuxCNC (genserkins, motion) --joint.N pos/vel/enable--> stmbl-arm.0.N --> driv
 make -C ../../host/arm all                     # libstmbl_drive.so, arm_sim
 make -C ../../host/arm/lcnc all install        # stmbl_arm.so -> LinuxCNC rtlib
 make -C ../../linuxcnc/armcollide all install  # the collision detector
+make -C ../../linuxcnc/armguard all install    # the collision reaction
 make test        # headless: lcnc_test.py as the display, TAP output
 make run         # with AXIS
 ```
@@ -53,7 +54,7 @@ link-lost`: amplifier fault, machine off), an operator estop in the weave
 (brakes hold), and a jog far past a soft limit (stops at the limit). As
 `make test`: as a non-root user; TAP output.
 
-Tool down is A0 B0 C0: the flange frame is turned (J6 theta0 180) so that
+The home orientation (flange pointing up) is A0 B0 C0: the flange frame is turned (J6 theta0 180) so that
 C stays away from +-180, where LinuxCNC may report +180 after a stop and a
 program's C-180 then turns J6 a full turn into its limit.
 

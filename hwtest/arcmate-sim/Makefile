@@ -17,11 +17,12 @@ HERE := $(abspath .)
 ARM  := $(abspath ../../host/arm/arcmate/arcmate.arm)
 LIB  := $(abspath ../../host/arm/libstmbl_drive.so)
 MODEL := $(abspath ../../host/arm/arcmate/model_perturbed.arm)
+CELL := $(abspath cell.txt)
 ENV  = $(if $(LINUXCNC),. $(LINUXCNC)/scripts/rip-environment >/dev/null &&,)
 
 test:
 	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
-	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_test.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|' arcmate.ini && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_test.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(CELL)|' arcmate.ini && \
 	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
 	cat lcnc_test.tap 2>/dev/null; \
 	test -f lcnc_test.result && test "$$(cat lcnc_test.result)" = 0 || \
@@ -31,7 +32,7 @@ test:
 SOAK_CYCLES ?= 1
 soak:
 	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
-	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_soak.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|' arcmate.ini && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./lcnc_soak.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(CELL)|' arcmate.ini && \
 	(export SOAK_CYCLES=$(SOAK_CYCLES); $(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
 	cat lcnc_soak.tap 2>/dev/null; \
 	test -f lcnc_soak.result && test "$$(cat lcnc_soak.result)" = 0 || \
@@ -40,7 +41,7 @@ soak:
 # reference poses of genserkins for host/tests/robot (test_robot)
 genserkins-ref:
 	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
-	sed -i 's|^DISPLAY = axis|DISPLAY = ./gen_genserkins_ref.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|' arcmate.ini && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./gen_genserkins_ref.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(CELL)|' arcmate.ini && \
 	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
 	cp genserkins_ref.txt $(abspath ../../host/tests/robot)/genserkins_ref.txt && \
 	echo "wrote host/tests/robot/genserkins_ref.txt"

@@ -59,3 +59,16 @@ limits 5 -130 130
 limits 6 -360 360
 #
 home 0 0 0 0 -90 0
+#
+# geometry (collision prevention, and the plant's contacts): capsules
+# around the links, in each link's frame [m]; GUESSED from the layout
+body 0 capsule 0 0 0      0 0 0.40     0.16   # pedestal (base)
+body 1 capsule 0 0 -0.05  0.15 0 0     0.13   # turret
+body 2 capsule 0 0 0      0.60 0 0     0.09   # upper arm
+body 3 capsule 0.06 0 0   0.12 0.55 0  0.075  # forearm (to the wrist)
+body 5 sphere  0 0 0      0.06                # wrist
+body 6 capsule 0 0 0.02   0 0 0.20     0.025  # welding torch on the flange
+# bodies that overlap by construction (two links apart): pedestal and
+# upper arm at the shoulder, forearm and wrist
+selfignore 0 2
+selfignore 3 4

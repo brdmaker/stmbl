@@ -73,11 +73,15 @@ after enable.
    (`hwtest/arcmate-sim`, `make soak`) with movement patterns and error
    scenarios.
 
+6. Geometry (`shared/robot/geom.c`: capsules, spheres, boxes, planes;
+   the plant's contacts) and the collision reaction
+   (`shared/robot/guard.c`, `linuxcnc/armguard`): stop, 20 mm backoff,
+   estop.
+
 ## Next
 
-- Reaction component: stop -> compliant with gravity compensation
-  (100-300 ms, the arm backs off the obstacle) -> brakes, instead of the
-  plain estop.
+- 3D collision prevention: clearance of the arm's bodies to the cell
+  and to themselves, a protective stop before contact.
 - Identification scripts for Phases 4-6 (friction sweeps, gravity fit,
   base parameters), first checked on `arm_sim` logs with known values.
 - Joint-level tuning of the drives on the arm (id_pid per joint, gear

@@ -85,7 +85,7 @@ mode. The kinematics agree with LinuxCNC's genserkins to 1e-5 mm / deg
 (`host/tests/robot/genserkins_ref.txt`, recorded from
 `hwtest/arcmate-sim`). A Cartesian move that would exceed a joint's speed
 limit is aborted (`limitabort`), as LinuxCNC does. The flange frame is
-turned (J6 theta0 180) so that tool down is A0 B0 C0: away from the
+turned (J6 theta0 180) so that the home orientation (flange up) is A0 B0 C0: away from the
 +-180 deg wrap of C.
 
 ## Soak (`make -C .. soak`)
@@ -114,3 +114,16 @@ path error (commanded vs the true tool point: ~1.5 mm is the gears' sag).
 `SOAK_CYCLES=N` repeats the movement. Limits of the detector found on the
 way: 1 A of current noise trips the wrist (50:1 gears); an undeclared
 payload is a collision.
+
+## Collision reaction (`guard on`)
+
+With `guard on` a detected collision does not estop at once: the guard
+(`shared/robot/guard.c`, the code of `linuxcnc/armguard`) stops the arm,
+backs the flange off 20 mm (`backoff MM T`) - back along the path if it
+was moving, else along the contact force estimated from the residuals -
+and then estops. The plant's obstacles (`obstacle ...` lines, contact
+100 N/mm) push back on the arm's bodies (`body ...` in `arcmate.arm`), so
+a tool pressed against them is really under tension: `arm_backoff.test`
+(guard off: estop, the brakes hold the wrist pressed into the wall at
+~190 N) against `arm_backoff_guard.test` (guard on: no force left, ~15 mm
+clear) and `arm_backoff_slow.test` (direction from the contact force).

@@ -175,6 +175,10 @@ int armcore_line(char *line) {
   if(sscanf(line, " %15s%n", kw, &off) != 1) {
     return 1;
   }
+  int g = gm_line(&arm_P.geo, line);  // body / obstacle / selfignore / contact
+  if(g) {
+    return g > 0;
+  }
   char *p = line + off, *end;
   if(!strcmp(kw, "drive")) {
     char conf[256], sim[256], cp[1024], sp[1024];
