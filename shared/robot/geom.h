@@ -12,8 +12,10 @@
  * own base, on link 0.
  *
  * Description lines (also accepted, and ignored, by the arm file parsers):
- *   body L capsule x1 y1 z1 x2 y2 z2 r   arm body on link L (its frame)
- *   body L sphere x y z r
+ *   body L capsule x1 y1 z1 x2 y2 z2 r [tool T]   arm body on link L (its
+ *   body L sphere x y z r [tool T]                frame); with `tool T`: a
+ *                                         tool's body, there only while tool
+ *                                         T is mounted (gm_world.tool)
  *   obstacle NAME sphere x y z r          world obstacles (base frame)
  *   obstacle NAME capsule x1 y1 z1 x2 y2 z2 r
  *   obstacle NAME box cx cy cz hx hy hz [a b c]
@@ -44,6 +46,7 @@ typedef struct {
   double r;
   double wa[3], wb[3];  // bodies: a, b in the world after gm_update
   char name[16];
+  int tool;            // bodies: of tool T only (0: always there)
 } gm_shape;
 
 typedef struct gm_world_s {
@@ -54,7 +57,11 @@ typedef struct gm_world_s {
   unsigned char ignore[GM_MAXBODY][GM_MAXBODY];
   int selfskip;
   double k, c;         // plant contact
+  int tool;            // the tool mounted now (0 none): its bodies count
 } gm_world;
+
+// a body that is there now (not another tool's)
+#define GM_ACTIVE(w, i) ((w)->body[i].tool == 0 || (w)->body[i].tool == (w)->tool)
 
 // A pair's closest points: d = signed distance (< 0: penetration) [m],
 // pa on the body's core (segment / centre), pb on the other shape's

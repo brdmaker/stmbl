@@ -13,7 +13,7 @@ MODINC ?= $(firstword $(wildcard $(HOME)/linuxcnc-2.9/src/Makefile.modinc /home/
 ARM_CFLAGS = -O2 -g -fPIC -std=gnu11 -Wall -D_GNU_SOURCE -I.. -I../../lcnc -I$(ROOT)/shared/robot
 
 obj-m += stmbl_arm.o
-stmbl_arm-objs := stmbl_arm_rt.o armcore.o plant.o robot.o kin.o geom.o gripsim.o
+stmbl_arm-objs := stmbl_arm_rt.o armcore.o plant.o robot.o kin.o geom.o gripsim.o changersim.o tool.o
 EXTRA_LDFLAGS += -ldl
 include $(MODINC)
 
@@ -22,9 +22,9 @@ all: stmbl_arm.so ../libstmbl_drive.so
 ../libstmbl_drive.so:
 	$(MAKE) -C .. libstmbl_drive.so
 
-stmbl_arm_rt.o: stmbl_arm.c ../armcore.h ../plant.h
+stmbl_arm_rt.o: stmbl_arm.c ../armcore.h ../plant.h ../changersim.h
 	$(CC) -o $@ $(EXTRA_CFLAGS) -I.. -I../../lcnc -I$(ROOT)/shared/robot -c $<
-armcore.o: ../armcore.c ../armcore.h ../plant.h ../gripsim.h
+armcore.o: ../armcore.c ../armcore.h ../plant.h ../gripsim.h ../changersim.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 plant.o: ../plant.c ../plant.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
@@ -35,6 +35,10 @@ kin.o: $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/kin.h
 geom.o: $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/geom.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 gripsim.o: ../gripsim.c ../gripsim.h
+	$(CC) $(ARM_CFLAGS) -c $< -o $@
+changersim.o: ../changersim.c ../changersim.h $(ROOT)/shared/robot/tool.h
+	$(CC) $(ARM_CFLAGS) -c $< -o $@
+tool.o: $(ROOT)/shared/robot/tool.c $(ROOT)/shared/robot/tool.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 
 clean:

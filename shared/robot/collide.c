@@ -105,6 +105,23 @@ int rb_collide_payload(rb_collide *c, double m, const double cm[3]) {
   return 0;
 }
 
+int rb_collide_tool(rb_collide *c, double m, const double cm[3]) {
+  double ic[6] = {0};
+  int last = c->mdl.n - 1;
+  if(last < 0) {
+    return -1;
+  }
+  if(c->tool_m != 0.0) {
+    rb_add_payload(&c->mdl, last, -c->tool_m, c->tool_c, ic);
+  }
+  c->tool_m = m;
+  memcpy(c->tool_c, cm, sizeof(c->tool_c));
+  if(c->tool_m != 0.0) {
+    rb_add_payload(&c->mdl, last, c->tool_m, c->tool_c, ic);
+  }
+  return 0;
+}
+
 void rb_collide_setup(rb_collide *c) {
   int n = c->mdl.n;
   rb_armature(&c->mdl, c->K, c->jm);

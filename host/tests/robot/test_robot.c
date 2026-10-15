@@ -16,6 +16,8 @@
 #include "kin.h"
 #include "geom.h"
 #include "gripper.h"
+#include "tool.h"
+#include "collide.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -817,6 +819,138 @@ static void payload_tests(void) {
   ok(g.state == GR_WRONG && fabs(g.width - 45.0) < 1.0, "  ...a 45 mm part where 30 was expected: wrong", g.width, 45);
 }
 
+static void tool_tests(void) {
+  rb_tools tt;
+  rb_tools_init(&tt);
+  const char *lines[] = {"tool 2 gripper", "tcp 0 0 150 0 0 0", "toolmass 1.8 0 0 0.06",
+                         "dock 850 300 1000 0 0 0 0 0 80", "tool 5 torch", "tcp 20 -10 210 10 -35 5",
+                         "toolmass 1.2 0.01 0 0.08", "dock 850 -300 1000 0 0 90 0 0 80"};
+  int bad = 0;
+  for(int i = 0; i < 8; i++) {
+    bad += rb_tools_line(&tt, lines[i]) != 1;
+  }
+  bad += rb_tools_line(&tt, "tool 99 x") != -1;
+  ok(!bad && rb_tool_get(&tt, 5)->id == 5 && rb_tool_get(&tt, 3)->id == 0 && rb_tool_get(&tt, 2)->m == 1.8,
+     "tools: table lines read", bad, 0);
+  // TCP = flange * T; back to the flange; IK on the TCP
+  const rb_tool *t = rb_tool_get(&tt, 5);
+  double e1 = 0, e2 = 0;
+  int ikbad = 0;
+  for(int k = 0; k < 20; k++) {
+    double q[6], p[3], R[3][3], pf[3], Rf[3][3], pf2[3], Rf2[3][3];
+    rand_state(6, q, 0, 0);
+    rb_tcp_pose(&ref, t, q, p, R);
+    rb_pose(&ref, q, pf, Rf);
+    double tp[3];  // TCP from the flange by hand
+    for(int i = 0; i < 3; i++) {
+      tp[i] = pf[i] + Rf[i][0] * 0.020 + Rf[i][1] * -0.010 + Rf[i][2] * 0.210;
+    }
+    e1 = fmax(e1, maxabs(tp, p, 3));
+    rb_flange_from_tcp(t, p, R, pf2, Rf2);
+    e2 = fmax(e2, maxabs(pf2, pf, 3) + maxabs(&Rf2[0][0], &Rf[0][0], 9));
+    double q2[6];
+    for(int j = 0; j < 6; j++) {
+      q2[j] = q[j] + urand(-0.05, 0.05);
+    }
+    double p2[3], R2[3][3];
+    if(rb_ik_tcp(&ref, t, p, R, q2, 1e-7, 1e-7, 100) < 0) {
+      ikbad++;
+      continue;
+    }
+    rb_tcp_pose(&ref, t, q2, p2, R2);
+    e1 = fmax(e1, maxabs(p2, p, 3));
+  }
+  ok(e1 < 1e-6, "tools: TCP pose = flange * TCP; IK on the TCP reaches it", e1, 1e-6);
+  ok(e2 < 1e-12 && ikbad == 0, "  ...flange from the TCP pose inverts it", e2, 1e-12);
+
+  // bodies of a tool count only while it is mounted
+  gm_world w;
+  gm_init(&w);
+  gm_line(&w, "body 6 capsule 0 0 0 0 0 0.2 0.03 tool 5   # the torch");
+  gm_line(&w, "body 6 sphere 0 0 0.05 0.04   # changer master, a tool plate");
+  double q0[6] = {0};
+  gm_update(&w, &ref, q0);
+  char ob[160];  // a ball 0.1 m beyond the torch's tip
+  double *ta = w.body[0].wa, *tb = w.body[0].wb, dl = sqrt(pow(tb[0] - ta[0], 2) + pow(tb[1] - ta[1], 2) +
+                                                            pow(tb[2] - ta[2], 2));
+  snprintf(ob, sizeof(ob), "obstacle ball sphere %.6f %.6f %.6f 0.02", tb[0] + 0.1 * (tb[0] - ta[0]) / dl,
+           tb[1] + 0.1 * (tb[1] - ta[1]) / dl, tb[2] + 0.1 * (tb[2] - ta[2]) / dl);
+  gm_line(&w, ob);
+  w.tool = 0;
+  double d0 = gm_clearance(&w, NULL);
+  w.tool = 5;
+  double d5 = gm_clearance(&w, NULL);
+  w.tool = 2;
+  double d2 = gm_clearance(&w, NULL);
+  ok(w.body[0].tool == 5 && w.body[1].tool == 0 && d5 < d0 && d2 == d0,
+     "geometry: a tool's bodies count while it is mounted", d5 - d0, 0);
+
+  // the detector's model: tool payload added and removed again
+  rb_collide det;
+  memset(&det, 0, sizeof(det));
+  det.mdl = ref;
+  double g0[6], g1[6], g2[6], c[3] = {0, 0, 0.08}, ic[6] = {0};
+  double q[6] = {0.2, -0.3, 0.5, 0.1, -0.6, 0.3};
+  rb_gravity(&det.mdl, q, g0);
+  rb_collide_tool(&det, 1.2, c);
+  rb_collide_payload(&det, 2.0, c);
+  rb_gravity(&det.mdl, q, g1);
+  rb_model m2 = ref;
+  rb_add_payload(&m2, 5, 3.2, c, ic);
+  rb_gravity(&m2, q, g2);
+  double ea = maxabs(g1, g2, 6);
+  rb_collide_tool(&det, 0.0, c);
+  rb_collide_payload(&det, 0.0, c);
+  rb_gravity(&det.mdl, q, g1);
+  ok(ea < 1e-9 && maxabs(g1, g0, 6) < 1e-9, "detector model: tool + part payloads, removed again", ea, 1e-9);
+
+  // the changer monitor, sensors driven by hand
+  rb_changer ch;
+  rb_changer_init(&ch);
+  const rb_tool *t2 = rb_tool_get(&tt, 2);
+  double away[3] = {0.5, 0, 1.2};
+  ch.expect = 2;
+  ch.lock_req = 1;  // in the dock, lock: the sensors follow, tool 2 there
+  for(int k = 0; k < 600; k++) {
+    ch.s_locked = k > 50, ch.s_unlocked = k <= 30, ch.s_present = 1, ch.s_id = 2;
+    rb_changer_step(&ch, &tt, 1, t2->dock_p, t2->dock_R, 0.001);
+  }
+  ok(ch.valve && ch.mounted == 2 && !ch.fault, "changer: locked onto tool 2", ch.mounted, 2);
+  ch.lock_req = 0;  // away from the dock: unlocking is refused
+  rb_changer_step(&ch, &tt, 1, away, t2->dock_R, 0.001);
+  ok(ch.valve && ch.mounted == 2 && ch.fault == CH_UNDOCKED, "  ...unlock away from the dock: kept locked, fault",
+     ch.fault, CH_UNDOCKED);
+  rb_changer_reset(&ch);
+  ch.lock_req = 1;
+  for(int k = 0; k < 20; k++) {  // tool comes loose
+    ch.s_present = k < 5;
+    rb_changer_step(&ch, &tt, 1, away, t2->dock_R, 0.001);
+  }
+  ok(ch.fault == CH_LOST, "  ...the tool's presence goes away: lost", ch.fault, CH_LOST);
+  rb_changer_init(&ch);
+  ch.expect = 2;  // back in the dock: unlock, then lock onto tool 5
+  ch.mounted = 2, ch.valve = 1, ch.lock_req = 0;
+  for(int k = 0; k < 100; k++) {
+    ch.s_locked = k < 20, ch.s_unlocked = k >= 40, ch.s_present = 1;
+    rb_changer_step(&ch, &tt, 1, t2->dock_p, t2->dock_R, 0.001);
+  }
+  int unlocked = !ch.valve && ch.mounted == 0 && !ch.fault;
+  ch.lock_req = 1;
+  for(int k = 0; k < 100; k++) {
+    ch.s_locked = k > 20, ch.s_unlocked = k < 10, ch.s_present = 1, ch.s_id = 5;
+    rb_changer_step(&ch, &tt, 1, t2->dock_p, t2->dock_R, 0.001);
+  }
+  ok(unlocked && ch.fault == CH_WRONG && ch.mounted == 5, "  ...unlocked in the dock; locking onto tool 5 (2 "
+     "expected): wrong", ch.fault, CH_WRONG);
+  rb_changer_init(&ch);
+  ch.lock_req = 1;
+  for(int k = 0; k < 700; k++) {  // the piston never arrives
+    ch.s_locked = 0, ch.s_unlocked = 0;
+    rb_changer_step(&ch, &tt, 1, away, t2->dock_R, 0.001);
+  }
+  ok(ch.fault == CH_TIMEOUT, "  ...lock sensors do not follow the valve: timeout", ch.fault, CH_TIMEOUT);
+}
+
 int main(int argc, char **argv) {
   srand(1203);
   reference_tests(argc > 1 ? argv[1] : "tests/robot/rtb_ref.txt");
@@ -829,6 +963,7 @@ int main(int argc, char **argv) {
   kinematics_tests();
   geom_tests();
   payload_tests();
+  tool_tests();
   if(argc > 3) {
     genserkins_tests(argv[2], argv[3]);
   }

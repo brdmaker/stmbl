@@ -29,6 +29,10 @@ Movement scenarios (no reaction may fire; collision prevention on, margin
                     forth between two places
   grip_learn        the same with parts of undeclared mass: learnt on the
                     lift
+  tool_cycles       the tool changer (arcmate_changer.arm): torch and
+                    gripper picked from their docks and put back in turn,
+                    random moves on each tool's TCP in between (with a
+                    reorientation about it)
   current_noise     0.3 A noise on every current measurement
 Error scenarios (the expected reaction must fire, the arm must stop safely):
   collide_moving_*  pushes on links 3, 4 and 6 in several directions mid-move
@@ -65,6 +69,12 @@ Error scenarios (the expected reaction must fire, the arm must stop safely):
                     the grip (reason 8)
   grip_empty        nothing between the jaws: fingers close, machine off
                     (reason 8)
+  tool_slip         the tool comes off the changer at a random point of a
+                    move: machine off (reason 9, CH_LOST)
+  tool_wrong        locking onto the other tool than expected (reason 9,
+                    CH_WRONG)
+  tool_undocked     unlock requested away from the dock: kept locked,
+                    machine off (reason 9, CH_UNDOCKED)
 
 usage: gen_arm_soak.py [--cycles N] [--out DIR] [--seed S]
 """
@@ -496,6 +506,57 @@ def prevent_self(cycles, rnd):
             "@expect arm.prev_self == 1\n@expect arm.clear_min > 2\n@reject ^ERROR\n")
 
 
+def tool_inc(kind, n):
+    return open(os.path.join(HERE, "inc_tool_%s%d.txt" % (kind, n))).read()
+
+
+def tool_moves(rnd, n):
+    """random moves of the TCP (flange forward and up, B 45, +-15 deg)"""
+    body = ""
+    for _ in range(n):
+        x, y, z = rnd.uniform(1050, 1200), rnd.uniform(-250, 250), rnd.uniform(1000, 1250)
+        a, b, c = rnd.uniform(-15, 15), 45 + rnd.uniform(-15, 15), rnd.uniform(-15, 15)
+        body += "tlmove 1.5 %.1f %.1f %.1f %.1f %.1f %.1f\nrun 1.7\n" % (x, y, z, a, b, c)
+    return body
+
+
+def tool_cycles(cycles, rnd):
+    body = ""
+    for _ in range(max(1, cycles)):
+        for t in (1, 2):
+            body += tool_inc("pick", t) + tool_moves(rnd, 3) + "print tool\n" + tool_inc("drop", t)
+    body += "print tool\n@expect arm.tool_mounted[1] == 1\n@expect arm.tool_mounted[2] == 2\n"
+    body += "@expect arm.tool_mounted[-1] == 0\n@expect arm.tool_fault == 0\n"
+    body += "@expect arm.tool_state1[-1] == 0\n@expect arm.tool_state2[-1] == 0\n"
+    # the path error is the TCP's: 290 mm out on the torch, the wrist gears'
+    # deflection counts more than at the flange
+    return body + quiet_expects(perr=5.0)
+
+
+@scen("tool_slip", "the tool comes off the changer mid-move: machine off (reason 9 / CH_LOST)")
+def tool_slip(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t) + "tlmove 2 1150 0 1150 0 45 0\nrun %.3f\ntoolslip\nrun 1\n" % rnd.uniform(0.3, 1.7) +
+            "print tool off\n@expect arm.off_reason == 9\n@expect arm.off_joint == 3\n"
+            "@expect arm.tool_state%d == 2\n@reject ^ERROR\n" % t)
+
+
+@scen("tool_wrong", "locking onto the other tool than expected: machine off (reason 9 / CH_WRONG)")
+def tool_wrong(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t).replace("toolexpect %d" % t, "toolexpect %d" % (3 - t)) +
+            "print tool off\n@expect arm.off_reason == 9\n@expect arm.off_joint == 2\n"
+            "@expect arm.tool_mounted == %d\n@reject ^ERROR\n" % t)
+
+
+@scen("tool_undocked", "unlock away from the dock: kept locked, machine off (reason 9 / CH_UNDOCKED)")
+def tool_undocked(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t) + tool_moves(rnd, 1) + "lock 0\nrun 0.3\nprint tool off\n"
+            "@expect arm.off_reason == 9\n@expect arm.off_joint == 4\n@expect arm.tool_plant == %d\n"
+            "@expect arm.tool_valve == 1\n@reject ^ERROR\n" % t)
+
+
 @scen("grip_drop", "the part slips out at a random point of the carry: LOST, machine off (reason 7)")
 def grip_drop(cycles, rnd):
     m = round(rnd.uniform(0.5, 4.0), 2)
@@ -538,6 +599,7 @@ MOVES = {
     "current_noise": ("0.3 A noise on every current measurement, cube lines", current_noise),
     "grip_cycles": ("gripper pick-and-place, parts of declared random mass, checked on the lift", grip_cycles),
     "grip_learn": ("gripper pick-and-place, parts of undeclared mass learnt on the lift", grip_learn),
+    "tool_cycles": ("tool changer: torch and gripper in turn, random moves on their TCPs", tool_cycles),
 }
 
 
@@ -557,7 +619,8 @@ def main():
         body = fn(args.cycles, rnd)
         if name in MOVES:  # prevention on (the arm itself; these cells are empty)
             body = PREVENT + body
-        arm = "arcmate_gripper.arm" if name.startswith("grip_") else "arcmate.arm"
+        arm = ("arcmate_gripper.arm" if name.startswith("grip_") else
+               "arcmate_changer.arm" if name.startswith("tool_") else "arcmate.arm")
         text = HEADER.format(name=name, doc=doc, arm=arm, timeout=300 * args.cycles) + body
         with open(os.path.join(args.out, "arm_%s.test" % name), "w") as f:
             f.write(text)

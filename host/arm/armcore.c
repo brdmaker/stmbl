@@ -18,6 +18,7 @@ arm_drive arm_drv[RB_MAXJ];
 int arm_nj = 0;
 arm_plant arm_P;
 gs_gripper arm_gs;
+cs_changer arm_cs;
 arm_drive arm_gdrv;
 int arm_has_grip = 0;
 static double grip_off;  // gripper gap [mm] = pos_fb + grip_off
@@ -137,22 +138,57 @@ static int drive_open(int j, const char *conf, const char *simfile) {
   return drive_open_d(&arm_drv[j], j, conf, simfile);
 }
 
-int armcore_payload(double m, const double c[3]) {
-  static double pm = 0.0, pc[3];
+// payload slot k (0 the part, 1 the changer's tool): point masses add up
+static int payload_slot(int k, double m, const double c[3]) {
+  static double pm[2], pc[2][3];
   double ic[6] = {0};
   int last = arm_P.arm.n - 1;
   if(last < 0) {
     return -1;
   }
-  if(pm != 0.0) {
-    rb_add_payload(&arm_P.arm, last, -pm, pc, ic);
+  if(pm[k] != 0.0) {
+    rb_add_payload(&arm_P.arm, last, -pm[k], pc[k], ic);
   }
-  pm = m;
-  memcpy(pc, c, sizeof(pc));
-  if(pm != 0.0) {
-    rb_add_payload(&arm_P.arm, last, pm, pc, ic);
+  pm[k] = m;
+  memcpy(pc[k], c, sizeof(pc[k]));
+  if(pm[k] != 0.0) {
+    rb_add_payload(&arm_P.arm, last, pm[k], pc[k], ic);
   }
   return 0;
+}
+
+int armcore_payload(double m, const double c[3]) {
+  return payload_slot(0, m, c);
+}
+
+int armcore_tool_payload(double m, const double c[3]) {
+  return payload_slot(1, m, c);
+}
+
+// the tool on the changer now: its mass on the flange, its bodies in the
+// plant's geometry, the gripper's jaws if it is the gripper
+static void changer_tool(void) {
+  const rb_tool *t = rb_tool_get(&arm_cs.tt, arm_cs.mounted);
+  armcore_tool_payload(arm_cs.mounted ? t->m : 0.0, t->c);
+  arm_P.geo.tool = arm_cs.mounted;
+  if(arm_gs.tool) {
+    arm_gs.active = arm_cs.mounted == arm_gs.tool;
+    if(!arm_gs.active && gs_held(&arm_gs) >= 0) {  // the part goes with the gripper
+      gs_drop(&arm_gs);
+      armcore_payload(0.0, (double[3]){0, 0, 0});
+    }
+  }
+}
+
+void armcore_changer_valve(int lock) {
+  arm_cs.valve = lock != 0;
+}
+
+void armcore_changer_sensors(int *locked, int *unlocked, int *present, int *id) {
+  *locked = cs_locked(&arm_cs);
+  *unlocked = cs_unlocked(&arm_cs);
+  *present = cs_present(&arm_cs);
+  *id = cs_id(&arm_cs);
 }
 
 double armcore_qm(int j) {
@@ -184,6 +220,10 @@ int armcore_line(char *line) {
     return 1;
   }
   int g = gm_line(&arm_P.geo, line);  // body / obstacle / selfignore / contact
+  if(g) {
+    return g > 0;
+  }
+  g = cs_line(&arm_cs, line);  // changer, tool table
   if(g) {
     return g > 0;
   }
@@ -317,6 +357,7 @@ int armcore_load(const char *armfile, const char *lib) {
   }
   plant_defaults(&arm_P, 0);
   gs_init(&arm_gs);
+  cs_init(&arm_cs);
   for(int j = 0; j < RB_MAXJ; j++) {
     arm_drv[j].ratio = 1.0;
   }
@@ -330,6 +371,9 @@ int armcore_load(const char *armfile, const char *lib) {
   }
   if(arm_has_grip) {  // the fingers start open, 5 mm from the end stop
     gs_set_gap(&arm_gs, arm_gs.gap_max - 5.0);
+  }
+  if(arm_cs.on) {
+    changer_tool();
   }
   return rc;
 }
@@ -415,10 +459,15 @@ void armcore_tick(int servo) {
   for(int s = 0; s < ARM_SUB; s++) {
     plant_step(&arm_P, te, rel, ARM_RT / ARM_SUB);
   }
-  if(arm_has_grip) {  // the fingers, at the flange's pose
-    double R[RB_MAXJ][3][3], p[RB_MAXJ][3];
+  double R[RB_MAXJ][3][3], p[RB_MAXJ][3];
+  int last = arm_P.arm.n - 1;
+  if(arm_has_grip || arm_cs.on) {
     rb_fk(&arm_P.arm, arm_P.q, R, p);
-    int last = arm_P.arm.n - 1;
+  }
+  if(arm_cs.on && cs_step(&arm_cs, R[last], p[last], ARM_RT)) {  // a tool on or off
+    changer_tool();
+  }
+  if(arm_has_grip) {  // the fingers, at the flange's pose
     for(int s = 0; s < ARM_SUB; s++) {
       int ev = gs_step(&arm_gs, te_g, R[last], p[last], ARM_RT / ARM_SUB);
       if(ev > 0) {  // a part picked up: its mass hangs on the flange

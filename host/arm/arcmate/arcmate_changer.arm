@@ -1,0 +1,12 @@
+# FANUC ARC Mate (A05B-1203-B255) with a pneumatic tool changer, for
+# arm_sim: the master plate on the flange (40 mm, lock stroke 0.1 s, no
+# tool at start), the tools in tools.txt in their docks, the gripper's
+# drive for tool 2.
+include arcmate_base.arm
+changer 0.1 0
+body 6 capsule 0 0 0.005   0 0 0.035   0.04   # changer master plate (80 mm)
+include tools.txt
+gripper drive gripper.conf sim.txt
+gripper mech 4 80 0.3 0.00001 0.01
+gripper jaw 0.19 0.06 0.03
+gripper tool 2

@@ -43,8 +43,10 @@ LDLIBS   = -lm -lpthread
 all: stmbl_host servoterm test_robot
 
 # shared/robot (arm dynamics) and its tests (tests/robot/test_robot.c)
-ROBOT_SRCS = $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/gripper.c
-test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/kin.h $(ROOT)/shared/robot/geom.h $(ROOT)/shared/robot/gripper.h
+ROBOT_SRCS = $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/gripper.c \
+             $(ROOT)/shared/robot/tool.c $(ROOT)/shared/robot/collide.c
+test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/kin.h $(ROOT)/shared/robot/geom.h $(ROOT)/shared/robot/gripper.h \
+            $(ROOT)/shared/robot/tool.h $(ROOT)/shared/robot/collide.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(ROOT)/shared/robot -o $@ tests/robot/test_robot.c $(ROBOT_SRCS) -lm
 
 stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c

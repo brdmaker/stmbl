@@ -56,6 +56,7 @@ typedef struct {
   double holdoff;               // [s]
   double envelope;              // decay time of the dynamic threshold terms [s]
   double pay_m, pay_c[3];       // payload now in the model
+  double tool_m, tool_c[3];     // the mounted tool (tool changer), also in it
   rb_observer obs;
 
   // state / outputs
@@ -81,6 +82,9 @@ int rb_collide_line(rb_collide *c, const char *line);
 // Declare the payload on the last link: mass [kg] at cm [m, its frame];
 // replaces the previous one (m 0: none). 0, or -1 without a model.
 int rb_collide_payload(rb_collide *c, double m, const double cm[3]);
+// The mounted tool's mass and centre of mass (last link's frame): a second
+// payload, independent of the part one (rb_collide_payload).
+int rb_collide_tool(rb_collide *c, double m, const double cm[3]);
 // After loading or changing kt / K / jm.
 void rb_collide_setup(rb_collide *c);
 // One servo period. q, qd: model angles [rad], speeds [rad/s]; cur:

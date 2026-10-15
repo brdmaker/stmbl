@@ -19,6 +19,7 @@
 
 #include "plant.h"
 #include "gripsim.h"
+#include "changersim.h"
 #include "stmbl_sim_api.h"
 
 #define ARM_RT 0.0002
@@ -45,6 +46,7 @@ extern long arm_ticks;
 extern gs_gripper arm_gs;      // the simulated gripper (gripsim.h)
 extern arm_drive arm_gdrv;     // its drive
 extern int arm_has_grip;
+extern cs_changer arm_cs;      // the simulated tool changer (changersim.h)
 
 // Load ARMFILE (format: arm_sim.c); drive configs relative to its
 // directory, the drive library from libpath. 0, or -1 with a message on
@@ -71,8 +73,13 @@ void armcore_grip_cmd(int en, double gap, double vel);
 double armcore_grip_fb(void);
 void armcore_grip_drop(void);
 // Payload on the last link: mass [kg] at c [m, its frame]; replaces the
-// previous one (m 0: none).
+// previous one (m 0: none). The tool changer's tool is a second one
+// (armcore_tool_payload, set by the changer simulation itself).
 int armcore_payload(double m, const double c[3]);
+int armcore_tool_payload(double m, const double c[3]);
+// The tool changer (LinuxCNC side): the lock valve; the sensors.
+void armcore_changer_valve(int lock);
+void armcore_changer_sensors(int *locked, int *unlocked, int *present, int *id);
 
 // One rt cycle; servo != 0 exchanges the process data first.
 void armcore_tick(int servo);

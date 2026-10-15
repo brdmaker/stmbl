@@ -23,6 +23,7 @@ void gs_init(gs_gripper *g) {
   g->c = 200.0;
   g->hold = 20.0;
   g->part = -1;
+  g->active = 1;
 }
 
 int gs_line(gs_gripper *g, const char *line) {
@@ -44,6 +45,9 @@ int gs_line(gs_gripper *g, const char *line) {
       }
       g->lead = v[0], g->gap_max = v[1], g->mf = v[2], g->jm = v[3], g->fc = v[4];
       return 1;
+    }
+    if(!strcmp(sub, "tool")) {
+      return sscanf(p, " %d", &g->tool) == 1 ? 1 : -1;
     }
     if(!strcmp(sub, "jaw")) {
       if(sscanf(p, " %lf %lf %lf", v, v + 1, v + 2) != 3) {
@@ -162,7 +166,7 @@ int gs_step(gs_gripper *g, double te, const double R6[3][3], const double p6[3],
       }
     }
   }
-  g->part = in_jaws(g, R6, p6, &w);
+  g->part = g->active ? in_jaws(g, R6, p6, &w) : -1;
   g->force = 0.0;
   double t = te;
   if(g->part >= 0 && gap < w) {  // each finger squeezes the part

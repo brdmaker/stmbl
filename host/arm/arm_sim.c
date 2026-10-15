@@ -51,6 +51,18 @@
  *                                 W > 0 a part of another width or none
  *                                 (fingers closed) -> off_reason 8
  *   gripdrop                      the held part slips out
+ *   lock 1|0                      the tool changer's lock (tool.h's monitor
+ *                                 drives the valve: never unlocks a tool
+ *                                 away from its dock); its faults ->
+ *                                 off_reason 9 (off_joint: 1 sensor
+ *                                 timeout, 2 wrong tool, 3 tool lost, 4
+ *                                 unlock away from the dock)
+ *   toolexpect N                  the tool the next lock should take (0 none)
+ *   ktool N                       Cartesian moves (and print pose) on tool
+ *                                 N's TCP (0: the flange); a Cartesian move
+ *                                 on another tool than the mounted one ->
+ *                                 off_reason 10
+ *   toolslip                      the mounted tool comes off the plate
  *   guard on|off                  collision reaction (guard.h): stop, back off,
  *                                 then estop, instead of estop at once
  *   backoff MM [T]                its retract (default 20 mm in 0.4 s)
@@ -100,6 +112,7 @@
 #include "kin.h"
 #include "guard.h"
 #include "gripper.h"
+#include "tool.h"
 
 #define NJ RB_MAXJ
 #define D2R (M_PI / 180.0)
@@ -126,6 +139,9 @@ static gm_world guard_geo;              // the guard's view of the cell (prevent
 // the gripper (shared/robot/gripper.c) and the payload it picks up
 static rb_gripper grip;
 static rb_grip_payload gpay;
+static rb_changer chg;                  // the tool changer's monitor (tool.h)
+static int ktool = 0;                   // the tool Cartesian moves use (kinematics)
+static int chg_prev_mounted = -1;
 static int grip_close = 0, grip_auto = 1, grip_prev_state = GR_OPEN;
 static double grip_cmd_prev = 0.0;
 static double clear_min = 1e9;          // smallest true clearance since "mark" [m]
@@ -134,7 +150,9 @@ static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 f
                                         // 4 smart-serial link (no reply), 5 protective
                                         // stop (collision prevention), 6 payload
                                         // mismatch, 7 part lost from the gripper,
-                                        // 8 grip failed (wrong width, empty)
+                                        // 8 grip failed (wrong width, empty),
+                                        // 9 tool changer (off_joint: CH_* fault),
+                                        // 10 kinematics on another tool's TCP
 static int lost[NJ];                    // consecutive servo periods without a reply
 static int limit_aborts = 0;            // moves aborted: joint speed over its limit
 static int off_joint = 0;
@@ -219,14 +237,26 @@ static void q_rad(const double *qdeg, double *q) {
   }
 }
 
-// pose [m, R] of joints qdeg [deg, model q]
+static void machine_off(int reason, int joint);
+
+// the kinematics' tool (0: the flange)
+static const rb_tool *ktl(void) {
+  return rb_tool_get(&arm_cs.tt, ktool);
+}
+
+// pose [m, R] of the TCP for joints qdeg [deg, model q]
 static void pose_of(const double *qdeg, double p[3], double R[3][3]) {
   double q[NJ];
   q_rad(qdeg, q);
-  rb_pose(&P.arm, q, p, R);
+  rb_tcp_pose(&P.arm, ktl(), q, p, R);
 }
 
 static void seg_start(int type, double T) {
+  // a Cartesian move on another tool's TCP than the mounted one (the flange,
+  // tool 0, is always fine: tool changes run on it): LinuxCNC's armtool stops
+  if(arm_cs.on && type != SEG_JOINT && ktool != 0 && ktool != chg.mounted) {
+    machine_off(10, ktool);
+  }
   memset(&seg, 0, sizeof(seg));
   seg.type = type;
   seg.T = T > 0.001 ? T : 0.001;
@@ -322,6 +352,26 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       }
     }
   }
+  if(arm_cs.on) {  // the tool changer: valve, sensors, the mounted tool
+    double q[NJ] = {0}, pf[3], Rf[3][3];
+    for(int j = 0; j < nj; j++) {
+      q[j] = armcore_fb(j) * D2R;
+    }
+    rb_pose(&P.arm, q, pf, Rf);
+    armcore_changer_sensors(&chg.s_locked, &chg.s_unlocked, &chg.s_present, &chg.s_id);
+    rb_changer_step(&chg, &arm_cs.tt, en, pf, Rf, 0.001);
+    armcore_changer_valve(chg.valve);
+    if(chg.mounted != chg_prev_mounted) {  // what LinuxCNC knows: the model and the guard
+      const rb_tool *t = rb_tool_get(&arm_cs.tt, chg.mounted);
+      rb_collide_tool(&det, chg.mounted ? t->m : 0.0, t->c);
+      rb_observer_reset(&det.obs);
+      guard_geo.tool = chg.mounted;
+      chg_prev_mounted = chg.mounted;
+    }
+    if(chg.fault) {
+      machine_off(9, chg.fault);
+    }
+  }
   if(arm_has_grip) {  // the gripper: fingers, events, payload
     double gap = armcore_grip_fb();
     if(en) {
@@ -402,7 +452,7 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
       double p[3], R[3][3], q[NJ];
       seg_pose(t, p, R);
       q_rad(cmd_q, q);
-      if(rb_ik(&P.arm, p, R, q, 1e-7, 1e-7, 50) < 0) {
+      if(rb_ik_tcp(&P.arm, ktl(), p, R, q, 1e-7, 1e-7, 50) < 0) {
         ik_fails++;  // as LinuxCNC: the move is aborted
         seg.type = SEG_NONE;
       } else {
@@ -466,7 +516,7 @@ static void servo_ms(void) {  // the LinuxCNC servo thread
     for(int j = 0; j < nj; j++) {
       q[j] = P.q[j];
     }
-    rb_pose(&P.arm, q, p, R);
+    rb_tcp_pose(&P.arm, ktl(), q, p, R);
     double e = sqrt((p[0] - seg.pc[0]) * (p[0] - seg.pc[0]) + (p[1] - seg.pc[1]) * (p[1] - seg.pc[1]) +
                     (p[2] - seg.pc[2]) * (p[2] - seg.pc[2])) * 1000.0;
     perr_max = e > perr_max ? e : perr_max;
@@ -551,6 +601,18 @@ static void print_vals(const char *what) {
     const char *nm[6] = {"x", "y", "z", "a", "b", "c"};
     for(int i = 0; i < 6; i++) {
       printf("arm.%s_%s = %.6f\n", what, nm[i], i < 3 ? pp[i] * 1000.0 : rpy[i - 3] / D2R);
+    }
+  }
+  if(!strcmp(what, "tool")) {
+    int l, u, pr, id;
+    armcore_changer_sensors(&l, &u, &pr, &id);
+    printf("arm.tool_mounted = %d\narm.tool_valve = %d\narm.tool_locked = %d\narm.tool_unlocked = %d\n"
+           "arm.tool_present = %d\narm.tool_id = %d\narm.tool_fault = %d\narm.tool_ktool = %d\n"
+           "arm.tool_plant = %d\n", chg.mounted, chg.valve, l, u, pr, id, chg.fault, ktool, arm_cs.mounted);
+    for(int i = 1; i < RB_MAXTOOL; i++) {
+      if(arm_cs.tt.t[i].id == i) {
+        printf("arm.tool_state%d = %d\n", i, arm_cs.state[i]);
+      }
     }
   }
   if(!strcmp(what, "grip")) {
@@ -672,7 +734,7 @@ static void script_line(char *line) {
     for(long i = 0; i < n; i++) {
       run_tick();
     }
-  } else if(!strcmp(kw, "lcnc") && (rb_guard_reset(&guard), 1)) {
+  } else if(!strcmp(kw, "lcnc") && (rb_guard_reset(&guard), rb_changer_reset(&chg), 1)) {
     char *end;
     en = (int)strtol(p, &end, 10);
     for(int j = 0; j < NJ; j++) {
@@ -780,6 +842,14 @@ static void script_line(char *line) {
         grip_auto = atoi(p + o2);
       }
     }
+  } else if(!strcmp(kw, "lock")) {  // lock 1|0: the tool changer's lock request
+    chg.lock_req = atoi(p) != 0;
+  } else if(!strcmp(kw, "toolexpect")) {  // toolexpect N: the tool locking should take
+    chg.expect = atoi(p);
+  } else if(!strcmp(kw, "ktool")) {  // ktool N: Cartesian moves on tool N's TCP
+    ktool = atoi(p);
+  } else if(!strcmp(kw, "toolslip")) {  // the mounted tool comes off the plate
+    arm_cs.slip = 1;
   } else if(!strcmp(kw, "gripdrop")) {  // the held part slips out
     armcore_grip_drop();
   } else if(!strcmp(kw, "guard")) {  // guard on|off
@@ -797,6 +867,7 @@ static void script_line(char *line) {
   } else if(!strcmp(kw, "prevent")) {  // prevent MM: collision prevention margin (0: off)
     guard.margin = atof(p) / 1000.0;
     guard_geo = P.geo;  // the cell as defined so far
+    guard_geo.tool = chg.mounted;
   } else if(!strcmp(kw, "react")) {
     react = atoi(p);
   } else if(!strcmp(kw, "ferror")) {
@@ -901,8 +972,14 @@ int main(int argc, char **argv) {
   rb_guard_init(&guard);
   rb_gripper_init(&grip);
   rb_grip_payload_init(&gpay);
+  rb_changer_init(&chg);
   if(armcore_load(argv[1], lib)) {
     return 1;
+  }
+  if(arm_cs.on) {  // the tool on at start: locked, known
+    chg.mounted = chg.expect = arm_cs.mounted;
+    chg.lock_req = chg.valve = arm_cs.valve;
+    chg.t = 1.0;
   }
   if(arm_has_grip) {  // fingers from the simulated gripper's limits (armcore starts them open)
     grip.gap_open = arm_gs.gap_max - 5.0;

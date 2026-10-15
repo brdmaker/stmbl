@@ -16,6 +16,9 @@
  *   gripper mech LEAD GAPMAX MF JM FC     lead [mm/turn per finger], max gap
  *                                         [mm], finger mass [kg], rotor
  *                                         inertia [kg m^2], friction [Nm]
+ *   gripper tool ID                       on a tool changer: the gripper is
+ *                                         tool ID; its jaws act only while
+ *                                         that tool is on the flange
  *   gripper jaw Z LEN WIDTH               jaw centre on the flange z [m], finger
  *                                         length (along z) and width (y) [m]
  *   part NAME cx cy cz hx hy hz MASS [a b c]   a box part [m, kg, deg]
@@ -38,6 +41,8 @@ typedef struct {
 
 typedef struct {
   int on;
+  int tool;                    // its tool ID on a changer (0: fixed on the flange)
+  int active;                  // the jaws can grip (tool on the flange)
   double lead, gap_max, mf, jm, fc;
   double jaw_z, jaw_len, jaw_w;
   double k, c, hold;           // contact spring [N/m], damper, hold force [N]

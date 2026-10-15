@@ -52,6 +52,13 @@ int gm_line(gm_world *w, const char *line) {
     s->link = L;
     snprintf(s->name, sizeof(s->name), "body%d", w->nb);
     int n = nums(p + o2, v, 7);
+    char rest[256];
+    snprintf(rest, sizeof(rest), "%s", p + o2);
+    rest[strcspn(rest, "#")] = 0;  // not in a comment
+    const char *t = strstr(rest, "tool");
+    if(t && sscanf(t, "tool %d", &s->tool) != 1) {
+      return -1;
+    }
     if(!strcmp(type, "capsule") && n == 7) {
       s->type = GM_CAPSULE;
       memcpy(s->a, v, 3 * sizeof(double));
@@ -319,6 +326,9 @@ double gm_clearance(const gm_world *w, gm_pair *best) {
   double dmin = 1e9;
   gm_pair p;
   for(int i = 0; i < w->nb; i++) {
+    if(!GM_ACTIVE(w, i)) {
+      continue;
+    }
     for(int j = 0; j < w->no; j++) {
       double d = gm_dist(&w->body[i], &w->obs[j], 0, &p);
       if(d < dmin) {
@@ -331,7 +341,7 @@ double gm_clearance(const gm_world *w, gm_pair *best) {
     }
     for(int j = i + 1; j < w->nb; j++) {
       int li = w->body[i].link, lj = w->body[j].link;
-      if(w->ignore[i][j] || abs(li - lj) <= w->selfskip) {
+      if(w->ignore[i][j] || abs(li - lj) <= w->selfskip || !GM_ACTIVE(w, j)) {
         continue;
       }
       double d = gm_dist(&w->body[i], &w->body[j], 1, &p);
@@ -351,6 +361,9 @@ int gm_contacts(const gm_world *w, gm_pair *out, int max) {
   int n = 0;
   gm_pair p;
   for(int i = 0; i < w->nb; i++) {
+    if(!GM_ACTIVE(w, i)) {
+      continue;
+    }
     for(int j = 0; j < w->no && n < max; j++) {
       if(gm_dist(&w->body[i], &w->obs[j], 0, &p) < 0.0) {
         p.body = i, p.other = j, p.self = 0;
