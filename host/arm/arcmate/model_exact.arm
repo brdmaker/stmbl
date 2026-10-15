@@ -1,0 +1,42 @@
+# Collision detector model of the simulated ARC Mate: EXACTLY the
+# plant's values (arcmate.arm), for the residual floor. A real model comes
+# from identification; model_perturbed.arm stands in for one.
+observer 50 0.3 0.01
+# motor torque per amp: 1.5 * pole pairs * psi (j1.conf .. j6.conf)
+kt 1 1.1112
+kt 2 1.1112
+kt 3 1.1112
+kt 4 0.36
+kt 5 0.36
+kt 6 0.36
+# thresholds: J thr0 [Nm] thr_v [Nm s/rad] (0: not checked)
+thresh 1 0 0
+thresh 2 0 0
+thresh 3 0 0
+thresh 4 0 0
+thresh 5 0 0
+thresh 6 0 0
+dh 1 0     0    0.45 0
+dh 2 0.15 -90   0    -90
+dh 3 0.60  0    0    0
+dh 4 0.12 -90   0.65 0
+dh 5 0     90   0    0
+dh 6 0    -90   0.10 0
+link 1 40  0     0     -0.10  1.2  1.2  0.8  0 0 0
+link 2 25  0.30  0     0.05   0.20 1.00 1.00 0 0 0
+link 3 15  0.05  0.10  0      0.40 0.40 0.15 0 0 0
+link 4 6   0     0     0.15   0.06 0.06 0.02 0 0 0
+link 5 3   0     0.03  0      0.01 0.01 0.01 0 0 0
+link 6 1   0     0     0.04   0.002 0.002 0.002 0 0 0
+motor 1 120 0.00035 0.02 8
+motor 2 120 0.00035 0.02 8
+motor 3 100 0.00035 0.02 8
+motor 4 80  0.00003 0.01 1.5
+motor 5 80  0.00003 0.01 1.5
+motor 6 50  0.00003 0.01 1.5
+fric 1 10 15 0.05 20
+fric 2 12 18 0.05 25
+fric 3 8  12 0.05 15
+fric 4 1  1.5 0.05 1
+fric 5 1  1.5 0.05 1
+fric 6 0.5 0.8 0.05 0.5

@@ -752,3 +752,20 @@ Entry format:
   copy has its own globals, no source change. No threads in the copies
   (boot with `stmbl_sim_boot`, not `stmbl_sim_open`); flush the copy's own
   stdout via `stmbl_sim_cmd`.
+
+## 2026-10-15  LinuxCNC in the cloud container: build and run notes
+- Area:    `hwtest/arcmate-sim`, branch `linuxcnc-bin`
+- Status:  Workaround
+- Symptom: (1) LinuxCNC master (2.10-pre) changed the HAL C API
+  (`hal_float_t` pins gone, `hal_real_t` refs), so `stmbl_sim`/`stmbl_arm`
+  do not build; (2) configure picks python3.13 while Boost.Python is 3.12;
+  (3) the 2.9 build wants `a2x` (asciidoc/docbook) for man pages;
+  (4) `rtapi_app` refuses to run as root; (5) without a tty `linuxcnc`
+  writes all output to /tmp/linuxcnc.debug.* (and ~/linuxcnc_debug.txt),
+  and a DISPLAY program's stdout is lost; (6) it needs
+  `configs/common/linuxcnc.nml`.
+- Cause:   as listed.
+- Fix:     Build branch 2.9 (the bench runs 2.9.1); `PYTHON_BIN=python3.12
+  ./configure ... --disable-gtk2`; a stub a2x on PATH; run as user `lcnc`;
+  the test display writes its TAP to a file; pack `configs/common`. See
+  `build_linuxcnc.sh` on `linuxcnc-bin` and `hwtest/arcmate-sim/README.md`.

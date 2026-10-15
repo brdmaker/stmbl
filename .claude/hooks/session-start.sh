@@ -13,4 +13,10 @@ fi
 # Sanity-build the native host simulator (fast, ~5s).
 make -C "$CLAUDE_PROJECT_DIR/host" >/dev/null
 
-echo "stmbl env ready: host simulator built"
+# LinuxCNC 2.9 for hwtest/arcmate-sim, prebuilt on the orphan branch
+# linuxcnc-bin: restored in the background (~1 min, mostly apt), log in
+# /tmp/linuxcnc_restore.log. Not needed for the host simulator.
+nohup "$CLAUDE_PROJECT_DIR/hwtest/arcmate-sim/linuxcnc_restore.sh" \
+  > /tmp/linuxcnc_restore.log 2>&1 &
+
+echo "stmbl env ready: host simulator built (LinuxCNC restoring in background)"
