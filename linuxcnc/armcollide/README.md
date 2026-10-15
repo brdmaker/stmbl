@@ -18,11 +18,16 @@ net ... <drive N vel-fb>      => armcollide.0.N.vel      # deg/s
 net ... <drive N current>     => armcollide.0.N.current  # A (iq)
 net ... motion.motion-enabled => armcollide.0.enable
 net ... armcollide.0.collision => (estop chain, or a reaction component)
+net ... iocontrol.0.user-request-enable => armcollide.0.reset   # estop reset clears it
 ```
 
-Outputs: `armcollide.0.N.residual` and `.threshold` [Nm], `.collision`,
-`.joint` (first joint over its threshold, 1-based), `.armed` (hold-off
-after enable over).
+Outputs: `armcollide.0.N.residual` and `.threshold` [Nm], `.collision`
+(latched until `.reset`, so an estop request lasts until the operator
+resets: LinuxCNC's I/O controller samples `emc-enable-in` only every
+`[EMCIO] CYCLE_TIME`), `.joint` (first joint over its threshold, 1-based),
+`.armed` (hold-off after enable over). Inputs also `.payload-mass`,
+`.payload-cx/-cy/-cz`: the payload on the flange; an undeclared one looks
+like a collision.
 
 ## The model file
 

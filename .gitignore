@@ -26,6 +26,7 @@ sim/sim
 sim/plot
 stmblx
 *.ngc
+!hwtest/arcmate-sim/soak.ngc
 
 # host simulation build
 host/gen

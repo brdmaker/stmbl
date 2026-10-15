@@ -19,9 +19,16 @@
  *   armcollide.0.J.residual  out  estimated external joint torque [Nm]
  *   armcollide.0.J.threshold out  its threshold now [Nm]
  *   armcollide.0.enable      in   drives enabled and following
- *   armcollide.0.collision   out  latched until enable drops
+ *   armcollide.0.collision   out  latched until reset (also over the drives
+ *                                 being disabled: an estop request must last
+ *                                 until the operator resets it)
+ *   armcollide.0.reset       in   clears collision (rising edge; e.g.
+ *                                 iocontrol.0.user-request-enable)
  *   armcollide.0.joint       out  first joint over its threshold (1-based)
  *   armcollide.0.armed       out  past the hold-off after enable
+ *   armcollide.0.payload-mass, .payload-cx/-cy/-cz  in: the payload on the
+ *                                 flange [kg, m in the last link's frame];
+ *                                 an undeclared payload is a collision
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
@@ -43,8 +50,11 @@ RTAPI_MP_STRING(model, "arm model file (shared/robot/collide.h)");
 
 typedef struct {
   hal_float_t *pos[RB_MAXJ], *vel[RB_MAXJ], *cur[RB_MAXJ], *res[RB_MAXJ], *thr[RB_MAXJ];
-  hal_bit_t *enable, *collision, *armed;
+  hal_bit_t *enable, *collision, *armed, *reset;
   hal_s32_t *joint;
+  int latched, joint_latched, last_reset;
+  hal_float_t *pay[4];
+  double pay_now[4];
 } pins_t;
 
 static int comp_id;
@@ -60,13 +70,29 @@ static void update(void *arg, long period) {
     qd[j] = *p->vel[j] * D2R;
     cur[j] = *p->cur[j];
   }
+  if(*p->pay[0] != p->pay_now[0] || *p->pay[1] != p->pay_now[1] || *p->pay[2] != p->pay_now[2] ||
+     *p->pay[3] != p->pay_now[3]) {
+    for(int k = 0; k < 4; k++) {
+      p->pay_now[k] = *p->pay[k];
+    }
+    rb_collide_payload(&det, p->pay_now[0], p->pay_now + 1);
+  }
   rb_collide_step(&det, *p->enable, q, qd, cur, period * 1e-9);
   for(int j = 0; j < n; j++) {
     *p->res[j] = det.r[j];
     *p->thr[j] = det.thr[j];
   }
-  *p->collision = det.hit;
-  *p->joint = det.joint;
+  if(*p->reset && !p->last_reset) {
+    p->latched = 0;
+    p->joint_latched = 0;
+  }
+  p->last_reset = *p->reset;
+  if(det.hit && !p->latched) {
+    p->latched = 1;
+    p->joint_latched = det.joint;
+  }
+  *p->collision = p->latched;
+  *p->joint = p->joint_latched;
   *p->armed = det.armed;
 }
 
@@ -82,7 +108,12 @@ static int export_pins(void) {
   r |= hal_pin_bit_newf(HAL_IN, &pins->enable, comp_id, PREFIX ".enable");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->collision, comp_id, PREFIX ".collision");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->armed, comp_id, PREFIX ".armed");
+  r |= hal_pin_bit_newf(HAL_IN, &pins->reset, comp_id, PREFIX ".reset");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->joint, comp_id, PREFIX ".joint");
+  static const char *pn[4] = {"mass", "cx", "cy", "cz"};
+  for(int k = 0; k < 4 && !r; k++) {
+    r |= hal_pin_float_newf(HAL_IN, &pins->pay[k], comp_id, PREFIX ".payload-%s", pn[k]);
+  }
   return r;
 }
 

@@ -16,7 +16,7 @@ dh 2 0.15 -90   0    -90
 dh 3 0.60  0    0    0
 dh 4 0.12 -90   0.65 0
 dh 5 0     90   0    0
-dh 6 0    -90   0.10 0
+dh 6 0    -90   0.10 180
 #
 # links: J m cx cy cz Ixx Iyy Izz Ixy Ixz Iyz (about the COM)
 link 1 40  0     0     -0.10  1.2  1.2  0.8  0 0 0

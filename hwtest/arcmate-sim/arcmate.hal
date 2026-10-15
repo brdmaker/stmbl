@@ -83,6 +83,7 @@ net j5-fault   joint.5.amp-fault-in  <=  stmbl-arm.0.5.fault
 # follows the GUI (no hardware watchdog in the simulation).
 net machine-enabled motion.motion-enabled => armcollide.0.enable
 net collision      armcollide.0.collision => coll-not.in
+net estop-reset    iocontrol.0.user-request-enable => armcollide.0.reset
 net no-collision   coll-not.out => estop-and.in1
 net estop-loop     iocontrol.0.user-enable-out => estop-and.in0
 net estop-chain    estop-and.out => iocontrol.0.emc-enable-in

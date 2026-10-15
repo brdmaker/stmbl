@@ -807,3 +807,25 @@ Entry format:
 - Fix:     Threshold terms thr_rel * peak(max(|tau - g|, |(M qdd)_j|)) and
   thr_rot * peak(arm_jj |qdd|), peaks decaying over `envelope` (0.15 s).
   Test moves now include LinuxCNC's trapezoids (`jog`, `tmove`).
+
+## 2026-10-15  genserkins: tool orientation at C = +-180 turns J6 a full turn
+- Area:    `hwtest/arcmate-sim` (LinuxCNC 2.9 genserkins), arm flange frame
+- Status:  Workaround
+- Symptom: After a stop LinuxCNC reported the pose with C = +180 (was
+  -180); the next G1 ... C-180 is a 360 deg move of C: "Linear move would
+  exceed joint 5's negative limit".
+- Cause:   A/B/C come from the rotation matrix: at +-180 the sign is
+  arbitrary, and LinuxCNC treats C as a linear axis.
+- Fix:     Keep working orientations away from +-180: the flange frame is
+  turned (J6 theta0 180), tool down is A0 B0 C0.
+
+## 2026-10-15  Collision estop request missed by LinuxCNC's I/O controller
+- Area:    `linuxcnc/armcollide`, estop chain in `hwtest/arcmate-sim`
+- Status:  Fixed
+- Symptom: A collision during a program ended with the machine off (task
+  state 2), not estop.
+- Cause:   `collision` cleared as soon as the drives were disabled: the
+  drop of `emc-enable-in` lasted a few ms; iocontrol samples it every
+  [EMCIO] CYCLE_TIME (100 ms).
+- Fix:     `collision` latched until `armcollide.0.reset` (wired to
+  `iocontrol.0.user-request-enable`, the estop reset).

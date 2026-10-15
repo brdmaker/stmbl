@@ -68,6 +68,11 @@ after enable.
    perturbed model, detection while moving and at rest) and the LinuxCNC
    test (push mid-move -> estop).
 
+5. Kinematics (`shared/robot/kin.c`, = genserkins) and Cartesian moves in
+   `arm_sim`; the arm soak suite (host, `make soak`) and the LinuxCNC soak
+   (`hwtest/arcmate-sim`, `make soak`) with movement patterns and error
+   scenarios.
+
 ## Next
 
 - Reaction component: stop -> compliant with gravity compensation

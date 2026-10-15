@@ -77,6 +77,9 @@ typedef struct {
 int rb_collide_load(rb_collide *c, const char *path, char *err, int errlen);
 // One line of the model file: 1 if used or ignored, 0 if malformed.
 int rb_collide_line(rb_collide *c, const char *line);
+// Declare the payload on the last link: mass [kg] at cm [m, its frame];
+// replaces the previous one (m 0: none). 0, or -1 without a model.
+int rb_collide_payload(rb_collide *c, double m, const double cm[3]);
 // After loading or changing kt / K / jm.
 void rb_collide_setup(rb_collide *c);
 // One servo period. q, qd: model angles [rad], speeds [rad/s]; cur:

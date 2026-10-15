@@ -42,13 +42,29 @@ pushes the flange with 150 N mid-move: `armcollide` detects it (J3,
 ~13 ms), LinuxCNC goes to estop, the arm stops within 0.5 deg; estop reset
 and machine on again; machine off: the brakes hold.
 
+## Soak (`make soak`)
+
+`soak.ngc` (lines along a cube, tool reorientation, circles in XY and XZ,
+a welding weave, rapids; all Cartesian through genserkins) runs
+`SOAK_CYCLES` times under `lcnc_soak.py`, then the error scenarios: a
+declared payload (clean), an undeclared one (collision, estop), a push
+mid-program (estop), a drive's smart-serial link lost (`stmbl-arm.0.J.
+link-lost`: amplifier fault, machine off), an operator estop in the weave
+(brakes hold), and a jog far past a soft limit (stops at the limit). As
+`make test`: as a non-root user; TAP output.
+
+Tool down is A0 B0 C0: the flange frame is turned (J6 theta0 180) so that
+C stays away from +-180, where LinuxCNC may report +180 after a stop and a
+program's C-180 then turns J6 a full turn into its limit.
+
 ## Collision detection
 
 `armcollide` (`linuxcnc/armcollide`) runs in the servo thread on the
 drives' feedback and currents, with `[ARMCOLLIDE] MODEL` (here the arm
 model with identification-sized errors, `model_perturbed.arm`). Its
-`collision` drops `iocontrol.0.emc-enable-in`: estop, drives off, brakes
-on. A softer reaction (stop, compliant with gravity compensation, then
+`collision` (latched until the estop reset, `iocontrol.0.user-request-
+enable` -> `armcollide.0.reset`) drops `iocontrol.0.emc-enable-in`: estop,
+drives off, brakes on. A softer reaction (stop, compliant with gravity compensation, then
 brakes) is the next step.
 
 ## In a cloud session

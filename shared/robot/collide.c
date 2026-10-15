@@ -39,21 +39,9 @@ int rb_collide_line(rb_collide *c, const char *line) {
     return 1;
   }
   if(!strcmp(kw, "payload")) {  // payload M cx cy cz on the last link (M 0: none)
-    double v4[4] = {0}, ic[6] = {0};
+    double v4[4] = {0};
     int k = sscanf(p, " %lf %lf %lf %lf", v4, v4 + 1, v4 + 2, v4 + 3);
-    int last = c->mdl.n - 1;
-    if(k < 1 || last < 0) {
-      return 0;
-    }
-    if(c->pay_m != 0.0) {
-      rb_add_payload(&c->mdl, last, -c->pay_m, c->pay_c, ic);
-    }
-    c->pay_m = v4[0];
-    memcpy(c->pay_c, v4 + 1, sizeof(c->pay_c));
-    if(c->pay_m != 0.0) {
-      rb_add_payload(&c->mdl, last, c->pay_m, c->pay_c, ic);
-    }
-    return 1;
+    return k >= 1 && rb_collide_payload(c, v4[0], v4 + 1) == 0;
   }
   if(!strcmp(kw, "drive") || !strcmp(kw, "gear") || !strcmp(kw, "limits") || !strcmp(kw, "home")) {
     return 1;  // the plant's, not the model's
@@ -98,6 +86,23 @@ int rb_collide_line(rb_collide *c, const char *line) {
     return 0;
   }
   return 1;
+}
+
+int rb_collide_payload(rb_collide *c, double m, const double cm[3]) {
+  double ic[6] = {0};
+  int last = c->mdl.n - 1;
+  if(last < 0) {
+    return -1;
+  }
+  if(c->pay_m != 0.0) {
+    rb_add_payload(&c->mdl, last, -c->pay_m, c->pay_c, ic);
+  }
+  c->pay_m = m;
+  memcpy(c->pay_c, cm, sizeof(c->pay_c));
+  if(c->pay_m != 0.0) {
+    rb_add_payload(&c->mdl, last, c->pay_m, c->pay_c, ic);
+  }
+  return 0;
 }
 
 void rb_collide_setup(rb_collide *c) {

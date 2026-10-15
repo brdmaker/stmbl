@@ -129,6 +129,24 @@ static int drive_open(int j, const char *conf, const char *simfile) {
   return 0;
 }
 
+int armcore_payload(double m, const double c[3]) {
+  static double pm = 0.0, pc[3];
+  double ic[6] = {0};
+  int last = arm_P.arm.n - 1;
+  if(last < 0) {
+    return -1;
+  }
+  if(pm != 0.0) {
+    rb_add_payload(&arm_P.arm, last, -pm, pc, ic);
+  }
+  pm = m;
+  memcpy(pc, c, sizeof(pc));
+  if(pm != 0.0) {
+    rb_add_payload(&arm_P.arm, last, pm, pc, ic);
+  }
+  return 0;
+}
+
 double armcore_qm(int j) {
   double v = 0.0;
   for(int k = 0; k < arm_nj; k++) {
@@ -178,23 +196,10 @@ int armcore_line(char *line) {
     }
     v[n++] = x;
   }
-  if(!strcmp(kw, "payload")) {  // payload M cx cy cz: point-ish mass on the last link
-    static double pm = 0.0, pc[3];
-    double ic[6] = {0}, v4[4] = {0};
+  if(!strcmp(kw, "payload")) {  // payload M cx cy cz: point mass on the last link
+    double v4[4] = {0};
     int k = sscanf(line + off, " %lf %lf %lf %lf", v4, v4 + 1, v4 + 2, v4 + 3);
-    int last = arm_P.arm.n - 1;
-    if(k < 1 || last < 0) {
-      return 0;
-    }
-    if(pm != 0.0) {
-      rb_add_payload(&arm_P.arm, last, -pm, pc, ic);
-    }
-    pm = v4[0];
-    memcpy(pc, v4 + 1, sizeof(pc));
-    if(pm != 0.0) {
-      rb_add_payload(&arm_P.arm, last, pm, pc, ic);
-    }
-    return 1;
+    return k >= 1 && armcore_payload(v4[0], v4 + 1) == 0;
   }
   if(!strcmp(kw, "home")) {  // all joints: the first number was joint 1's angle
     double q[RB_MAXJ];

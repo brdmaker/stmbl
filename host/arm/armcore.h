@@ -58,6 +58,9 @@ double armcore_fb(int j);       // position feedback [deg, model q]
 double armcore_fb_vel(int j);   // [deg/s]
 double armcore_qm(int j);       // joint angle the motor encoder sees [deg]
 int armcore_synced(void);       // the feedback offsets are set
+// Payload on the last link: mass [kg] at c [m, its frame]; replaces the
+// previous one (m 0: none).
+int armcore_payload(double m, const double c[3]);
 
 // One rt cycle; servo != 0 exchanges the process data first.
 void armcore_tick(int servo);

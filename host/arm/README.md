@@ -74,3 +74,43 @@ These are simulation numbers: ideal current measurement, no torque
 ripple, a friction model of the same form as the plant's. The real arm
 will need larger thresholds; Phase 7 of `hwtest/arcmate/MEASUREMENT_PLAN.md`
 measures its floor.
+
+## Cartesian moves
+
+`lmove`/`tlmove` (straight lines with reorientation), `arc` and `weave`
+(welding) command the flange in mm and genserkins' A B C [deg]; every 1 ms
+the pose is turned into joints by `shared/robot/kin.c` (damped least
+squares from the previous joints), as LinuxCNC's genserkins does in world
+mode. The kinematics agree with LinuxCNC's genserkins to 1e-5 mm / deg
+(`host/tests/robot/genserkins_ref.txt`, recorded from
+`hwtest/arcmate-sim`). A Cartesian move that would exceed a joint's speed
+limit is aborted (`limitabort`), as LinuxCNC does. The flange frame is
+turned (J6 theta0 180) so that tool down is A0 B0 C0: away from the
++-180 deg wrap of C.
+
+## Soak (`make -C .. soak`)
+
+`tests/gen_arm_soak.py` generates 24 scenarios into `host/gen/arm_soak`,
+each with the collision detector on `model_perturbed.arm` and LinuxCNC's
+reactions emulated (amp fault, smart-serial link loss, following error ->
+machine off; collision -> estop):
+
+| Movement (nothing may fire) | Errors (the expected reaction) |
+|---|---|
+| joint suite, smooth | pushes on links 3/4/6 mid-move: estop within 50 ms |
+| LinuxCNC jogs and trapezoids | 150 N at rest: estop |
+| random joint moves (seeded) | 5 N while moving: no reaction (below sensitivity) |
+| Cartesian lines (a cube) | undeclared 5 kg payload: flagged |
+| tool reorientation | link loss: machine off in 3 ms, < 5 mm off path |
+| circles in three planes | DC bus loss: drive fault, brakes hold |
+| welding weaves, 10 mm/s | overspeed: drive fault |
+| pick-and-place, end pose repeats | J2 into its hard stop: detected |
+| declared 5 kg payload | unreachable target: move aborted, machine on |
+| 0.3 A current noise | operator estop mid-weave; brake failure: falls |
+
+Movement checks: no machine off, no fault, no stop hit, no IK or limit
+abort, joint speeds under the motors' limits, following error, Cartesian
+path error (commanded vs the true tool point: ~1.5 mm is the gears' sag).
+`SOAK_CYCLES=N` repeats the movement. Limits of the detector found on the
+way: 1 A of current noise trips the wrist (50:1 gears); an undeclared
+payload is a collision.
