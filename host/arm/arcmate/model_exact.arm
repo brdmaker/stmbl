@@ -19,6 +19,22 @@ thresh 3 13 0 18 0.15
 thresh 4 2.7 0 2.5 0.15
 thresh 5 2.8 0 2 0.15
 thresh 6 0.9 0 1.2 0.15
+# plus 20 % of the dynamic torque |tau - g(q)|: inertia errors at full
+# acceleration from standstill (LinuxCNC's trapezoidal moves and jogs)
+threl 1 0.2
+threl 2 0.2
+threl 3 0.2
+threl 4 0.2
+threl 5 0.2
+threl 6 0.2
+# plus the rotors' acceleration torque: through the elastic gears the
+# rotor runs ahead of the link at every jerk (LinuxCNC's trapezoids)
+thrrot 1 1
+thrrot 2 1
+thrrot 3 1
+thrrot 4 1
+thrrot 5 1
+thrrot 6 1
 dh 1 0     0    0.45 0
 dh 2 0.15 -90   0    -90
 dh 3 0.60  0    0    0

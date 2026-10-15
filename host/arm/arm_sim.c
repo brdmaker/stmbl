@@ -22,7 +22,27 @@
  * Script commands (plus all of ARMFILE's arm lines to change the arm):
  *   run T                         simulate T seconds
  *   lcnc EN [v1 .. vn]            enable, jog velocities [deg/s]
- *   move T q1 .. qn               smooth move to q [deg] in T seconds
+ *   move T q1 .. qn               smooth joint move to q [deg] in T seconds
+ *   tmove T q1 .. qn              the same with trapezoidal speed (LinuxCNC's
+ *                                 planner: full acceleration from standstill)
+ *   lmove T x y z a b c           straight line of the flange to x y z [mm],
+ *                                 orientation a b c [deg] (genserkins' A B C:
+ *                                 R = Rz(c) Ry(b) Rx(a)), smooth; tlmove:
+ *                                 trapezoidal. Inverse kinematics every 1 ms.
+ *   arc T cx cy cz nx ny nz ang   arc of the flange about centre c [mm], axis
+ *                                 n, by ang [deg]; orientation kept
+ *   weave T x y z amp f wx wy wz  line with a weave of amp [mm] at f [Hz]
+ *                                 along w (welding), orientation kept
+ *   jog J DQ VEL ACC              LinuxCNC's joint jog: J by DQ [deg] at most
+ *                                 VEL [deg/s], ACC [deg/s^2] (trapezoid)
+ *   trapfrac F                    trapezoids accelerate over F of the time at
+ *                                 each end (default 0.25; LinuxCNC jog 30
+ *                                 deg/s at 300 deg/s^2 over 30 deg: 0.091)
+ *   react 0|1                     LinuxCNC's reactions (default 1): amp fault
+ *                                 -> machine off, collision -> estop, |command
+ *                                 - feedback| > ferror -> machine off
+ *   ferror DEG                    LinuxCNC's FERROR (default 2)
+ *   linkloss J 1|0                drive J gets no more smart-serial packets
  *   force J fx fy fz [rx ry rz]   force [N, base frame] at r [m, link J frame]
  *   force off
  *   mark                          remember the gear torques (for gres),
@@ -30,11 +50,12 @@
  *   detector FILE                 run the collision detector (collide.h) on
  *                                 what LinuxCNC sees, every 1 ms
  *   detset LINE                   change one detector model line
- *   rlog FILE                     log t, then qd [rad/s] and residual [Nm]
+ *   rlog FILE                     log t, then qd [rad/s], residual and
+ *                                 threshold [Nm]
  *                                 per joint, every 1 ms while armed
- *   print WHAT                    q qd qm fb ferr te tau_g tau_f jtf gres hits
- *                                 fault res thr rmax rmaxm taum coll energy
- *                                 time
+ *   print WHAT                    q qd qm fb cmd ferr te tau_g tau_f jtf gres
+ *                                 hits fault res thr rmax rmaxm taum speedr
+ *                                 coll pose tcp perr off energy time
  *                                 -> "arm.WHAT1 = v" ...
  *   dJ LINE                       console LINE on drive J; a bare pin name
  *                                 prints "dJ_pin = v" (e.g. d2_hv0.iq_fb)
@@ -48,6 +69,7 @@
 
 #include "armcore.h"
 #include "collide.h"
+#include "kin.h"
 
 #define NJ RB_MAXJ
 #define D2R (M_PI / 180.0)
@@ -60,7 +82,30 @@ static int en = 0;
 static int synced = 0;                  // cmd_q taken from the drives
 static double jog[NJ];                  // deg/s
 static double cmd_q[NJ];                // deg
-static double mv_t = 0, mv_T = 0, mv_from[NJ], mv_to[NJ];  // smooth move
+static double cmd_v[NJ];                // deg/s, last servo period
+static double ferror_lim = 2.0;         // LinuxCNC's FERROR [deg]
+static double vlim[NJ];                 // joint speed limits [deg/s] (motors)
+static double speedr[NJ];               // max |speed| / limit since "mark"
+static double perr_max = 0.0;           // max Cartesian path error since "mark" [mm]
+static int react = 1;                   // LinuxCNC's reactions (see servo_ms)
+static double off_time = -1.0;          // when LinuxCNC turned the machine off
+static int off_reason = 0;              // 1 amp fault, 2 collision (estop), 3 ferror
+static int off_joint = 0;
+
+// motion segments, as LinuxCNC's planner would send them
+enum { SEG_NONE, SEG_JOINT, SEG_LINE, SEG_ARC, SEG_WEAVE };
+static struct {
+  int type, trap;                     // trap: trapezoidal speed (LinuxCNC-like)
+  double ftrap;                       // its acceleration fraction (0: trap_f)
+  double T, t;
+  double q0[NJ], q1[NJ];              // joint [deg]
+  double p0[3], p1[3], R0[3][3], w[3];  // line: positions [m], start rotation,
+                                      // rotation vector of R0^T R1
+  double c[3], n[3], ang;             // arc: centre, axis, angle [rad]
+  double amp, freq, wd[3];            // weave: amplitude [m], [Hz], direction
+  int have_cart;
+  double pc[3], Rc[3][3];             // commanded pose now
+} seg;
 static double mark_tau_g[NJ];           // gear torques at "mark"
 // collision detector on what LinuxCNC sees (shared/robot/collide.c)
 static rb_collide det;
@@ -87,7 +132,7 @@ static void detector_ms(void) {
   if(rlog && det.armed) {
     fprintf(rlog, "%.4f", arm_ticks * ARM_RT);
     for(int j = 0; j < nj; j++) {
-      fprintf(rlog, " %.5f %.4f", qd[j], det.r[j]);
+      fprintf(rlog, " %.5f %.4f %.4f", qd[j], det.r[j], det.thr[j]);
     }
     fprintf(rlog, "\n");
   }
@@ -105,30 +150,173 @@ static double smooth(double s) {  // 0..1, zero speed and acceleration at the en
   return s <= 0.0 ? 0.0 : s >= 1.0 ? 1.0 : s * s * s * (10.0 + s * (-15.0 + 6.0 * s));
 }
 
+static double trap_f = 0.25;  // trapezoid: fraction of the time accelerating, each end
+
+static double trapez_f(double s, double f) {  // 0..1, constant acceleration over f at each end
+  double a = 1.0 / (f * (1.0 - f));  // reaches 1 at s = 1
+  if(s <= 0.0) {
+    return 0.0;
+  } else if(s >= 1.0) {
+    return 1.0;
+  } else if(s < f) {
+    return 0.5 * a * s * s;
+  } else if(s < 1.0 - f) {
+    return 0.5 * a * f * f + a * f * (s - f);
+  }
+  return 1.0 - 0.5 * a * (1.0 - s) * (1.0 - s);
+}
+
+static void q_rad(const double *qdeg, double *q) {
+  for(int j = 0; j < NJ; j++) {
+    q[j] = j < nj ? qdeg[j] * D2R : 0.0;
+  }
+}
+
+// pose [m, R] of joints qdeg [deg, model q]
+static void pose_of(const double *qdeg, double p[3], double R[3][3]) {
+  double q[NJ];
+  q_rad(qdeg, q);
+  rb_pose(&P.arm, q, p, R);
+}
+
+static void seg_start(int type, double T) {
+  memset(&seg, 0, sizeof(seg));
+  seg.type = type;
+  seg.T = T > 0.001 ? T : 0.001;
+  memcpy(seg.q0, cmd_q, sizeof(seg.q0));
+  pose_of(cmd_q, seg.p0, seg.R0);
+  for(int j = 0; j < NJ; j++) {
+    jog[j] = 0.0;
+  }
+}
+
+// commanded pose at time t of the segment
+static void seg_pose(double t, double p[3], double R[3][3]) {
+  double u = t / seg.T, s = seg.trap ? trapez_f(u, seg.ftrap > 0.0 ? seg.ftrap : trap_f) : smooth(u);
+  memcpy(R, seg.R0, sizeof(double) * 9);
+  if(seg.type == SEG_LINE || seg.type == SEG_WEAVE) {
+    double w[3] = {s * seg.w[0], s * seg.w[1], s * seg.w[2]}, Rw[3][3];
+    rb_R_from_rotvec(w, Rw);
+    for(int i = 0; i < 3; i++) {
+      p[i] = seg.p0[i] + s * (seg.p1[i] - seg.p0[i]);
+      for(int j = 0; j < 3; j++) {  // R0 exp(s w): w in the tool frame
+        R[i][j] = seg.R0[i][0] * Rw[0][j] + seg.R0[i][1] * Rw[1][j] + seg.R0[i][2] * Rw[2][j];
+      }
+    }
+    if(seg.type == SEG_WEAVE) {  // fades in and out over the first/last 10 %
+      double win = u < 0.1 ? smooth(u / 0.1) : (u > 0.9 ? smooth((1.0 - u) / 0.1) : 1.0);
+      double o = seg.amp * win * sin(2.0 * M_PI * seg.freq * t);
+      for(int i = 0; i < 3; i++) {
+        p[i] += o * seg.wd[i];
+      }
+    }
+  } else if(seg.type == SEG_ARC) {
+    double w[3] = {seg.n[0] * s * seg.ang, seg.n[1] * s * seg.ang, seg.n[2] * s * seg.ang}, Rr[3][3];
+    rb_R_from_rotvec(w, Rr);
+    for(int i = 0; i < 3; i++) {
+      p[i] = seg.c[i];
+      for(int j = 0; j < 3; j++) {
+        p[i] += Rr[i][j] * (seg.p0[j] - seg.c[j]);
+      }
+    }
+  }
+}
+
+static void machine_off(int reason, int joint) {
+  if(!en) {
+    return;
+  }
+  en = 0;
+  off_time = arm_ticks * ARM_RT;
+  off_reason = reason;
+  off_joint = joint;
+  seg.type = SEG_NONE;
+  for(int j = 0; j < NJ; j++) {
+    jog[j] = 0.0;
+  }
+}
+
 static void servo_ms(void) {  // the LinuxCNC servo thread
   if(!synced) {
     for(int j = 0; j < nj; j++) {
       cmd_q[j] = armcore_qm(j);
+      float *mv = drv[j].pin("conf0.max_vel");
+      vlim[j] = mv ? *mv / drv[j].ratio / D2R : 1e9;
     }
     synced = 1;
   }
-  for(int j = 0; j < nj; j++) {
-    double v = jog[j];
-    if(mv_T > 0.0) {
-      double s0 = smooth(mv_t / mv_T), s1 = smooth((mv_t + 0.001) / mv_T);
-      double q1 = mv_from[j] + (mv_to[j] - mv_from[j]) * s1;
-      v = (q1 - (mv_from[j] + (mv_to[j] - mv_from[j]) * s0)) / 0.001;
-      cmd_q[j] = q1;
-    } else {
-      cmd_q[j] += v * 0.001;
+  // LinuxCNC's reactions: amp fault -> machine off; collision -> estop;
+  // following error over FERROR -> machine off
+  if(react && en) {
+    for(int j = 0; j < nj; j++) {
+      if(drv[j].pd.fault) {
+        machine_off(1, j + 1);
+      } else if(fabs(cmd_q[j] - armcore_fb(j)) > ferror_lim) {
+        machine_off(3, j + 1);
+      }
     }
-    armcore_set_cmd(j, en, cmd_q[j], v);
+    if(det_on && det.hit) {
+      machine_off(2, det.joint);
+    }
   }
-  if(mv_T > 0.0) {
-    mv_t += 0.001;
-    if(mv_t >= mv_T) {
-      mv_T = 0.0;
+  if(!en) {  // LinuxCNC follows the feedback while disabled
+    for(int j = 0; j < nj; j++) {
+      cmd_q[j] = armcore_synced() ? armcore_fb(j) : armcore_qm(j);
+      cmd_v[j] = 0.0;
+      armcore_set_cmd(j, 0, cmd_q[j], 0.0);
     }
+    return;
+  }
+  double qn[NJ];
+  memcpy(qn, cmd_q, sizeof(qn));
+  if(seg.type != SEG_NONE) {
+    seg.t += 0.001;
+    double t = seg.t < seg.T ? seg.t : seg.T;
+    if(seg.type == SEG_JOINT) {
+      double u = t / seg.T, s = seg.trap ? trapez_f(u, seg.ftrap > 0.0 ? seg.ftrap : trap_f) : smooth(u);
+      for(int j = 0; j < nj; j++) {
+        qn[j] = seg.q0[j] + s * (seg.q1[j] - seg.q0[j]);
+      }
+    } else {
+      double p[3], R[3][3], q[NJ];
+      seg_pose(t, p, R);
+      q_rad(cmd_q, q);
+      if(rb_ik(&P.arm, p, R, q, 1e-7, 1e-7, 50) < 0) {
+        printf("ERROR ik: no solution at t %.3f of the segment\n", seg.t);
+        seg.type = SEG_NONE;
+      } else {
+        for(int j = 0; j < nj; j++) {
+          qn[j] = q[j] / D2R;
+        }
+        memcpy(seg.pc, p, sizeof(p));
+        memcpy(seg.Rc, R, sizeof(R));
+        seg.have_cart = 1;
+      }
+    }
+    if(seg.t >= seg.T) {
+      seg.type = SEG_NONE;
+    }
+  } else {
+    for(int j = 0; j < nj; j++) {
+      qn[j] += jog[j] * 0.001;
+    }
+  }
+  for(int j = 0; j < nj; j++) {
+    cmd_v[j] = (qn[j] - cmd_q[j]) / 0.001;
+    cmd_q[j] = qn[j];
+    double r = fabs(cmd_v[j]) / vlim[j];
+    speedr[j] = r > speedr[j] ? r : speedr[j];
+    armcore_set_cmd(j, en, cmd_q[j], cmd_v[j]);
+  }
+  if(seg.have_cart) {  // path error: commanded tool point vs the true one
+    double p[3], R[3][3], q[NJ];
+    for(int j = 0; j < nj; j++) {
+      q[j] = P.q[j];
+    }
+    rb_pose(&P.arm, q, p, R);
+    double e = sqrt((p[0] - seg.pc[0]) * (p[0] - seg.pc[0]) + (p[1] - seg.pc[1]) * (p[1] - seg.pc[1]) +
+                    (p[2] - seg.pc[2]) * (p[2] - seg.pc[2])) * 1000.0;
+    perr_max = e > perr_max ? e : perr_max;
   }
 }
 
@@ -189,10 +377,35 @@ static void print_vals(const char *what) {
       v = det_rmaxm[j];
     } else if(!strcmp(what, "taum")) {  // joint torque measured via currents
       v = det.tau[j];
+    } else if(!strcmp(what, "speedr")) {  // max |speed| / motor limit since mark
+      v = speedr[j];
+    } else if(!strcmp(what, "cmd")) {
+      v = cmd_q[j];
     }
     if(!isnan(v)) {
       printf("arm.%s%d = %.6f\n", what, j + 1, v);
     }
+  }
+  if(!strcmp(what, "pose") || !strcmp(what, "tcp")) {
+    // pose: from LinuxCNC's joint feedback (as genserkins shows it);
+    // tcp: the true tool point (links, after the gears)
+    double qd[NJ], pp[3], R[3][3], rpy[3];
+    for(int j = 0; j < NJ; j++) {
+      qd[j] = j < nj ? (what[0] == 'p' ? armcore_fb(j) : P.q[j] / D2R) : 0.0;
+    }
+    pose_of(qd, pp, R);
+    rb_rpy_from_R(R, rpy);
+    const char *nm[6] = {"x", "y", "z", "a", "b", "c"};
+    for(int i = 0; i < 6; i++) {
+      printf("arm.%s_%s = %.6f\n", what, nm[i], i < 3 ? pp[i] * 1000.0 : rpy[i - 3] / D2R);
+    }
+  }
+  if(!strcmp(what, "perr")) {
+    printf("arm.perr = %.6f\n", perr_max);
+  }
+  if(!strcmp(what, "off")) {
+    printf("arm.en = %d\narm.off_time = %.4f\narm.off_reason = %d\narm.off_joint = %d\n", en,
+           off_time, off_reason, off_joint);
   }
   if(!strcmp(what, "coll")) {
     printf("arm.coll = %d\narm.coll_joint = %d\narm.coll_time = %.4f\n", det.hit, det.joint,
@@ -215,6 +428,19 @@ static void drive_line(int j, const char *line) {
     }
   }
   drv[j].cmd(line);
+}
+
+static int nums(char *p, double *v, int max) {  // up to max numbers from p
+  int n = 0;
+  char *end;
+  for(; n < max; p = end) {
+    double x = strtod(p, &end);
+    if(end == p) {
+      break;
+    }
+    v[n++] = x;
+  }
+  return n;
 }
 
 static int joint(const char *s) {
@@ -253,22 +479,96 @@ static void script_line(char *line) {
     }
     if(!en) {  // LinuxCNC follows the feedback while disabled
       for(int j = 0; j < nj; j++) {
-        cmd_q[j] = armcore_fb(j);
+        cmd_q[j] = armcore_synced() ? armcore_fb(j) : armcore_qm(j);
       }
-      mv_T = 0.0;
+      seg.type = SEG_NONE;
     }
-  } else if(!strcmp(kw, "move")) {
-    char *end;
-    mv_T = strtod(p, &end);
-    p = end;
+  } else if(!strcmp(kw, "move") || !strcmp(kw, "tmove")) {
+    double v[1 + NJ];
+    int n = nums(p, v, 1 + NJ);
+    seg_start(SEG_JOINT, v[0]);
+    seg.trap = kw[0] == 't';
     for(int j = 0; j < NJ; j++) {
-      mv_from[j] = cmd_q[j];
-      double x = strtod(p, &end);
-      mv_to[j] = end == p ? cmd_q[j] : x;
-      p = end;
-      jog[j] = 0.0;
+      seg.q1[j] = j + 1 < n ? v[1 + j] : cmd_q[j];
     }
-    mv_t = 0.0;
+  } else if(!strcmp(kw, "lmove") || !strcmp(kw, "tlmove") || !strcmp(kw, "weave")) {
+    // [t]lmove T x y z a b c       (mm, deg genserkins ABC)
+    // weave T x y z amp freq wx wy wz   (mm, Hz; orientation kept)
+    double v[10];
+    int n = nums(p, v, 10);
+    int w = kw[0] == 'w';
+    if(n < (w ? 9 : 7)) {
+      printf("ERROR %s: too few numbers\n", kw);
+    } else {
+      seg_start(w ? SEG_WEAVE : SEG_LINE, v[0]);
+      seg.trap = kw[0] == 't';
+      for(int i = 0; i < 3; i++) {
+        seg.p1[i] = v[1 + i] / 1000.0;
+      }
+      double R1[3][3], Rr[3][3];
+      if(w) {
+        memcpy(R1, seg.R0, sizeof(R1));
+        double wn = sqrt(v[6] * v[6] + v[7] * v[7] + v[8] * v[8]);
+        seg.amp = v[4] / 1000.0, seg.freq = v[5];
+        for(int i = 0; i < 3; i++) {
+          seg.wd[i] = wn > 0.0 ? v[6 + i] / wn : 0.0;
+        }
+      } else {
+        double rpy[3] = {v[4] * D2R, v[5] * D2R, v[6] * D2R};
+        rb_R_from_rpy(rpy, R1);
+      }
+      for(int i = 0; i < 3; i++) {  // R0^T R1
+        for(int j = 0; j < 3; j++) {
+          Rr[i][j] = seg.R0[0][i] * R1[0][j] + seg.R0[1][i] * R1[1][j] + seg.R0[2][i] * R1[2][j];
+        }
+      }
+      rb_rotvec_from_R(Rr, seg.w);
+    }
+  } else if(!strcmp(kw, "arc")) {  // arc T cx cy cz nx ny nz angle (mm, deg)
+    double v[8];
+    if(nums(p, v, 8) < 8) {
+      printf("ERROR arc: arc T cx cy cz nx ny nz angle\n");
+    } else {
+      seg_start(SEG_ARC, v[0]);
+      double nn = sqrt(v[4] * v[4] + v[5] * v[5] + v[6] * v[6]);
+      for(int i = 0; i < 3; i++) {
+        seg.c[i] = v[1 + i] / 1000.0;
+        seg.n[i] = v[4 + i] / nn;
+      }
+      seg.ang = v[7] * D2R;
+    }
+  } else if(!strcmp(kw, "jog")) {  // jog J DQ VEL ACC: LinuxCNC's free planner
+    double v[4];
+    if(nums(p, v, 4) < 4 || v[0] < 1 || v[0] > nj || v[2] <= 0.0 || v[3] <= 0.0) {
+      printf("ERROR jog: jog J DQ VEL ACC\n");
+    } else {
+      int j = (int)v[0] - 1;
+      double d = fabs(v[1]), vel = v[2], acc = v[3], T, f;
+      if(d > vel * vel / acc) {  // trapezoid
+        T = d / vel + vel / acc;
+        f = vel / acc / T;
+      } else {  // triangle
+        T = 2.0 * sqrt(d / acc);
+        f = 0.5;
+      }
+      seg_start(SEG_JOINT, T);
+      seg.trap = 1;
+      seg.ftrap = f;
+      memcpy(seg.q1, cmd_q, sizeof(seg.q1));
+      seg.q1[j] += v[1];
+    }
+  } else if(!strcmp(kw, "trapfrac")) {
+    double f = atof(p);
+    trap_f = f > 0.01 && f <= 0.5 ? f : 0.25;
+  } else if(!strcmp(kw, "react")) {
+    react = atoi(p);
+  } else if(!strcmp(kw, "ferror")) {
+    ferror_lim = atof(p);
+  } else if(!strcmp(kw, "linkloss")) {  // linkloss J 1|0
+    int j, on;
+    if(sscanf(p, " %d %d", &j, &on) == 2 && j >= 1 && j <= nj) {
+      drv[j - 1].link_lost = on;
+    }
   } else if(!strcmp(kw, "force")) {
     if(strstr(p, "off")) {
       P.fe_on = 0;
@@ -287,6 +587,9 @@ static void script_line(char *line) {
     }
   } else if(!strcmp(kw, "mark")) {
     memcpy(mark_tau_g, P.tau_g, sizeof(mark_tau_g));
+    memset(speedr, 0, sizeof(speedr));
+    perr_max = 0.0;
+    off_time = -1.0, off_reason = 0, off_joint = 0;
     memset(det_rmax, 0, sizeof(det_rmax));
     memset(det_rmaxm, 0, sizeof(det_rmaxm));
     det_t_hit = -1.0;

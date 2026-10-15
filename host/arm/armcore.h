@@ -34,6 +34,7 @@ typedef struct {
   stmbl_sim_pd_t pd;
   double ratio;
   double off;  // joint q [deg] = pos_fb + off
+  int link_lost;  // fault injection: the drive gets no more packets
 } arm_drive;
 
 extern arm_drive arm_drv[RB_MAXJ];
@@ -56,6 +57,7 @@ void armcore_set_cmd(int j, int en, double pos, double vel);
 double armcore_fb(int j);       // position feedback [deg, model q]
 double armcore_fb_vel(int j);   // [deg/s]
 double armcore_qm(int j);       // joint angle the motor encoder sees [deg]
+int armcore_synced(void);       // the feedback offsets are set
 
 // One rt cycle; servo != 0 exchanges the process data first.
 void armcore_tick(int servo);

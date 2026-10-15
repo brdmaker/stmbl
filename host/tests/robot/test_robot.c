@@ -13,6 +13,7 @@
  *   without one
  */
 #include "robot.h"
+#include "kin.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -436,6 +437,174 @@ static void observer_test(void) {
   ok(e1 < 0.02, "observer: residual = J^T f after 10 time constants (rel.)", e1, 0.02);
 }
 
+static double det6(double J[6][RB_MAXJ]) {
+  double A[6][6], d = 1.0;
+  for(int i = 0; i < 6; i++) {
+    for(int j = 0; j < 6; j++) {
+      A[i][j] = J[i][j];
+    }
+  }
+  for(int c = 0; c < 6; c++) {
+    int p = c;
+    for(int r = c + 1; r < 6; r++) {
+      if(fabs(A[r][c]) > fabs(A[p][c])) {
+        p = r;
+      }
+    }
+    if(p != c) {
+      d = -d;
+      for(int k = 0; k < 6; k++) {
+        double t = A[c][k];
+        A[c][k] = A[p][k];
+        A[p][k] = t;
+      }
+    }
+    d *= A[c][c];
+    if(A[c][c] == 0.0) {
+      return 0.0;
+    }
+    for(int r = c + 1; r < 6; r++) {
+      double f = A[r][c] / A[c][c];
+      for(int k = c; k < 6; k++) {
+        A[r][k] -= f * A[c][k];
+      }
+    }
+  }
+  return d;
+}
+
+static void kinematics_tests(void) {
+  double e_rpy = 0, e_rv = 0, e_jac = 0, e_ik = 0, e_branch = 0;
+  int ik_fail = 0, ik_iter = 0;
+  for(int t = 0; t < 200; t++) {
+    double rpy[3] = {urand(-M_PI, M_PI), urand(-1.4, 1.4), urand(-M_PI, M_PI)}, R[3][3], r2[3];
+    rb_R_from_rpy(rpy, R);
+    rb_rpy_from_R(R, r2);
+    for(int i = 0; i < 3; i++) {
+      double d = fabs(remainder(r2[i] - rpy[i], 2 * M_PI));
+      e_rpy = d > e_rpy ? d : e_rpy;
+    }
+    // rotation vectors, also close to 180 deg
+    double ax[3] = {urand(-1, 1), urand(-1, 1), urand(-1, 1)};
+    double nn = sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+    double th = t % 4 == 0 ? M_PI - 1e-7 * (t % 7) : urand(0, M_PI - 1e-3);
+    double w[3] = {ax[0] / nn * th, ax[1] / nn * th, ax[2] / nn * th}, R2[3][3], w2[3], R3[3][3];
+    rb_R_from_rotvec(w, R2);
+    rb_rotvec_from_R(R2, w2);
+    rb_R_from_rotvec(w2, R3);  // compare rotations: w and -w are the same at 180
+    for(int i = 0; i < 3; i++) {
+      for(int j = 0; j < 3; j++) {
+        double d = fabs(R3[i][j] - R2[i][j]);
+        e_rv = d > e_rv ? d : e_rv;
+      }
+    }
+  }
+  for(int t = 0; t < 50; t++) {
+    double q[6], J[6][RB_MAXJ], h = 1e-6, p0[3], R0[3][3];
+    rand_state(6, q, 0, 0);
+    rb_jacobian(&ref, q, J);
+    rb_pose(&ref, q, p0, R0);
+    for(int k = 0; k < 6; k++) {
+      double qp[6], p1[3], R1[3][3], Rd[3][3], w[3];
+      memcpy(qp, q, sizeof(qp));
+      qp[k] += h;
+      rb_pose(&ref, qp, p1, R1);
+      for(int i = 0; i < 3; i++) {
+        for(int j = 0; j < 3; j++) {
+          Rd[i][j] = R1[i][0] * R0[j][0] + R1[i][1] * R0[j][1] + R1[i][2] * R0[j][2];
+        }
+      }
+      rb_rotvec_from_R(Rd, w);
+      for(int i = 0; i < 3; i++) {
+        double d1 = fabs((p1[i] - p0[i]) / h - J[i][k]), d2 = fabs(w[i] / h - J[3 + i][k]);
+        e_jac = d1 > e_jac ? d1 : e_jac;
+        e_jac = d2 > e_jac ? d2 : e_jac;
+      }
+    }
+    // IK from a start up to 0.1 rad off: back to the same pose and, away
+    // from singular poses (|det J| > 0.01; near one, another configuration
+    // can be as close), the same joint angles
+    double pt[3], Rt[3][3], qs[6], p[3], R[3][3];
+    int regular = fabs(det6(J)) > 0.01;
+    rb_pose(&ref, q, pt, Rt);
+    for(int i = 0; i < 6; i++) {
+      qs[i] = q[i] + urand(-0.1, 0.1);
+    }
+    int it = rb_ik(&ref, pt, Rt, qs, 1e-9, 1e-9, 100);
+    if(it < 0) {
+      ik_fail++;
+      continue;
+    }
+    ik_iter = it > ik_iter ? it : ik_iter;
+    rb_pose(&ref, qs, p, R);
+    for(int i = 0; i < 3; i++) {
+      double d = fabs(p[i] - pt[i]);
+      e_ik = d > e_ik ? d : e_ik;
+    }
+    for(int i = 0; i < 6; i++) {
+      double d = regular ? fabs(remainder(qs[i] - q[i], 2 * M_PI)) : 0.0;
+      e_branch = d > e_branch ? d : e_branch;
+    }
+  }
+  ok(e_rpy < 1e-12, "rpy (genserkins A B C) -> R -> rpy", e_rpy, 1e-12);
+  ok(e_rv < 1e-6, "rotation vector round trip, also near 180 deg", e_rv, 1e-6);
+  ok(e_jac < 1e-5, "Jacobian = finite differences of the flange pose", e_jac, 1e-5);
+  ok(ik_fail == 0, "IK converges from starts 0.1 rad off (50 random poses)", ik_fail, 0);
+  ok(e_ik < 1e-9, "  ...to the pose within 1e-9 m", e_ik, 1e-9);
+  ok(e_branch < 1e-6, "  ...to the same joint angles (non-singular poses)", e_branch, 1e-6);
+  ok(ik_iter <= 20, "  ...in <= 20 iterations", ik_iter, 20);
+}
+
+// LinuxCNC genserkins (genserkins_ref.txt, from hwtest/arcmate-sim) against
+// rb_pose / rb_rpy_from_R with the DH lines of the arm file
+static void genserkins_tests(const char *refpath, const char *armpath) {
+  rb_model m;
+  memset(&m, 0, sizeof(m));
+  FILE *f = fopen(armpath, "r");
+  char line[512];
+  while(f && fgets(line, sizeof(line), f)) {
+    int j;
+    double a, al, d, t0;
+    if(sscanf(line, "dh %d %lf %lf %lf %lf", &j, &a, &al, &d, &t0) == 5 && j >= 1 && j <= RB_MAXJ) {
+      m.link[j - 1].a = a, m.link[j - 1].alpha = al * M_PI / 180, m.link[j - 1].d = d;
+      m.link[j - 1].theta0 = t0 * M_PI / 180;
+      m.n = j > m.n ? j : m.n;
+    }
+  }
+  if(f) {
+    fclose(f);
+  }
+  f = fopen(refpath, "r");
+  double ep = 0, ea = 0;
+  int n = 0;
+  while(f && fgets(line, sizeof(line), f)) {
+    double v[12];
+    if(sscanf(line, "pair %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", v, v + 1, v + 2, v + 3,
+              v + 4, v + 5, v + 6, v + 7, v + 8, v + 9, v + 10, v + 11) != 12) {
+      continue;
+    }
+    double q[RB_MAXJ], p[3], R[3][3], rpy[3];
+    for(int j = 0; j < 6; j++) {  // LinuxCNC's joints are the DH theta
+      q[j] = v[j] * M_PI / 180 - m.link[j].theta0;
+    }
+    rb_pose(&m, q, p, R);
+    rb_rpy_from_R(R, rpy);
+    for(int i = 0; i < 3; i++) {
+      double d = fabs(p[i] * 1000 - v[6 + i]);
+      ep = d > ep ? d : ep;
+      double da = fabs(remainder(rpy[i] * 180 / M_PI - v[9 + i], 360.0));
+      ea = da > ea ? da : ea;
+    }
+    n++;
+  }
+  if(f) {
+    fclose(f);
+  }
+  ok(m.n == 6 && n >= 8, "genserkins reference read (arm DH, 8 poses)", n, 8);
+  ok(ep < 1e-5, "flange position = LinuxCNC genserkins (mm)", ep, 1e-5);
+  ok(ea < 1e-5, "A B C = LinuxCNC genserkins (deg)", ea, 1e-5);
+}
+
 int main(int argc, char **argv) {
   srand(1203);
   reference_tests(argc > 1 ? argv[1] : "tests/robot/rtb_ref.txt");
@@ -445,6 +614,10 @@ int main(int argc, char **argv) {
   force_test();
   armature_test();
   observer_test();
+  kinematics_tests();
+  if(argc > 3) {
+    genserkins_tests(argv[2], argv[3]);
+  }
   printf("1..%d\n# %d/%d passed\n", ntest, ntest - nfail, ntest);
   return nfail ? 1 : 0;
 }

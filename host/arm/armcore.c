@@ -20,7 +20,10 @@ long arm_ticks = 0;
 
 static char libpath[1024];
 static char armdir[1024] = ".";
-static int need_off = 1;  // set the feedback offsets at the next exchange
+// set the feedback offsets at the NEED_OFF-th exchange from now: the drive
+// reports no position in the first one (0)
+#define NEED_OFF 5
+static int need_off = NEED_OFF;
 
 static void rel_path(char *out, size_t n, const char *p) {
   if(p[0] == '/') {
@@ -140,7 +143,7 @@ void armcore_home(const double *q_deg) {
     q[i] = q_deg[i] * D2R;
   }
   plant_set_q(&arm_P, q);
-  need_off = 1;
+  need_off = NEED_OFF;
 }
 
 int armcore_line(char *line) {
@@ -257,6 +260,10 @@ void armcore_set_cmd(int j, int en, double pos, double vel) {
   d->pd.scale = 360.0 / d->ratio;
 }
 
+int armcore_synced(void) {
+  return !need_off;
+}
+
 double armcore_fb(int j) {
   return arm_drv[j].pd.pos_fb + arm_drv[j].off;
 }
@@ -278,7 +285,7 @@ void armcore_tick(int servo) {
     *d->sim_pos = (float)wrap(arm_P.th[j]);
     *d->sim_vel = (float)arm_P.w[j];
     *d->te_int = 0.0f;
-    if(servo) {
+    if(servo && !d->link_lost) {
       d->update(&d->pd, (long)(ARM_RT * 1e9 + 0.5));
     } else {
       d->tick();
@@ -286,11 +293,10 @@ void armcore_tick(int servo) {
     te[j] = *d->te_int / ARM_RT;
     rel[j] = *d->brake_rel > 0.0f;
   }
-  if(servo && need_off) {  // absolute encoders, calibrated zero
+  if(servo && need_off && --need_off == 0) {  // absolute encoders, calibrated zero
     for(int j = 0; j < arm_nj; j++) {
       arm_drv[j].off = armcore_qm(j) - arm_drv[j].pd.pos_fb;
     }
-    need_off = 0;
   }
   for(int s = 0; s < ARM_SUB; s++) {
     plant_step(&arm_P, te, rel, ARM_RT / ARM_SUB);

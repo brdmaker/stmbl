@@ -782,3 +782,28 @@ Entry format:
 - Fix:     Thresholds with a stiction band near zero speed (`thresh J thr0
   thr_v thr_s vs`); the detector is less sensitive at rest. Set it from the
   measured floor (MEASUREMENT_PLAN Phase 7).
+
+## 2026-10-15  arm_sim / stmbl_arm: joint offsets taken from the first packet
+- Area:    `host/arm/armcore.c` (absolute-encoder offsets)
+- Status:  Fixed
+- Symptom: LinuxCNC's joint feedback off by up to one motor turn / ratio
+  (J2: 1.06 deg) from the true motor angle, depending on start-up order.
+- Cause:   The offset (joint = feedback + off) was set at the first
+  exchange, where the drive still reports position 0.
+- Fix:     Set it at the 5th exchange.
+
+## 2026-10-15  Collision detector false trips under LinuxCNC's trapezoids
+- Area:    `shared/robot/collide.c` (thresholds)
+- Status:  Fixed
+- Symptom: Fine with smooth test moves, but LinuxCNC joint jogs (full
+  300 deg/s^2 from standstill, jerk steps) tripped it on the simulated arm.
+- Cause:   Three effects of the jerk: (1) model errors (inertia +-15 %)
+  scale with the dynamic torque; (2) through elastic gears the rotor runs
+  ahead of the link (~arm_jj * qdd, 26 Nm on J1 for ~15 ms) and torque
+  coupled from other joints' accelerations hits joints held by stiction;
+  (3) the gears ring at ~20 Hz afterwards, longer than the observer's
+  1/k. And the residual lags the torque by 1/k, so a threshold following
+  the torque instantly drops when the acceleration reverses.
+- Fix:     Threshold terms thr_rel * peak(max(|tau - g|, |(M qdd)_j|)) and
+  thr_rot * peak(arm_jj |qdd|), peaks decaying over `envelope` (0.15 s).
+  Test moves now include LinuxCNC's trapezoids (`jog`, `tmove`).

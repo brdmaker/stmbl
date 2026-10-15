@@ -411,6 +411,24 @@ int rb_armature(rb_model *mdl, const double K[RB_MAXJ][RB_MAXJ], const double *j
   return 0;
 }
 
+void rb_add_payload(rb_model *mdl, int k, double m, const double c[3], const double Ic[6]) {
+  rb_link pl;
+  double sgn = m < 0.0 ? -1.0 : 1.0;
+  double ic[6];
+  for(int i = 0; i < 6; i++) {
+    ic[i] = sgn * Ic[i];
+  }
+  rb_link_from_com(&pl, m, c, ic);  // linear in (m, Ic) for a fixed c
+  rb_link *l = &mdl->link[k];
+  l->m += pl.m;
+  for(int i = 0; i < 3; i++) {
+    l->h[i] += pl.h[i];
+  }
+  for(int i = 0; i < 6; i++) {
+    l->I[i] += pl.I[i];
+  }
+}
+
 double rb_friction(const rb_fric *f, double qd) {
   double eps = f->eps > 0.0 ? f->eps : 1e-3;
   double s = tanh(qd / eps);

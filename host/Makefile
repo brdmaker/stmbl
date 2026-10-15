@@ -43,8 +43,8 @@ LDLIBS   = -lm -lpthread
 all: stmbl_host servoterm test_robot
 
 # shared/robot (arm dynamics) and its tests (tests/robot/test_robot.c)
-ROBOT_SRCS = $(ROOT)/shared/robot/robot.c
-test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h
+ROBOT_SRCS = $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/kin.c
+test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/kin.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(ROOT)/shared/robot -o $@ tests/robot/test_robot.c $(ROBOT_SRCS) -lm
 
 stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c
@@ -78,7 +78,7 @@ $(GEN):
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
 check: stmbl_host test_robot
-	@./test_robot tests/robot/rtb_ref.txt
+	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate.arm
 	@$(MAKE) -s -C arm all
 	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test
 

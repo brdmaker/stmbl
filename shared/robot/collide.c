@@ -18,6 +18,14 @@ int rb_collide_line(rb_collide *c, const char *line) {
   }
   const char *p = line + off;
   char *end;
+  if(!strcmp(kw, "envelope")) {
+    double t;
+    if(sscanf(p, " %lf", &t) != 1 || t <= 0.0) {
+      return 0;
+    }
+    c->envelope = t;
+    return 1;
+  }
   if(!strcmp(kw, "observer")) {
     double k, h, e;
     if(sscanf(p, " %lf %lf %lf", &k, &h, &e) != 3) {
@@ -60,6 +68,10 @@ int rb_collide_line(rb_collide *c, const char *line) {
   } else if(!strcmp(kw, "fric") && n == 4) {
     double eps = c->fric[j].eps;
     c->fric[j] = (rb_fric){.fc = v[0], .fs = v[1], .vs = v[2], .fv = v[3], .eps = eps};
+  } else if(!strcmp(kw, "threl") && n == 1) {
+    c->thr_rel[j] = v[0];
+  } else if(!strcmp(kw, "thrrot") && n == 1) {
+    c->thr_rot[j] = v[0];
   } else if(!strcmp(kw, "kt") && n == 1) {
     c->kt[j] = v[0];
   } else if(!strcmp(kw, "thresh") && (n == 2 || n == 4)) {
@@ -128,6 +140,7 @@ int rb_collide_load(rb_collide *c, const char *path, char *err, int errlen) {
   c->mdl.g[2] = -9.81;
   c->obs.k = 50.0;
   c->holdoff = 0.3;
+  c->envelope = 0.15;
   for(int j = 0; j < RB_MAXJ; j++) {
     c->K[j][j] = 1.0;
     c->fric[j].eps = 0.01;
@@ -172,6 +185,9 @@ int rb_collide_step(rb_collide *c, int enabled, const double *q, const double *q
     c->hit = 0;
     c->joint = 0;
     memset(c->r, 0, sizeof(c->r));
+    memset(c->dyn, 0, sizeof(c->dyn));
+    memset(c->rot, 0, sizeof(c->rot));
+    memset(c->qdd_f, 0, sizeof(c->qdd_f));
     return 0;
   }
   double tm[RB_MAXJ] = {0};
@@ -185,12 +201,34 @@ int rb_collide_step(rb_collide *c, int enabled, const double *q, const double *q
     tm[i] = t - c->tau_f[i];
   }
   rb_observer_step(&c->obs, &c->mdl, q, qd, tm, dt);
+  for(int i = 0; i < n; i++) {  // acceleration from the speed feedback, 5 ms filter
+    double af = dt / (dt + 0.005);
+    if(c->t_en > 0.0) {
+      c->qdd_f[i] += af * ((qd[i] - c->qd_prev[i]) / dt - c->qdd_f[i]);
+    }
+    c->qd_prev[i] = qd[i];
+  }
+  double g[RB_MAXJ], M[RB_MAXJ][RB_MAXJ], mq[RB_MAXJ];
+  rb_gravity(&c->mdl, q, g);
+  rb_mass(&c->mdl, q, M);
+  for(int i = 0; i < n; i++) {  // inertial torque of the (filtered) accelerations
+    mq[i] = 0.0;
+    for(int k = 0; k < n; k++) {
+      mq[i] += M[i][k] * c->qdd_f[k];
+    }
+  }
   c->t_en += dt;
   c->armed = c->t_en >= c->holdoff;
   for(int i = 0; i < n; i++) {
     c->r[i] = c->obs.r[i];
     double sv = c->thr_vs[i] > 0.0 ? qd[i] / c->thr_vs[i] : 0.0;
-    c->thr[i] = c->thr0[i] + c->thr_v[i] * fabs(qd[i]) + c->thr_s[i] * exp(-sv * sv);
+    double dy = fabs(c->tau[i] - g[i]), dr = c->mdl.arm[i][i] * fabs(c->qdd_f[i]);
+    dy = fabs(mq[i]) > dy ? fabs(mq[i]) : dy;
+    double decay = exp(-dt / c->envelope);
+    c->dyn[i] = dy > c->dyn[i] * decay ? dy : c->dyn[i] * decay;
+    c->rot[i] = dr > c->rot[i] * decay ? dr : c->rot[i] * decay;
+    c->thr[i] = c->thr0[i] + c->thr_v[i] * fabs(qd[i]) + c->thr_s[i] * exp(-sv * sv) +
+                c->thr_rel[i] * c->dyn[i] + c->thr_rot[i] * c->rot[i];
     if(c->armed && !c->hit && c->thr0[i] > 0.0 && fabs(c->r[i]) > c->thr[i]) {
       c->hit = 1;
       c->joint = i + 1;

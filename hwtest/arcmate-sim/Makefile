@@ -26,7 +26,15 @@ test:
 	test -f lcnc_test.result && test "$$(cat lcnc_test.result)" = 0 || \
 	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
 
+# reference poses of genserkins for host/tests/robot (test_robot)
+genserkins-ref:
+	@d=$$(mktemp -d /tmp/arcmate-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = ./gen_genserkins_ref.py|; s|^ARM = .*|ARM = $(ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|' arcmate.ini && \
+	($(ENV) linuxcnc arcmate.ini > linuxcnc.log 2>&1; true) && \
+	cp genserkins_ref.txt $(abspath ../../host/tests/robot)/genserkins_ref.txt && \
+	echo "wrote host/tests/robot/genserkins_ref.txt"
+
 run:
 	@$(ENV) cd $(HERE) && linuxcnc arcmate.ini
 
-.PHONY: test run
+.PHONY: test run genserkins-ref

@@ -89,6 +89,10 @@ int rb_armature(rb_model *mdl, const double K[RB_MAXJ][RB_MAXJ], const double *j
 
 double rb_friction(const rb_fric *f, double qd);
 
+// Add a rigid payload (mass m, centre of mass c and inertia Ic about it, in
+// link k's frame) to link k; a negative m removes the same one again.
+void rb_add_payload(rb_model *mdl, int k, double m, const double c[3], const double Ic[6]);
+
 // Cholesky of the n x n matrix A (in place, lower); solve A x = b.
 int rb_chol(int n, double A[RB_MAXJ][RB_MAXJ]);
 void rb_chol_solve(int n, const double L[RB_MAXJ][RB_MAXJ], const double *b, double *x);
