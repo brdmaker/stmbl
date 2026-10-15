@@ -1,0 +1,15 @@
+# The drive's input power into powerquota (linuxcnc/powerquota): one quota
+# (quota.txt). A second HALFILE after stmbl_sim.hal; on the real machine
+# the pin is hm2_7c81.0.stbl.0.0.power. The feed scale works with adaptive
+# feed on: RS274NGC_STARTUP_CODE = M52 P1 (or M52 P1 in the program).
+loadrt powerquota config=[POWERQUOTA]CONFIG
+addf powerquota.0 servo-thread
+
+net drive0-power stmbl-sim.0.power => powerquota.0.power-0
+net feed-scale   powerquota.0.feed-scale => motion.adaptive-feed
+
+# a fuse about to blow even at the lowest feed: estop
+unlinkp iocontrol.0.emc-enable-in
+net estop-loop => powerquota.0.chain-in
+net quota-chain powerquota.0.chain-out => iocontrol.0.emc-enable-in
+net estop-reset iocontrol.0.user-request-enable => powerquota.0.reset

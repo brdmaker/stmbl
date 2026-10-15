@@ -1,0 +1,4 @@
+# make test-quota: a load so the moves draw power:
+# inertia, viscous drag (0.94 Nm, 300 W at 3000 rpm)
+hv0.sim_j = 0.0001
+hv0.sim_d = 0.003

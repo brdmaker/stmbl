@@ -1,0 +1,5 @@
+# make test-quota: one quota sized below what the test's moves draw (the
+# simulated motor with the load of sim_quota_test.txt: ~300 W at 500 mm/s),
+# a C breaker at 0.48 A on 230 V (~100 W): full speed is ~3 x its rating.
+quota L1 C 0.48 230 0.9
+load L1 0 1

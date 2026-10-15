@@ -36,7 +36,8 @@ vpath %.c $(HOST) $(HOST)/hw $(ROOT)/shared $(ROOT)/shared/comps $(ROOT)/src/com
 # --- LinuxCNC module rules (provides %.so, install) ---------------------------
 obj-m += stmbl_sim.o
 stmbl_sim-objs := stmbl_sim_rt.o stmbl_core.o
-include /usr/share/linuxcnc/Makefile.modinc
+MODINC ?= $(firstword $(wildcard $(HOME)/linuxcnc-2.9/src/Makefile.modinc /home/user/linuxcnc-2.9/src/Makefile.modinc) /usr/share/linuxcnc/Makefile.modinc)
+include $(MODINC)
 
 all: stmbl_sim.so
 
