@@ -531,9 +531,12 @@ Entry format:
 - Fix:     Fault handlers now save a record in CCM RAM (fault, stacked PC/LR,
   CFSR/HFSR/BFAR, active HAL functions) and reset; `crash` prints it until
   power-off. After 3 crashes without 10 s of running, the drive boots in safe
-  mode (no config, HAL stopped, console working). Checked on the bench with
-  the `fault` command (now a real bus fault: it wrote to locked flash, which
-  only set a flash error flag). If it recurs: run `crash` before power-cycling.
+  mode (no config, no drive components, console working); the next `reset`
+  boots normally. Bench, with the `fault` command (now a real bus fault: it
+  wrote to locked flash, which only set a flash error flag): the record
+  showed BusFault at 0x30000000 with the PC in fault(); 3 quick faults gave
+  safe mode, then `reset` a normal boot, config unchanged. If it recurs:
+  run `crash` before power-cycling.
 
 ## 2026-10-14  stmbl_sim returned the previous packet's answer (1 ms extra lag)
 - Area:    `host/lcnc/sim_api.c` (`stmbl_sim_update`), `host/lcnc/stmbl_sim.c`
