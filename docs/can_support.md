@@ -238,7 +238,77 @@ drive's internals.
 4. the console and update over CAN;
 5. the bootloaders.
 
-## 6. Decisions to make
+## 6. Toolheads: what cobots do, and what fits here
+
+### What the cobots do
+
+| robot | tool flange | joints |
+|---|---|---|
+| Universal Robots e-Series | M8, 8 pins: 12 / 24 V, GND, 2 digital in, 2 digital out, and two analog inputs **or one RS-485** channel (Modbus RTU to grippers, e.g. Robotiq) | RS-485 between the control box and the joints, protocol undocumented (UR forum) |
+| Doosan E-Series | M8, 8 pins: +24 V, GND, digital I/O, **RS-485 A / B** (pins 4 and 6) | — |
+| Schneider Lexium Cobot | M8: 2 digital in, 2 out, 2 analog in; two outputs combinable into **RS-485** | — |
+| Elephant myCobot Pro 450 | M8: 24 V and **RS-485** to the end effector | **CAN** port at the base |
+
+**The pattern:**
+- **Tool flange:** power, a few plain I/O, and one 2-wire half-duplex
+  serial bus, all in an 8-pin M8. The bus runs at low rate, for grippers
+  and sensors.
+- **The arm itself:** the fast joint traffic stays inside it, on its own
+  bus.
+- **None of these uses CAN at the tool.** RS-485 Modbus is what the
+  gripper makers support.
+
+### What this means for an stmbl / brdstepper toolhead
+
+| link | wires to the tool | nodes | for the toolhead |
+|---|---|---|---|
+| smart-serial (RS-422, full duplex) | 4 signal + power | 1 per port | a port and 4 wires per device: too many through a wrist |
+| RS-485 half duplex (the cobots' way) | 2 signal + power | multi-drop, one master polling | standard grippers (Modbus RTU); our own devices would need a polled protocol |
+| **CAN / CAN FD** | **2 signal + power** | multi-drop, arbitration, any node can talk | the same 4 wires as RS-485, plus event-driven, hot-plug friendly and error handling built in |
+
+**CAN suits a toolhead well:**
+- **Wires:** 4 contacts (24 V, GND, CANH, CANL) carry any number of
+  devices. Examples: the gripper (a brdstepper), an I/O node (tool
+  changer sensors, an air valve), a tool ID, a camera trigger.
+- **Rate:** a gripper or tool axis rarely needs 1 kHz; 250–500 Hz with the
+  drive's interpolation is plenty. One bus then has room to spare (§2).
+- **Tool changing:**
+  - **Changer contacts:** only those 4 have to pass through it, whatever
+    the tool carries.
+  - **Recognition:** a tool announces itself by heartbeat and node ID, and
+    tools without electronics are simply absent.
+  - **Termination:** put the termination on the wrist side, at the bus's
+    fixed end, so the bus stays terminated with no tool fitted. Keep the
+    tool's stub short: at 1 Mbit/s up to about 0.3 m, and less in a CAN FD
+    data phase. A tool segment might run classic or 2 Mbit/s for margin.
+- **Spare pins:** an M8 8-pin flange like the cobots' still leaves 4 pins:
+  2 plain I/O (an e-stop or tool-present loop), plus RS-485 for a bought
+  Modbus gripper.
+
+### Where the toolhead bus meets LinuxCNC
+
+1. **A CAN interface in the host** (§3). The toolhead devices are then
+   ordinary `stmblcan` nodes. This is the most general option, but needs
+   the realtime CAN component.
+2. **The wrist drive as gateway.** Joint 6's drive (stmbl or brdstepper)
+   keeps its smart-serial link to the Mesa card and is the CAN master of
+   the toolhead behind it, forwarding the tool's data in its own frame.
+   - **For:** no CAN in LinuxCNC at all, and the toolhead is in step with
+     the servo thread.
+   - **Against:** smart-serial has little room left (96 bits on older
+     bitfiles, 224 on newer ones), enough for a gripper's command and
+     feedback but not much more. A slow multiplexed slot (a different tool
+     value each cycle), or the console channel, would carry the rest.
+3. **RS-485 Modbus for bought grippers**, from a non-realtime HAL
+   component, as the cobots do. This works for open / close / force
+   commands, not for servo-rate control.
+
+For the robot work on `claude/robot-dynamics` (the stmbl electric gripper,
+the pneumatic tool changer), option 2 fits best. Joint 6's smart-serial
+already runs, and the gripper and the tool changer's sensors would move
+onto 4 wires through the wrist.
+
+## 7. Decisions to make
 
 1. **Use:**
    - (a) as many axes as possible at 1 kHz: smart-serial stays the main
@@ -255,6 +325,15 @@ drive's internals.
    buses; or everything classic.
 
 ## Sources
+
+Tool flanges and joint buses of cobots:
+- [Universal Robots UR7e: tool connector (M8 8-pin, 2 AI or 1 RS-485)](https://www.universal-robots.com/products/ur7e-920/)
+- [Universal Robots: tool connector electrical interfaces](https://www.universal-robots.com/ko/developer/hardware-and-motion/electrical-interfaces-tool-connector/)
+- [ur_robot_driver: setting up the tool communication on an e-Series robot](https://docs.ros.org/en/iron/p/ur_robot_driver/setup_tool_communication.html)
+- [UR forum: custom controller (RS-485 joint bus, protocol undocumented)](https://forum.universal-robots.com/t/using-ur-arm-with-custom-controller-and-power-supply/17535)
+- [Doosan E-Series flange I/O (M8 pinout, RS-485 A/B)](https://manual.doosanrobotics.com/en/user/3.2.0/3.-E-Series/flange-i-o)
+- [Schneider Lexium Cobot: electrical connections](https://product-help.schneider-electric.com/Lexium%20Cobot/V1.7/en/LXMCOBOT/LXMCOBOT/TPC_COBOT_ElecConnCobot-7430089A.html)
+- [Elephant Robotics myCobot Pro 450 (RS-485 tool, CAN base port)](https://openelab.io/a/s/products/mycobot-pro-450)
 
 LinuxCNC CAN / CiA 402 status, from forum and community pages:
 - [hal-cia402 (CiA 402 HAL component)](https://gitee.com/linuxcnc/hal-cia402)
