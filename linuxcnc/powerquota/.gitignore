@@ -2,3 +2,4 @@
 *.so
 *.tmp
 *.ver
+*.sym
