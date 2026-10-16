@@ -44,12 +44,31 @@ void flashloadconf(char *ptr) {
 }
 COMMAND("flashloadconf", flashloadconf, "load config from flash");
 
+// A sector erase stalls every flash fetch, interrupts included, for 0.25 s
+// or more. rt then misses its deadline and the drive stops with RT_TOO_LONG
+// (4 of 5 saves on the bench). So stop rt/frt around the write and start
+// them again afterwards, and refuse while the drive is enabled.
+static int drive_enabled(void) {
+  NAME comp = "fault", pin = "en_out";
+  hal_pin_inst_t *en = pin_inst_by_name(comp, 0, pin);
+  return en && en->source->value > 0.0;
+}
+
 void flashsaveconf(char *ptr) {
+  if(drive_enabled()) {
+    printf("error: drive enabled, disable it before flashsaveconf\n");
+    return;
+  }
+  int restart = hal.hal_state == HAL_OK2 && hal.rt_state != RT_STOP;
+  hal_stop();
   printf("erasing flash page...\n");
   FLASH_Unlock();
   if(FLASH_EraseSector(FLASH_Sector_2, VoltageRange_3) != FLASH_COMPLETE) {
     printf("error!\n");
     FLASH_Lock();
+    if(restart) {
+      hal_start();
+    }
     return;
   }
   printf("saving conf\n");
@@ -62,8 +81,11 @@ void flashsaveconf(char *ptr) {
       break;
     }
   } while(config[i++] != 0);
-  printf("OK %i bytes written\n", i);
   FLASH_Lock();
+  if(restart) {
+    hal_start();
+  }
+  printf("OK %i bytes written\n", i);
 }
 COMMAND("flashsaveconf", flashsaveconf, "save config to flash");
 
@@ -90,6 +112,11 @@ void deleteconf(char *ptr) {
 COMMAND("deleteconf", deleteconf, "delete config");
 
 void hardboot(char *ptr) {
+  if(drive_enabled()) {
+    printf("error: drive enabled, disable it before hardboot\n");
+    return;
+  }
+  hal_stop();  // the erase stalls rt, see flashsaveconf
   printf("erasing flash page...\n");
   FLASH_Unlock();
   if(FLASH_EraseSector(FLASH_Sector_4, VoltageRange_3) != FLASH_COMPLETE) {

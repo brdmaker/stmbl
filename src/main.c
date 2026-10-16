@@ -174,6 +174,8 @@ void sleep(char *ptr) {
 
 COMMAND("sleep", sleep, "sleep [s]");
 
+void crash_running(void);
+
 int main(void) {
   // Relocate interrupt vectors
   extern void *g_pfnVectors;
@@ -194,6 +196,7 @@ int main(void) {
   while(1)  //run non realtime stuff
   {
     hal_run_nrt();
+    crash_running();
     //cdc_poll();
     Wait(1);
   }

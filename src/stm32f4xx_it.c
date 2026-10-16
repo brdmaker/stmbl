@@ -44,54 +44,130 @@
 /*            Cortex-M4 Processor Exceptions Handlers                         */
 /******************************************************************************/
 
-/**
-  * @brief   This function handles NMI exception.
-  * @param  None
-  * @retval None
-  */
-void NMI_Handler(void) {
-  hal_error(NMI);
+/*
+ * Faults: record and reset.
+ *
+ * The handlers used to call hal_error() and return into the faulting
+ * instruction, which faulted again forever. A fault in the main loop left
+ * USB enumerating but the console dead (the bench drive's "rebooted, then
+ * hung", 2026-10-14). Now each handler saves a record in CCM RAM, which no
+ * code uses and startup does not clear, so it survives the reset; the
+ * `crash` command prints it. After CRASH_MAX_RESETS crashes without
+ * CRASH_OK_MS of normal running in between, the drive halts as before
+ * instead of resetting, so a crash loop at boot cannot hide the record.
+ */
+#include <stdio.h>
+#include <string.h>
+#include "commands.h"
+
+#define CRASH_MAGIC 0x43524153  // "CRAS"
+#define CRASH_MAX_RESETS 3
+#define CRASH_OK_MS 10000
+
+typedef struct {
+  uint32_t magic;
+  uint32_t count;        // crashes since power-on (or `crash clear`)
+  uint32_t consecutive;  // crashes without CRASH_OK_MS of running in between
+  uint32_t handler;      // hal_error_t error_handler numbering
+  uint32_t pc, lr, psr;  // stacked by the exception entry
+  uint32_t cfsr, hfsr, mmfar, bfar;
+  uint32_t rt_func, frt_func, nrt_func;
+  uint32_t uptime_ms;
+  uint32_t check;
+} crash_t;
+
+#define crash ((crash_t *)0x1000FF00)  // top of CCM
+
+extern volatile uint64_t systime;
+
+static uint32_t crash_check(void) {
+  uint32_t c        = 0x5a5a5a5a;
+  const uint32_t *w = (const uint32_t *)crash;
+  for(int i = 0; i < sizeof(crash_t) / 4 - 1; i++) {
+    c = (c << 1 | c >> 31) ^ w[i];
+  }
+  return c;
 }
 
-/**
-  * @brief  This function handles Hard Fault exception.
-  * @param  None
-  * @retval None
-  */
-void HardFault_Handler(void) {
-  /* Go to infinite loop when Hard Fault exception occurs */
-  hal_error(HardFault);
+static int crash_valid(void) {
+  return crash->magic == CRASH_MAGIC && crash->check == crash_check();
 }
 
-/**
-  * @brief  This function handles Memory Manage exception.
-  * @param  None
-  * @retval None
-  */
-void MemManage_Handler(void) {
-  /* Go to infinite loop when Memory Manage exception occurs */
-  hal_error(MemManage);
+void crash_record(uint32_t *frame, uint32_t handler) {
+  if(!crash_valid()) {
+    memset(crash, 0, sizeof(crash_t));
+    crash->magic = CRASH_MAGIC;
+  }
+  crash->count++;
+  crash->consecutive++;
+  crash->handler   = handler;
+  crash->lr        = frame[5];
+  crash->pc        = frame[6];
+  crash->psr       = frame[7];
+  crash->cfsr      = SCB->CFSR;
+  crash->hfsr      = SCB->HFSR;
+  crash->mmfar     = SCB->MMFAR;
+  crash->bfar      = SCB->BFAR;
+  crash->rt_func   = hal.active_rt_func;
+  crash->frt_func  = hal.active_frt_func;
+  crash->nrt_func  = hal.active_nrt_func;
+  crash->uptime_ms = (uint32_t)systime;
+  crash->check     = crash_check();
+
+  hal_error(handler);
+  if(crash->consecutive <= CRASH_MAX_RESETS) {
+    NVIC_SystemReset();
+  }
+  // crash loop: stay halted with USB alive, as before
 }
 
-/**
-  * @brief  This function handles Bus Fault exception.
-  * @param  None
-  * @retval None
-  */
-void BusFault_Handler(void) {
-  /* Go to infinite loop when Bus Fault exception occurs */
-  hal_error(BusFault);
+// Called from the main loop: the drive has been up long enough, so the next
+// crash may reset again.
+void crash_running(void) {
+  if(systime >= CRASH_OK_MS && crash_valid() && crash->consecutive) {
+    crash->consecutive = 0;
+    crash->check       = crash_check();
+  }
 }
 
-/**
-  * @brief  This function handles Usage Fault exception.
-  * @param  None
-  * @retval None
-  */
-void UsageFault_Handler(void) {
-  /* Go to infinite loop when Usage Fault exception occurs */
-  hal_error(UsageFault);
+static const char *crash_names[] = {"HardFault", "NMI", "MemManage", "BusFault", "UsageFault"};
+
+void crash_cmd(char *ptr) {
+  if(ptr && strncmp(ptr, "clear", 5) == 0) {
+    crash->magic = 0;
+    printf("crash record cleared\n");
+    return;
+  }
+  if(!crash_valid()) {
+    printf("no crash recorded since power-on\n");
+    return;
+  }
+  printf("crashes since power-on: %lu (in a row: %lu)\n", crash->count, crash->consecutive);
+  printf("last: %s at uptime %lu ms\n", crash->handler < 5 ? crash_names[crash->handler] : "?", crash->uptime_ms);
+  printf("pc 0x%08lx lr 0x%08lx psr 0x%08lx\n", crash->pc, crash->lr, crash->psr);
+  printf("cfsr 0x%08lx hfsr 0x%08lx mmfar 0x%08lx bfar 0x%08lx\n", crash->cfsr, crash->hfsr, crash->mmfar, crash->bfar);
+  printf("active rt func %ld, frt func %ld, nrt func %ld\n", (int32_t)crash->rt_func, (int32_t)crash->frt_func, (int32_t)crash->nrt_func);
+  printf("(arm-none-eabi-addr2line -e obj_app/stmbl.elf 0x%08lx)\n", crash->pc);
 }
+COMMAND("crash", crash_cmd, "show the last fault record, 'crash clear' clears it");
+
+// Each handler passes the stacked frame (MSP or PSP, from EXC_RETURN) and
+// its hal_error_t number to crash_record.
+#define FAULT_HANDLER(name, num)                \
+  __attribute__((naked)) void name(void) {      \
+    __asm volatile("tst lr, #4\n"               \
+                   "ite eq\n"                   \
+                   "mrseq r0, msp\n"            \
+                   "mrsne r0, psp\n"            \
+                   "movs r1, #" #num "\n"       \
+                   "b crash_record\n");         \
+  }
+
+FAULT_HANDLER(HardFault_Handler, 0)
+FAULT_HANDLER(NMI_Handler, 1)
+FAULT_HANDLER(MemManage_Handler, 2)
+FAULT_HANDLER(BusFault_Handler, 3)
+FAULT_HANDLER(UsageFault_Handler, 4)
 
 /**
   * @brief  This function handles SVCall exception.

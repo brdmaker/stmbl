@@ -944,8 +944,10 @@ void hal_error(uint32_t error_handler) {
 
 void fault(char *ptr) {
   printf("trigger fault handler\n");
-  uint32_t *p = (uint32_t *)0x08010000;
-  p[0]                 = 1;
+  // read a reserved address: a precise bus fault. The old write to the
+  // locked flash only set a flash error flag and did not fault.
+  volatile uint32_t *p = (volatile uint32_t *)0x30000000;
+  (void)*p;
 }
 
 COMMAND("fault", fault, "trigger fault");
