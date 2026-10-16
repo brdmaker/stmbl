@@ -35,6 +35,7 @@ host/test_ssq
 host/test_sscon
 host/test_bootloader
 host/test_bip
+brdstepper/obj
 host/servoterm
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/

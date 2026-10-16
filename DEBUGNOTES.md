@@ -906,3 +906,18 @@ Entry format:
   (detent-compensated ripple ~820 vs ~310 rad/s^2). max_duty 0.9 keeps both
   windows samplable. Bidirectional shunt amplifiers would avoid all this, at
   the cost of parts and space.
+
+## 2026-10-16  G4 flash: 64-bit units, each programmed once
+- Area:    `shared/fwstage.c` (prog_size, the 24-byte header), `brdstepper/src/flash.c`
+- Status:  Fixed
+- Symptom: (design) the staging code programmed 32-bit words and later
+  turned the header's state word from all ones to 0 in place. The G4
+  programs 64-bit double words only, each once until erased (ECC), so
+  neither works there.
+- Cause:   Flash with ECC: a double word cannot be programmed twice.
+- Fix:     fwst_t.prog_size (4 for the F4, 8 for the G4). Data goes in
+  whole aligned units, the tail padded with 0xff. The header is 24 bytes:
+  magic, size, CRC32, then a state unit of its own at offset 16, which
+  stays erased until the bootloader marks the update done.
+  `test_bootloader` checks it on a model of the G4 flash that refuses a
+  second program of a unit.

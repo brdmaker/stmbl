@@ -15,8 +15,11 @@
 //
 //   fwup0.en = fault0.en_out     the drive's enable: while it is on, the
 //                                commands are refused and nothing is written
-//   fwup0.words = 1              flash words programmed per rt period: each
-//                                stalls the chip (one flash bank) ~16 us
+//                                (single-bank flash only: on a dual-bank
+//                                part the staging bank is written while the
+//                                drive runs)
+//   fwup0.words = 1              flash units programmed per rt period; on a
+//                                single bank each stalls the chip ~16 us
 //   fwup0.state                  0 idle, 1 receiving, 2 ready, 3 marking,
 //                                4 marked, 5 failed
 //   fwup0.got                    bytes received
@@ -63,6 +66,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   memset(&fwst, 0, sizeof(fwst));
   fwst.stage_size = fwup_stage_size;
   fwst.max_size   = fwup_max_size;
+  fwst.prog_size  = fwup_prog_size;
   fwst.program    = st_program;
   fwst.read       = st_read;
   g_ctx           = ctx;
@@ -72,7 +76,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fwup_ctx_t *ctx      = (struct fwup_ctx_t *)ctx_ptr;
   struct fwup_pin_ctx_t *pins = (struct fwup_pin_ctx_t *)pin_ptr;
-  if(PIN(en) <= 0.0) {  // the drive is off: a late period does no harm
+  if(!fwup_single_bank || PIN(en) <= 0.0) {  // single bank: only while off, a late period does no harm
     fwst_poll(&fwst, (int)CLAMP(PIN(words), 0, 16));
   }
   PIN(state) = fwst.state;
@@ -99,7 +103,7 @@ static int refused(void) {
     printf("fw err not loaded (load fwup)\n");
     return 1;
   }
-  if(g_pins->en.source->value > 0.0) {
+  if(fwup_single_bank && g_pins->en.source->value > 0.0) {
     printf("fw err drive enabled\n");
     return 1;
   }

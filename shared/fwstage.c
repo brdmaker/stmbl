@@ -46,6 +46,10 @@ static int blank(const fwst_t *s, uint32_t off, uint32_t len) {
   return 1;
 }
 
+static uint32_t unit(const fwst_t *s) {
+  return s->prog_size == 8 ? 8u : 4u;
+}
+
 int fwst_begin(fwst_t *s, uint32_t size, uint32_t crc32) {
   if(s->state == FWST_RECEIVING && size == s->size && crc32 == s->crc) {
     return 1;  // resume: the sender continues at got
@@ -56,7 +60,8 @@ int fwst_begin(fwst_t *s, uint32_t size, uint32_t crc32) {
     s->state = FWST_FAILED;
     return -1;
   }
-  if(!blank(s, 0, (size + 3) & ~3u) || !blank(s, s->stage_size - FWST_HDR_SIZE, FWST_HDR_SIZE)) {
+  uint32_t u = unit(s);
+  if(!blank(s, 0, (size + u - 1) & ~(u - 1)) || !blank(s, s->stage_size - FWST_HDR_SIZE, FWST_HDR_SIZE)) {
     s->state = FWST_FAILED;  // only the bootloader erases (see fwstage.h)
     return -2;
   }
@@ -110,28 +115,30 @@ int fwst_data(fwst_t *s, const char *line) {
   return 0;
 }
 
-int fwst_poll(fwst_t *s, int max_words) {
-  int w = 0;
-  while(w < max_words) {
-    uint8_t b[4];
+int fwst_poll(fwst_t *s, int max_units) {
+  uint32_t u = unit(s);
+  int w      = 0;
+  while(w < max_units) {
+    uint8_t b[8];
     uint32_t off;
-    if(s->state == FWST_RECEIVING && (s->got - s->done >= 4 || (s->got == s->size && s->done < s->got))) {
+    if(s->state == FWST_RECEIVING && (s->got - s->done >= u || (s->got == s->size && s->done < s->got))) {
       off = s->done;
-      for(int i = 0; i < 4; i++) {
-        b[i] = off + (uint32_t)i < s->got ? s->q[(off + (uint32_t)i) % FWST_QSIZE] : 0xff;
+      for(uint32_t i = 0; i < u; i++) {
+        b[i] = off + i < s->got ? s->q[(off + i) % FWST_QSIZE] : 0xff;
       }
-      s->done += 4;
-    } else if(s->state == FWST_MARKING && s->hdr_words < 3) {
-      uint32_t h[3] = {FWST_MAGIC, s->size, s->crc};  // the state word stays all ones: pending
-      off = s->stage_size - FWST_HDR_SIZE + 4 * s->hdr_words;
-      memcpy(b, &h[s->hdr_words], 4);
-      if(++s->hdr_words == 3) {
+      s->done += u;
+    } else if(s->state == FWST_MARKING && s->hdr_units < FWST_HDR_STATE / u) {
+      // magic, size, crc32 (the state unit at FWST_HDR_STATE stays all ones: pending)
+      uint32_t h[4] = {FWST_MAGIC, s->size, s->crc, 0xffffffffu};
+      off = s->stage_size - FWST_HDR_SIZE + u * s->hdr_units;
+      memcpy(b, (uint8_t *)h + u * s->hdr_units, u);
+      if(++s->hdr_units == FWST_HDR_STATE / u) {
         s->state = FWST_MARKED;
       }
     } else {
       break;
     }
-    if(s->program(s->ctx, off, b, 4)) {
+    if(s->program(s->ctx, off, b, u)) {
       s->state = FWST_FAILED;
       break;
     }
@@ -160,7 +167,7 @@ int fwst_mark(fwst_t *s) {
   if(s->state != FWST_READY) {
     return -1;
   }
-  s->hdr_words = 0;
+  s->hdr_units = 0;
   s->state     = FWST_MARKING;
   return 0;
 }
@@ -182,8 +189,8 @@ int fwst_boot(fwst_t *s, int (*app_erase)(void *, uint32_t, uint32_t),
       return -2;  // still pending: the next reset copies again
     }
     r = a == 0 ? 1 : -1;
-    uint8_t zero[4] = {0, 0, 0, 0};
-    s->program(s->ctx, s->stage_size - 4, zero, 4);  // done
+    uint8_t zero[8] = {0};
+    s->program(s->ctx, s->stage_size - FWST_HDR_SIZE + FWST_HDR_STATE, zero, unit(s));  // done
   }
   if(!blank(s, 0, s->stage_size)) {
     s->erase(s->ctx, 0, s->stage_size);  // ready for the next fwbegin

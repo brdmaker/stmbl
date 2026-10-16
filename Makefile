@@ -343,6 +343,10 @@ tbl: inc/commandslist.h src/hal_tbl.c src/conf_templates.c
 obj_boot/blboot.bin: force_look
 	$(MAKE) -f bootloader/Makefile
 
+#brdstepper firmware (STM32G473, brdstepper/)
+brdstepper:
+	$(MAKE) -C brdstepper
+
 #image for LinuxCNC's setsserial flash (the smart-serial bootloader)
 ssfw: $(TARGET).bin
 	$(PYTHON) tools/mkssfw.py $(TARGET).bin $(OBJDIR)/stmbl_ss.bin
@@ -464,7 +468,7 @@ force_look:
 
 # Listing of phony targets
 #
-.PHONY: all build clean \
+.PHONY: all build clean brdstepper \
         elf hex bin lss sym tbl \
         boot boot_flash boot_brburn \
         f3_boot f3_boot_flash f3_boot_btburn \

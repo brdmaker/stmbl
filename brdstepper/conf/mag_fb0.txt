@@ -1,0 +1,7 @@
+load mag
+mag0.rt_prio = 2
+fb_switch0.mot_pos = mag0.pos
+fb_switch0.mot_abs_pos = mag0.abs_pos
+fb_switch0.mot_polecount = 1
+fb_switch0.mot_state = mag0.state
+fault0.mot_fb_error = mag0.error

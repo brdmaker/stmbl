@@ -20,9 +20,16 @@
  * programs a word at a time (fwst_poll), where the stall (~16 us typical,
  * 100 us max per word) fits into the period's slack.
  *
- * The pending mark is a header at the end of the staging area: magic, size,
- * CRC32, and a state word that is all ones while the update is pending.
- * The bootloader programs it to 0 when done: bits only go 1 -> 0, no erase.
+ * The pending mark is a header at the end of the staging area (24 bytes):
+ * magic, size, CRC32 at 0..11, then a state unit at 16 that stays all ones
+ * while the update is pending. The bootloader programs it to 0 when done:
+ * bits only go 1 -> 0, no erase. The state has a programming unit of its
+ * own because some flash programs each unit once only (the G4's 64-bit
+ * double words, with ECC).
+ *
+ * prog_size is the flash's programming unit: 4 (F4: words) or 8 (G4:
+ * double words). Everything programmed is whole, aligned units; a tail is
+ * padded with 0xff.
  */
 #pragma once
 #include <stdint.h>
@@ -30,11 +37,13 @@
 enum { FWST_IDLE, FWST_RECEIVING, FWST_READY, FWST_MARKING, FWST_MARKED, FWST_FAILED };
 
 #define FWST_MAGIC 0x53535550u  // "PUSS": sserial update, pending
-#define FWST_HDR_SIZE 16u
+#define FWST_HDR_SIZE 24u  // magic, size, crc32, (ones), state unit at 16
+#define FWST_HDR_STATE 16u
 #define FWST_QSIZE 512u
 
 typedef struct {
-  uint32_t magic, size, crc, state;  // state: 0xffffffff pending, 0 done
+  uint32_t magic, size, crc, pad;
+  uint32_t state, pad2;  // state: 0xffffffff pending, 0 done
 } fwst_hdr_t;
 
 typedef struct {
@@ -42,7 +51,8 @@ typedef struct {
   uint32_t stage_size;  // bytes, the header's 16 at the end included
   uint32_t max_size;    // largest image (the application area)
   int (*erase)(void *ctx, uint32_t off, uint32_t len);  // staging offsets (bootloader only)
-  int (*program)(void *ctx, uint32_t off, const uint8_t *d, uint32_t len);  // word aligned, 4 bytes
+  uint32_t prog_size;   // programming unit: 4 or 8 (0: 4)
+  int (*program)(void *ctx, uint32_t off, const uint8_t *d, uint32_t len);  // one unit, aligned
   const uint8_t *(*read)(void *ctx, uint32_t off);      // staging bytes, mapped
   void *ctx;
   // state
@@ -51,7 +61,7 @@ typedef struct {
   uint32_t lines, bad;
   uint8_t q[FWST_QSIZE];  // received, not yet programmed: staging [done, got)
   uint32_t done;
-  uint32_t hdr_words;      // header words programmed (FWST_MARKING)
+  uint32_t hdr_units;      // header units programmed (FWST_MARKING)
 } fwst_t;
 
 uint32_t fwst_crc32(const uint8_t *d, uint32_t n, uint32_t crc);  // IEEE, crc = 0 to start
@@ -71,9 +81,9 @@ int fwst_end(fwst_t *s);
 // queue the pending mark (needs FWST_READY); fwst_poll writes it, then the
 // state is FWST_MARKED and the application resets
 int fwst_mark(fwst_t *s);
-// program up to max_words words of queued data or header: the realtime
-// loop's share; returns words programmed
-int fwst_poll(fwst_t *s, int max_words);
+// program up to max_units units of queued data or header: the realtime
+// loop's share; returns units programmed
+int fwst_poll(fwst_t *s, int max_units);
 
 // bootloader side
 int fwst_pending(const fwst_t *s, fwst_hdr_t *h);  // 1: a pending update

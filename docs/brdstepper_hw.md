@@ -5,8 +5,11 @@ square, M2.5 holes 23 mm apart). It runs stmbl's control software on an
 STM32G4, with a magnetic encoder and two H-bridges.
 
 Branch `brdstepper`, built on `sserial_bootloader`, which brings the
-console, scope and update code. **Status:** plan; no schematic or firmware
-yet.
+console, scope and update code. **Status:**
+- **Firmware:** the skeleton builds (`brdstepper/`, see its README).
+- **Simulation:** the control code runs in the host simulator with a NEMA11
+  model.
+- **Hardware:** no schematic yet.
 
 There are three variants of one layout:
 - **smart-serial** to a Mesa card (LinuxCNC);
@@ -42,14 +45,18 @@ them; this was checked against ST's pin data (STM32_open_pin_data,
 The G431CBU6 remains a drop-in fallback if price matters more than
 headroom. It is the same board, with a trimmed build.
 
-**Flash layout, G473CE (dual bank):**
+**Flash layout, G473CE (dual bank, 2 kB pages):**
 
 | bank | region | size |
 |---|---|---|
 | 1 | bootloader | 16 kB |
-| 1 | application | 224 kB |
-| 1 | config | 16 kB |
-| 2 | staging (in-band update) | 256 kB |
+| 1 | application | 240 kB |
+| 2 | staging (in-band update) | 240 kB |
+| 2 | config | 16 kB |
+
+The config sits in bank 2 as well, so saving it doesn't stall the running
+code either. The G4 programs 64-bit double words, each once until erased
+(ECC); the shared update code (`shared/fwstage.c`) handles that unit size.
 
 ## Pin plan (UFQFPN-48)
 
@@ -86,6 +93,39 @@ the bus is idle, which would start ST's ROM bootloader at every power-up.
 The flash target therefore sets the option bytes once, on every variant:
 `nSWBOOT0 = 0`, `nBOOT0 = 1`, so the pin is ignored. ST's ROM DFU stays
 reachable from the firmware: a RAM trigger word and a jump, as stmbl does.
+
+## Current sensing: the DRV8876's IPROPI
+
+IPROPI mirrors only the low-side MOSFETs, and only current flowing drain
+to source (TI's datasheet text, via search excerpts; to confirm with the
+datasheet):
+- **Driving:** it reads the coil current if it flows the way the bridge
+  drives, else 0.
+- **Braking** (both low sides on, slow decay): it reads the magnitude.
+
+A stepper's coil currents change sign every electrical turn, so one
+sample is not enough. The firmware samples each coil twice per PWM
+period, in the drive window and in the brake window, and makes a signed
+current of the two (`bip_sense` in `shared/bip_loop.c`). When the drive
+window is too short to sample (small duty, near the current's zero), it
+takes the sign from the current command.
+
+In the simulator (`host/tests/stepper_ipropi.test`, 5 mA noise):
+- standstill, 10 and 15 rev/s and the load step are as good as ideal
+  sensing;
+- at very slow speed the ripple is ~2.5 times larger (detent-compensated
+  820 vs 310 rad/s²), still ~4 times better than without detent
+  compensation.
+
+**Hardware consequences:**
+- **Duty:** `max_duty` 0.9 keeps both windows samplable.
+- **Settling:** IPROPI needs some µs to settle after switching; to check.
+- **Gain:** the resistor (4.7 kΩ) and the gain (`BRD_AIPROPI`, to confirm)
+  set the scale.
+- **Alternative:** a bidirectional shunt amplifier per coil (INA181-class
+  plus a shunt) would make all of this unnecessary. It costs 2 amplifiers,
+  2 shunts and board space; worth keeping as a footprint option if there is
+  room.
 
 ## Variants
 
@@ -207,9 +247,15 @@ default. This matters mostly for the G431 fallback.
 
 ## Next steps
 
-1. Confirm the MCU (G473CEU6) and the variants above.
-2. Schematic, then layout, around the 28 mm outline.
-3. Meanwhile, in software: the per-target size defines in `shared/`, the
-   stepper plant in the simulator, the two-phase current loop component
-   and its host tests, then the `brdstepper/` target skeleton (clocks,
-   PWM, ADC, SPI, USART) building in CI.
+1. **Hardware:**
+   - Schematic, then layout, around the 28 mm outline (MCU: G473CEU6,
+     confirmed).
+   - Decide on the shunt-amplifier footprint option (current sensing,
+     above).
+2. **Firmware** (`brdstepper/README.md`, "Not done yet"):
+   - the smart-serial port to USART1 + DMA;
+   - USB CDC;
+   - the bootloader;
+   - CAN.
+3. **Bench:** the register details marked "check", the IPROPI gain and
+   settling time, the encoder offset (phasing).

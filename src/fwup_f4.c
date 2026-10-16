@@ -14,6 +14,8 @@
 #define STAGE_START 0x08080000
 
 const uint32_t fwup_stage_size = 0x80000;
+const uint32_t fwup_prog_size = 4;
+const int fwup_single_bank = 1;
 const uint32_t fwup_max_size   = 0x70000;
 
 int fwup_stage_program(uint32_t off, const uint8_t *d, uint32_t len) {
