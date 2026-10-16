@@ -871,3 +871,14 @@ Entry format:
   (index depth - 1). Auto mode (2) now re-arms after a dump like normal
   mode. Both are checked in `host/tests/test_scope.py`.
 
+## 2026-10-16  brdstepper: TIM1 CH4 and FDCAN pins collide with USB on the G4
+- Area:    `docs/brdstepper_hw.md` (pin plan)
+- Status:  Note
+- Symptom: On the 48-pin STM32G431/G473/G474, TIM1_CH4 exists only on PA11
+  (USB D-), and FDCAN1 only on PA11/PA12 (USB) or PB8 (BOOT0)/PB9.
+- Cause:   The pin multiplexing of the UFQFPN-48 package (ST pin data).
+- Fix:     Coil B's second PWM input goes to TIM8_CH1 (PC6), synchronised
+  to TIM1. CAN goes on PB8/PB9, with the option bytes set (nSWBOOT0 = 0,
+  nBOOT0 = 1) so the pin's idle-high CAN RX does not start the ROM
+  bootloader.
+
