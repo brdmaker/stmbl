@@ -886,11 +886,10 @@ Entry format:
 ## 2026-10-16  DRV8876 IPROPI: low side only, one direction only
 - Area:    brdstepper current sensing (`shared/bip_loop.c` `bip_sense`,
   `host/hw/hv.c` sim_sense, `docs/brdstepper_hw.md`)
-- Status:  Workaround (simulated; to verify on the board)
+- Status:  Workaround (datasheet-confirmed, simulated; to verify on the board)
 - Symptom: (design) a single IPROPI sample cannot give a signed coil
   current, and a stepper's coil currents change sign every electrical turn.
-- Cause:   Per TI's datasheet text (seen via search excerpts; the PDF itself
-  is not reachable from this environment), IPROPI mirrors the LOW-side
+- Cause:   DRV8876 datasheet SLVSDS7B 7.3.3.1: IPROPI mirrors the LOW-side
   MOSFETs, only for current flowing drain to source. Driving, it reads the
   current if it flows the way the bridge drives, else 0. In brake (both low
   sides on, slow decay) it reads the magnitude.
@@ -903,9 +902,30 @@ Entry format:
   biases the loop. That bias held the motor ~36 mrad (about a full step)
   off position before the floor was added to every branch. In simulation,
   with 5 mA noise, the result matches ideal sensing except at slow speed
-  (detent-compensated ripple ~820 vs ~310 rad/s^2). max_duty 0.9 keeps both
-  windows samplable. Bidirectional shunt amplifiers would avoid all this, at
-  the cost of parts and space.
+  (detent-compensated ripple ~820 vs ~310 rad/s^2). Bidirectional shunt
+  amplifiers would avoid all this, at the cost of parts and space.
+
+## 2026-10-16  DRV8876 datasheet corrections (gain, offset, delays, IMODE)
+- Area:    `brdstepper/inc/brd.h`, `brdstepper/comps/hv.c`, `shared/bip_loop.c`
+  (bip_cal), `host/hw/hv.c`, `docs/brdstepper_hw.md` (parts)
+- Status:  Fixed (simulated; to verify on the board)
+- Symptom: Before the datasheet (SLVSDS7B), the design assumed AIPROPI
+  450 uA/A, with 4.7 kOhm for 1.5 A: 7 V, past the ADC and the VREF clamp.
+  In simulation at the datasheet's IPROPI offset limit (7.5 mA), the
+  slow-speed ripple went from ~750 to ~9200 rad/s^2.
+- Cause:   The datasheet gives AIPROPI 1000 uA/A, an offset of up to
+  +-7.5 mA at low current, tPD 0.65 us, tDELAY 1.6 us, and RDS(on)
+  0.35 + 0.35 Ohm. In the cycle-by-cycle IMODEs nFAULT also flags plain
+  chopping. Input 00 is coast and 11 is brake.
+- Fix:     RIPROPI 2.0 kOhm (1.65 A full scale) and an IPROPI cap of at most
+  100 pF. PMODE high, IMODE open (fixed off-time, latched overcurrent,
+  nFAULT for faults only). sense_window 0.12, max_duty 0.88. Disabled
+  means coast (CCR > ARR), not brake. nSLEEP stays high and only pulses
+  1.2 ms to clear a latched fault, then the driver gets 1.2 ms (tWAKE)
+  before it is driven. An IPROPI offset calibration (bip_cal) runs at
+  each enable: braking, rotor still, zero current. With it the
+  worst-case ripple is ~1360 rad/s^2 (stepper_ipropi_worst.test). The
+  simulator models the 0.7 Ohm bridge, the offset and the gain error.
 
 ## 2026-10-16  G4 flash: 64-bit units, each programmed once
 - Area:    `shared/fwstage.c` (prog_size, the 24-byte header), `brdstepper/src/flash.c`

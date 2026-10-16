@@ -69,3 +69,22 @@ void bip_step(bip_state_t *s, const bip_param_t *p, float e, float w, float d_cm
 float bip_sense(float drive, float brake, float duty, float min_window, float prev, float thr);
 // the commanded coil currents: the rotor-frame command turned by angle e
 void bip_ref(float e, float d_cmd, float q_cmd, float *ia, float *ib);
+
+// IPROPI offset (DRV8876: up to +-7.5 mA at low current). At enable, before
+// driving, both bridges brake for n PWM periods with the rotor still: the
+// coil current is zero, so the brake-window reading is the offset. A
+// positive offset is measured and later subtracted; a negative one reads
+// as 0 (the mirror cannot go below 0) and stays as a dead zone that small.
+typedef struct {
+  uint32_t n, left;
+  float sum_a, sum_b;
+  float off_a, off_b;  // [A], >= 0
+} bip_cal_t;
+void bip_cal_start(bip_cal_t *c, uint32_t n);
+// one PWM period's brake-window samples while calibrating; 1 while still
+// calibrating (keep braking), 0 when done
+int bip_cal_sample(bip_cal_t *c, float brake_a, float brake_b);
+// a sample with the offset taken out
+static inline float bip_cal_apply(float sample, float off) {
+  return sample > off ? sample - off : 0.0f;
+}

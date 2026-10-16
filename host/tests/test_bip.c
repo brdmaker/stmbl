@@ -162,6 +162,18 @@ int main(void) {
   ok(bip_sense(0.004f, 0.006f, 0.5f, W, 0.2f, T) == 0.0f && bip_sense(0.0f, 0.008f, 0.02f, W, 0.2f, T) == 0.0f,
      "IPROPI: below the noise floor: 0 (a rectified |noise| would bias the loop)", 0);
 
+  // 9. offset calibration: a positive offset measured, a negative one reads 0
+  bip_cal_t cal;
+  bip_cal_start(&cal, 4);
+  int busy = 0;
+  for(int i = 0; i < 4; i++) {
+    busy += bip_cal_sample(&cal, 0.0075f + (i & 1 ? 0.001f : -0.001f), 0.0f);
+  }
+  ok(busy == 3 && fabsf(cal.off_a - 0.0075f) < 1e-6f && cal.off_b == 0.0f && bip_cal_sample(&cal, 1, 1) == 0,
+     "IPROPI offset calibration: the mean of the brake-window samples at zero current", cal.off_a);
+  ok(fabsf(bip_cal_apply(0.1075f, 0.0075f) - 0.1f) < 1e-6f && bip_cal_apply(0.005f, 0.0075f) == 0.0f,
+     "  ...applied: subtracted, never below 0", 0);
+
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }

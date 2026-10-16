@@ -96,32 +96,66 @@ reachable from the firmware: a RAM trigger word and a jump, as stmbl does.
 
 ## Current sensing: the DRV8876's IPROPI
 
-IPROPI mirrors only the low-side MOSFETs, and only current flowing drain
-to source (TI's datasheet text, via search excerpts; to confirm with the
-datasheet):
+From the DRV8876 datasheet (SLVSDS7B, 7.3.3 and 6.5).
+
+**What IPROPI measures:** the low-side MOSFETs, only current flowing drain
+to source, scaled by AIPROPI = 1000 µA/A.
 - **Driving:** it reads the coil current if it flows the way the bridge
   drives, else 0.
 - **Braking** (both low sides on, slow decay): it reads the magnitude.
+- **Coast:** it reads nothing.
 
-A stepper's coil currents change sign every electrical turn, so one
-sample is not enough. The firmware samples each coil twice per PWM
-period, in the drive window and in the brake window, and makes a signed
-current of the two (`bip_sense` in `shared/bip_loop.c`). When the drive
-window is too short to sample (small duty, near the current's zero), it
-takes the sign from the current command.
+**Accuracy:**
+- ±7.5 mA below 0.15 A and ±5 mA up to 0.5 A (a fixed offset);
+- ±6.5 % from 0.5 to 2 A (RGT package).
 
-In the simulator (`host/tests/stepper_ipropi.test`, 5 mA noise):
-- standstill, 10 and 15 rev/s and the load step are as good as ideal
-  sensing;
-- at very slow speed the ripple is ~2.5 times larger (detent-compensated
-  820 vs 310 rad/s²), still ~4 times better than without detent
-  compensation.
+**Timing:**
+- sense delay tDELAY 1.6 µs after a low-side MOSFET turns on;
+- input to output tPD 0.65 µs.
+
+With drive and brake alternating, the MOSFET carrying the current stays
+on and the delay does not apply. It does apply in the brake window when
+the current flows against the drive.
+
+**What the firmware does.** A stepper's coil currents change sign every
+electrical turn, so one sample is not enough.
+- **Two samples:** each coil is sampled twice per PWM period, in the drive
+  window and in the brake window, and `bip_sense` (`shared/bip_loop.c`)
+  makes a signed current of the two.
+- **Sign:** when the drive window is too short to sample (small duty, near
+  the current's zero), the sign comes from the current command.
+- **Offset calibration:** at each enable, both bridges brake for 3.2 ms
+  with the rotor still. The current is zero then, so the reading is the
+  offset (`bip_cal_*`). A positive offset is measured and subtracted. A
+  negative one reads 0 and stays as a dead zone that small.
+- **Windows:** `sense_window` 0.12 and `max_duty` 0.88. A window must hold
+  tPD + tDELAY + the ADC's 0.15 µs from its start; centred, that is
+  4.8 µs, or 9.6 % of the 50 µs period.
+
+**In the simulator** (NEMA11, 24 V, 0.7 Ω bridge resistance, 5 mA noise):
+
+| sensing | standstill | 10 rev/s | slow-speed ripple (detent comp.) |
+|---|---|---|---|
+| ideal | 0 | 0.4 mrad | ~210 rad/s² |
+| IPROPI, typical (`stepper_ipropi.test`) | 0 | 0.8 mrad | ~750 rad/s² |
+| IPROPI, datasheet limits: 7.5 mA offset, 6.5 % gain (`stepper_ipropi_worst.test`) | 0 | 0.8 mrad | ~1360 rad/s² |
+| the same without the offset calibration | 0 | 1.2 mrad | ~9200 rad/s² |
+| no detent compensation | | | ~3000 rad/s² |
+
+The offset is what matters; a 6.5 % gain error costs almost nothing.
 
 **Hardware consequences:**
-- **Duty:** `max_duty` 0.9 keeps both windows samplable.
-- **Settling:** IPROPI needs some µs to settle after switching; to check.
-- **Gain:** the resistor (4.7 kΩ) and the gain (`BRD_AIPROPI`, to confirm)
-  set the scale.
+- **Sense resistor:** 2.0 kΩ 1 %: 3.3 V = 1.65 A full scale.
+- **IPROPI filter:** at most ~100 pF. TI's 10 nF suggestion (for the trip
+  comparator) would make the sample settle in tens of µs. With 2 kΩ even
+  1 nF is a 2 µs time constant, too slow for the windows.
+- **PMODE high** (to 3.3 V): PWM mode, IN1 / IN2.
+- **IMODE open (Hi-Z):** fixed off-time chopping at the trip, overcurrent
+  latched off. In the cycle-by-cycle modes nFAULT also goes low while
+  chopping, and the firmware treats nFAULT as a fault.
+- **VREF:** the trip, ITRIP = VREF / (RIPROPI × AIPROPI), set by the DAC to
+  1.5 × max_cur (1.0 A for 0.67 A: 2.0 V). VREF ≤ 3.6 V. VREF also clamps
+  the IPROPI voltage.
 - **Alternative:** a bidirectional shunt amplifier per coil (INA181-class
   plus a shunt) would make all of this unnecessary. It costs 2 amplifiers,
   2 shunts and board space; worth keeping as a footprint option if there is
@@ -168,10 +202,15 @@ so setup works without motor power. The same console, `servoterm-cli`,
 | LED1 | 1 | LED 0603 + 1k | | |
 | M1 | 1 | diametric magnet 6 × 2.5 mm NdFeB | | rear shaft of a double-shaft motor (or glued) |
 
-**Per DRV8876 (× 2):** 10 µF 50 V X7R 1206 and 100 nF 50 V on VM; 22 nF
-50 V CPH–CPL; 100 nF 16 V VCP–VM; an IPROPI resistor (4.7k ≈ 1.5 A full
-scale, 3.6k ≈ 2 A; pick for the motor) with 1 nF; PMODE / IMODE straps for
-PWM mode (check the datasheet's strap table).
+**Per DRV8876 (× 2)**, values checked against the datasheet (SLVSDS7B):
+- **VM:** 10 µF 50 V X7R 1206 bulk and 100 nF 50 V.
+- **Charge pump:** 22 nF 50 V X7R CPH–CPL, 100 nF 16 V X7R VCP–VM.
+- **Current sense:** IPROPI 2.0 kΩ 1 % to GND (1.65 A full scale; 1.5 kΩ
+  for 2.2 A) with at most 100 pF.
+- **Straps:** PMODE to 3.3 V (PWM mode); IMODE left open (fixed off-time,
+  overcurrent latched off, nFAULT for faults only).
+- **nSLEEP and nFAULT:** both drivers' nSLEEP on PA5 and nFAULT on PA6
+  (open drain, wired-or, 10k pull-up).
 
 **MCU and measurements:**
 - **MCU decoupling:** 100 nF per VDD pin plus 4.7 µF.
@@ -257,5 +296,5 @@ default. This matters mostly for the G431 fallback.
    - USB CDC;
    - the bootloader;
    - CAN.
-3. **Bench:** the register details marked "check", the IPROPI gain and
-   settling time, the encoder offset (phasing).
+3. **Bench:** the register details marked "check"; IPROPI against a
+   current probe (offset, the windows); the encoder offset (phasing).

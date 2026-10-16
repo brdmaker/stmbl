@@ -7,7 +7,8 @@
  * mode 2 (low while CNT < CCR), so a channel's low phase is centred at the
  * counter's 0. A coil driven forward has IN1 high and IN2 low for |d| of
  * the period around CNT = 0 (drive), both high the rest (brake, low-side
- * slow decay); backward the other way round. TIM1's update at both ends of
+ * slow decay); backward the other way round (DRV8876 PWM mode, PMODE high:
+ * 10 forward, 01 reverse, 11 brake, 00 coast). TIM1's update at both ends of
  * the count (RCR = 0) triggers ADC1 + ADC2 injected simultaneously: at
  * CNT = 0 the drive window, at the top the brake window, the two samples
  * shared/bip_loop.c's bip_sense needs (the DRV8876 senses the low side
@@ -79,6 +80,14 @@ void hw_pwm_set(float da, float db) {
   TIM1->CCR2 = da < 0 ? 0 : a;  // A IN2
   TIM1->CCR3 = db < 0 ? b : 0;  // B IN1
   TIM8->CCR1 = db < 0 ? 0 : b;  // B IN2
+}
+
+void hw_pwm_coast(void) {
+  // PWM mode 2 with CCR above ARR: the output never goes active (high)
+  TIM1->CCR1 = BRD_PWM_ARR + 1;
+  TIM1->CCR2 = BRD_PWM_ARR + 1;
+  TIM1->CCR3 = BRD_PWM_ARR + 1;
+  TIM8->CCR1 = BRD_PWM_ARR + 1;
 }
 
 // ---- ADC: ADC1 + ADC2, injected simultaneous, triggered by TIM1 TRGO2 ----
@@ -186,7 +195,7 @@ void hw_init(void) {
   TIM8->CCMR1      = (7u << TIM_CCMR1_OC1M_Pos) | TIM_CCMR1_OC1PE;
   TIM8->CCER       = TIM_CCER_CC1E;
   TIM8->SMCR       = (6u << TIM_SMCR_SMS_Pos) | (0u << TIM_SMCR_TS_Pos);  // trigger mode, ITR0 = TIM1: check
-  hw_pwm_set(0, 0);
+  hw_pwm_coast();
   pin(GPIOA, 8, AF, 6, 0);
   pin(GPIOA, 9, AF, 6, 0);
   pin(GPIOA, 10, AF, 6, 0);

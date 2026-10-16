@@ -114,3 +114,22 @@ void bip_ref(float e, float d_cmd, float q_cmd, float *ia, float *ib) {
   *ia = d_cmd * ce - q_cmd * se;
   *ib = d_cmd * se + q_cmd * ce;
 }
+
+void bip_cal_start(bip_cal_t *c, uint32_t n) {
+  c->n = c->left = n;
+  c->sum_a = c->sum_b = 0.0f;
+}
+
+int bip_cal_sample(bip_cal_t *c, float brake_a, float brake_b) {
+  if(c->left == 0) {
+    return 0;
+  }
+  c->sum_a += brake_a;
+  c->sum_b += brake_b;
+  if(--c->left == 0) {
+    c->off_a = c->sum_a / c->n;
+    c->off_b = c->sum_b / c->n;
+    return 0;
+  }
+  return 1;
+}

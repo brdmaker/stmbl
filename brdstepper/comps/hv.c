@@ -15,6 +15,18 @@
 // frt (20 kHz, after both samples of the PWM period): the coil currents
 // from IPROPI (bip_sense), the loop, the duties for the next period.
 // rt: supply, temperature, enable / fault, the DRV8876's own current trip.
+//
+// DRV8876 (SLVSDS7B), strapped PMODE high (PWM mode), IMODE open (fixed
+// off-time chopping at the trip, overcurrent latched off; nFAULT then
+// means a real fault, not chopping):
+// - disabled: both inputs low, coast (outputs Hi-Z), not brake;
+// - nSLEEP stays high; the driver is ready tWAKE (1 ms) after it rises. A
+//   latched fault (overcurrent) is cleared by nSLEEP low for tSLEEP (1 ms),
+//   done when the drive is enabled again after the fault;
+// - sense_window: a window must hold the sample tPD (0.65 us, input to
+//   output) + tDELAY (1.6 us, current sense) + the ADC's 0.15 us after its
+//   start; centred, that is a window of 4.8 us, 9.6 % of 50 us: 0.12, and
+//   max_duty 0.88 leaves the brake window as long.
 
 HAL_COMP(hv);
 
@@ -49,6 +61,9 @@ HAL_PIN(fault);
 HAL_PIN(max_duty);      // usable share of the supply (both IPROPI windows samplable)
 HAL_PIN(sense_window);  // shortest samplable window, share of the period
 HAL_PIN(sense_thr);     // IPROPI noise floor [A]
+HAL_PIN(sense_cal);     // IPROPI offset calibration at each enable [PWM periods]
+HAL_PIN(sense_off_a);   // the offsets found [A]
+HAL_PIN(sense_off_b);
 HAL_PIN(trip);          // the DRV8876's own current trip, times max_cur
 HAL_PIN(ia);            // coil currents [A]
 HAL_PIN(ib);
@@ -66,15 +81,22 @@ struct hv_ctx_t {
   float ia, ib;      // reconstructed coil currents
   float win, thr;    // IPROPI: shortest samplable window, noise floor
   uint32_t frt_n;    // frt periods since the last rt
+  uint32_t ready;    // rt periods since nSLEEP rose (the driver needs 1 ms)
+  uint32_t reset;    // rt periods left of an nSLEEP low pulse (fault reset)
+  int was_en, faulted;
+  int frt_was_en;
+  uint32_t cal_n;    // sense_cal, handed to frt
+  bip_cal_t cal;
   bip_out_t out;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
   PIN(scale)        = 1.0;
-  PIN(max_duty)     = 0.9;
-  PIN(sense_window) = 0.1;
+  PIN(max_duty)     = 0.88;
+  PIN(sense_window) = 0.12;
   PIN(sense_thr)    = 0.01;
+  PIN(sense_cal)    = 64;  // 3.2 ms
   PIN(trip)         = 1.5;
 }
 
@@ -84,16 +106,33 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // the angle advanced by the speed since the rt loop set it
   float e = mod(ctx->pos + ctx->vel * period * ctx->frt_n);
   ctx->frt_n++;
+  // enabled: first the IPROPI offsets, braking with the rotor still
+  if(ctx->en && !ctx->frt_was_en && ctx->cal_n > 0) {
+    bip_cal_start(&ctx->cal, ctx->cal_n);
+  }
+  ctx->frt_was_en = ctx->en;
+  if(ctx->en && bip_cal_sample(&ctx->cal, brd_adc.ia_brake, brd_adc.ib_brake)) {
+    bip_reset(&ctx->bip);
+    ctx->da = ctx->db = 0.0f;
+    hw_pwm_set(0.0f, 0.0f);  // both inputs high: brake
+    return;
+  }
   float ra, rb;
   bip_ref(e, ctx->d_cmd, ctx->q_cmd, &ra, &rb);
-  ctx->ia = bip_sense(brd_adc.ia_drive, brd_adc.ia_brake, ctx->da, ctx->win, ra, ctx->thr);
-  ctx->ib = bip_sense(brd_adc.ib_drive, brd_adc.ib_brake, ctx->db, ctx->win, rb, ctx->thr);
+  float iad = bip_cal_apply(brd_adc.ia_drive, ctx->cal.off_a), iab = bip_cal_apply(brd_adc.ia_brake, ctx->cal.off_a);
+  float ibd = bip_cal_apply(brd_adc.ib_drive, ctx->cal.off_b), ibb = bip_cal_apply(brd_adc.ib_brake, ctx->cal.off_b);
+  ctx->ia = bip_sense(iad, iab, ctx->da, ctx->win, ra, ctx->thr);
+  ctx->ib = bip_sense(ibd, ibb, ctx->db, ctx->win, rb, ctx->thr);
   bip_param_t p = ctx->par;
   p.udc         = brd_adc.vbus;
   bip_step(&ctx->bip, &p, e, ctx->vel, ctx->d_cmd, ctx->q_cmd, ctx->ia, ctx->ib, ctx->en, period, &ctx->out);
   ctx->da = ctx->out.duty_a;
   ctx->db = ctx->out.duty_b;
-  hw_pwm_set(ctx->da, ctx->db);
+  if(ctx->en) {
+    hw_pwm_set(ctx->da, ctx->db);
+  } else {
+    hw_pwm_coast();
+  }
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -103,7 +142,29 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   int rev       = PIN(rev) > 0.0;
   float max_cur = MAX(PIN(max_cur) * PIN(scale), 0.0);
   int bfault    = hw_bridge_fault();
-  int en        = PIN(en) > 0.0 && !bfault;
+  int want      = PIN(en) > 0.0;
+  // nSLEEP: high, except a 1.2 ms pulse to clear a latched fault when the
+  // drive is enabled again after one; then 1.2 ms (tWAKE 1 ms) to be ready
+  const uint32_t ms12 = 6;  // rt periods (5 kHz)
+  if(bfault && ctx->was_en) {
+    ctx->faulted = 1;
+  }
+  if(want && !ctx->was_en && ctx->faulted) {
+    ctx->reset   = ms12;
+    ctx->faulted = 0;
+  }
+  ctx->was_en = want;
+  if(ctx->reset > 0) {
+    ctx->reset--;
+    hw_bridges(0);
+    ctx->ready = 0;
+  } else {
+    hw_bridges(1);
+    if(ctx->ready < ms12) {
+      ctx->ready++;
+    }
+  }
+  int en = want && !bfault && ctx->ready >= ms12;
 
   bip_param_t p = {.r = PIN(r), .l = PIN(l), .psi = PIN(psi), .cur_bw = PIN(cur_bw), .cur_ff = PIN(cur_ff),
                    .cur_ind = PIN(cur_ind), .udc = brd_adc.vbus, .max_cur = max_cur, .max_duty = PIN(max_duty),
@@ -119,11 +180,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   ctx->frt_n = 0;
   ctx->win   = CLAMP(PIN(sense_window), 0.0, 0.5);
   ctx->thr   = MAX(PIN(sense_thr), 0.0);
+  ctx->cal_n = (uint32_t)CLAMP(PIN(sense_cal), 0, 10000);
   bip_out_t o = ctx->out;
   float ia = ctx->ia, ib = ctx->ib;
   __enable_irq();
 
-  hw_bridges(PIN(en) > 0.0);  // nSLEEP: off clears the DRV8876's latched faults
   // the DRV8876's own trip: VREF = trip * max_cur * R * AIPROPI (its comparator on IPROPI)
   hw_vref(MAX(PIN(trip), 1.0) * max_cur * BRD_IPROPI_R * BRD_AIPROPI);
 
@@ -136,6 +197,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(duty_a)       = o.duty_a;
   PIN(duty_b)       = o.duty_b;
   PIN(ia)           = ia;
+  PIN(sense_off_a)  = ctx->cal.off_a;
+  PIN(sense_off_b)  = ctx->cal.off_b;
   PIN(ib)           = ib;
   PIN(dc_volt)      = brd_adc.vbus;
   PIN(pwm_volt)     = brd_adc.vbus * CLAMP(PIN(max_duty), 0.0, 1.0);

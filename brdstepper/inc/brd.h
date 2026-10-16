@@ -41,8 +41,10 @@
 
 // analog scaling
 #define BRD_VREF 3.3f
-#define BRD_IPROPI_R 4700.0f       // IPROPI resistor [ohm] (parts list: 4.7k ~ 1.5 A)
-#define BRD_AIPROPI 0.000450f      // DRV8876 current mirror gain [A/A]: check the datasheet
+// DRV8876 (SLVSDS7B): AIPROPI 1000 uA/A; error +-7.5 mA below 0.15 A,
+// +-5 mA to 0.5 A, +-6.5 % above (RGT package). 2.0k: 3.3 V = 1.65 A.
+#define BRD_IPROPI_R 2000.0f       // IPROPI resistor [ohm]
+#define BRD_AIPROPI 0.001f         // current mirror gain [A/A]
 #define BRD_VBUS_DIV (110.0f / 10.0f)
 
 typedef enum { BRD_SSERIAL = 0, BRD_CAN = 1, BRD_UNKNOWN = 2 } brd_variant_t;
@@ -58,6 +60,7 @@ void hw_clock_init(void);
 void hw_init(void);                 // GPIO, PWM, ADC, DAC, SPI; bridges asleep
 void hw_pwm_start(void);            // counters running, ADC triggered
 void hw_pwm_set(float da, float db);  // duties -1..1 (sign: direction); applied at the next period
+void hw_pwm_coast(void);              // both inputs of both bridges low: outputs Hi-Z (the motor turns freely)
 void hw_bridges(int on);            // nSLEEP
 int hw_bridge_fault(void);          // nFAULT low
 int hw_enable_input(void);          // PA7

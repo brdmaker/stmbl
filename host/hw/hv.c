@@ -88,6 +88,12 @@ HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
 HAL_PIN(sim_sense);      // stepper current sensing: 0 ideal, 1 DRV8876 IPROPI (low side only, see bip_sense)
 HAL_PIN(sense_window);   // shortest PWM window that can be sampled, share of the period
 HAL_PIN(sense_thr);      // IPROPI noise floor [A]
+HAL_PIN(sim_rds);        // bridge resistance in series with each coil [ohm] (DRV8876: 0.35 + 0.35)
+HAL_PIN(sim_sense_offset);  // IPROPI offset [A]: + on coil A, - on coil B (DRV8876: up to 7.5 mA)
+HAL_PIN(sim_sense_gain);    // IPROPI gain error, share: + on A, - on B (DRV8876 RGT: up to 0.065)
+HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods] (0: off)
+HAL_PIN(sense_off_a);       // the offsets it found [A]
+HAL_PIN(sense_off_b);
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -117,6 +123,9 @@ struct hv_ctx_t {
   bip_state_t bip;  // stepper current loop
   float duty_a, duty_b;  // the duties the next samples are taken with
   float ia_meas, ib_meas;  // last reconstructed coil currents
+  bip_cal_t cal;
+  int was_en;
+  float last_brake[2];  // raw brake-window samples (for the calibration)
 };
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
@@ -128,16 +137,24 @@ static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +-
 }
 
 // what brdstepper measures of a coil current i driven with duty d
-// (ref: the commanded coil current, for the sign when a window is too short)
-static float sense(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float i, float d, float ref, float *prev) {
+// (ref: the commanded coil current, for the sign when a window is too short;
+// k: +1 coil A, -1 coil B, the sign of the offset and gain errors)
+static float sense(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float i, float d, float ref, float *prev, float k) {
   float n = PIN(sim_cur_noise);
   if(PIN(sim_sense) <= 0.0) {
     return i + (n > 0.0 ? noise(ctx, n) : 0.0);
   }
   // IPROPI: low side only, drain to source only (shared/bip_loop.h)
+  // the mirror: low-side current drain to source, times (1 + gain error), plus offset, never negative
   float dir   = d >= 0.0 ? 1.0 : -1.0;
-  float drive = MAX(i * dir + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
-  float brake = MAX(fabsf(i) + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
+  float g     = 1.0 + k * PIN(sim_sense_gain), err = k * PIN(sim_sense_offset);
+  float drive = MAX(MAX(i * dir, 0.0) * g + err + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
+  float brake = MAX(fabsf(i) * g + err + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
+  // the drive's side: the offset its calibration found, taken out
+  float off   = k > 0 ? ctx->cal.off_a : ctx->cal.off_b;
+  ctx->last_brake[k > 0 ? 0 : 1] = brake;
+  drive       = bip_cal_apply(drive, off);
+  brake       = bip_cal_apply(brake, off);
   *prev       = bip_sense(drive, brake, d, PIN(sense_window), ref, PIN(sense_thr));
   return *prev;
 }
@@ -168,7 +185,7 @@ static void mech_step(struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
 // hybrid stepper; returns the rotor-frame feedback as the F3 path does
 static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float period, float d_cmd, float q_cmd,
                        float pos, float vel, int en, float *fb) {
-  float mr     = MAX(PIN(sim_r), 0.001);
+  float mr     = MAX(PIN(sim_r) + MAX(PIN(sim_rds), 0.0), 0.001);  // coil + bridge
   float ml     = MAX(PIN(sim_l), 0.00001);
   float mpsi   = PIN(sim_psi);
   float pp     = MAX(PIN(sim_pp), 1.0);
@@ -181,14 +198,21 @@ static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float pe
                     .cur_ind = PIN(cur_ind), .udc = udc, .max_cur = MAX(PIN(max_cur) * PIN(scale), 0.0),
                     .max_duty = PIN(max_duty), .volt_mode = PIN(cmd_mode) == 0.0};
   bip_out_t o = {0};
+  if(en && !ctx->was_en && PIN(sim_sense) > 0.0 && PIN(sense_cal) > 0.0) {
+    bip_cal_start(&ctx->cal, (uint32_t)PIN(sense_cal));
+  }
+  ctx->was_en = en;
   for(int k = 0; k < F3_PER_RT; k++) {
     // what the drive measures and knows: coil currents, its own angle
     float e_k = mod(pos + vel * loop_dt * k);
     float ref_a, ref_b;
     bip_ref(e_k, d_cmd, q_cmd, &ref_a, &ref_b);
-    float ia = sense(ctx, pins, PIN(sim_ia), ctx->duty_a, ref_a, &ctx->ia_meas);
-    float ib = sense(ctx, pins, PIN(sim_ib) * prev, ctx->duty_b, ref_b, &ctx->ib_meas);
-    bip_step(&ctx->bip, &bp, mod(pos + vel * loop_dt * k), vel, d_cmd, q_cmd, ia, ib, en, loop_dt, &o);
+    float ia = sense(ctx, pins, PIN(sim_ia), ctx->duty_a, ref_a, &ctx->ia_meas, 1.0);
+    float ib = sense(ctx, pins, PIN(sim_ib) * prev, ctx->duty_b, ref_b, &ctx->ib_meas, -1.0);
+    int calibrating = bip_cal_sample(&ctx->cal, ctx->last_brake[0], ctx->last_brake[1]);
+    // calibrating: both bridges brake (zero volts), the loop held off
+    bip_step(&ctx->bip, &bp, mod(pos + vel * loop_dt * k), vel, d_cmd, q_cmd, ia, ib, en && !calibrating, loop_dt,
+             &o);
     float ua = o.duty_a * udc, ub = o.duty_b * udc * prev;
     ctx->duty_a = o.duty_a;
     ctx->duty_b = o.duty_b;
@@ -209,8 +233,10 @@ static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float pe
       mech_step(pins, te, mj, mot_dt);
     }
   }
-  PIN(duty_a)   = o.duty_a;
-  PIN(duty_b)   = o.duty_b;
+  PIN(duty_a)      = o.duty_a;
+  PIN(duty_b)      = o.duty_b;
+  PIN(sense_off_a) = ctx->cal.off_a;
+  PIN(sense_off_b) = ctx->cal.off_b;
   PIN(pwm_volt) = udc * (PIN(max_duty) > 0.0 && PIN(max_duty) <= 1.0 ? PIN(max_duty) : 1.0);
   fb[0] = o.id;
   fb[1] = o.iq;

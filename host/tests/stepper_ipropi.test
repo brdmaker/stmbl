@@ -4,7 +4,9 @@
 # way the bridge drives, else 0) and a brake-window sample (its magnitude);
 # shared/bip_loop.c's bip_sense makes a signed current of them, the sign
 # from the current command when the drive window is too short. 5 mA noise
-# per sample, 10 mA noise floor, max_duty 0.9 (both windows samplable).
+# per sample, 10 mA noise floor, max_duty 0.88 and sense_window 0.12 (both
+# windows long enough for the DRV8876's 0.65 us propagation and 1.6 us sense
+# delay), 0.7 ohm of bridge resistance, the offset calibration at enable.
 #
 # The rest as stepper.test:
 # brdstepper in closed loop: a NEMA11 hybrid stepper (tests/nema11: 0.67 A,
@@ -81,8 +83,8 @@ hv0.sim_ib
 # 0.045 Nm (0.047 less 0.002 friction) / kt 0.14 Nm/A
 @expect hv0.iq_fb ~ -0.32 5%
 @expect pid0.pos_error[501] ~ 0 0.001
-# two phases: R iq^2 = 6.8 * 0.315^2
-@expect pe0.p_el_ac ~ 0.675 5%
+# two phases: R iq^2, R the coil and the bridge: (6.8 + 0.7) * 0.315^2
+@expect pe0.p_el_ac ~ 0.744 5%
 @expect hv0.sim_vel[2] ~ 94.25 1%
 @expect fault0.state[2] == 1
 @expect fault0.state[3] == 3

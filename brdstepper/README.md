@@ -56,8 +56,10 @@ and only current flowing drain to source.
 - **Two samples:** each PWM period gives a drive-window sample and a
   brake-window sample. `bip_sense` (shared/bip_loop.c) makes a signed
   current of the two.
-- **Duty limit:** `hv0.max_duty` (0.9) keeps both windows long enough to
-  sample.
+- **Windows:** `hv0.sense_window` 0.12 and `hv0.max_duty` 0.88 keep both
+  windows long enough for the DRV8876's delays.
+- **Offset calibration:** at each enable the bridges brake for
+  `hv0.sense_cal` periods (64, 3.2 ms) to measure the IPROPI offsets.
 - **More:** see `DEBUGNOTES.md`, and the simulation in
   `host/tests/stepper_ipropi.test`.
 
@@ -84,8 +86,9 @@ Until brdstepper's bootloader exists, `make` links the application at
 `make -C host check`:
 - **`test_bip`:** the current loop against an exact coil model, and the
   IPROPI reconstruction.
-- **`stepper.test`, `stepper_ipropi.test`:** a NEMA11 in closed loop, with
-  ideal and with IPROPI sensing.
+- **`stepper.test`, `stepper_ipropi.test`, `stepper_ipropi_worst.test`:**
+  a NEMA11 in closed loop, with ideal sensing, with IPROPI sensing, and
+  with IPROPI at the datasheet's error limits.
 - **`test_bootloader`:** update staging in 64-bit units, each programmed
   once, as on the G4.
 
@@ -98,5 +101,5 @@ Until brdstepper's bootloader exists, `make` links the application at
 - **The bootloader** (smart-serial loader, USB DFU entry, applying staged
   updates), IWDG, and setting the option bytes (nSWBOOT0 = 0, nBOOT0 = 1,
   DBANK = 1) in the flash target.
-- **On the board:** check the marked register details, the IPROPI gain and
-  settling time, and the encoder's offset calibration (phasing).
+- **On the board:** check the marked register details, IPROPI against a
+  current probe, and the encoder's offset calibration (phasing).
