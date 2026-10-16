@@ -100,8 +100,11 @@ def main():
     C.wait_complete()
     C.home(-1)
     wait(lambda s: all(s.homed[j] for j in range(3)), 30)
-    idle = g("stmbl-sim.0.power")
-    INFO.append("# drive power at rest %.1f W" % idle)
+    # the power field is 8 bit, 20 W a step, noise-shaped: one frame of an
+    # idle drive reads 0 or 20 W, the average is the drive's
+    one = g("stmbl-sim.0.power")
+    idle = g("powerquota.0.total-power-avg")
+    INFO.append("# drive power at rest %.1f W (one frame: %.0f W)" % (idle, one))
     if os.environ.get("PROBE"):
         mdi("M52 P0")
         st = cycles(5, 60)
@@ -114,7 +117,8 @@ def main():
             if m:
                 INFO.append("# error: %s" % (m[1],))
         return
-    check(10 < idle < 40, "the drive reports its input power over smart-serial (%.1f W at rest)" % idle)
+    check(13 < idle < 17 and one % 20 == 0,
+          "the drive's power over smart-serial: 20 W steps, averaging %.1f W at rest (pe0.p_in 15 W)" % idle)
 
     hal.set_p("powerquota.0.meter-reset", "1")
     time.sleep(0.05)

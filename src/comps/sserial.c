@@ -28,6 +28,7 @@
 #include "hw/hw.h"
 #include "sserial.h"
 #include "crc8.h"
+#include "sserial_q.h"
 #include "setup.h"
 #include <string.h>
 
@@ -44,7 +45,7 @@ HAL_PIN(pos_cmd_d);
 HAL_PIN(pos_fb);
 HAL_PIN(vel_fb);
 HAL_PIN(current);
-HAL_PIN(power);  // the drive's input power [W] (pe0.p_in), -16384..16384
+HAL_PIN(power);  // the drive's input power [W] (pe0.p_in): 8 bit, 20 W a step, noise-shaped
 HAL_PIN(scale);
 
 HAL_PIN(clock_scale);
@@ -85,7 +86,7 @@ static uint32_t block_bytes;
 #pragma pack(push, 1)
 //*****************************************************************************
 uint8_t sserial_slave[] = {
-0x0D,0x09,0xA3,0x01,0xBF,0x01,0x00,0x00,// 0..7
+0x0C,0x09,0xA3,0x01,0xBF,0x01,0x00,0x00,// 0..7
 0x00,0x00,0x00,0x00,0xA0,0x20,0x10,0x80,// 8..15
 0x00,0x00,0x80,0xFF,0x00,0x00,0x80,0x7F,// 16..23
 0x08,0x00,0x72,0x61,0x64,0x00,0x70,0x6F,// 24..31
@@ -112,8 +113,8 @@ uint8_t sserial_slave[] = {
 0x00,0x00,0xF0,0xC1,0x00,0x00,0xF0,0x41,// 192..199
 0xB9,0x00,0x41,0x00,0x63,0x75,0x72,0x72,// 200..207
 0x65,0x6E,0x74,0x00,0x00,0x00,0x00,0x00,// 208..215
-0xA0,0x10,0x03,0x00,0x00,0x00,0x80,0xC6,// 216..223
-0x00,0x00,0x80,0x46,0xD4,0x00,0x57,0x00,// 224..231
+0xA0,0x08,0x03,0x00,0x00,0x00,0x20,0xC5,// 216..223
+0x00,0x00,0x20,0x45,0xD4,0x00,0x57,0x00,// 224..231
 0x70,0x6F,0x77,0x65,0x72,0x00,0x00,0x00,// 232..239
 0xA0,0x04,0x01,0x00,0x00,0x00,0xC8,0xC2,// 240..247
 0x00,0x00,0xC8,0x42,0xEE,0x00,0x6E,0x6F,// 248..255
@@ -147,7 +148,7 @@ uint8_t sserial_slave[] = {
 const discovery_rpc_t discovery = {
   .ptocp  = 0x01A3,
   .gtocp  = 0x01BF,
-  .input  = 13,
+  .input  = 12,
   .output = 9,
 };
 
@@ -168,7 +169,7 @@ typedef struct {
   float pos_fb;
   float vel_fb;
   int8_t current;
-  int16_t power;
+  int8_t power;
   uint32_t in_0 : 1;
   uint32_t in_1 : 1;
   uint32_t in_2 : 1;
@@ -176,8 +177,8 @@ typedef struct {
   uint32_t fault : 1;
   uint32_t index_enable : 1;
   uint32_t padding : 2;
-} sserial_in_process_data_t;  //size:12 bytes
-_Static_assert(sizeof(sserial_in_process_data_t) == 12, "sserial_in_process_data_t size error!");
+} sserial_in_process_data_t;  //size:11 bytes
+_Static_assert(sizeof(sserial_in_process_data_t) == 11, "sserial_in_process_data_t size error!");
 //global name:scale addr:0x144 size:32 dir:0x80
 #define scale_address 324
 //******************************************************************************
@@ -185,6 +186,7 @@ _Static_assert(sizeof(sserial_in_process_data_t) == 12, "sserial_in_process_data
 
 static sserial_out_process_data_t data_out;
 static sserial_in_process_data_t data_in;
+static ssq_t power_q;  // power's rounding error, carried frame to frame
 
 static uint8_t crc_reuest(uint8_t len) {
   uint8_t crc = crc8_init();
@@ -441,7 +443,7 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         data_in.pos_fb  = PIN(pos_fb) + PIN(vel_fb) * PIN(pos_advance);
         data_in.vel_fb  = PIN(vel_fb);
         data_in.current = CLAMP(PIN(current) / (30.0f / 128.0f), -127, 127);
-        data_in.power   = CLAMP(PIN(power) * (32767.0f / 16384.0f), -32767, 32767);
+        data_in.power   = ssq_encode(&power_q, PIN(power), 20.0f, 127);
         data_in.in_0    = (PIN(in0) > 0) ? 1 : 0;
         data_in.in_1    = (PIN(in1) > 0) ? 1 : 0;
         data_in.in_2    = (PIN(in2) > 0) ? 1 : 0;

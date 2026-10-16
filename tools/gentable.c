@@ -156,9 +156,11 @@ int main() {
   metadata(&(pd_table.vel_fb), last_pd);
   ADD_PROCESS_VAR(("current", "A", 8, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -30, 30));
   metadata(&(pd_table.current), last_pd);
-  // the drive's input power (pe0.p_in), for LinuxCNC's power quotas; here,
-  // after current, it stays byte aligned (the struct and the bit stream agree)
-  ADD_PROCESS_VAR(("power", "W", 16, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -16384, 16384));
+  // the drive's input power (pe0.p_in), for LinuxCNC's power quotas: 8 bit,
+  // 20 W a step (full scale 2560: hostmot2 decodes raw / 128 * 2560), up to
+  // +-2540 W (stmbl's 2 kW with headroom), noise-shaped (shared/sserial_q.h).
+  // After current it stays byte aligned (the struct and the bit stream agree).
+  ADD_PROCESS_VAR(("power", "W", 8, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -2560, 2560));
   metadata(&(pd_table.power), last_pd);
   ADD_PROCESS_VAR(("in", "none", 4, DATA_TYPE_BITS, DATA_DIRECTION_INPUT, -100, 100));
   metadata(&(pd_table.input_pins), last_pd);
