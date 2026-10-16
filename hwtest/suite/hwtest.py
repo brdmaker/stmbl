@@ -90,7 +90,7 @@ class Ctx:
         cmd = [CLI, "-d", port, "-t", str(q)] + list(args)
         self.note("$ " + " ".join(cmd[1:]))
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=self.dir)
         except subprocess.TimeoutExpired:
             self.note("  timeout")
             return -1, "timeout"
@@ -716,7 +716,7 @@ def t_capture_motion(ctx):
                           "-c", "scope0.ch1 = hv0.iq_fb", "-c", "scope0.trig = vel1.vel", "-c", "scope0.level = 50",
                           "-c", "scope0.edge = 0", "-c", "scope0.pre = 0.25", "-c", "scope0.mode = 0",
                           "--capture", csv, "--capture-timeout", "90"],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ctx.dir)
     time.sleep(5.0)  # set up and armed over the slow link
     need(L.mdi("G0 X300", 30), "rapid to X300")
     out, _ = p.communicate(timeout=150)

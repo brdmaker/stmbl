@@ -1,0 +1,35 @@
+( soak cycle for the burn-in machine: X only, within +-300 mm,      )
+( up to the machine limits 500 mm/s and 1000 mm/s^2; about 35 s.   )
+G21 G90 G17 G64
+G0 X0
+G4 P0.5
+( long rapids, both directions )
+G0 X300
+G0 X-300
+G0 X0
+( feeds from creep to full speed )
+G1 X20 F120
+G1 X0 F600
+G1 X100 F3000
+G1 X-100 F12000
+G1 X200 F30000
+G1 X0 F30000
+( short moves and reversals )
+o100 repeat [20]
+  G1 X5 F12000
+  G1 X0
+o100 endrepeat
+( tiny steps, then hold )
+o110 repeat [10]
+  G1 X0.05 F300
+  G1 X0
+o110 endrepeat
+G4 P1
+( blended zig-zag through the planner )
+G1 X50 F18000
+G1 X10
+G1 X80
+G1 X-40
+G1 X0
+G4 P0.5
+M2
