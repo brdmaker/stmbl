@@ -941,3 +941,15 @@ Entry format:
   stays erased until the bootloader marks the update done.
   `test_bootloader` checks it on a model of the G4 flash that refuses a
   second program of a unit.
+
+## 2026-10-16  CAN on stmbl v4.0: no transceiver; classic and FD don't mix
+- Area:    `hw/kicad/v4.0` (P10), `docs/can_support.md`
+- Status:  Note
+- Symptom: (investigation) the v4.0 schematic has CAN_TX / CAN_RX nets,
+  but the board has no CAN transceiver.
+- Cause:   The F405's CAN1 (PD1 TX, PD0 RX) only goes, through the ESD
+  array U20, to the 2x6 header P10 (pins 5 and 7, next to SWD, CMD lines,
+  +5V, +24V). bxCAN is classic CAN only, and not FD-tolerant: it errors
+  CAN FD frames on the bus.
+- Fix:     CAN on a v4.0 board needs a plug-on transceiver board on P10.
+  stmbl v4.0 and FD brdsteppers need separate buses, or all classic.
