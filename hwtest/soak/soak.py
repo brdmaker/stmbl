@@ -574,7 +574,12 @@ def run_motion(run, con):
         run.stat("ferror_rest_mm", frest)
         run.stat("vel_max", vmax)
         for msg in msgs:
-            ok &= not run.event("lcnc_message", msg)
+            if "Unexpected realtime delay" in msg:
+                # the Pi's servo thread was late once; LinuxCNC carries on.
+                # Recorded (it shows up as a step in ferror), not a drive fault.
+                run.event("host_rt_delay", msg.splitlines()[0], failure=False)
+            else:
+                ok &= not run.event("lcnc_message", msg)
         if fmax > a.max_ferror:
             ok &= not run.event("ferror", "%.4f mm > %.4f mm in cycle %d" % (fmax, a.max_ferror, cycle))
         if frest > a.max_ferror_rest:

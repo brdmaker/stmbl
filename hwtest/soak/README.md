@@ -25,7 +25,7 @@ already be running.
 
 | When | Check | Event (FAIL unless noted) |
 |---|---|---|
-| During each cycle | LinuxCNC following error, 50 Hz | `ferror` over `--max-ferror` (0.5 mm); LinuxCNC errors (`lcnc_message`), for example its own following-error limit |
+| During each cycle | LinuxCNC following error, 50 Hz | `ferror` over `--max-ferror` (0.5 mm); LinuxCNC errors (`lcnc_message`), for example its own following-error limit. LinuxCNC's "Unexpected realtime delay" (the Pi's servo thread was late) is `host_rt_delay`, info only. |
 | After each cycle | following error at rest after `--settle` (0.5 s) | `ferror_rest` over `--max-ferror-rest` (0.02 mm) |
 | After each cycle | `hal`: HAL state, rt load and worst case | `hal_state` not `HAL_OK2` (with the full `hal` output); `rt_load_high` (info) above 90% of the period |
 | After each cycle | `uptime` | `drive_reboot` when it goes backwards |
