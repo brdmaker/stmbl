@@ -476,6 +476,22 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
+## 2026-10-17  USB console crawls after a smart-serial console session
+- Area:    `shared/sscon.c` (`sscon_reset`), `src/syscalls.c` (`sscon_out`)
+- Status:  Fixed
+- Symptom: The 1 h soak, started right after a hwtest/suite run, failed in
+  seconds: `hal` answers trickled in for seconds and ran into the next
+  commands (console_no_answer, garbled HAL state). A config dump took 7 s
+  instead of 2 and came back short.
+- Cause:   `sscon0.active` was set by the first console byte from LinuxCNC
+  and never cleared; a link timeout (LinuxCNC stopped) kept it. Every print
+  then went into the 2 KB smart-serial ring, which nothing drained, and
+  waited 100 ms per 8-byte chunk for room: ~80 bytes/s on USB too, until a
+  reset. (64-byte chunks would have made it ~640 bytes/s.)
+- Fix:     sscon_reset clears `active` and drops unsent output; it becomes
+  active again when LinuxCNC sends. test_sscon covers it; hwtest/suite's
+  post phase checks the USB console's speed after LinuxCNC exits.
+
 ## 2026-10-17  Motor kicks 0.87 mm at every enable (one boot, not reproduced)
 - Area:    real drive, firmware v0.9.18-274 (merge of power quota + console)
 - Status:  Open (seen in 1 of ~12 boots)

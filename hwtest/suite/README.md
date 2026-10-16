@@ -67,6 +67,10 @@ smart-serial console is the pty `<run>/drive-con`.
 | rt load | `HAL_OK2` under LinuxCNC; rt / frt maxima recorded; FAIL above `--rt-fail` (97%) |
 | end | machine off disables the drive; no reboot during the phase, no crash record, config unchanged |
 
+**post** (hw): after LinuxCNC has exited, a USB `--dump` must take no
+longer than 1.5 × the one before LinuxCNC. The smart-serial link has timed
+out by then; a console still treating it as active slowed all output.
+
 On a following error or a failed machine-on, the drive's commutation,
 feedback and controller pins go to `diag.txt`.
 
@@ -82,7 +86,7 @@ answer (and the other way round). The tests keep to that.
 |---|---|
 | `summary.md` | PASS / FAIL, every test with time and detail, measurements (rt, following error, dump times, power, enable swing, …) |
 | `results.tap` | TAP |
-| `results-drive.json`, `results-lcnc.json` | per phase, machine-readable |
+| `results-drive.json`, `results-lcnc.json`, `results-post.json` | per phase, machine-readable |
 | `hwtest.log` | every console command and answer, with time |
 | `diag.txt` | drive state at a failure |
 | `*.conf`, `*.csv` | dumps and captures |
