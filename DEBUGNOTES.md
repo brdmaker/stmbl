@@ -476,6 +476,20 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
+## 2026-10-17  flashsaveconf stalls rt: RT_TOO_LONG after a config save
+- Area:    `src/config.c` (`flashsaveconf`, `hardboot`)
+- Status:  Fixed
+- Symptom: `servoterm-cli --load` (which ends with flashsaveconf) or a bare
+  flashsaveconf left the drive in HAL state RT_TOO_LONG, rt and frt stopped,
+  until reset. Bench: 4 of 5 saves of the unchanged config, rt max ~122 us.
+  This was the first drive's "three boots ended in RT_TOO_LONG" (2026-10-14).
+- Cause:   The 16 KB sector erase stalls every flash fetch, interrupts
+  included, for 0.25 s or more; afterwards the rt ISR finds its DMA flag set
+  again and stops the HAL. Nothing stopped rt around the erase.
+- Fix:     flashsaveconf refuses while fault0.en_out is set, stops rt/frt for
+  the erase and write and starts them again (as `start`); hardboot stops the
+  HAL first. Bench: 8 of 8 saves kept HAL_OK2, config unchanged.
+
 ## 2026-10-14  HV board reads the DC bus low (and RT_TOO_LONG stops)
 - Area:    HV board DC sense (`hw/kicad/v4.0/hv_sense.sch`: R77, R78 249k,
   R79 3.9k into the F3 ADC; `stm32f303/src/comps/io.c` udc, fixed 3.3 V ref),
@@ -488,9 +502,9 @@ Entry format:
   (sinks ~1.5 V over 10..15 s, jumps back). Same readings with firmware
   v243, v248 (console changes reverted) and v225, so not firmware.
   pwm_volt follows the low reading, so the F3 outputs ~1.45x the commanded
-  voltage. In the same window three boots ended in HAL state RT_TOO_LONG
-  within seconds (rt max 134 us of 200; the USB IRQ, priority 15, can't
-  delay the rt ISR, priority 2).
+  voltage. The RT_TOO_LONG stops in the same window were not boots: the
+  drive was never reset, and `--load` writes to flash stalled rt (see
+  "flashsaveconf stalls rt" below). Unrelated to this fault.
 - Cause:   The input feeds the DC link directly (no precharge element), so
   the measurement is wrong: the ADC sees ~1.08 V instead of 1.55 V at 200 V.
   A high-side resistor (R77/R78) gone high, leakage across R79, or the F3's
@@ -502,19 +516,24 @@ Entry format:
 
 ## 2026-10-14  Drive rebooted during id_mot and then hung (once)
 - Area:    second bench drive, firmware v0.9.18-243-g128b9b92
-- Status:  Open (not reproduced)
+- Status:  Open (cause not reproduced); the hang part is fixed
 - Symptom: 30 s into id_mot (max_acc 250, state 1.3) the drive dropped off
   USB and re-enumerated (an F4 restart), then enumerated but answered
   nothing on the console until the user power-cycled it. LEDs normal after.
   The same run then passed 3 times (2 with a scope log, 1 polled), and
   id_mot / id_pmsm / LinuxCNC moves all ran without it again.
-- Cause:   Unknown. A HardFault would fit the hang: hal_error() returns from
-  the handler, so the faulting instruction re-runs; but that doesn't
-  explain the restart before it. A logic-supply dip would explain both.
-  The first drive's DC-sense fault on the same bench makes the setup
-  (supply, grounding, USB, encoder cable) a suspect too.
-- Fix:     If it recurs: note the time, read `hal` (state and error_info) before
-  power-cycling, and log the logic supply.
+- Cause:   The hang fits a fault in the main loop: all fault handlers
+  (`src/stm32f4xx_it.c`) called hal_error() and returned into the faulting
+  instruction, which faulted again forever, while the USB IRQ (priority 15)
+  kept the drive enumerated. No watchdog either (HAL_WATCHDOG is off). No
+  firmware path resets the chip on its own, so the restart before it is
+  still unexplained; a logic-supply dip or EMI reset is most likely.
+- Fix:     Fault handlers now save a record in CCM RAM (fault, stacked PC/LR,
+  CFSR/HFSR/BFAR, active HAL functions) and reset; `crash` prints it until
+  power-off. After 3 crashes without 10 s of running, the drive boots in safe
+  mode (no config, HAL stopped, console working). Checked on the bench with
+  the `fault` command (now a real bus fault: it wrote to locked flash, which
+  only set a flash error flag). If it recurs: run `crash` before power-cycling.
 
 ## 2026-10-14  stmbl_sim returned the previous packet's answer (1 ms extra lag)
 - Area:    `host/lcnc/sim_api.c` (`stmbl_sim_update`), `host/lcnc/stmbl_sim.c`
@@ -542,15 +561,20 @@ Entry format:
 
 ## 2026-10-14  rt worst case 168.5 us of 200 under LinuxCNC motion
 - Area:    F4 rt loop (`hal` rt time), second bench drive, v0.9.18-243
-- Status:  Note
+- Status:  Open
 - Symptom: First hardware soak run (LinuxCNC moves up to 500 mm/s, console
   checks between cycles): `hal` rt max 168.5 us of the 200 us period (84%).
-  Idle and during id_mot it was 104..134 us. The first drive's RT_TOO_LONG
-  stops are recorded above.
-- Cause:   Not known which rt function peaks; `hal` lists per-function max.
-- Fix:     The soak suite logs rt max every cycle and notes it above 90% of
-  the period (`rt_load_high`); run it for hours and compare per-function
-  maxima from `console.log`.
+  Idle and during id_mot it was 104..134 us.
+- Cause:   About 119 us of normal rt work (adc0 44 us alone) plus the
+  smart-serial frt (priority 0) preempting it: `src/comps/sserial.c`
+  ProcessDataRPC busy-waits up to 22 us (28 us in all) for a packet's last
+  bytes, once per LinuxCNC period; two packets in one rt cycle make ~170.
+  The maxima were set while LinuxCNC started or stopped, not in motion.
+  hal's rt time misses the ISR entry delay, and the RT_TOO_LONG check is
+  "TCIF set again", so the true margin under LinuxCNC may be only ~2 us.
+- Fix:     Not done. Ideas: answer the packet on the next frt tick instead of
+  spinning; measure the real deadline from DMA2_Stream0 NDTR at ISR entry
+  and exit; sum adc0's packed 16-bit samples with __UADD16 (~30 us less).
 
 ## 2026-10-14  rlpsij on the simulated drive: bad psi/J, overspeed in state 5
 - Area:    `shared/comps/rlpsij.c`, tested via `servoterm-cli --autotune`

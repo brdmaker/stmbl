@@ -54,8 +54,9 @@
  * code uses and startup does not clear, so it survives the reset; the
  * `crash` command prints it. After CRASH_MAX_RESETS crashes without
  * CRASH_OK_MS of running in between, the drive boots in safe mode: no
- * config, HAL stopped, console working (crash_safe_mode, main.c). A crash
- * loop at boot cannot hide the record, and `reset` tries a normal boot.
+ * config, no drive components, console working (crash_safe_mode, main.c).
+ * A crash loop at boot cannot hide the record, and `reset` tries a normal
+ * boot.
  */
 #include <stdio.h>
 #include <string.h>
@@ -119,9 +120,17 @@ void crash_record(uint32_t *frame, uint32_t handler) {
   NVIC_SystemReset();
 }
 
-// At boot: too many crashes in a row, so don't load the config.
+static int safe_mode;
+
+// At boot: too many crashes in a row, so don't load the config. The count
+// starts again, so the next reset tries a normal boot.
 int crash_safe_mode(void) {
-  return crash_valid() && crash->consecutive >= CRASH_MAX_RESETS;
+  if(crash_valid() && crash->consecutive >= CRASH_MAX_RESETS) {
+    safe_mode          = 1;
+    crash->consecutive = 0;
+    crash->check       = crash_check();
+  }
+  return safe_mode;
 }
 
 // Called from the main loop: the drive has been up long enough, so the next
@@ -145,10 +154,11 @@ void crash_cmd(char *ptr) {
     printf("no crash recorded since power-on\n");
     return;
   }
-  printf("crashes since power-on: %lu (in a row: %lu)\n", crash->count, crash->consecutive);
-  if(crash_safe_mode()) {
-    printf("safe mode: config not loaded, HAL stopped; 'reset' boots normally\n");
+  if(safe_mode) {
+    printf("safe mode after %d crashes in a row: config not loaded, no drive\n", CRASH_MAX_RESETS);
+    printf("components running; 'reset' boots normally\n");
   }
+  printf("crashes since power-on: %lu (in a row: %lu)\n", crash->count, crash->consecutive);
   printf("last: %s at uptime %lu ms\n", crash->handler < 5 ? crash_names[crash->handler] : "?", crash->uptime_ms);
   printf("pc 0x%08lx lr 0x%08lx psr 0x%08lx\n", crash->pc, crash->lr, crash->psr);
   printf("cfsr 0x%08lx hfsr 0x%08lx mmfar 0x%08lx bfar 0x%08lx\n", crash->cfsr, crash->hfsr, crash->mmfar, crash->bfar);
