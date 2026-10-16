@@ -13,6 +13,23 @@ in that file: a dated heading plus `Area`, `Status`
   (e.g. `Open` -> `Fixed`) instead of adding a duplicate entry.
 - Do this as part of the work, not only when asked.
 
+## Regression tests (one for every bug)
+
+Every bug you fix or find gets an automated test that fails without the fix
+and passes with it, committed together with the fix.
+
+- Use the lowest level that reproduces the bug:
+  1. host unit test (`host/tests/test_*.c`) or `host/tests/*.test` with
+     `@expect`, run by `make -C host check`;
+  2. LinuxCNC on the simulated drive (`hwtest/burnin-sim`, `make test-*`);
+  3. real hardware: `hwtest/suite` (`run_hwtest.sh hw`), or `hwtest/soak` for
+     faults that need hours.
+- Where practical, show the test failing first: run it before the fix, or
+  against the drive or build that still has the bug.
+- Name the test in the bug's `DEBUGNOTES.md` entry (`Fix:` line). If no
+  automated test is possible (e.g. a hardware fault), say why there.
+- Do this as part of the work, not only when asked.
+
 ## Host simulator
 
 The native x86 build of the control core lives in `host/` (see
