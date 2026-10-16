@@ -78,7 +78,8 @@ ssize_t _read(int fd, void *ptr, size_t len) {
 extern volatile uint64_t systime;
 
 // the console over smart-serial (shared/sscon.h), once LinuxCNC's side has
-// spoken: in chunks with interrupts off (realtime code may print too); in
+// spoken: in 8-byte chunks with interrupts off (realtime code may print
+// too; 64-byte chunks held off frt and rt for ~9 us each, 8 bytes ~1 us); in
 // the main loop, waits up to 100 ms for room (the link moves ~1 kB/s), so a
 // long output (showconf) comes through whole but never hangs the drive
 static void sscon_out(const char *ptr, int len) {
@@ -87,7 +88,7 @@ static void sscon_out(const char *ptr, int len) {
   }
   uint64_t t0 = systime;
   while(len > 0) {
-    int n = len > 64 ? 64 : len;
+    int n = len > 8 ? 8 : len;
     if(sscon_tx_free(&sscon0) < (uint32_t)n && __get_IPSR() == 0 && systime - t0 < 100) {
       continue;
     }
