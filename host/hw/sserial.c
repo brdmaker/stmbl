@@ -21,6 +21,7 @@ HAL_PIN(pos_cmd_d);
 HAL_PIN(pos_fb);
 HAL_PIN(vel_fb);
 HAL_PIN(current);
+HAL_PIN(power);  // the drive's input power [W] (pe0.p_in)
 HAL_PIN(scale);
 HAL_PIN(clock_scale);
 HAL_PIN(available);
@@ -67,6 +68,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     io->pos_fb  = PIN(pos_fb) + PIN(vel_fb) * PIN(pos_advance);
     io->vel_fb  = PIN(vel_fb);
     io->current = PIN(current);
+    // as on the link: int16, 16384 W full scale (src/comps/sserial.c), as
+    // hostmot2 decodes it
+    io->power = (int16_t)CLAMP(PIN(power) * (32767.0f / 16384.0f), -32767, 32767) * (16384.0f / 32767.0f);
     io->in[0]   = PIN(in0) > 0;
     io->in[1]   = PIN(in1) > 0;
     io->in[2]   = PIN(in2) > 0;

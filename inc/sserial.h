@@ -178,5 +178,6 @@ typedef struct {
   pd_metadata_t enable;
   pd_metadata_t index_enable;
   pd_metadata_t current;
+  pd_metadata_t power;
 } pd_table_t;
 #pragma pack(pop)
