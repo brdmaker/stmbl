@@ -778,3 +778,25 @@ Entry format:
   fuse model and the energy meter integrate it (burn-in quota test
   unchanged: 1.186 vs 1.189 Wh). Read one frame of `power` as coarse; use
   `powerquota.0.total-power-avg` for a reading.
+
+## 2026-10-16  tools/gentable.c crashed when no padding was needed
+- Area:    `tools/gentable.c`
+- Status:  Fixed
+- Symptom: Adding the 10-bit console fields made gentable segfault.
+- Cause:   The padding records were added with `if(bits % 8)
+  ADD_PROCESS_VAR(...)` without braces, but ADD_PROCESS_VAR is several
+  statements. Only the first was conditional; the bit counting ran anyway
+  on an uninitialised table entry. It never showed while padding was
+  always needed.
+- Fix:     Braces. The console fields now fill 80 / 96 bits exactly.
+
+## 2026-10-16  Console over smart-serial: hm2 pin names, CRC before the reply
+- Area:    `src/comps/sserial.c`, `shared/sscon.c`, `linuxcnc/sserialterm`
+- Status:  Note
+- Symptom: --
+- Cause:   hostmot2 names a pin after its record, with no direction
+  prefix, so two records called `con` would collide. The firmware built
+  its reply before checking the request's CRC.
+- Fix:     Records `con_cmd` / `con_fb`, like pos_cmd / pos_fb. The CRC is
+  checked first, and only a valid request steps the console. The F3 build
+  shares term.c but has no console: weak references there.

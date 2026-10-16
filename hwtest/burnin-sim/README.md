@@ -281,3 +281,15 @@ moves overload 3x, and `sim_quota_test.txt`, a load on the simulated motor
 damage 0.9, and an estop reset clears it once the fuse model has cooled
 a little. Needs `stmbl_sim.so` and `powerquota.so` installed (see
 `linuxcnc/powerquota/README.md`).
+
+## The console over smart-serial (`make test-console`)
+
+The drive's console also runs inside its smart-serial process data
+(`con_cmd` / `con_fb`, about 1 kB/s). `console.hal` (a second HALFILE)
+connects it to `linuxcnc/sserialterm`, which serves it as a pty
+(`[SSERIALTERM]TTY`). `servoterm-cli -d <that pty>` then works as on the
+drive's USB port, with no USB cable. `make test-console` runs `con_test.py`
+headless:
+- `about`, pin reads and writes;
+- `--dump` identical to the drive's config;
+- console traffic while the axis moves.
