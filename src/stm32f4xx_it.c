@@ -53,8 +53,9 @@
  * hung", 2026-10-14). Now each handler saves a record in CCM RAM, which no
  * code uses and startup does not clear, so it survives the reset; the
  * `crash` command prints it. After CRASH_MAX_RESETS crashes without
- * CRASH_OK_MS of normal running in between, the drive halts as before
- * instead of resetting, so a crash loop at boot cannot hide the record.
+ * CRASH_OK_MS of running in between, the drive boots in safe mode: no
+ * config, HAL stopped, console working (crash_safe_mode, main.c). A crash
+ * loop at boot cannot hide the record, and `reset` tries a normal boot.
  */
 #include <stdio.h>
 #include <string.h>
@@ -115,10 +116,12 @@ void crash_record(uint32_t *frame, uint32_t handler) {
   crash->check     = crash_check();
 
   hal_error(handler);
-  if(crash->consecutive <= CRASH_MAX_RESETS) {
-    NVIC_SystemReset();
-  }
-  // crash loop: stay halted with USB alive, as before
+  NVIC_SystemReset();
+}
+
+// At boot: too many crashes in a row, so don't load the config.
+int crash_safe_mode(void) {
+  return crash_valid() && crash->consecutive >= CRASH_MAX_RESETS;
 }
 
 // Called from the main loop: the drive has been up long enough, so the next
@@ -143,6 +146,9 @@ void crash_cmd(char *ptr) {
     return;
   }
   printf("crashes since power-on: %lu (in a row: %lu)\n", crash->count, crash->consecutive);
+  if(crash_safe_mode()) {
+    printf("safe mode: config not loaded, HAL stopped; 'reset' boots normally\n");
+  }
   printf("last: %s at uptime %lu ms\n", crash->handler < 5 ? crash_names[crash->handler] : "?", crash->uptime_ms);
   printf("pc 0x%08lx lr 0x%08lx psr 0x%08lx\n", crash->pc, crash->lr, crash->psr);
   printf("cfsr 0x%08lx hfsr 0x%08lx mmfar 0x%08lx bfar 0x%08lx\n", crash->cfsr, crash->hfsr, crash->mmfar, crash->bfar);

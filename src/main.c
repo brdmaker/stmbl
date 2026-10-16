@@ -175,6 +175,7 @@ void sleep(char *ptr) {
 COMMAND("sleep", sleep, "sleep [s]");
 
 void crash_running(void);
+int crash_safe_mode(void);
 
 int main(void) {
   // Relocate interrupt vectors
@@ -186,8 +187,10 @@ int main(void) {
   // hal load comps
   load_comp(comp_by_name("term"));
   hal_parse("flashloadconf");
-  hal_parse("loadconf");
-  hal_parse("relink");
+  if(!crash_safe_mode()) {  // crash loop: console only, see stm32f4xx_it.c
+    hal_parse("loadconf");
+    hal_parse("relink");
+  }
   hal_parse("start");
 
   TIM_Cmd(TIM_MASTER, ENABLE);
