@@ -35,6 +35,34 @@ How it works (`shared/sscon.h`):
 The frame cost: 10 bits each way. The drive's input data is 96 bits, the
 limit of older Mesa smart-serial bitfiles.
 
+## Capture scope
+
+`scope0` (`shared/comps/scope.c`, loaded by the pid / mpid templates and
+idle until armed) records up to 8 pins into the drive's own memory, 4096
+samples shared between the channels. It records at the 5 kHz loop, or the
+20 kHz one with `scope0.fast = 1`, every `div`-th period. Arm it, trigger
+it, then download over the slow console:
+```
+servoterm-cli -d /tmp/drive-x -c "scope0.nch = 2" -c "scope0.ch0 = hv0.iq_fb" \
+    -c "scope0.ch1 = vel1.vel" -c "scope0.trig = vel1.vel" -c "scope0.level = 50" \
+    -c "scope0.pre = 0.25" --capture step.csv
+```
+- **Trigger:** source pin, `level`, `edge` (0 rising, 1 falling, 2 either),
+  `pre` (share before the trigger).
+- **Modes:** `mode` 0 single, 1 normal (re-armed after each dump), 2 auto
+  (forced after a capture length without a trigger).
+- **Commands:** `scopearm`, `scopetrig` (force), `scopestat`, `scopedump`.
+  The dump holds each channel's source and range, then the samples as 16
+  bit in base64 lines with a CRC-16 each.
+- **`servoterm-cli --capture FILE`:** arms (unless `--no-arm`), waits,
+  downloads, checks the CRCs and writes CSV: `t` (0 at the trigger) and a
+  column per channel, named after its source.
+- **Speed:** 2 × 2048 samples take about 14 s over smart-serial (USB works
+  the same way, faster).
+- **Unattended capture:** armed in the drive's config (`scope0.arm = 1`,
+  e.g. triggered by `fault0.state`), the scope holds what happened around
+  the first event until someone downloads it.
+
 Pins per drive N (in `tty=` order):
 - `con-fb` (u32 in), `con-cmd` (u32 out);
 - `bytes-in`, `bytes-out` (u32): bytes delivered each way;
@@ -48,5 +76,7 @@ Tests:
   drive's console from the host's LinuxCNC emulation, a whole `showconf`).
 - `make -C ../../hwtest/burnin-sim test-console`: LinuxCNC with the
   simulated drive and this component; servoterm-cli over the pty: `about`,
-  pins, `--dump` identical to the drive's config, and console traffic while
-  the axis moves.
+  pins, `--dump` identical to the drive's config, console traffic while the
+  axis moves, and a `--capture` of a rapid (trigger at t = 0, CRCs).
+- `scope_capture.test` and `scope_console.test` (host): triggered, forced
+  and normal-mode captures, and a dump over the console.

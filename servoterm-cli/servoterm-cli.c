@@ -27,6 +27,11 @@
  *     --load FILE  write FILE to the drive's flash config and verify it; the
  *                  previous config is saved to conf-backup-<time>.txt first
  *                  unless --no-backup. Runs before --dump and -c.
+ *     --capture FILE  the drive's capture scope (scope0, shared/comps/scope.c):
+ *                  after the -c commands (which set it up), arm it (unless
+ *                  --no-arm), wait for the capture (--capture-timeout SEC,
+ *                  default 60), download it (scopedump: CRC per line), write
+ *                  CSV: t (0 at the trigger) and a column per channel
  *     SCRIPT    file of commands to send; if omitted (and no --dump/--load),
  *               reads stdin
  *
@@ -890,12 +895,149 @@ static int autotune_run(int fd, const char *comp, double timeout, int backup) {
   return rc < 0 ? 1 : 0;
 }
 
+// ---- capture scope (shared/comps/scope.c) --------------------------------
+
+static int b64val(char c) {
+  if(c >= 'A' && c <= 'Z') return c - 'A';
+  if(c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if(c >= '0' && c <= '9') return c - '0' + 52;
+  if(c == '+') return 62;
+  if(c == '/') return 63;
+  return -1;
+}
+
+static int b64dec(const char *in, unsigned char *out, int max) {
+  int n = 0, bits = 0;
+  unsigned v = 0;
+  for(; *in && *in != ' '; in++) {
+    int d = b64val(*in);
+    if(d < 0) {  // '=' padding
+      continue;
+    }
+    v = (v << 6) | (unsigned)d;
+    bits += 6;
+    if(bits >= 8) {
+      bits -= 8;
+      if(n < max) {
+        out[n++] = (unsigned char)(v >> bits);
+      }
+    }
+  }
+  return n;
+}
+
+static unsigned crc16(const unsigned char *d, int n) {  // CRC-16/CCITT-FALSE, as the drive's
+  unsigned c = 0xffff;
+  for(int i = 0; i < n; i++) {
+    c ^= (unsigned)d[i] << 8;
+    for(int b = 0; b < 8; b++) {
+      c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff;
+    }
+  }
+  return c;
+}
+
+// Arm (unless !arm), wait for the capture, download it (scopedump), check
+// it, write CSV: t (s, 0 at the trigger) and a column per channel.
+static int scope_capture(int fd, const char *path, int arm, double timeout) {
+  double end = now() + timeout;
+  if(arm && capture_cmd(fd, "scopearm", 0.3, "scope: armed", 5.0) < 0) {
+    return -1;
+  }
+  double st = -1;
+  while(now() < end && !stop_req) {
+    if(capture_cmd(fd, "scope0.state", 0.3, "scope0.state = ", 5.0) < 0) {
+      return -1;
+    }
+    st = parse_pin_val(cap_buf, "scope0.state");
+    if(st == 3.0) {
+      break;
+    }
+    usleep(200000);
+  }
+  if(st != 3.0) {
+    fprintf(stderr, "servoterm-cli: no capture within %g s (scope0.state %g)\n", timeout, st);
+    return -1;
+  }
+  double t0 = now();
+  if(capture_cmd(fd, "scopedump", 2.0, "scope end", end - now() > 30 ? end - now() : 30) < 0) {
+    return -1;
+  }
+  const char *b = cap_buf ? strstr(cap_buf, "scope begin") : NULL;
+  int nch = 0, n = 0, pre = 0;
+  double dt = 0;
+  if(!b || sscanf(b, "scope begin nch=%d n=%d dt=%lf pre=%d", &nch, &n, &dt, &pre) != 4 || nch < 1 || nch > 8 ||
+     n < 1 || !strstr(b, "scope end")) {
+    fprintf(stderr, "servoterm-cli: bad or incomplete scopedump\n");
+    return -1;
+  }
+  char names[8][64];
+  double mn[8], mx[8];
+  for(int c = 0; c < nch; c++) {
+    char key[24];
+    snprintf(key, sizeof(key), "scope ch%d ", c);
+    const char *l = strstr(b, key);
+    if(!l || sscanf(l + strlen(key), "%63s min=%lf max=%lf", names[c], &mn[c], &mx[c]) != 3) {
+      fprintf(stderr, "servoterm-cli: scopedump lacks channel %d\n", c);
+      return -1;
+    }
+  }
+  size_t total = (size_t)n * nch;
+  unsigned short *q = calloc(total, sizeof(*q));
+  size_t got = 0;
+  int bad = 0, lines = 0;
+  for(const char *l = strstr(b, "scope data "); l; l = strstr(l + 1, "scope data ")) {
+    unsigned char raw[64];
+    int k = b64dec(l + 11, raw, sizeof(raw));
+    const char *sp = strchr(l + 11, ' ');
+    unsigned crc = 0;
+    if(!sp || sscanf(sp + 1, "%x", &crc) != 1 || crc != crc16(raw, k)) {
+      bad++;
+    }
+    for(int i = 0; i + 1 < k && got < total; i += 2) {
+      q[got++] = (unsigned short)(raw[i] | raw[i + 1] << 8);
+    }
+    lines++;
+  }
+  if(bad || got != total) {
+    fprintf(stderr, "servoterm-cli: scopedump: %d bad lines, %zu of %zu samples\n", bad, got, total);
+    free(q);
+    return -1;
+  }
+  FILE *f = strcmp(path, "-") ? fopen(path, "w") : stdout;
+  if(!f) {
+    perror(path);
+    free(q);
+    return -1;
+  }
+  fprintf(f, "t");
+  for(int c = 0; c < nch; c++) {
+    fprintf(f, ",%s", names[c]);
+  }
+  fprintf(f, "\n");
+  for(int i = 0; i < n; i++) {
+    fprintf(f, "%.6g", (i - pre) * dt);
+    for(int c = 0; c < nch; c++) {
+      fprintf(f, ",%.6g", mn[c] + q[i * nch + c] / 65535.0 * (mx[c] - mn[c]));
+    }
+    fprintf(f, "\n");
+  }
+  if(f != stdout) {
+    fclose(f);
+    fprintf(stderr, "servoterm-cli: capture %d x %d samples (dt %g s) in %.1f s, %d lines, CRCs ok -> %s\n", nch,
+            n, dt, now() - t0, lines, path);
+  }
+  free(q);
+  return 0;
+}
+
 static void usage(void) {
   fprintf(stderr,
           "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
           "                     [--dump FILE] [--load FILE [--no-backup]]\n"
           "                     [-C pin:gain,...] [--step N] [--log SEC]\n"
           "                     [--autotune [--autotune-comp COMP] [--autotune-timeout SEC]]\n"
+          "                     [--capture FILE [--no-arm] [--capture-timeout SEC]]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -916,6 +1058,9 @@ int main(int argc, char **argv) {
   int do_autotune            = 0;
   const char *autotune_comp  = "rlpsij0";
   double autotune_timeout    = 120.0;
+  const char *capture_path   = NULL;  // --capture: the capture scope's samples as CSV
+  int capture_arm            = 1;
+  double capture_timeout     = 60.0;
 
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
@@ -930,6 +1075,12 @@ int main(int argc, char **argv) {
       autotune_comp = argv[++i];
     } else if(strcmp(argv[i], "--autotune-timeout") == 0 && i + 1 < argc) {
       autotune_timeout = atof(argv[++i]);
+    } else if(strcmp(argv[i], "--capture") == 0 && i + 1 < argc) {
+      capture_path = argv[++i];
+    } else if(strcmp(argv[i], "--no-arm") == 0) {
+      capture_arm = 0;
+    } else if(strcmp(argv[i], "--capture-timeout") == 0 && i + 1 < argc) {
+      capture_timeout = atof(argv[++i]);
     } else if(strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
       dump_path = argv[++i];
     } else if(strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
@@ -1060,7 +1211,7 @@ int main(int argc, char **argv) {
     for(int i = 0; i < ncmds && rc == 0; i++) {
       rc = send_line(fd, cmds[i], wait_ms);
     }
-  } else if(script || !(dump_path || load_path || log_sec >= 0.0 || scope_cfg)) {
+  } else if(script || !(dump_path || load_path || log_sec >= 0.0 || scope_cfg || capture_path)) {
     FILE *in = stdin;
     if(script) {
       in = fopen(script, "r");
@@ -1130,6 +1281,12 @@ int main(int argc, char **argv) {
     }
     stamp_text = 0;
     settle     = 0.0;
+  }
+
+  // The capture scope: after the -c commands, which set it up
+  if(rc == 0 && capture_path) {
+    pump(fd, 0.3);
+    rc = scope_capture(fd, capture_path, capture_arm, capture_timeout) < 0;
   }
 
   // Collect trailing output until the drive goes quiet. Scope frames alone do

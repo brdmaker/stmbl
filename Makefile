@@ -76,6 +76,7 @@ SHARED_COMPS += shared/comps/fault.c
 SHARED_COMPS += shared/comps/pid.c
 SHARED_COMPS += shared/comps/spid.c
 SHARED_COMPS += shared/comps/pe.c
+SHARED_COMPS += shared/comps/scope.c
 SHARED_COMPS += shared/comps/pmsm_limits.c
 SHARED_COMPS += shared/comps/pmsm_ttc.c
 SHARED_COMPS += shared/comps/dc_limits.c

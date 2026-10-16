@@ -6,7 +6,10 @@ the pty, with servoterm-cli as on a real drive's USB port:
 1. about, a pin read, a pin write and read back;
 2. --dump: the drive's whole flash config, identical to the file it booted;
 3. while the axis moves (MDI rapids), console traffic: no following error,
-   no fault, the answers right.
+   no fault, the answers right;
+4. the capture scope: servoterm-cli sets it up (-c), arms it and waits
+   (--capture) while a rapid starts; the CSV: 2048 rows, the speed crossing
+   the trigger level at t = 0.
 """
 import os
 import subprocess
@@ -96,6 +99,31 @@ def main():
     check(ok and s.task_state == linuxcnc.STATE_ON and answers == 3 and not g_fault(),
           "console traffic while the axis moves: answers right, machine still on, no drive fault",
           "task %d answers %d err %s" % (s.task_state, answers, err))
+    # the capture scope over the console
+    csv = os.path.join(HERE, "capture.csv")
+    t0 = time.time()
+    p = subprocess.Popen([CLI, "-d", TTY, "-t", "1", "-c", "scope0.nch = 2", "-c", "scope0.ch0 = hv0.sim_vel",
+                          "-c", "scope0.ch1 = hv0.iq_fb", "-c", "scope0.trig = hv0.sim_vel", "-c", "scope0.level = 50",
+                          "-c", "scope0.pre = 0.25", "-c", "scope0.mode = 0", "--capture", csv, "--capture-timeout", "90"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    time.sleep(4.0)  # set up and armed
+    C.mdi("G0 X%d" % (300 if poll().actual_position[0] < 150 else 0))
+    out, _ = p.communicate(timeout=120)
+    rows = [l.split(",") for l in open(csv).read().split()] if os.path.exists(csv) else []
+    INFO.append("# capture: %s" % (out.strip().splitlines()[-1] if out.strip() else "-"))
+    ok = p.returncode == 0 and len(rows) == 2049 and rows[0] == ["t", "hv0.sim_vel", "hv0.iq_fb"]
+    cross = None
+    if ok:
+        data = [[float(x) for x in r] for r in rows[1:]]
+        sgn = 1 if max(d[1] for d in data) > 50 else -1
+        for i in range(1, len(data)):
+            if sgn * data[i - 1][1] < 50 <= sgn * data[i][1] or data[i - 1][1] < 50 <= data[i][1]:
+                cross = data[i][0]
+                break
+        INFO.append("# capture: %d rows, dt %g s, speed crosses 50 rad/s at t = %s s, %.1f s in all"
+                    % (len(data), data[1][0] - data[0][0], cross, time.time() - t0))
+    check(ok and cross is not None and abs(cross) <= 0.0004,
+          "capture scope over the console: --capture CSV, 2048 samples, the trigger at t = 0", out[-300:])
     INFO.append("# sserialterm: %d bytes from the drive, %d to it" % (hal.get_value("sserialterm.0.bytes-in"),
                                                                    hal.get_value("sserialterm.0.bytes-out")))
     C.state(linuxcnc.STATE_OFF)

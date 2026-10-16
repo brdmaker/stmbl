@@ -1,0 +1,46 @@
+# The capture scope (shared/comps/scope.c), loaded by the pid template,
+# idle until armed. Two channels (iq, speed) at the rt rate (5 kHz, 2048
+# samples each), triggered when the speed rises through 10 rad/s, 25 %
+# before the trigger: armed at standstill it waits; the jog triggers it;
+# done; scopedump gives the ranges and 171 base64 lines with CRCs. Then a
+# forced trigger (scopetrig) in normal mode, which re-arms after the dump.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+scope0.nch = 2
+scope0.ch0 = hv0.iq_fb
+scope0.ch1 = hv0.sim_vel
+scope0.trig = hv0.sim_vel
+scope0.level = 10
+scope0.pre = 0.25
+scopearm
+run 0.2
+scope0.state
+lcnc 1 31.4
+run 1
+scope0.state
+scopedump
+scope0.mode = 1
+scope0.fast = 1
+scope0.nch = 1
+scopearm
+run 0.1
+scopetrig
+run 0.2
+scope0.state
+scopedump
+run 0.01
+scope0.state
+@expect scope0.state[1] == 1
+@expect scope0.state[2] == 3
+@expect scope0.state[3] == 3
+@expect scope0.state[4] == 1
+@match ^scope begin nch=2 n=2048 dt=0.0002 pre=512$
+@match ^scope ch0 hv0.iq_fb min=-0\.\d+ max=1\.\d+$
+@match ^scope ch1 hv0.sim_vel min=0 max=4\d\.\d+$
+@match ^scope end lines=171$
+@match ^scope begin nch=1 n=4096 dt=5e-05 pre=1024$
+@match ^scope end lines=171$
+@reject ^scope: no capture
