@@ -1,0 +1,3 @@
+hv0.sim_motor = 1
+hv0.sim_udc = 24
+hv0.sim_detent = 0.004

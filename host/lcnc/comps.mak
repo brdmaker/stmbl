@@ -7,7 +7,7 @@ COMPS = \
   iit vel_int linrev psi stp uf2 ramp scale idx_home move not and or jog \
   velbuf avg mux veltopos debounce pos_filter rl mad sensorless field gain \
   rlpsij veltime mpid fmove home en th motsim term \
-  idm idpmsm ids iddc scope fwup
+  idm idpmsm ids iddc scope fwup stp_ttc
 
 # Simulated drive hardware: stand-ins for the src/comps components the drive
 # config templates link to (same names and pins), plus the unchanged conf.

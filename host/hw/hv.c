@@ -8,11 +8,18 @@
  * shared/comps/motsim.c) is integrated at 80 kHz. The sim_* pins describe the
  * simulated motor and supply; host/sim_board.txt links them to conf0 so the
  * simulated motor matches what the config says about it.
+ *
+ * sim_motor = 1: a two-phase hybrid stepper on two H-bridges (brdstepper)
+ * instead of the HV board and a three-phase PMSM. The current loop is then
+ * shared/bip_loop.c, the code brdstepper runs, at 20 kHz; the coils (A =
+ * alpha, B = beta) and the detent torque (4 per electrical turn) are
+ * integrated at 80 kHz; sim_ia / sim_ib are the coil currents.
  */
 #include "hv_comp.h"
 #include "hal.h"
 #include "defines.h"
 #include "angle.h"
+#include "bip_loop.h"
 #include <math.h>
 
 HAL_COMP(hv);
@@ -75,6 +82,9 @@ HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // supply voltage [V]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
+HAL_PIN(sim_motor);      // 0: PMSM on the HV board, 1: two-phase stepper on two H-bridges
+HAL_PIN(sim_detent);     // stepper detent torque amplitude [Nm]
+HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -83,6 +93,10 @@ HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
 HAL_PIN(sim_iq);
+HAL_PIN(sim_ia);  // stepper coil currents [A]
+HAL_PIN(sim_ib);
+HAL_PIN(duty_a);  // stepper bridge duties, -1..1
+HAL_PIN(duty_b);
 
 #define F3_PER_RT 4    // F3 current loop at 20 kHz
 #define MOT_PER_F3 4   // motor model at 80 kHz
@@ -97,7 +111,78 @@ struct hv_ctx_t {
   float iq_error_sum;
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
+  bip_state_t bip;  // stepper current loop
 };
+
+// the rotor: electrical torque te for dt, coulomb friction, brake, load
+static void mech_step(struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
+  float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
+  float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
+  float v      = PIN(sim_vel);
+  // coulomb friction: holds the rotor when the other torques can't beat it
+  if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
+    PIN(sim_vel) = 0.0;
+    PIN(sim_acc) = 0.0;
+  } else {
+    float acc = (torque - (fabsf(v) < 1e-4 ? SIGN(torque) : SIGN(v)) * tf) / mj;
+    float nv  = v + acc * dt;
+    if(v * nv < 0.0) {  // friction stops it, it does not reverse it
+      nv = 0.0;
+    }
+    PIN(sim_acc) = acc;
+    PIN(sim_vel) = nv;
+    PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * dt);
+  }
+  PIN(sim_torque) = te;
+}
+
+// sim_motor = 1: brdstepper's loop (shared/bip_loop.c) and a two-phase
+// hybrid stepper; returns the rotor-frame feedback as the F3 path does
+static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float period, float d_cmd, float q_cmd,
+                       float pos, float vel, int en, float *fb) {
+  float mr     = MAX(PIN(sim_r), 0.001);
+  float ml     = MAX(PIN(sim_l), 0.00001);
+  float mpsi   = PIN(sim_psi);
+  float pp     = MAX(PIN(sim_pp), 1.0);
+  float mj     = MAX(PIN(sim_j), 1e-8);
+  float prev   = PIN(sim_phase_rev) > 0.0 ? -1.0 : 1.0;
+  float udc    = MAX(PIN(sim_udc), 0.0);
+  float loop_dt = period / F3_PER_RT;
+  float mot_dt  = loop_dt / MOT_PER_F3;
+  bip_param_t bp = {.r = PIN(r), .l = PIN(l), .psi = PIN(psi), .cur_bw = PIN(cur_bw), .cur_ff = PIN(cur_ff),
+                    .cur_ind = PIN(cur_ind), .udc = udc, .max_cur = MAX(PIN(max_cur) * PIN(scale), 0.0),
+                    .max_duty = PIN(max_duty), .volt_mode = PIN(cmd_mode) == 0.0};
+  bip_out_t o = {0};
+  for(int k = 0; k < F3_PER_RT; k++) {
+    // what the drive measures and knows: coil currents, its own angle
+    float ia = PIN(sim_ia), ib = PIN(sim_ib) * prev;
+    bip_step(&ctx->bip, &bp, mod(pos + vel * loop_dt * k), vel, d_cmd, q_cmd, ia, ib, en, loop_dt, &o);
+    float ua = o.duty_a * udc, ub = o.duty_b * udc * prev;
+    for(int m = 0; m < MOT_PER_F3; m++) {
+      float e  = PIN(sim_pos) * pp;
+      float se = sinf(e), ce = cosf(e);
+      float we = PIN(sim_vel) * pp;
+      if(en) {
+        PIN(sim_ia) += (ua - mr * PIN(sim_ia) + mpsi * we * se) / ml * mot_dt;
+        PIN(sim_ib) += (ub - mr * PIN(sim_ib) - mpsi * we * ce) / ml * mot_dt;
+      } else {  // bridges off
+        PIN(sim_ia) = 0.0;
+        PIN(sim_ib) = 0.0;
+      }
+      PIN(sim_id) = PIN(sim_ia) * ce + PIN(sim_ib) * se;
+      PIN(sim_iq) = -PIN(sim_ia) * se + PIN(sim_ib) * ce;
+      float te    = pp * mpsi * PIN(sim_iq) - PIN(sim_detent) * sinf(4.0 * e);
+      mech_step(pins, te, mj, mot_dt);
+    }
+  }
+  PIN(duty_a)   = o.duty_a;
+  PIN(duty_b)   = o.duty_b;
+  PIN(pwm_volt) = udc * (PIN(max_duty) > 0.0 && PIN(max_duty) <= 1.0 ? PIN(max_duty) : 1.0);
+  fb[0] = o.id;
+  fb[1] = o.iq;
+  fb[2] = o.ud;
+  fb[3] = o.uq;
+}
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
@@ -115,6 +200,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_d)   = 0.0001;
   PIN(sim_f)   = 0.01;
   PIN(sim_udc) = 300;
+  PIN(max_duty) = 0.95;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -136,9 +222,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     q_cmd = 0.0;
   }
 
+  float udc = MAX(PIN(sim_udc), 0.0);
+  float id = 0.0, iq = 0.0, ud = 0.0, uq = 0.0;
+  float max_volt;
+  if(PIN(sim_motor) > 0.0) {
+    float fb[4];
+    stepper_rt(ctx, pins, period, d_cmd, q_cmd, pos, vel, en, fb);
+    id = fb[0], iq = fb[1], ud = fb[2], uq = fb[3];
+    max_volt = PIN(pwm_volt);
+    goto feedback;
+  }
+
   // --- F3 side: curpid with the config the F4 sends
-  float udc      = MAX(PIN(sim_udc), 0.0);
-  float max_volt = udc / M_SQRT3 * 0.95;
+  max_volt = udc / M_SQRT3 * 0.95;
   float r        = MAX(PIN(r), 0.1);
   float l        = MAX(PIN(l), 0.001);
   float psi      = PIN(psi);
@@ -164,7 +260,6 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   float f3_dt  = period / F3_PER_RT;
   float mot_dt = f3_dt / MOT_PER_F3;
-  float id = 0.0, iq = 0.0, ud = 0.0, uq = 0.0;
 
   for(int k = 0; k < F3_PER_RT; k++) {
     // the F3 advances the angle by the commanded velocity between packets
@@ -234,28 +329,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_iq) = 0.0;
       }
 
-      float te     = 1.5 * pp * mpsi * PIN(sim_iq);
-      float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
-      float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
-      float v      = PIN(sim_vel);
-      // coulomb friction: holds the rotor when the other torques can't beat it
-      if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
-        PIN(sim_vel) = 0.0;
-        PIN(sim_acc) = 0.0;
-      } else {
-        float acc = (torque - (fabsf(v) < 1e-4 ? SIGN(torque) : SIGN(v)) * tf) / mj;
-        float nv  = v + acc * mot_dt;
-        if(v * nv < 0.0) {  // friction stops it, it does not reverse it
-          nv = 0.0;
-        }
-        PIN(sim_acc) = acc;
-        PIN(sim_vel) = nv;
-        PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
-      }
-      PIN(sim_torque) = te;
+      mech_step(pins, 1.5 * pp * mpsi * PIN(sim_iq), mj, mot_dt);
     }
   }
 
+feedback:
   // --- back to the F4, as src/comps/hv.c reports it, optionally delayed
   ctx->fb_pos = (ctx->fb_pos + 1) % (FB_DELAY_MAX + 1);
   if(PIN(sim_cur_noise) > 0.0) {  // xorshift32: same noise on every run
