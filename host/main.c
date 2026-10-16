@@ -32,6 +32,7 @@
 #include "drive.h"
 #include "pty.h"
 #include "sim_io.h"
+#include "sscon.h"
 
 #include <time.h>
 
@@ -43,9 +44,15 @@ extern volatile uint64_t systime;
 static int lcnc_on = 0;
 static int rt_count = 0;
 
+static sscon_t lcnc_con;      // LinuxCNC's end of the console (shared/sscon.h)
+static char con_in[65536];    // what came, emptied continuously (as sserialterm into its pty)
+static uint32_t con_in_len = 0;
+
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
   io->pos_cmd += io->vel_cmd * 0.001;
+  io->con_cmd = sscon_frame(&lcnc_con, io->con_fb);  // the last reply in, the next request out
+  con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
   io->seq++;
 }
 
@@ -106,6 +113,36 @@ void cmd_lcnc(char *ptr) {
   }
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd]], or show feedback");
+
+// the console over smart-serial, as LinuxCNC's sserialterm: send a line,
+// print what came back
+void cmd_con(char *ptr) {
+  while(*ptr == ' ') {
+    ptr++;
+  }
+  char line[256];
+  int n = snprintf(line, sizeof(line), "%s\n", ptr);
+  sscon_write(&lcnc_con, line, n);
+}
+COMMAND("con", cmd_con, "send a line over the smart-serial console: con <text>");
+
+void cmd_conread(char *ptr) {
+  (void)ptr;
+  static char line[512];
+  static int len = 0;
+  for(uint32_t i = 0; i < con_in_len; i++) {
+    if(con_in[i] == '\n' || len == (int)sizeof(line) - 1) {
+      line[len] = 0;
+      fprintf(stdout, "con> %s\n", line);
+      len = 0;
+    } else if(con_in[i] != '\r') {
+      line[len++] = con_in[i];
+    }
+  }
+  con_in_len = 0;
+  fprintf(stdout, "con: %u bytes in, %u out\n", lcnc_con.n_rx, lcnc_con.n_tx);
+}
+COMMAND("conread", cmd_conread, "print what came over the smart-serial console");
 
 void cmd_exit(char *ptr) {
   (void)ptr;

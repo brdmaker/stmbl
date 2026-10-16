@@ -9,6 +9,7 @@
 #include "defines.h"
 #include "sim_io.h"
 #include "sserial_q.h"
+#include "sscon.h"
 
 HAL_COMP(sserial);
 
@@ -78,6 +79,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     io->in[2]   = PIN(in2) > 0;
     io->in[3]   = PIN(in3) > 0;
     io->fault   = PIN(fault) > 0;
+    io->con_fb  = sscon_frame(&sscon0, io->con_cmd);  // the console (shared/sscon.h)
 
     PIN(index_out)      = io->index_enable;
     io->index_enable_fb = PIN(index_clear) > 0 ? 0 : io->index_enable;
@@ -95,6 +97,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   if(ctx->since > PIN(timeout) * 0.00005) {
+    if(PIN(connected) > 0) {  // the link went away: the console's other side restarts
+      sscon_reset(&sscon0);
+    }
     PIN(connected) = 0;
     PIN(error)     = 1;
     PIN(pos_cmd)   = 0;

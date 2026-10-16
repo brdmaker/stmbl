@@ -22,7 +22,7 @@ COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS) $(HW_COMPS) conf))
 TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
 
 CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
-            $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c
+            $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c
 # Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
 DRIVE_SRCS = drive.c cdc_host.c pty.c
 HOST_SRCS = main.c $(DRIVE_SRCS)
@@ -36,7 +36,7 @@ INCLUDES = -Ishim -I. -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
 CFLAGS  ?= -O1 -g
 # -Wno-format: the firmware's printf formats target a 32-bit-long ABI (ARM);
 # they are harmless on the host and only affect a few diagnostic prints.
-CFLAGS  += -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv -D_GNU_SOURCE \
+CFLAGS  += -DSSCON_TXSIZE=32768 -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv -D_GNU_SOURCE \
            -include host_compat.h $(INCLUDES)
 LDLIBS   = -lm -lpthread
 
@@ -79,10 +79,15 @@ test_quota: tests/test_quota.c $(QUOTA_DIR)/quota.c $(QUOTA_DIR)/quota.h
 test_ssq: tests/test_ssq.c ../shared/sserial_q.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_ssq.c -lm
 
+# shared/sscon.c: the console over smart-serial (unit tests)
+test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_sscon.c ../shared/sscon.c
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq
+check: stmbl_host test_quota test_ssq test_sscon
 	@./test_ssq
+	@./test_sscon
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test

@@ -1,0 +1,26 @@
+# The console over smart-serial (shared/sscon.h): the con_cmd / con_fb
+# process data fields, a byte a frame each way. The simulated LinuxCNC side
+# ('lcnc', 'con', 'conread') sends commands; the drive runs them as from
+# USB and its answers come back over the link, a whole showconf too
+# (~2 kB at a byte a millisecond).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+con about
+run 0.5
+conread
+con fault0.max_sat
+run 0.5
+conread
+con pe0.p_in
+run 0.5
+conread
+con showconf
+run 6
+conread
+@match ^con> STMBL simulated drive
+@match ^con> fault0.max_sat <= conf0.max_sat = 0.2
+@match ^con> pe0.p_in = 1[45]\.
+@match ^con> conf0.r = 
+@match ^con> linrev0.scale=10$
+@reject ^con> error

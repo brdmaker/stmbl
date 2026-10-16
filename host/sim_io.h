@@ -21,6 +21,7 @@ typedef struct {
   float vel_fb;
   float current;
   float power;  // the drive's input power [W]
+  uint16_t con_cmd, con_fb;  // the console fields (shared/sscon.h)
   uint8_t in[4];
   uint8_t fault;
   uint8_t index_enable_fb;  // drops to 0 when the drive found the index

@@ -32,6 +32,7 @@ host/gen
 host/stmbl_host
 host/test_quota
 host/test_ssq
+host/test_sscon
 host/servoterm
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/

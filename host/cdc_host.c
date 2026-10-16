@@ -16,6 +16,7 @@
 #include "ringbuf.h"
 #include "fifo.h"
 #include "defines.h"
+#include "sscon.h"
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -74,6 +75,16 @@ int stmbl_printf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   int n;
+  if(sscon0.active) {  // the console over smart-serial (shared/sscon.h), as _write on the drive
+    static char cbuf[16 * 1024];
+    va_list aq;
+    va_copy(aq, ap);
+    int m = vsnprintf(cbuf, sizeof(cbuf), fmt, aq);
+    va_end(aq);
+    if(m > 0) {
+      sscon_write(&sscon0, cbuf, MIN(m, (int)sizeof(cbuf) - 1));
+    }
+  }
   if(mode == CDC_FIFO) {
     // big enough for showconf, which prints the whole 15 kB config flash;
     // only the drive's own thread calls this

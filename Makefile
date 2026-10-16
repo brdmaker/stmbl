@@ -146,6 +146,7 @@ SOURCES += shared/config.c
 SOURCES += src/conf_templates.c
 
 SOURCES += shared/ringbuf.c
+SOURCES += shared/sscon.c
 
 CONFIG_TEMPLATES = $(wildcard conf/template/*.txt)
 
