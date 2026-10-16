@@ -144,6 +144,22 @@ void cmd_conread(char *ptr) {
 }
 COMMAND("conread", cmd_conread, "print what came over the smart-serial console");
 
+// the link goes away (cable, LinuxCNC stopped): no more frames; the drive
+// times out. 'lcnc ...' starts them again.
+void cmd_lcncstop(char *ptr) {
+  (void)ptr;
+  lcnc_on = 0;
+}
+COMMAND("lcncstop", cmd_lcncstop, "LinuxCNC side: stop sending smart-serial frames");
+
+// LinuxCNC's end of the console starts afresh (sserialterm loaded again)
+void cmd_conreset(char *ptr) {
+  (void)ptr;
+  sscon_reset(&lcnc_con);
+  con_in_len = 0;
+}
+COMMAND("conreset", cmd_conreset, "LinuxCNC side: restart the console's link layer");
+
 void cmd_exit(char *ptr) {
   (void)ptr;
   exit(0);

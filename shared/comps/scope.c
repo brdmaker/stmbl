@@ -20,8 +20,8 @@
 //   scope0.level = 0.5 / edge = 0      edge: 0 rising, 1 falling, 2 either
 //   scope0.pre = 0.1                   share of the capture before the trigger
 //   scope0.mode = 0                    0 single, 1 normal (re-armed after each
-//                                      dump), 2 auto (forced if no trigger
-//                                      within a capture length)
+//                                      dump), 2 auto (as normal, and forced if
+//                                      no trigger within a capture length)
 //   scope0.arm = 1                     a rising edge arms (also: scopearm);
 //                                      armed at start this way, the scope
 //                                      catches e.g. the first fault, unattended
@@ -76,6 +76,9 @@ static void do_arm(struct scope_ctx_t *ctx, struct scope_pin_ctx_t *pins, float 
   ctx->nch   = (uint32_t)CLAMP(PIN(nch), 1, 8);
   ctx->depth = SCOPE_MEM / ctx->nch;
   ctx->post  = ctx->depth - (uint32_t)(CLAMP(PIN(pre), 0.0, 1.0) * ctx->depth);
+  if(ctx->post < 1) {
+    ctx->post = 1;  // pre = 1: the trigger sample is the last one, still in the capture
+  }
   ctx->wp = ctx->count = ctx->divc = ctx->armed_frames = 0;
   ctx->dt         = period * MAX(PIN(div), 1.0);
   ctx->prev_trig  = PIN(trig);
@@ -265,7 +268,7 @@ void scope_dump(char *ptr) {
     }
   }
   printf("scope end lines=%d\n", lines);
-  if(PIN(mode) == 1) {  // normal: again
+  if(PIN(mode) >= 1) {  // normal and auto: again
     ctx->arm_cmd = 1;
   }
 }

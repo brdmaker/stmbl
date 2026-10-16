@@ -88,6 +88,7 @@ test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
 check: stmbl_host test_quota test_ssq test_sscon
 	@./test_ssq
 	@./test_sscon
+	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test

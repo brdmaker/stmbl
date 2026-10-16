@@ -1,5 +1,9 @@
 # sserialterm: stmbl drive consoles over smart-serial
 
+Full documentation: [docs/sserial_console.md](../../docs/sserial_console.md)
+(protocol, frame, setup, limits, troubleshooting) and
+[docs/capture_scope.md](../../docs/capture_scope.md) (the capture scope).
+
 Drives in tight places don't need a USB cable for setup. The drive's
 console (`show`, `about`, pin reads and writes, `showconf`,
 `flashsaveconf`, ...) runs inside its smart-serial process data, and
@@ -50,7 +54,7 @@ servoterm-cli -d /tmp/drive-x -c "scope0.nch = 2" -c "scope0.ch0 = hv0.iq_fb" \
 - **Trigger:** source pin, `level`, `edge` (0 rising, 1 falling, 2 either),
   `pre` (share before the trigger).
 - **Modes:** `mode` 0 single, 1 normal (re-armed after each dump), 2 auto
-  (forced after a capture length without a trigger).
+  (as normal, and forced after a capture length without a trigger).
 - **Commands:** `scopearm`, `scopetrig` (force), `scopestat`, `scopedump`.
   The dump holds each channel's source and range, then the samples as 16
   bit in base64 lines with a CRC-16 each.
@@ -80,3 +84,7 @@ Tests:
   axis moves, and a `--capture` of a rapid (trigger at t = 0, CRCs).
 - `scope_capture.test` and `scope_console.test` (host): triggered, forced
   and normal-mode captures, and a dump over the console.
+- `console_link.test` (host): an over-long line, link loss mid-reply and a
+  reconnect, traffic while enabled and moving.
+- `test_scope.py` (host): every scope setting, checked on the decoded
+  samples (edges, div, pre 0 / 1, modes, the arm pin, 8 channels, fast).
