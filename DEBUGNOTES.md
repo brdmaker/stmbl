@@ -858,3 +858,16 @@ Entry format:
   keeps 3 lines in flight; sscon's RX buffer is 256 bytes.
 - Fix:     Acceptable for unattended updates. A binary fwdata (no base64)
   or a wider console field would roughly halve the time.
+
+## 2026-10-16  Capture scope: pre = 1 lost the trigger sample
+- Area:    `shared/comps/scope.c` (`do_arm`)
+- Status:  Fixed
+- Symptom: With `scope0.pre = 1`, the dump said `pre=4096` (n = 4096), an
+  index past the end, and the trigger sample was not in the capture.
+  servoterm-cli's t = 0 pointed beyond the last row.
+- Cause:   post = depth - pre*depth = 0, but the trigger sample itself
+  counts as the first post sample.
+- Fix:     post is at least 1: with pre = 1 the trigger sample is the last
+  (index depth - 1). Auto mode (2) now re-arms after a dump like normal
+  mode. Both are checked in `host/tests/test_scope.py`.
+

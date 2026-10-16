@@ -11,6 +11,9 @@ What is tested where:
 - **ARM builds:** the bootloader and the application compile and fit.
 - **Not yet tried on a real drive with a Mesa card.**
 
+Related: [sserial_console.md](sserial_console.md) (the console the in-band
+path uses) and [capture_scope.md](capture_scope.md).
+
 There are two paths, for two situations.
 
 | | In-band (routine) | Recovery (`setsserial flash`) |

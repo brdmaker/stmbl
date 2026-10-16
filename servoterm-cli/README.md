@@ -19,7 +19,9 @@ Needs only a C compiler. The user must be in the `dialout` group.
 ```sh
 ./servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]
                 [--dump FILE] [--load FILE [--no-backup]]
-                [-C pin:gain,...] [--step N] [--log SEC] [-c CMD]... [SCRIPT]
+                [-C pin:gain,...] [--step N] [--log SEC]
+                [--capture FILE [--no-arm] [--capture-timeout SEC]]
+                [--update IMAGE [--no-apply]] [-c CMD]... [SCRIPT]
   -d DEV    serial device (default /dev/ttyACM0)
   -s FILE   write decoded scope samples to FILE as CSV
   -t SEC    after the last command, exit once no text arrived for SEC s (default 0.5)
@@ -113,4 +115,30 @@ afterwards. That works over a slow link too: the smart-serial console
 `-c` (channels, trigger, level, pre-trigger); `--capture` then arms it
 (unless `--no-arm`), waits (`--capture-timeout`, default 60 s),
 downloads, checks the line CRCs and writes CSV: `t` (0 at the trigger) and
-a column per channel. See `../linuxcnc/sserialterm/README.md`.
+a column per channel. See `../docs/capture_scope.md`.
+
+## Firmware update (`--update IMAGE`)
+
+In-band update through the drive's `fwup` component, over USB or the
+smart-serial console:
+```sh
+servoterm-cli -d /tmp/drive-x --dump drive-x.conf     # back up the config first
+servoterm-cli -d /tmp/drive-x --update obj_app/stmbl.bin
+servoterm-cli -d /tmp/drive-x -c about                # after the reset
+```
+How it runs:
+1. **The drive must be disabled** (machine off or in estop). Otherwise
+   `fwbegin` answers `fw err drive enabled` and servoterm-cli stops.
+2. **Staging:** the image goes as `fwdata` lines of 30 bytes with a CRC-16
+   each, 3 lines in flight. A damaged, refused or lost line is sent again,
+   and `fw busy` means wait.
+3. **Check:** `fwend` checks the CRC32 of the staged image.
+4. **Apply:** `fwapply` makes the drive reset, and its bootloader copies the
+   image into place. With `--no-apply` it stops after the check;
+   `fwapply` on the console applies later.
+5. **Interrupted:** run the same command again and it resumes where the
+   drive is.
+
+Speed: over USB, seconds; over smart-serial, ~350 B/s (~15 min for the
+whole application). See `../docs/sserial_bootloader.md`, also for the
+recovery path (`sserialboot` and LinuxCNC's `setsserial flash`).

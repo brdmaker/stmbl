@@ -95,6 +95,7 @@ check: stmbl_host test_quota test_ssq test_sscon test_bootloader
 	@./test_sscon
 	@./test_bootloader
 	@$(PYTHON) tests/test_mkssfw.py
+	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test
