@@ -1,0 +1,26 @@
+( hardware test program for the burn-in machine: X only, +-300 mm, )
+( full speed 500 mm/s both ways, feeds, reversals; about 15 s.    )
+G21 G90 G17 G64
+G0 X0
+( rapids at full speed, both directions )
+G0 X300
+G0 X-300
+G0 X0
+( feeds )
+G1 X20 F600
+G1 X-20 F3000
+G1 X100 F12000
+G1 X-100 F30000
+G1 X0 F30000
+( short reversals )
+o100 repeat [10]
+  G1 X5 F12000
+  G1 X0
+o100 endrepeat
+( small steps, then rest )
+o110 repeat [5]
+  G1 X0.05 F300
+  G1 X0
+o110 endrepeat
+G4 P0.5
+M2
