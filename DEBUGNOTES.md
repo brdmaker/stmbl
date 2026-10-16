@@ -476,6 +476,25 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
+## 2026-10-17  Motor kicks 0.87 mm at every enable (one boot, not reproduced)
+- Area:    real drive, firmware v0.9.18-274 (merge of power quota + console)
+- Status:  Open (seen in 1 of ~12 boots)
+- Symptom: First hwtest/suite run on hardware: LinuxCNC machine on gave
+  "joint 0 following error" (limit 1 mm). Traced at 1 kHz: with pos_cmd held,
+  pos_fb ran 0.855 mm away within 57 ms of the enable and settled in ~0.4 s,
+  the same (0.86..0.88 mm, same direction) on all 12 enables of that boot,
+  with vel2.g 5 or 1. Normally 0.002..0.017 mm (v243 and v274 alike).
+- Cause:   Unknown. Not the firmware version: after a reflash the same
+  build was clean, and bisecting found every commit clean. Not reproduced by
+  rerunning the suite's drive phase (crash/safe-mode resets included) or in
+  6 more reboots. The motor never passed the encoder index in that boot, so
+  commutation stayed on the boot-time estimate (fb_switch0.mot_state 1); a
+  bad estimate would act like this, but it isn't confirmed.
+- Fix:     hwtest/suite now measures the swing at every enable (fails above
+  0.1 mm) and writes the commutation / feedback / controller pins to diag.txt.
+  If it recurs: keep the boot, compare fb_switch0.* and hv0.pos with a good
+  boot, then move past the index and see whether it goes away.
+
 ## 2026-10-17  flashsaveconf stalls rt: RT_TOO_LONG after a config save
 - Area:    `src/config.c` (`flashsaveconf`, `hardboot`)
 - Status:  Fixed

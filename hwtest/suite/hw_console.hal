@@ -1,0 +1,8 @@
+# The real drive's console over smart-serial (linuxcnc/sserialterm), as
+# hwtest/burnin-sim/console.hal does for the simulated drive. A second
+# HALFILE after hwtest/burnin/stmbl.hal; the pty is [SSERIALTERM]TTY.
+loadrt sserialterm tty=[SSERIALTERM]TTY
+addf sserialterm.0 servo-thread
+
+net drive0-con-fb  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.con_fb => sserialterm.0.con-fb
+net drive0-con-cmd sserialterm.0.con-cmd => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.con_cmd
