@@ -3,3 +3,4 @@ link stepper
 link mag_fb0
 link misc
 link nema11
+fault0.en = hv0.en_in

@@ -28,6 +28,7 @@ brdstepper/
   comps/io.c            status LED; the F4 board's I/O pins, accepted
   comps/adc.c           hardware version ID
   conf/                 board templates: brdstepper (the default), mag_fb0, nema11
+  tools/brd.gdb         bring-up over SWD before there is a console: brd, pin, hal, enc
 ```
 
 From the shared code it uses:
@@ -80,6 +81,13 @@ drive runs.
 
 Until brdstepper's bootloader exists, `make` links the application at
 0x08000000 (`BOOT=0`); `make BOOT=1` links it behind the bootloader.
+
+Once per new chip, `make option_bytes` (STM32CubeProgrammer, SWD) sets the
+option bytes:
+- nSWBOOT0 = 0, nBOOT0 = 1: PB8 is CAN RX as well as BOOT0;
+- DBANK = 1.
+
+Bring-up, connections and parts: [docs/brdstepper_hw.md](../docs/brdstepper_hw.md).
 
 ## Tested in the simulator
 

@@ -5,6 +5,9 @@
 #   make BOOT=1     link behind the bootloader (0x08004000); the default
 #                   (BOOT=0) links at 0x08000000 to flash alone over SWD
 #   make flash      st-flash the .bin (SWD), see CLAUDE.md for the rules
+#   make option_bytes  once per new chip (SWD, STM32CubeProgrammer): BOOT0
+#                   pin ignored (nSWBOOT0 = 0, nBOOT0 = 1: PB8 is CAN RX),
+#                   dual bank (DBANK = 1)
 #   make clean
 
 ROOT   = ..
@@ -101,7 +104,17 @@ $(OBJDIR) $(GEN):
 flash: $(TARGET).bin
 	st-flash --reset write $(TARGET).bin $(APP_ORIGIN)
 
+# once per new chip: the BOOT0 pin ignored (PB8 doubles as FDCAN1 RX, which
+# idles high) and dual-bank flash. Read them back: make option_bytes_show
+PROGRAMMER ?= STM32_Programmer_CLI
+option_bytes:
+	$(PROGRAMMER) -c port=SWD -ob nSWBOOT0=0 nBOOT0=1 DBANK=1
+option_bytes_show:
+	$(PROGRAMMER) -c port=SWD -ob displ
+
 clean:
 	rm -rf $(OBJDIR)
 
-.PHONY: all flash clean
+.PHONY: all flash option_bytes option_bytes_show clean
+# the generated headers are kept (not intermediate)
+.SECONDARY:
