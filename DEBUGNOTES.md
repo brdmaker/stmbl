@@ -882,3 +882,27 @@ Entry format:
   nBOOT0 = 1) so the pin's idle-high CAN RX does not start the ROM
   bootloader.
 
+
+## 2026-10-16  DRV8876 IPROPI: low side only, one direction only
+- Area:    brdstepper current sensing (`shared/bip_loop.c` `bip_sense`,
+  `host/hw/hv.c` sim_sense, `docs/brdstepper_hw.md`)
+- Status:  Workaround (simulated; to verify on the board)
+- Symptom: (design) a single IPROPI sample cannot give a signed coil
+  current, and a stepper's coil currents change sign every electrical turn.
+- Cause:   Per TI's datasheet text (seen via search excerpts; the PDF itself
+  is not reachable from this environment), IPROPI mirrors the LOW-side
+  MOSFETs, only for current flowing drain to source. Driving, it reads the
+  current if it flows the way the bridge drives, else 0. In brake (both low
+  sides on, slow decay) it reads the magnitude.
+- Fix:     Sample twice per PWM period, in the drive window and in the brake
+  window (forward = IN1 high and IN2 PWM, the bridge braking around the
+  counter's top). Drive sample ~ brake sample means the current flows with
+  the drive; drive 0 and brake > 0 means against it. If the drive window is
+  too short to sample, take the sign from the current command. Below a
+  noise floor, read 0: the rectified |noise| from the brake window otherwise
+  biases the loop. That bias held the motor ~36 mrad (about a full step)
+  off position before the floor was added to every branch. In simulation,
+  with 5 mA noise, the result matches ideal sensing except at slow speed
+  (detent-compensated ripple ~820 vs ~310 rad/s^2). max_duty 0.9 keeps both
+  windows samplable. Bidirectional shunt amplifiers would avoid all this, at
+  the cost of parts and space.

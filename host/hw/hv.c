@@ -85,6 +85,9 @@ HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 HAL_PIN(sim_motor);      // 0: PMSM on the HV board, 1: two-phase stepper on two H-bridges
 HAL_PIN(sim_detent);     // stepper detent torque amplitude [Nm]
 HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
+HAL_PIN(sim_sense);      // stepper current sensing: 0 ideal, 1 DRV8876 IPROPI (low side only, see bip_sense)
+HAL_PIN(sense_window);   // shortest PWM window that can be sampled, share of the period
+HAL_PIN(sense_thr);      // IPROPI noise floor [A]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -112,7 +115,32 @@ struct hv_ctx_t {
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
   bip_state_t bip;  // stepper current loop
+  float duty_a, duty_b;  // the duties the next samples are taken with
+  float ia_meas, ib_meas;  // last reconstructed coil currents
 };
+
+static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
+  ctx->rnd = ctx->rnd ? ctx->rnd : 2463534242u;
+  ctx->rnd ^= ctx->rnd << 13;
+  ctx->rnd ^= ctx->rnd >> 17;
+  ctx->rnd ^= ctx->rnd << 5;
+  return ((float)(ctx->rnd >> 8) / 8388608.0f - 1.0f) * amp;
+}
+
+// what brdstepper measures of a coil current i driven with duty d
+// (ref: the commanded coil current, for the sign when a window is too short)
+static float sense(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float i, float d, float ref, float *prev) {
+  float n = PIN(sim_cur_noise);
+  if(PIN(sim_sense) <= 0.0) {
+    return i + (n > 0.0 ? noise(ctx, n) : 0.0);
+  }
+  // IPROPI: low side only, drain to source only (shared/bip_loop.h)
+  float dir   = d >= 0.0 ? 1.0 : -1.0;
+  float drive = MAX(i * dir + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
+  float brake = MAX(fabsf(i) + (n > 0.0 ? noise(ctx, n) : 0.0), 0.0);
+  *prev       = bip_sense(drive, brake, d, PIN(sense_window), ref, PIN(sense_thr));
+  return *prev;
+}
 
 // the rotor: electrical torque te for dt, coulomb friction, brake, load
 static void mech_step(struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
@@ -155,9 +183,15 @@ static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float pe
   bip_out_t o = {0};
   for(int k = 0; k < F3_PER_RT; k++) {
     // what the drive measures and knows: coil currents, its own angle
-    float ia = PIN(sim_ia), ib = PIN(sim_ib) * prev;
+    float e_k = mod(pos + vel * loop_dt * k);
+    float ref_a, ref_b;
+    bip_ref(e_k, d_cmd, q_cmd, &ref_a, &ref_b);
+    float ia = sense(ctx, pins, PIN(sim_ia), ctx->duty_a, ref_a, &ctx->ia_meas);
+    float ib = sense(ctx, pins, PIN(sim_ib) * prev, ctx->duty_b, ref_b, &ctx->ib_meas);
     bip_step(&ctx->bip, &bp, mod(pos + vel * loop_dt * k), vel, d_cmd, q_cmd, ia, ib, en, loop_dt, &o);
     float ua = o.duty_a * udc, ub = o.duty_b * udc * prev;
+    ctx->duty_a = o.duty_a;
+    ctx->duty_b = o.duty_b;
     for(int m = 0; m < MOT_PER_F3; m++) {
       float e  = PIN(sim_pos) * pp;
       float se = sinf(e), ce = cosf(e);
@@ -201,6 +235,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_f)   = 0.01;
   PIN(sim_udc) = 300;
   PIN(max_duty) = 0.95;
+  PIN(sense_window) = 0.1;
+  PIN(sense_thr)    = 0.01;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {

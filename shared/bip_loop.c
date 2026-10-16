@@ -87,3 +87,30 @@ void bip_step(bip_state_t *s, const bip_param_t *p, float e, float w, float d_cm
   o->abs_cur  = sqrtf(id * id + iq * iq);
   o->abs_volt = sqrtf(ud * ud + uq * uq);
 }
+
+float bip_sense(float drive, float brake, float duty, float min_window, float prev, float thr) {
+  float dir      = duty >= 0.0f ? 1.0f : -1.0f;
+  int drive_ok   = fabsf(duty) >= min_window;
+  int brake_ok   = 1.0f - fabsf(duty) >= min_window;
+  float mag      = brake_ok ? brake : drive_ok ? drive : fabsf(prev);
+  if(drive_ok) {
+    if(drive > thr) {
+      return dir * (brake_ok ? 0.5f * (drive + brake) : drive);  // with the drive
+    }
+    if(mag > thr) {
+      return -dir * mag;  // against it: the drive window saw nothing
+    }
+    return 0.0f;  // below the noise floor either way
+  }
+  // the drive window was too short to sample: the sign predicted
+  if(mag <= thr) {
+    return 0.0f;  // only noise: |noise| is never negative, it would bias the loop
+  }
+  return (prev >= 0.0f ? 1.0f : -1.0f) * mag;
+}
+
+void bip_ref(float e, float d_cmd, float q_cmd, float *ia, float *ib) {
+  float se = sinf(e), ce = cosf(e);
+  *ia = d_cmd * ce - q_cmd * se;
+  *ib = d_cmd * se + q_cmd * ce;
+}

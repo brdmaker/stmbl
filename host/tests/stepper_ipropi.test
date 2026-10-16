@@ -1,0 +1,90 @@
+# As stepper.test, but the coil currents measured as brdstepper will: the
+# DRV8876's IPROPI sees only the low-side MOSFETs, drain to source, so
+# each PWM period gives a drive-window sample (the current if it flows the
+# way the bridge drives, else 0) and a brake-window sample (its magnitude);
+# shared/bip_loop.c's bip_sense makes a signed current of them, the sign
+# from the current command when the drive window is too short. 5 mA noise
+# per sample, 10 mA noise floor, max_duty 0.9 (both windows samplable).
+#
+# The rest as stepper.test:
+# brdstepper in closed loop: a NEMA11 hybrid stepper (tests/nema11: 0.67 A,
+# 6.8 ohm, 4.9 mH, 50 pole pairs, 24 V) on two H-bridges, the current loop
+# shared/bip_loop.c (hv0.sim_motor = 1), the stock pid chain with the
+# stepper template (stp_ttc), a 16384 count encoder (AS5047P), commands over
+# the simulated smart-serial link (1 unit = 1 rev).
+# - phasing and enable; holding still;
+# - 10 rev/s: following error and the voltage needed;
+# - a load step of half the rated torque: held, the current as kt says;
+# - slow speed: detent torque compensation (stp_ttc0.detent) smooths it;
+# - 15 rev/s still runs at 24 V;
+# - more load than the motor can give: a position error fault, bridges off;
+# - two-phase power (pe0.phases = 2).
+@args --drive tests/nema11/stmbl.conf --sim tests/nema11/sim_ipropi.txt
+@timeout 180
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+fault0.state
+@sample pid0.pos_error 0.001 0.2
+# 10 rev/s
+lcnc 1 10
+run 1
+@sample pid0.pos_error 0.001 0.3
+@sample hv0.abs_volt 0.001 0.3
+hv0.sim_vel
+lcnc 1 0
+run 1
+# half the rated torque, as a step
+hv0.sim_load = 0.047
+run 0.5
+hv0.iq_fb
+pid0.pos_error
+pe0.p_el_ac
+hv0.sim_load = 0
+run 0.5
+# slow: detent torque without, then with compensation
+stp_ttc0.detent = 0
+lcnc 1 0.2
+run 1
+@sample stp_ttc0.cur 0.0005 0.5
+@sample hv0.sim_acc 0.0005 0.5
+stp_ttc0.detent = 0.004
+run 0.5
+@sample hv0.sim_acc 0.0005 0.5
+lcnc 1 0
+run 0.5
+# 15 rev/s at 24 V
+lcnc 1 15
+run 1
+@sample pid0.pos_error 0.001 0.3
+hv0.sim_vel
+fault0.state
+lcnc 1 0
+run 1.5
+# more load than the motor has (0.094 Nm at 0.67 A)
+hv0.sim_load = 0.2
+run 0.5
+fault0.state
+hv0.sim_ia
+hv0.sim_ib
+@expect fault0.state[1] == 1
+@expect max|pid0.pos_error[1:200]| < 0.0005
+@expect max|pid0.pos_error[201:500]| < 0.0015
+@expect max|pid0.pos_error[502:801]| < 0.0025
+# detent: ~3000 rad/s^2 of acceleration ripple without, ~820 with (ideal
+# sensing: ~310): the 10 mA floor near the current's zeros costs smoothness
+@expect span hv0.sim_acc[1:1000] > 2000
+@expect span hv0.sim_acc[1001:2000] < 1200
+@expect max|hv0.abs_volt| < 21.6
+@expect hv0.sim_vel[1] ~ 62.83 1%
+# 0.045 Nm (0.047 less 0.002 friction) / kt 0.14 Nm/A
+@expect hv0.iq_fb ~ -0.32 5%
+@expect pid0.pos_error[501] ~ 0 0.001
+# two phases: R iq^2 = 6.8 * 0.315^2
+@expect pe0.p_el_ac ~ 0.675 5%
+@expect hv0.sim_vel[2] ~ 94.25 1%
+@expect fault0.state[2] == 1
+@expect fault0.state[3] == 3
+@expect hv0.sim_ia == 0
+@expect hv0.sim_ib == 0

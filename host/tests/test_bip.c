@@ -147,6 +147,21 @@ int main(void) {
   bip_step(&s, &p0, 0, 0, 0, 0.5f, 0, 0, 1, DT, &o);
   ok(o.duty_a == 0 && o.duty_b == 0 && !isnan(o.ud), "no supply voltage: zero duty, no NaN", o.duty_a);
 
+  // 8. bip_sense: the DRV8876's low-side-only IPROPI, two samples a period
+  const float W = 0.1f, T = 0.01f;
+  ok(fabsf(bip_sense(0.3f, 0.3f, 0.5f, W, 0, T) - 0.3f) < 1e-6f, "IPROPI: driving forward, current forward: +0.3 A", 0);
+  ok(fabsf(bip_sense(0.0f, 0.3f, 0.5f, W, 0, T) + 0.3f) < 1e-6f,
+     "IPROPI: driving forward, current backward (drive window 0, brake 0.3): -0.3 A", 0);
+  ok(fabsf(bip_sense(0.3f, 0.3f, -0.5f, W, 0, T) + 0.3f) < 1e-6f, "IPROPI: driving backward, current backward: -0.3 A", 0);
+  ok(fabsf(bip_sense(0.0f, 0.3f, -0.5f, W, 0, T) - 0.3f) < 1e-6f, "IPROPI: driving backward, current forward: +0.3 A", 0);
+  ok(fabsf(bip_sense(0.0f, 0.2f, 0.02f, W, -0.1f, T) + 0.2f) < 1e-6f &&
+         fabsf(bip_sense(0.0f, 0.2f, 0.02f, W, 0.1f, T) - 0.2f) < 1e-6f,
+     "IPROPI: drive window too short (2 %): the magnitude from the brake window, the sign predicted", 0);
+  ok(fabsf(bip_sense(0.25f, 0.0f, 0.97f, W, 0, T) - 0.25f) < 1e-6f,
+     "IPROPI: brake window too short (97 %): the drive window alone", 0);
+  ok(bip_sense(0.004f, 0.006f, 0.5f, W, 0.2f, T) == 0.0f && bip_sense(0.0f, 0.008f, 0.02f, W, 0.2f, T) == 0.0f,
+     "IPROPI: below the noise floor: 0 (a rectified |noise| would bias the loop)", 0);
+
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }
