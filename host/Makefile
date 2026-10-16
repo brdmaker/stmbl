@@ -83,11 +83,16 @@ test_ssq: tests/test_ssq.c ../shared/sserial_q.h
 test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_sscon.c ../shared/sscon.c
 
+# the smart-serial bootloader sketch: shared/lbp_flash.c, shared/fwstage.c
+test_bootloader: tests/test_bootloader.c ../shared/lbp_flash.c ../shared/lbp_flash.h ../shared/fwstage.c ../shared/fwstage.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bootloader.c ../shared/lbp_flash.c ../shared/fwstage.c
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq test_sscon
+check: stmbl_host test_quota test_ssq test_sscon test_bootloader
 	@./test_ssq
 	@./test_sscon
+	@./test_bootloader
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test

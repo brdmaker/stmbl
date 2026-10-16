@@ -800,3 +800,15 @@ Entry format:
 - Fix:     Records `con_cmd` / `con_fb`, like pos_cmd / pos_fb. The CRC is
   checked first, and only a valid request steps the console. The F3 build
   shares term.c but has no console: weak references there.
+
+## 2026-10-16  setsserial flash skips all-zero blocks
+- Area:    `shared/lbp_flash.c`, the future setsserial image tool
+- Status:  Known
+- Symptom: (host model) an all-zero 16 kB block in the image reads 0xFF
+  on the device after `setsserial flash`.
+- Cause:   setsserial skips blocks of zeros (neither erase nor write), and
+  the device erases a whole sector at the first block written into it.
+- Fix:     The image tool must refuse or alter an application with an
+  all-zero erase block. Otherwise the CRC check keeps the bootloader from
+  starting it, which is safe but confusing. See
+  docs/sserial_bootloader.md.
