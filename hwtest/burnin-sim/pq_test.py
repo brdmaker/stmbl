@@ -100,8 +100,11 @@ def main():
     C.wait_complete()
     C.home(-1)
     wait(lambda s: all(s.homed[j] for j in range(3)), 30)
-    idle = g("stmbl-sim.0.power")
-    INFO.append("# drive power at rest %.1f W" % idle)
+    # the power field is 8 bit, 20 W a step, noise-shaped: one frame of an
+    # idle drive reads 0 or 20 W, the average is the drive's
+    one = g("stmbl-sim.0.power")
+    idle = g("powerquota.0.total-power-avg")
+    INFO.append("# drive power at rest %.1f W (one frame: %.0f W)" % (idle, one))
     if os.environ.get("PROBE"):
         mdi("M52 P0")
         st = cycles(5, 60)
@@ -114,10 +117,18 @@ def main():
             if m:
                 INFO.append("# error: %s" % (m[1],))
         return
-    check(10 < idle < 40, "the drive reports its input power over smart-serial (%.1f W at rest)" % idle)
+    check(13 < idle < 17 and one % 20 == 0,
+          "the drive's power over smart-serial: 20 W steps, averaging %.1f W at rest (pe0.p_in 15 W)" % idle)
 
+    hal.set_p("powerquota.0.meter-reset", "1")
+    time.sleep(0.05)
+    hal.set_p("powerquota.0.meter-reset", "0")
     mdi("M52 P1")
     st = cycles(12, 120)
+    avg, peak, wh = g("powerquota.0.total-power-avg"), g("powerquota.0.total-power-peak"), g("powerquota.0.energy")
+    INFO.append("# meters: avg %.1f W, peak %.1f W, energy %.4f Wh" % (avg, peak, wh))
+    check(idle - 1 < avg < st["pmax"] and peak >= st["pmax"] - 1 and wh > idle * st["t"] / 3600.0 * 0.9,
+          "meters: total-power-avg between rest and peak, total-power-peak, energy (%.3f Wh) counting" % wh)
     INFO.append("# protected: power max %.0f W, mean %.0f W, feed min %.2f, damage max %.2f, %.1f s" % (
         st["pmax"], st["psum"] / max(st["k"], 1), st["smin"], st["dmax"], st["t"]))
     check(not st["estop"] and st["smin"] < 0.8, "M52 P1: the moves are slowed (feed scale down to %.2f)" % st["smin"])
@@ -141,6 +152,11 @@ def main():
     time.sleep(0.3)
     check(not g("powerquota.0.alarm") and g("powerquota.0.L1.damage") < 0.9,
           "  ...a little cooler, it does (damage %.3f)" % g("powerquota.0.L1.damage"))
+    hal.set_p("powerquota.0.meter-reset", "1")
+    time.sleep(0.05)
+    check(g("powerquota.0.energy") < 0.001 and g("powerquota.0.total-power-peak") < 40,
+          "meter-reset clears energy and peak")
+    hal.set_p("powerquota.0.meter-reset", "0")
 
 
 if __name__ == "__main__":

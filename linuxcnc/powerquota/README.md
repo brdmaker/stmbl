@@ -14,7 +14,10 @@ The drives measure their own input power: `pe0.p_in` in the drive is the
 motor's electrical input 3/2 (ud id + uq iq), over the inverter's
 efficiency, plus its idle draw. It goes to LinuxCNC as the smart-serial
 process value `power`: hm2 pin `hm2_<board>.0.stbl.<port>.<chan>.power`,
-or `stmbl-sim.0.power` with the simulated drive.
+or `stmbl-sim.0.power` with the simulated drive. It is 8 bits, 20 W a step
+(up to +-2540 W), with noise-shaped rounding: a single frame is within a
+step, but the average over a few milliseconds is exact. The fuse model
+and the meters (`total-power-avg`, `energy`) integrate it.
 
 ```
 loadrt powerquota config=/path/quota.txt
@@ -85,7 +88,12 @@ time constant below it.
 ## Pins
 
 - `powerquota.0.power-N` (in): drive N's input power [W].
-- `.feed-scale`, `.limiting`, `.total-power`.
+- `.feed-scale`, `.limiting`.
+- For meters and debugging: `.total-power` (the drives' sum each period),
+  `.total-power-avg` (low-passed over `.avg-time`, default 1 s),
+  `.total-power-peak` and `.energy` (net Wh, regeneration negative), both
+  since a rising edge on `.meter-reset`. Each drive's own power is its
+  smart-serial `power` pin; each fuse's is `.NAME.power`.
 - `.alarm`, `.alarm-quota`: latched; an estop reset (`.reset`) clears it
   once the fuse model has cooled below `trip`.
 - `.chain-in` / `.chain-out`: the estop chain.

@@ -9,6 +9,7 @@ A .test file is a stmbl_host script plus directives:
   @sample PIN DT T         run T seconds, printing PIN every DT seconds
   @timeout SEC             wall-clock limit (default 120)
   @reject REGEX            fail if any output line matches REGEX
+  @match REGEX             fail unless some output line matches REGEX
   @fail MESSAGE            always fail with MESSAGE (a generator's way to
                            report that it could not build the test)
   @todo REASON             known failure: failing checks print as
@@ -55,12 +56,12 @@ class TestError(Exception):
     pass
 
 
-Script = collections.namedtuple("Script", "text args expects rejects timeout fails todo")
+Script = collections.namedtuple("Script", "text args expects rejects timeout fails todo matches")
 
 
 def build_script(path):
     """Expand a .test file into a Script."""
-    args, expects, rejects, out, fails = [], [], [], [], []
+    args, expects, rejects, out, fails, matches = [], [], [], [], [], []
     timeout = 120.0
     todo = None
 
@@ -95,6 +96,8 @@ def build_script(path):
                     todo = rest
                 elif word == "@reject":
                     rejects.append((re.compile(rest), where))
+                elif word == "@match":
+                    matches.append((re.compile(rest), where))
                 elif word == "@expect":
                     if not CHECK_RE.match(rest):
                         raise TestError("%s: bad @expect: %s" % (where, rest))
@@ -103,7 +106,7 @@ def build_script(path):
                     raise TestError("%s: unknown directive %s" % (where, word))
 
     walk(path, 0)
-    return Script("\n".join(out) + "\n", args, expects, rejects, timeout, fails, todo)
+    return Script("\n".join(out) + "\n", args, expects, rejects, timeout, fails, todo, matches)
 
 
 def parse_values(output):
@@ -187,6 +190,9 @@ def _run_checks(name, sc, verbose):
     for rx, where in rejects:
         hits = [l for l in output.splitlines() if rx.search(l)]
         yield not hits, "%s: no output matching /%s/" % (name, rx.pattern), hits[:5]
+    for rx, where in sc.matches:
+        hit = any(rx.search(l) for l in output.splitlines())
+        yield hit, "%s: output matches /%s/" % (name, rx.pattern), ([] if hit else tail)
     values = parse_values(output)
     for expr, where in expects:
         ok, detail = check(expr, values)

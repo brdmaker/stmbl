@@ -12,7 +12,15 @@
  *   powerquota.0.power-N       in   drive N's input power [W] (N from 0)
  *   powerquota.0.feed-scale    out  -> motion.adaptive-feed (with M52 P1)
  *   powerquota.0.limiting      out  the feed is held below 1
- *   powerquota.0.total-power   out  the drives' sum [W]
+ *   powerquota.0.total-power   out  the drives' sum [W], every period
+ *   For meters and debugging:
+ *   powerquota.0.total-power-avg  out  the sum low-passed over avg-time [W]
+ *   powerquota.0.avg-time      in   its time constant [s] (default 1)
+ *   powerquota.0.total-power-peak out  the highest sum since meter-reset [W]
+ *   powerquota.0.energy        out  the drives' net energy since
+ *                                   meter-reset [Wh] (regeneration counts
+ *                                   negative)
+ *   powerquota.0.meter-reset   in   rising edge: clears peak and energy
  *   powerquota.0.alarm         out  a fuse is about to blow even at the
  *                                   lowest feed (latched until reset)
  *   powerquota.0.alarm-quota   out  (s32) which (-1 none)
@@ -45,7 +53,9 @@ RTAPI_MP_STRING(config, "quota config file (quota.h)");
 
 typedef struct {
   hal_float_t *power[PQ_MAXD];
-  hal_float_t *scale, *total;
+  hal_float_t *scale, *total, *avg, *avg_time, *peak, *energy;
+  hal_bit_t *meter_reset;
+  int last_meter_reset;
   hal_bit_t *limiting, *alarm, *reset, *chain_in, *chain_out;
   hal_s32_t *alarm_q;
   hal_float_t *qp[PQ_MAXQ], *qi[PQ_MAXQ], *qm[PQ_MAXQ], *qd[PQ_MAXQ], *qs[PQ_MAXQ];
@@ -69,6 +79,15 @@ static void update(void *arg, long period) {
   pq_step(&sys, pw, period * 1e-9);
   *p->scale = sys.scale;
   *p->total = sys.total;
+  double dt = period * 1e-9, tc = *p->avg_time > 0.0 ? *p->avg_time : 1.0;
+  if(*p->meter_reset && !p->last_meter_reset) {
+    *p->peak = sys.total;
+    *p->energy = 0.0;
+  }
+  p->last_meter_reset = *p->meter_reset;
+  *p->avg += (sys.total - *p->avg) * dt / (tc + dt);
+  *p->peak = sys.total > *p->peak ? sys.total : *p->peak;
+  *p->energy += sys.total * dt / 3600.0;
   *p->limiting = sys.limiting;
   *p->alarm = sys.alarm;
   *p->alarm_q = sys.alarm_quota;
@@ -89,6 +108,11 @@ static int export_pins(void) {
   }
   r |= hal_pin_float_newf(HAL_OUT, &pins->scale, comp_id, PREFIX ".feed-scale");
   r |= hal_pin_float_newf(HAL_OUT, &pins->total, comp_id, PREFIX ".total-power");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->avg, comp_id, PREFIX ".total-power-avg");
+  r |= hal_pin_float_newf(HAL_IN, &pins->avg_time, comp_id, PREFIX ".avg-time");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->peak, comp_id, PREFIX ".total-power-peak");
+  r |= hal_pin_float_newf(HAL_OUT, &pins->energy, comp_id, PREFIX ".energy");
+  r |= hal_pin_bit_newf(HAL_IN, &pins->meter_reset, comp_id, PREFIX ".meter-reset");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->limiting, comp_id, PREFIX ".limiting");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->alarm, comp_id, PREFIX ".alarm");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->alarm_q, comp_id, PREFIX ".alarm-quota");
@@ -105,6 +129,7 @@ static int export_pins(void) {
   }
   if(!r) {
     *pins->scale = 1.0;
+    *pins->avg_time = 1.0;
     *pins->alarm_q = -1;
   }
   return r;

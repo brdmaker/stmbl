@@ -104,3 +104,13 @@ for logging during a LinuxCNC run.
 
 Commands like `start`, `stop`, `enable`, pin writes and `flashsaveconf` change
 the drive's state. Make sure the machine is safe before sending them.
+
+## Capture scope (`--capture FILE`)
+
+The drive's `scope0` captures into its own memory and is downloaded
+afterwards. That works over a slow link too: the smart-serial console
+(`linuxcnc/sserialterm`), about 14 s for 2 × 2048 samples. Set it up with
+`-c` (channels, trigger, level, pre-trigger); `--capture` then arms it
+(unless `--no-arm`), waits (`--capture-timeout`, default 60 s),
+downloads, checks the line CRCs and writes CSV: `t` (0 at the trigger) and
+a column per channel. See `../linuxcnc/sserialterm/README.md`.

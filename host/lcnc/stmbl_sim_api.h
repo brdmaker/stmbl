@@ -15,11 +15,13 @@ typedef struct {
   uint8_t out[4];
   uint8_t enable;
   uint8_t index_enable;
+  uint16_t con_cmd;  // the console field to the drive (shared/sscon.h)
   // drive -> LinuxCNC
   float pos_fb;
   float vel_fb;
   float current;
   float power;  // the drive's input power [W]
+  uint16_t con_fb;  // the console field from the drive (shared/sscon.h)
   uint8_t in[4];
   uint8_t fault;
   uint8_t index_enable_fb;

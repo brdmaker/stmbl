@@ -49,6 +49,7 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
   io->scale        = pd->scale;
   io->enable       = pd->enable;
   io->index_enable = pd->index_enable;
+  io->con_cmd      = pd->con_cmd;
   memcpy(io->out, pd->out, sizeof(io->out));
   io->seq++;
 
@@ -67,6 +68,7 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
   pd->vel_fb          = io->vel_fb;
   pd->current         = io->current;
   pd->power           = io->power;
+  pd->con_fb          = io->con_fb;
   pd->fault           = io->fault;
   pd->index_enable_fb = io->index_enable_fb;
   memcpy(pd->in, io->in, sizeof(pd->in));

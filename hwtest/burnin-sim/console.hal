@@ -1,0 +1,9 @@
+# The drive's console over smart-serial (linuxcnc/sserialterm): its con_fb /
+# con_cmd process data to a pty, [SSERIALTERM]TTY. A second HALFILE after
+# stmbl_sim.hal; on the real machine the pins are
+# hm2_7c81.0.stbl.0.0.con_fb / con_cmd. Then: servoterm-cli -d <TTY>.
+loadrt sserialterm tty=[SSERIALTERM]TTY
+addf sserialterm.0 servo-thread
+
+net drive0-con-fb  stmbl-sim.0.con_fb     => sserialterm.0.con-fb
+net drive0-con-cmd sserialterm.0.con-cmd  => stmbl-sim.0.con_cmd

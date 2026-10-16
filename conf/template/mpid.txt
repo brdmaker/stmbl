@@ -12,6 +12,7 @@ load sim
 load io
 load iit
 load pe
+load scope
 link conf
 hv0.rt_prio = 0.9
 hv0.frt_prio = 1
@@ -27,6 +28,8 @@ mpid0.rt_prio = 8
 fault0.rt_prio = 10
 iit0.rt_prio = 13
 pe0.rt_prio = 13
+scope0.rt_prio = 15
+scope0.frt_prio = 15
 sim0.rt_prio = 13
 term0.rt_prio = 16
 rev0.rev = conf0.cmd_rev

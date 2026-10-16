@@ -114,11 +114,11 @@ void print_pd(process_data_descriptor_t *pd) {
       printf("float %s;\n", name);
       break;
     case DATA_TYPE_BOOLEAN:
+    case DATA_TYPE_STREAM:
       printf("uint32_t %s : %u;\n", name, pd->data_size);
       break;
     case DATA_TYPE_NONVOL_UNSIGNED:
     case DATA_TYPE_NONVOL_SIGNED:
-    case DATA_TYPE_STREAM:
     case DATA_TYPE_ENCODER:
     case DATA_TYPE_ENCODER_H:
     case DATA_TYPE_ENCODER_L:
@@ -145,6 +145,10 @@ int main() {
   metadata(&(pd_table.pos_cmd), last_pd);
   ADD_PROCESS_VAR(("vel_cmd", "rad", 32, DATA_TYPE_FLOAT, DATA_DIRECTION_OUTPUT, -INFINITY, INFINITY));
   metadata(&(pd_table.vel_cmd), last_pd);
+  // the console (shared/sscon.h): a byte, the sender's toggle, the ack; a raw
+  // u32 pin in hostmot2 (stream type)
+  ADD_PROCESS_VAR(("con_cmd", "none", 10, DATA_TYPE_STREAM, DATA_DIRECTION_OUTPUT, 0, 0));
+  metadata(&(pd_table.con_out), last_pd);
   ADD_PROCESS_VAR(("out", "none", 4, DATA_TYPE_BITS, DATA_DIRECTION_OUTPUT, 0, 1));
   metadata(&(pd_table.output_pins), last_pd);
   ADD_PROCESS_VAR(("enable", "none", 1, DATA_TYPE_BOOLEAN, DATA_DIRECTION_OUTPUT, 0, 1));
@@ -156,10 +160,14 @@ int main() {
   metadata(&(pd_table.vel_fb), last_pd);
   ADD_PROCESS_VAR(("current", "A", 8, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -30, 30));
   metadata(&(pd_table.current), last_pd);
-  // the drive's input power (pe0.p_in), for LinuxCNC's power quotas; here,
-  // after current, it stays byte aligned (the struct and the bit stream agree)
-  ADD_PROCESS_VAR(("power", "W", 16, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -16384, 16384));
+  // the drive's input power (pe0.p_in), for LinuxCNC's power quotas: 8 bit,
+  // 20 W a step (full scale 2560: hostmot2 decodes raw / 128 * 2560), up to
+  // +-2540 W (stmbl's 2 kW with headroom), noise-shaped (shared/sserial_q.h).
+  // After current it stays byte aligned (the struct and the bit stream agree).
+  ADD_PROCESS_VAR(("power", "W", 8, DATA_TYPE_SIGNED, DATA_DIRECTION_INPUT, -2560, 2560));
   metadata(&(pd_table.power), last_pd);
+  ADD_PROCESS_VAR(("con_fb", "none", 10, DATA_TYPE_STREAM, DATA_DIRECTION_INPUT, 0, 0));
+  metadata(&(pd_table.con_in), last_pd);
   ADD_PROCESS_VAR(("in", "none", 4, DATA_TYPE_BITS, DATA_DIRECTION_INPUT, -100, 100));
   metadata(&(pd_table.input_pins), last_pd);
   ADD_PROCESS_VAR(("fault", "none", 1, DATA_TYPE_BOOLEAN, DATA_DIRECTION_INPUT, 0, 1));
@@ -172,10 +180,13 @@ int main() {
   ADD_MODE(("Position mode", 0, 1));
 
   // automatically create padding pds based on the mod remainder of input/output bits
-  if(input_bits % 8)
+  // (braces: ADD_PROCESS_VAR is several statements)
+  if(input_bits % 8) {
     ADD_PROCESS_VAR(("padding", "", 8 - (input_bits % 8), DATA_TYPE_PAD, DATA_DIRECTION_INPUT, 0, 0));
-  if(output_bits % 8)
+  }
+  if(output_bits % 8) {
     ADD_PROCESS_VAR(("padding", "", 8 - (output_bits % 8), DATA_TYPE_PAD, DATA_DIRECTION_OUTPUT, 0, 0));
+  }
 
   // now that all the toc entries have been added, write out the tocs to memory and set up the toc pointers
 

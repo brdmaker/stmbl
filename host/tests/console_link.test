@@ -1,0 +1,58 @@
+# The smart-serial console's link, in trouble (shared/sscon.c, the sserial
+# component, shared/comps/term.c):
+# - a line longer than the console's 63 characters is dropped, the next
+#   one works;
+# - the link goes away in the middle of a long reply (LinuxCNC stopped):
+#   the drive times out (sserial0.connected 0) and resets its end; LinuxCNC
+#   comes back with a fresh end; the next command answers whole, with no
+#   left-over bytes of the old reply;
+# - console traffic while the drive is enabled and moving: no fault;
+# - a command typed on USB answers on USB and is copied to the console.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+con about
+run 0.5
+conread
+con fault0.state = 0 # this line is far too long for the drive's console buffer of sixty-four bytes
+run 0.5
+con pe0.idle
+run 0.5
+conread
+con showconf
+run 0.3
+lcncstop
+run 0.2
+sserial0.connected
+conreset
+lcnc 0 0
+run 0.2
+sserial0.connected
+conread
+con about
+run 0.5
+conread
+lcnc 1 0
+run 0.5
+lcnc 1 31.4
+con fault0.state
+run 0.3
+con pe0.p_in
+run 0.3
+con about
+run 0.6
+conread
+fault0.state
+about
+run 0.5
+conread
+@match ^con> STMBL simulated drive
+@match ^con> pe0.idle = 
+@reject ^con> fault0.state = 0 # this
+@expect sserial0.connected[1] == 0
+@expect sserial0.connected[2] == 1
+@match ^con> fault0.state = 1\.0+$
+@expect fault0.state == 1
+@match ^STMBL simulated drive
+@reject ^con> error

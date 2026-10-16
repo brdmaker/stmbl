@@ -5,7 +5,8 @@
  * templates) against a simulated motor, inside the servo thread, in lockstep
  * with LinuxCNC. Its pins mirror the hm2 smart-serial pins of a real drive
  * (hm2_<board>.0.stbl.0.0.*), so a HAL file switches between the two by
- * renaming pins.
+ * renaming pins. con_cmd / con_fb carry the drive's console
+ * (linuxcnc/sserialterm).
  *
  *   loadrt stmbl_sim conf=/path/stmbl.conf [sim=/path/sim.txt] [tty=/tmp/stmbl-sim]
  *   addf stmbl-sim.0 servo-thread
@@ -47,6 +48,7 @@ typedef struct {
   hal_bit_t *enable;
   hal_bit_t *fault;
   hal_bit_t *index_enable;
+  hal_u32_t *con_cmd, *con_fb;  // the console (shared/sscon.h), as hm2's con_cmd / con_fb
   hal_bit_t *out[4];
   hal_bit_t *in[4];
   hal_float_t *scale;
@@ -64,6 +66,7 @@ static void update(void *arg, long period) {
   pd.scale        = *p->scale;
   pd.enable       = *p->enable;
   pd.index_enable = *p->index_enable;
+  pd.con_cmd      = (uint16_t)(*p->con_cmd & 0x3ff);
   for(int i = 0; i < 4; i++) {
     pd.out[i] = *p->out[i];
   }
@@ -74,6 +77,7 @@ static void update(void *arg, long period) {
   *p->vel_fb  = pd.vel_fb;
   *p->current = pd.current;
   *p->power   = pd.power;
+  *p->con_fb  = pd.con_fb;
   *p->fault   = pd.fault;
   for(int i = 0; i < 4; i++) {
     *p->in[i] = pd.in[i];
@@ -94,6 +98,8 @@ static int export_pins(void) {
   r |= hal_pin_float_newf(HAL_OUT, &pins->vel_fb, comp_id, PREFIX ".vel_fb");
   r |= hal_pin_float_newf(HAL_OUT, &pins->current, comp_id, PREFIX ".current");
   r |= hal_pin_float_newf(HAL_OUT, &pins->power, comp_id, PREFIX ".power");
+  r |= hal_pin_u32_newf(HAL_IN, &pins->con_cmd, comp_id, PREFIX ".con_cmd");
+  r |= hal_pin_u32_newf(HAL_OUT, &pins->con_fb, comp_id, PREFIX ".con_fb");
   r |= hal_pin_float_newf(HAL_IN, &pins->scale, comp_id, PREFIX ".scale");
   r |= hal_pin_bit_newf(HAL_IN, &pins->enable, comp_id, PREFIX ".enable");
   r |= hal_pin_bit_newf(HAL_OUT, &pins->fault, comp_id, PREFIX ".fault");

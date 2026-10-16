@@ -42,7 +42,7 @@ def records(b):
             continue
         e = b.index(0, a + 14)
         name = b[e + 1:b.index(0, e + 1)].decode()
-        out.append((name, b[a + 1], b[a + 2], b[a + 3]))
+        out.append((name, b[a + 1], b[a + 2], b[a + 3], struct.unpack_from("<f", b, a + 8)[0]))
     return out
 
 
@@ -68,7 +68,7 @@ ok(8 + bits_in == inp * 8 and bits_out == outp * 8, "process data bits fill the 
    % (bits_in, bits_out))
 ok(bits_in <= 96 and bits_out <= 96, "  ...within 96 bits per direction (older Mesa sserial firmware)")
 pos, aligned = 0, True
-for name, n, typ, d in recs:
+for name, n, typ, d, _ in recs:
     if d not in (0x00, 0x40):
         continue
     if typ in (0x02, 0x03, 0x10) and pos % 8:  # unsigned / signed / float: a byte type in the struct
@@ -76,7 +76,8 @@ for name, n, typ, d in recs:
     pos += n
 ok(aligned, "input fields of byte types are byte aligned in the bit stream")
 power = [r for r in recs if r[0] == "power"]
-ok(power and power[0][1:] == (16, 0x03, 0x00), "power: 16 bit signed, drive -> LinuxCNC")
+ok(power and power[0][1:] == (8, 0x03, 0x00, 2560.0),
+   "power: 8 bit signed, drive -> LinuxCNC, full scale 2560 W (20 W a step as hostmot2 decodes it)")
 size = re.search(r"_Static_assert\(sizeof\(sserial_in_process_data_t\) == (\d+)", src)
 ok(size and int(size.group(1)) == inp - 1, "sserial_in_process_data_t is the input bytes less the fault byte")
 

@@ -8,6 +8,8 @@
 #include "hal.h"
 #include "defines.h"
 #include "sim_io.h"
+#include "sserial_q.h"
+#include "sscon.h"
 
 HAL_COMP(sserial);
 
@@ -45,6 +47,7 @@ sim_sserial_io_t sim_sserial_io;
 struct sserial_ctx_t {
   uint32_t seq;
   float since;  // [s] since the last update
+  ssq_t power_q;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -68,14 +71,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     io->pos_fb  = PIN(pos_fb) + PIN(vel_fb) * PIN(pos_advance);
     io->vel_fb  = PIN(vel_fb);
     io->current = PIN(current);
-    // as on the link: int16, 16384 W full scale (src/comps/sserial.c), as
-    // hostmot2 decodes it
-    io->power = (int16_t)CLAMP(PIN(power) * (32767.0f / 16384.0f), -32767, 32767) * (16384.0f / 32767.0f);
+    // as on the link (src/comps/sserial.c): 8 bit, 20 W a step,
+    // noise-shaped; as hostmot2 decodes it
+    io->power = ssq_encode(&ctx->power_q, PIN(power), 20.0f, 127) * 20.0f;
     io->in[0]   = PIN(in0) > 0;
     io->in[1]   = PIN(in1) > 0;
     io->in[2]   = PIN(in2) > 0;
     io->in[3]   = PIN(in3) > 0;
     io->fault   = PIN(fault) > 0;
+    io->con_fb  = sscon_frame(&sscon0, io->con_cmd);  // the console (shared/sscon.h)
 
     PIN(index_out)      = io->index_enable;
     io->index_enable_fb = PIN(index_clear) > 0 ? 0 : io->index_enable;
@@ -93,6 +97,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   if(ctx->since > PIN(timeout) * 0.00005) {
+    if(PIN(connected) > 0) {  // the link went away: the console's other side restarts
+      sscon_reset(&sscon0);
+    }
     PIN(connected) = 0;
     PIN(error)     = 1;
     PIN(pos_cmd)   = 0;

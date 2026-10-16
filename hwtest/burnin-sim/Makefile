@@ -9,7 +9,9 @@
 # LINUXCNC: a run-in-place LinuxCNC 2.9 (sourced rip-environment), or
 # empty for the installed one. Needs stmbl_sim.so (make -C ../../host/lcnc
 # all install) and powerquota.so (make -C ../../linuxcnc/powerquota all
-# install). Not as root (rtapi_app refuses).
+# install), sserialterm.so (make -C ../../linuxcnc/sserialterm all install)
+# for test-console, servoterm-cli (built here). Not as root (rtapi_app
+# refuses).
 
 SHELL = /bin/bash
 LINUXCNC ?= $(firstword $(wildcard $(HOME)/linuxcnc-2.9 /home/user/linuxcnc-2.9))
@@ -25,4 +27,15 @@ test-quota:
 	test -f pq_test.result && test "$$(cat pq_test.result)" = 0 || \
 	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
 
-.PHONY: test-quota
+CLI := $(abspath ../../servoterm-cli/servoterm-cli)
+test-console:
+	@$(MAKE) -s -C ../../servoterm-cli
+	@d=$$(mktemp -d /tmp/burnin-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
+	sed -i 's|^DISPLAY = .*|DISPLAY = ./con_test.py|; s|^HALFILE = stmbl_sim.hal|HALFILE = stmbl_sim.hal\nHALFILE = console.hal|; s|^TTY = .*|TTY = '"$$d"'/stmbl-sim|' stmbl.ini && \
+	printf '\n[SSERIALTERM]\nTTY = '"$$d"'/drive-con\n' >> stmbl.ini && \
+	(export SERVOTERM_CLI=$(CLI); $(ENV) linuxcnc stmbl.ini > linuxcnc.log 2>&1; true) && \
+	cat con_test.tap 2>/dev/null; \
+	test -f con_test.result && test "$$(cat con_test.result)" = 0 || \
+	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
+
+.PHONY: test-quota test-console

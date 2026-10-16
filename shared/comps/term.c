@@ -1,6 +1,12 @@
 #include "term_comp.h"
 #include "commands.h"
 #include "hal.h"
+#include "sscon.h"
+
+// the console over smart-serial, where it is linked (the F4 app, the host;
+// not the F3 power stage): weak references, NULL elsewhere
+extern sscon_t sscon0 __attribute__((weak));
+int sscon_getline(sscon_t *c, char *line, int len) __attribute__((weak));
 #include "defines.h"
 #include <stdio.h>
 #include <string.h>
@@ -95,6 +101,16 @@ static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       hal_parse(rx_buf);
     } else if(n < 0) {
       printf("error: line too long, max %i chars, dropped\n", (int)sizeof(rx_buf) - 1);
+    }
+  }
+  // the console over smart-serial (shared/sscon.h): its lines as USB's
+  if(&sscon0 != 0 && sscon_getline != 0) {
+    char con_buf[64];
+    int n = sscon_getline(&sscon0, con_buf, sizeof(con_buf));
+    if(n > 0) {
+      hal_parse(con_buf);
+    } else if(n == -2) {
+      printf("error: line too long, max %i chars, dropped\n", (int)sizeof(con_buf) - 1);
     }
   }
 }
