@@ -82,6 +82,11 @@ EOS
   [ -f "$RUN/results-lcnc.json" ] || { echo "LinuxCNC phase produced no results: $RUN/linuxcnc.log" >&2; rc=1; }
 fi
 
+if [[ " $PHASES " == *" lcnc "* ]] && [ "$TARGET" = hw ]; then
+  echo "== after LinuxCNC (USB console)"
+  python3 "$HERE/hwtest.py" --phase post $ARGS || rc=1
+fi
+
 python3 "$HERE/hwtest.py" --phase report --out "$RUN" || rc=1
 echo "summary: $RUN/summary.md"
 exit $rc

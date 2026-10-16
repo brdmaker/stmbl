@@ -779,6 +779,29 @@ def t_end(ctx):
 
 
 # --------------------------------------------------------------------------
+# post phase: after LinuxCNC exited
+
+
+@test("post", "after LinuxCNC: the USB console at full speed (smart-serial link timed out)")
+def t_post_speed(ctx):
+    # The console's smart-serial side must go quiet when the link times
+    # out; it used to stay active and slow every print to ~80 bytes/s.
+    time.sleep(1.0)
+    drive = os.path.join(ctx.dir, "results-drive.json")
+    ref = json.load(open(drive))["meas"].get("usb_dump_s") if os.path.exists(drive) else None
+    t0 = time.time()
+    got = dump(ctx, ctx.a.usb, "post.conf")
+    dt = time.time() - t0
+    ctx.m("post_usb_dump_s", dt)
+    need(got == baseline(ctx), "config dump after LinuxCNC differs or failed (%.1f s)" % dt)
+    limit = 1.5 * ref if ref else 4.0
+    need(dt <= limit, "USB dump took %.1f s, %.1f s before LinuxCNC" % (dt, ref or 0))
+    h = hal_info(ctx, ctx.a.usb)
+    need(h["state"] == "HAL_OK2", "HAL state %s" % h["state"])
+    return "dump %.1f s (before LinuxCNC %.1f s)" % (dt, ref or 0)
+
+
+# --------------------------------------------------------------------------
 # runner and report
 
 
@@ -816,7 +839,7 @@ def run_phase(ctx, phase):
 
 def report(a):
     phases = []
-    for ph in ("drive", "lcnc"):
+    for ph in ("drive", "lcnc", "post"):
         p = os.path.join(a.out, "results-%s.json" % ph)
         if os.path.exists(p):
             phases.append(json.load(open(p)))
@@ -852,7 +875,7 @@ def report(a):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--phase", choices=["drive", "lcnc", "report"], required=True)
+    p.add_argument("--phase", choices=["drive", "lcnc", "post", "report"], required=True)
     p.add_argument("--target", choices=["hw", "sim"], default="hw")
     p.add_argument("--out", required=True, help="run directory")
     p.add_argument("--usb", default="/dev/ttyACM0", help="the drive's USB console (sim: its pty)")

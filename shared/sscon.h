@@ -42,7 +42,7 @@ typedef struct {
 
 extern sscon_t sscon0;  // the drive's console
 
-void sscon_reset(sscon_t *c);  // link lost or restarted: rings kept, link state cleared
+void sscon_reset(sscon_t *c);  // link lost or restarted: link state cleared, output dropped, inactive
 // one frame: the other side's field in, ours out
 uint16_t sscon_frame(sscon_t *c, uint16_t in);
 // console side: queue output (dropped when full; returns bytes queued)

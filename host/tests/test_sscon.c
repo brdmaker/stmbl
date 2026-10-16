@@ -109,6 +109,21 @@ int main(void) {
   while((d = sscon_getline(&drive, dl, sizeof(dl))) == 0) {
   }
   ok(d == 5 && !strcmp(dl, "about"), "after the host restarts: nothing spurious, the next line arrives whole", d);
+
+  // the link times out with output queued (LinuxCNC stopped mid-reply):
+  // the drive stops queueing, so its prints don't wait for a ring that
+  // nobody drains, and starts again when the host sends
+  sscon_write(&drive, "a reply nobody reads\n", 21);
+  sscon_reset(&drive);
+  ok(!drive.active && drive.tx_head == drive.tx_tail, "a link timeout: inactive, pending output dropped", drive.active);
+  host = fresh;
+  sscon_write(&host, "about\n", 6);
+  for(int i = 0; i < 20; i++) {
+    period(0.0);
+  }
+  while((d = sscon_getline(&drive, dl, sizeof(dl))) == 0) {
+  }
+  ok(drive.active && d == 5, "  ...and active again once the host sends", d);
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }

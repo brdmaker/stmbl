@@ -13,6 +13,11 @@ void sscon_reset(sscon_t *c) {
   c->tx_tog  = 0;
   c->tx_byte = 0;
   c->rx_tog  = 0;
+  // Nobody listens until the other side sends again: stop queueing output
+  // (the drive's prints waited up to 100 ms per chunk for a ring no one
+  // drained, slowing the USB console too) and drop what was never sent.
+  c->active  = 0;
+  c->tx_tail = c->tx_head;
 }
 
 static uint32_t rx_count(const sscon_t *c) {
