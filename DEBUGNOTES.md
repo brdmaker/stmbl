@@ -523,7 +523,8 @@ Entry format:
   again and stops the HAL. Nothing stopped rt around the erase.
 - Fix:     flashsaveconf refuses while fault0.en_out is set, stops rt/frt for
   the erase and write and starts them again (as `start`); hardboot stops the
-  HAL first. Bench: 8 of 8 saves kept HAL_OK2, config unchanged.
+  HAL first. Bench: 8 of 8 saves kept HAL_OK2, config unchanged. Test:
+  hwtest/suite "flashsaveconf x3" and "--load" (hw; the sim has no stall).
 
 ## 2026-10-14  HV board reads the DC bus low (and RT_TOO_LONG stops)
 - Area:    HV board DC sense (`hw/kicad/v4.0/hv_sense.sch`: R77, R78 249k,
@@ -570,8 +571,9 @@ Entry format:
   boots normally. Bench, with the `fault` command (now a real bus fault: it
   wrote to locked flash, which only set a flash error flag): the record
   showed BusFault at 0x30000000 with the PC in fault(); 3 quick faults gave
-  safe mode, then `reset` a normal boot, config unchanged. If it recurs:
-  run `crash` before power-cycling.
+  safe mode, then `reset` a normal boot, config unchanged. Tests:
+  hwtest/suite "faults: …" (hw only). If it recurs: run `crash` before
+  power-cycling.
 
 ## 2026-10-14  stmbl_sim returned the previous packet's answer (1 ms extra lag)
 - Area:    `host/lcnc/sim_api.c` (`stmbl_sim_update`), `host/lcnc/stmbl_sim.c`
