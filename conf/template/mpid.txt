@@ -13,6 +13,7 @@ load io
 load iit
 load pe
 load scope
+load fwup
 link conf
 hv0.rt_prio = 0.9
 hv0.frt_prio = 1
@@ -32,6 +33,8 @@ scope0.rt_prio = 15
 scope0.frt_prio = 15
 sim0.rt_prio = 13
 term0.rt_prio = 16
+fwup0.rt_prio = 17
+fwup0.en = fault0.en_out
 rev0.rev = conf0.cmd_rev
 fb_switch0.mot_rev = conf0.mot_fb_rev
 fb_switch0.com_rev = conf0.com_fb_rev

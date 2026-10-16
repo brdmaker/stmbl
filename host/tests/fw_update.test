@@ -1,0 +1,56 @@
+# In-band firmware update over the smart-serial console (fwup): a 300 byte
+# "image" in 30 byte lines, as servoterm-cli --update sends them. Refused
+# while the drive is enabled; staged word by word by the realtime loop; a
+# damaged line refused and sent again; fwapply resets and the simulated
+# bootloader copies the image (prints its CRC32): 75 data words + 3 header.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 0.5
+con fwbegin 300 32ec5e76
+run 0.5
+lcnc 0 0
+run 0.3
+con fwbegin 300 32ec5e76
+run 0.3
+con fwdata 0 CzBVep/E6Q4zWH2ix+wRNluApcrvFDleg6jN8hc8 1d5e
+run 0.15
+con fwdata 30 YYar0PUaP2SJrtP4HUJnjLHW+yBFao+02f4jSG2S 20f1
+run 0.15
+con fwdata 60 t9wBJktwlbrfBClOc5i94gcsUXabwOUKL1R5nsPo 38ec
+run 0.15
+con fwdata 90 DTJXfKHG6xA1Wn+kye4TOF2Cp8zxFjtgharP9BkA 697f
+run 0.15
+con fwdata 90 DTJXfKHG6xA1Wn+kye4TOF2Cp8zxFjtgharP9Bk+ 697f
+run 0.15
+con fwdata 120 Y4it0vccQWaLsNX6H0RpjrPY/SJHbJG22wAlSm+U 0184
+run 0.15
+con fwdata 150 ud4DKE1yl7zhBitQdZq/5AkuU3idwucMMVZ7oMXq 4d79
+run 0.15
+con fwdata 180 DzRZfqPI7RI3XIGmy/AVOl+Eqc7zGD1ih6zR9htA a709
+run 0.15
+con fwdata 210 ZYqv1PkeQ2iNstf8IUZrkLXa/yRJbpO43QInTHGW 6bff
+run 0.15
+con fwdata 240 u+AFKk90mb7jCC1Sd5zB5gswVXqfxOkOM1h9osfs de89
+run 0.15
+con fwdata 270 ETZbgKXK7xQ5XoOozfIXPGGGq9D1Gj9kia7T+B1C a452
+run 0.15
+con fwend
+run 0.3
+con fwstat
+run 0.3
+con fwapply
+run 1
+conread
+@match ^con> fw err drive enabled$
+@match ^con> fw ok 0$
+@match ^con> fw err -2 at 90$
+@match ^con> fw ok 300$
+@match ^con> fw ok staged 300 32ec5e76$
+@match ^con> fw state ready got 300 size 300 lines 10 bad 1$
+@match ^con> fw ok reset: the bootloader copies the update$
+@match sim: reset \(plain\), 78 staging words programmed$
+@match sim: bootloader: update applied, 300 bytes, crc32 32ec5e76$
+@reject fw busy

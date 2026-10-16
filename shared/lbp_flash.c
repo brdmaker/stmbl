@@ -83,14 +83,33 @@ int lbpf_mem_read(lbpf_t *f, uint16_t addr, uint8_t *d, int n) {
   return 1;
 }
 
-int lbpf_sector_erase(lbpf_sectors_t *s, uint32_t off, uint32_t len) {
+static int erase_sector(lbpf_sectors_t *s, int i) {
+  s->sector_erases++;
+  return s->erase_sector(s->ctx, i);
+}
+
+int lbpf_erase_all(lbpf_sectors_t *s) {
   for(int i = 0; i < s->n; i++) {
-    uint32_t a = s->sector_start[i], b = s->sector_start[i + 1];
-    if(off < b && off + len > a && !(s->erased & (1u << i))) {
-      if(s->erase_sector(s->ctx, i)) {
-        return -1;
-      }
-      s->erased |= 1u << i;
+    if(erase_sector(s, i)) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+int lbpf_erase_lazy(lbpf_sectors_t *s, uint32_t off, uint32_t len) {
+  uint32_t i;
+  for(i = 0; i < len && s->map[off + i] == 0xff; i++) {
+  }
+  if(i == len) {
+    return 0;  // blank: the usual case
+  }
+  if(off == s->first) {
+    return lbpf_erase_all(s);
+  }
+  for(int k = 0; k < s->n; k++) {
+    if(off < s->sector_start[k + 1] && off + len > s->sector_start[k] && erase_sector(s, k)) {
+      return -1;
     }
   }
   return 0;

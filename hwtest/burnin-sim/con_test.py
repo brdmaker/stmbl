@@ -9,7 +9,9 @@ the pty, with servoterm-cli as on a real drive's USB port:
    no fault, the answers right;
 4. the capture scope: servoterm-cli sets it up (-c), arms it and waits
    (--capture) while a rapid starts; the CSV: 2048 rows, the speed crossing
-   the trigger level at t = 0.
+   the trigger level at t = 0;
+5. --update (in-band firmware update): refused while the drive is enabled,
+   staged and applied once the machine is off.
 """
 import os
 import subprocess
@@ -124,9 +126,22 @@ def main():
                     % (len(data), data[1][0] - data[0][0], cross, time.time() - t0))
     check(ok and cross is not None and abs(cross) <= 0.0004,
           "capture scope over the console: --capture CSV, 2048 samples, the trigger at t = 0", out[-300:])
+    # in-band firmware update over the console: refused while the drive is
+    # enabled, staged (and applied: the simulated bootloader copies it) once off
+    img = os.path.join(HERE, "fw.bin")
+    open(img, "wb").write(bytes((i * 131 + 7) & 0xff for i in range(3000)))
+    rc, out = cli("--update", img)
+    check(rc != 0 and "drive enabled" in out, "--update refused while the drive is enabled", out[-200:])
+    C.state(linuxcnc.STATE_OFF)
+    wait(lambda s: s.task_state == linuxcnc.STATE_OFF, 5)
+    time.sleep(0.5)
+    t0 = time.time()
+    rc, out = cli("--update", img, timeout=120)
+    INFO.append("# --update: 3000 bytes in %.1f s over the console" % (time.time() - t0))
+    check(rc == 0 and "staged 3000 bytes" in out and "applied" in out,
+          "--update over the smart-serial console: staged, CRC32 right, applied", out[-300:])
     INFO.append("# sserialterm: %d bytes from the drive, %d to it" % (hal.get_value("sserialterm.0.bytes-in"),
                                                                    hal.get_value("sserialterm.0.bytes-out")))
-    C.state(linuxcnc.STATE_OFF)
 
 
 def g_fault():

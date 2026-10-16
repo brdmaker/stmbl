@@ -22,9 +22,10 @@ COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS) $(HW_COMPS) conf))
 TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
 
 CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
-            $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c
+            $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c \
+            $(ROOT)/shared/fwstage.c
 # Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
-DRIVE_SRCS = drive.c cdc_host.c pty.c
+DRIVE_SRCS = drive.c cdc_host.c pty.c fwup_host.c
 HOST_SRCS = main.c $(DRIVE_SRCS)
 ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 
@@ -83,9 +84,9 @@ test_ssq: tests/test_ssq.c ../shared/sserial_q.h
 test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_sscon.c ../shared/sscon.c
 
-# the smart-serial bootloader sketch: shared/lbp_flash.c, shared/fwstage.c
-test_bootloader: tests/test_bootloader.c ../shared/lbp_flash.c ../shared/lbp_flash.h ../shared/fwstage.c ../shared/fwstage.h
-	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bootloader.c ../shared/lbp_flash.c ../shared/fwstage.c
+# the smart-serial bootloader: shared/lbp_dev.c, lbp_flash.c, fwstage.c
+test_bootloader: tests/test_bootloader.c ../shared/lbp_flash.c ../shared/lbp_flash.h ../shared/fwstage.c ../shared/fwstage.h ../shared/lbp_dev.c ../shared/lbp_dev.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bootloader.c ../shared/lbp_flash.c ../shared/fwstage.c ../shared/lbp_dev.c ../shared/crc8.c
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
@@ -93,6 +94,7 @@ check: stmbl_host test_quota test_ssq test_sscon test_bootloader
 	@./test_ssq
 	@./test_sscon
 	@./test_bootloader
+	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test

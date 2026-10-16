@@ -7,6 +7,8 @@
  */
 #include "lbp_flash.h"
 #include "fwstage.h"
+#include "lbp_dev.h"
+#include "crc8.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,26 +24,24 @@ static void ok(int c, const char *name, double got) {
 }
 
 // ---- flash model: the update window over stmbl's F4 application area ----
-// window offset 0 = one 16 kB block below the application (block 0, the
-// bootloader's: never written); the application (0x08010000) starts at
-// 16 kB: sector 4 (64 kB), sectors 5..11 (128 kB each)
+// window offset 0 = one 16 kB block below the application (block 0, never
+// written); the application (0x08010000) starts at 16 kB: sector 4 (64 kB),
+// sectors 5..7 (128 kB each); sectors 8..11 are the staging area, outside
 #define KB 1024u
-#define WIN (16 * KB + 960 * KB)
+#define WIN (16 * KB + 448 * KB)
 static uint8_t mem[WIN];
-static int bad_programs, sector_erases;
-static const uint32_t sec_start[] = {16 * KB, 80 * KB, 208 * KB, 336 * KB, 464 * KB, 592 * KB, 720 * KB, 848 * KB,
-                                     976 * KB};
+static int bad_programs;
+static const uint32_t sec_start[] = {16 * KB, 80 * KB, 208 * KB, 336 * KB, 464 * KB};
 
 static int erase_sector(void *ctx, int s) {
   (void)ctx;
   memset(mem + sec_start[s], 0xff, sec_start[s + 1] - sec_start[s]);
-  sector_erases++;
   return 0;
 }
-static lbpf_sectors_t sectors = {sec_start, 8, 0, erase_sector, NULL};
+static lbpf_sectors_t sectors = {sec_start, 4, mem, 16 * KB, erase_sector, NULL, 0};
 static int win_erase(void *ctx, uint32_t off, uint32_t len) {
   (void)ctx;
-  return lbpf_sector_erase(&sectors, off, len);
+  return lbpf_erase_lazy(&sectors, off, len);
 }
 static int win_program(void *ctx, uint32_t off, const uint8_t *d, uint32_t len) {
   (void)ctx;
@@ -55,35 +55,45 @@ static int win_program(void *ctx, uint32_t off, const uint8_t *d, uint32_t len) 
   return 0;
 }
 
-// ---- the device: its LBP parser hands flash traffic to lbp_flash ----
+// ---- the device: shared/lbp_dev.c, fed byte by byte; its flash traffic
+// goes to lbp_flash ----
 static lbpf_t dev;
-static long transactions, wire_bytes;
-// one LBP transaction: request bytes in, reply bytes out (their count)
+static lbpd_t lbp;
+static long transactions, wire_bytes, bad_reply_crc;
+static uint8_t rx[64];
+static int rxn;
+static void dev_send(void *ctx, const uint8_t *d, int len) {
+  (void)ctx;
+  memcpy(rx + rxn, d, len);
+  rxn += len;
+}
+static uint8_t crc8(const uint8_t *p, int len) {
+  return (uint8_t)crc8_finalize(crc8_update(crc8_init(), p, len));
+}
+// one LBP transaction as hostmot2 sends it: request + CRC8 (local writes
+// and the RPCs too), the reply checked; returns the reply's data bytes
 static int device(const uint8_t *req, int len, uint8_t *rep) {
+  uint8_t w[32];
+  memcpy(w, req, len);
+  w[len] = crc8(req, len);
   transactions++;
-  wire_bytes += len + 1;  // + CRC
-  uint8_t cmd = req[0], ct = cmd >> 6, wr = (cmd >> 5) & 1, as = (cmd >> 2) & 1, ds = cmd & 3;
-  if(ct == 3) {  // local
-    if(wr) {
-      lbpf_local_write(&dev, cmd, req[1]);
-      return 0;
-    }
-    lbpf_local_read(&dev, cmd, rep);
-    wire_bytes += 2;
-    return 1;
+  rxn = 0;
+  for(int i = 0; i <= len; i++) {
+    lbpd_byte(&lbp, w[i]);
   }
-  if(ct == 1 && as) {  // memory, 2 byte address
-    uint16_t addr = req[1] | req[2] << 8;
-    int nb = 1 << ds;
-    if(wr) {
-      lbpf_mem_write(&dev, addr, req + 3, nb);
-      return 0;
-    }
-    lbpf_mem_read(&dev, addr, rep, nb);
-    wire_bytes += nb + 1;
-    return nb;
+  wire_bytes += len + 1 + rxn;
+  uint8_t c = req[0];
+  if((c >> 6) == 3 && (c >> 5 & 1)) {  // local write: one 0 byte, no CRC
+    return 0;
   }
-  return 0;
+  if(rxn == 0) {
+    return 0;
+  }
+  if(crc8(rx, rxn - 1) != rx[rxn - 1]) {
+    bad_reply_crc++;
+  }
+  memcpy(rep, rx, rxn - 1);
+  return rxn - 1;
 }
 
 // ---- the host: setsserial's helpers as LBP bytes (hostmot2 sserial.h) ----
@@ -117,8 +127,9 @@ static void write_double(uint16_t a, const uint8_t *d8) {  // 0x67
   device(r, 11, x);
 }
 
+static int stalled_commits;
 // setsserial's sslbp_flash() programming loop, step for step
-static int setsserial_flash(const uint8_t *fw, uint32_t size) {
+static int setsserial_flash(const uint8_t *fw, uint32_t size, int max_blocks) {
   write_lbp(LBPF_NV_FLASH);
   int write_sz = 1 << read_byte(LBPF_WRITE_SIZE);
   int erase_sz = 1 << read_byte(LBPF_ERASE_SIZE);
@@ -130,11 +141,19 @@ static int setsserial_flash(const uint8_t *fw, uint32_t size) {
     if(t == (uint32_t)erase_sz) {  // all zeros: skipped
       continue;
     }
+    if(max_blocks-- == 0) {
+      return -3;  // the run interrupted (cable, ^C)
+    }
+    uint32_t erases_before = sectors.sector_erases;
     write_lbp(LBPF_NV_FLASH);
     write_long(LBPF_OFFSET, block_start);
     write_byte(LBPF_COMMIT, LBPF_CMD_ERASE);
     if(read_cookie() != LBPF_COOKIE) {
       return -1;  // "Synch failed during block erase: aborting"
+    }
+    if(sectors.sector_erases != erases_before) {
+      stalled_commits++;  // a real erase: 1-2 s, past hostmot2's 1 s wait
+      return -4;          // "Timeout waiting for CMD to clear"
     }
     write_lbp(0);
     write_lbp(LBPF_NV_FLASH);
@@ -153,14 +172,24 @@ static int setsserial_flash(const uint8_t *fw, uint32_t size) {
   return 0;
 }
 
-// ---- in-band staging: 512 kB at its own offsets ----
+// ---- in-band staging: sectors 8..11 (512 kB), the header at the end ----
 static uint8_t stage[512 * KB], app[512 * KB];
+static int stage_erases, stage_words;
 static int st_erase(void *c, uint32_t off, uint32_t len) {
+  if(c == stage) {
+    stage_erases++;
+  }
   memset((uint8_t *)c + off, 0xff, len);
   return 0;
 }
 static int st_program(void *c, uint32_t off, const uint8_t *d, uint32_t len) {
   uint8_t *m = (uint8_t *)c + off;
+  if(c == stage) {
+    stage_words++;
+    if(len != 4 || (off & 3)) {
+      return -1;  // the application programs words only
+    }
+  }
   for(uint32_t i = 0; i < len; i++) {
     if((m[i] & d[i]) != d[i]) {
       return -1;
@@ -189,6 +218,17 @@ static void line(char *buf, const uint8_t *img, uint32_t off, int len) {
   b64(img + off, len, e);
   sprintf(buf, "%u %s %04x", off, e, fwst_crc16(img + off, len));
 }
+// the sender (servoterm-cli --update): a line, again while the queue is full;
+// the realtime loop programs 1 word per period meanwhile
+static int send_line(fwst_t *st, const char *buf, int *full) {
+  int r;
+  while((r = fwst_data(st, buf)) == -5) {
+    (*full)++;
+    fwst_poll(st, 1);
+  }
+  fwst_poll(st, 1);
+  return r;
+}
 
 int main(void) {
   // an image: block 0 placeholder (zeros) + a 300 kB application (no
@@ -203,11 +243,50 @@ int main(void) {
   lbpf_init(&dev);
   dev.erase_log2 = 14, dev.write_log2 = 8, dev.window_size = WIN;
   dev.erase = win_erase, dev.program = win_program;
-  int r = setsserial_flash(fw, size);
+  lbp = (lbpd_t){.mem = lbpd_empty_mem, .mem_size = sizeof(lbpd_empty_mem), .name = {'s', 't', 'b', 'l'},
+                 .unit = 0x12345678, .flash = &dev, .send = dev_send};
+  lbpd_init(&lbp);
+  // hostmot2's enumeration of the remote: name, unit, discovery, tables
+  uint8_t x[16];
+  char nm[5] = {0};
+  for(int i = 0; i < 4; i++) {
+    uint8_t q = (uint8_t)(0xd0 + i);
+    device(&q, 1, x);
+    nm[i] = (char)x[0];
+  }
+  uint8_t q = 0xbc;
+  int un = device(&q, 1, x);
+  uint32_t unit;
+  memcpy(&unit, x, 4);
+  q = 0xbb;
+  int dn = device(&q, 1, x);
+  ok(!strcmp(nm, "stbl") && un == 4 && unit == 0x12345678 && dn == 6 && x[0] == 1 && x[1] == 0 && x[2] == 8,
+     "enumeration: name stbl, unit number, discovery (1 byte in, none out)", dn);
+  uint8_t ptoc[3] = {0x44, 8, 0};  // READ_REM_BYTE at the PTOC: 0 = end of list
+  int pn = device(ptoc, 3, x);
+  uint8_t pd[2] = {0xbd, 0};       // process data: no output bytes, 1 input byte
+  rxn = 0;
+  lbpd_byte(&lbp, 0xbd);
+  lbpd_byte(&lbp, crc8(pd, 1));
+  ok(pn == 1 && x[0] == 0 && rxn == 2 && rx[0] == 0 && rx[1] == crc8(rx, 1) && bad_reply_crc == 0,
+     "empty PTOC/GTOC; process data answered with the fault byte", rxn);
+  uint8_t badreq[4] = {0x44, 0x05, 0x80, 0};
+  badreq[3] = crc8(badreq, 3) ^ 0x55;
+  rxn = 0;
+  for(int i = 0; i < 4; i++) {
+    lbpd_byte(&lbp, badreq[i]);
+  }
+  ok(rxn == 0 && lbp.crc_errors == 1, "a request with a bad CRC gets no reply", rxn);
+  // the bootloader starts: it erases the application area before it
+  // answers anything (no erase may stall a commit later)
+  lbpf_erase_all(&sectors);
+  uint32_t entry_erases = sectors.sector_erases;
+  int r = setsserial_flash(fw, size, -1);
   ok(r == 0 && !memcmp(mem + 16 * KB, fw + 16 * KB, app_size) && bad_programs == 0,
      "setsserial's flash sequence: the application written, every byte, never onto unerased flash", r);
-  ok(sector_erases == 3 && dev.erases == 19 && dev.refused == 0,
-     "uniform 16 kB blocks over the F4's 64 / 128 kB sectors: each touched sector erased once", sector_erases);
+  ok(bad_reply_crc == 0 && lbp.crc_errors == 1, "every reply's CRC8 right", bad_reply_crc);
+  ok(entry_erases == 4 && sectors.sector_erases == 4 && stalled_commits == 0 && dev.erases == 19 && dev.refused == 0,
+     "application area erased at loader entry (4 sectors); 19 erase commits find blank blocks, none stalls", sectors.sector_erases);
   int untouched = 1;
   for(uint32_t i = 0; i < 16 * KB; i++) {
     untouched &= mem[i] == 0x5a;
@@ -224,27 +303,51 @@ int main(void) {
   ok(ck != LBPF_COOKIE && dev.refused == 1, "an erase of block 0 is refused: no cookie, setsserial aborts", ck);
   ok(read_byte(LBPF_ERASE_SIZE) != 14, "out of flash mode, memory accesses are the normal tables again", 0);
 
+  // a run interrupted after 7 blocks, then another image in the same session:
+  // its block 1 finds stale data, erases everything (that commit stalls:
+  // setsserial times out once), and the run after it goes through
+  uint8_t *fw3 = malloc(size);
+  for(uint32_t i = 0; i < size; i++) {
+    fw3[i] = i < 16 * KB ? 0 : (uint8_t)(fw[i] ^ 0x80);
+  }
+  lbpf_erase_all(&sectors);
+  r = setsserial_flash(fw, size, 7);
+  stalled_commits = 0;
+  int r2 = setsserial_flash(fw3, size, -1);
+  int st1 = stalled_commits;
+  stalled_commits = 0;
+  int r3 = setsserial_flash(fw3, size, -1);
+  ok(r == -3 && r2 == -4 && st1 == 1 && r3 == 0 && stalled_commits == 0 &&
+         !memcmp(mem + 16 * KB, fw3 + 16 * KB, app_size) && bad_programs == 0,
+     "after an interrupted run, the next run erases at block 1 and times out once; the one after goes through", st1);
+
   // the caveat: an all-zero block is skipped by setsserial and reads erased (0xff)
   uint8_t *fw2 = malloc(size);
   memcpy(fw2, fw, size);
   memset(fw2 + 16 * KB + 32 * KB, 0, 16 * KB);
-  sectors.erased = 0;
-  setsserial_flash(fw2, size);
+  lbpf_erase_all(&sectors);
+  setsserial_flash(fw2, size, -1);
   ok(mem[16 * KB + 32 * KB] == 0xff, "caveat: setsserial skips all-zero blocks; they read erased (the build must avoid "
                                      "them, or the CRC check fails and the bootloader stays)", mem[48 * KB]);
 
-  // ---- in-band: stage, check, apply ----
+  // ---- in-band: stage (no erase, queued words), check, mark, apply at boot ----
   uint32_t isize = 100 * KB + 17;
   uint8_t *img = malloc(isize);
   for(uint32_t i = 0; i < isize; i++) {
     img[i] = (uint8_t)(i * 7 + (i >> 8));
   }
   uint32_t crc = fwst_crc32(img, isize, 0);
-  fwst_t st = {.stage_size = sizeof(stage), .erase = st_erase, .program = st_program, .read = st_read, .ctx = stage};
-  memset(stage, 0, sizeof(stage));
-  fwst_begin(&st, isize, crc);
+  fwst_t st = {.stage_size = sizeof(stage), .max_size = 448 * KB, .erase = st_erase, .program = st_program,
+               .read = st_read, .ctx = stage};
+  memset(stage, 0x77, sizeof(stage));  // whatever was there
+  int b0 = fwst_begin(&st, isize, crc);
+  memset(app, 0x33, sizeof(app));
+  int boot0 = fwst_boot(&st, st_erase, st_program, st_read, app);
+  ok(b0 == -2 && boot0 == 0 && stage_erases == 1 && app[0] == 0x33 && fwst_begin(&st, isize, crc) == 0,
+     "fwbegin refuses a staging area that is not blank; the bootloader erases it at reset (nothing to apply)", b0);
+  stage_erases = 0;
   char buf[160];
-  int damaged = 0, repeat = 0, gap = 0;
+  int damaged = 0, repeat = 0, gap = 0, full = 0, resumed = 0;
   for(uint32_t off = 0; off < isize; off += 48) {
     int len = isize - off < 48 ? (int)(isize - off) : 48;
     line(buf, img, off, len);
@@ -253,31 +356,73 @@ int main(void) {
       damaged = fwst_data(&st, buf);
       line(buf, img, off, len);
     }
-    fwst_data(&st, buf);
+    if(off == 6000) {  // the sender restarts: fwbegin again resumes
+      resumed = fwst_begin(&st, isize, crc) == 1 && st.got == off;
+    }
+    send_line(&st, buf, &full);
     if(off == 9600) {
       repeat = fwst_data(&st, buf);  // the same line twice: harmless
     }
   }
   line(buf, img, 0, 48);
   gap = fwst_data(&st, buf);  // out of order now
-  int e = fwst_end(&st);
-  ok(damaged == -2 && repeat == 0 && gap == -3 && e == 0 && st.state == FWST_READY,
-     "staging: a damaged line refused, a repeat harmless, a gap refused, CRC32 of the whole image right", e);
-  memset(app, 0, sizeof(app));
-  int a = fwst_apply(&st, isize, crc, st_erase, st_program, st_read, app);
-  ok(a == 0 && !memcmp(app, img, isize), "the bootloader's copy into the application, verified", a);
-  stage[100] ^= 0xff;
+  int busy = fwst_end(&st), e, polls = 0;
+  while((e = fwst_end(&st)) == 1) {
+    polls += fwst_poll(&st, 1);
+  }
+  ok(damaged == -2 && repeat == 0 && gap == -3 && resumed && full > 0 && busy == 1 && e == 0 && st.state == FWST_READY,
+     "staging: damaged line refused, repeat harmless, gap refused, resume, queue full -> resend, CRC32 right", e);
+  uint32_t lines = st.lines;
+  ok(stage_erases == 0 && stage_words == (int)((isize + 3) / 4),
+     "the application never erases; it programs one word per realtime period", stage_words);
+  fwst_hdr_t h;
+  int m = fwst_mark(&st), pend0 = fwst_pending(&st, &h);
+  while(st.state == FWST_MARKING) {
+    fwst_poll(&st, 1);
+  }
+  int pend1 = fwst_pending(&st, &h);
+  ok(m == 0 && !pend0 && st.state == FWST_MARKED && pend1 && h.size == isize && h.crc == crc,
+     "fwapply: the pending mark (header at the end of staging) written by the realtime loop", pend1);
+  // power fails in the middle of the copy: the bootloader copies again
+  memset(app, 0x33, 1000);
+  int boot1 = fwst_boot(&st, st_erase, st_program, st_read, app);
+  int pend2 = fwst_pending(&st, &h);
+  int boot2 = fwst_boot(&st, st_erase, st_program, st_read, app);
+  int blank = 1;
+  for(uint32_t i = 0; i < sizeof(stage); i++) {
+    blank &= stage[i] == 0xff;
+  }
+  ok(boot1 == 1 && !memcmp(app, img, isize) && !pend2 && boot2 == 0 && blank && stage_erases == 1,
+     "the bootloader copies, verifies, clears the mark and erases staging for the next update", boot1);
+  // a staged image that does not check out is never copied
+  fwst_begin(&st, isize, crc);
+  for(uint32_t off = 0; off < isize; off += 48) {
+    line(buf, img, off, isize - off < 48 ? (int)(isize - off) : 48);
+    send_line(&st, buf, &full);
+  }
+  while(fwst_end(&st) == 1) {
+    fwst_poll(&st, 1);
+  }
+  fwst_mark(&st);
+  fwst_poll(&st, 3);
+  stage[100] ^= 0x01;  // a bit flips afterwards (st_program would refuse 0->1; the model allows it)
   memset(app, 0x33, sizeof(app));
-  a = fwst_apply(&st, isize, crc, st_erase, st_program, st_read, app);
-  ok(a == -1 && app[0] == 0x33, "a staged image that does not check out is never copied", a);
+  int boot3 = fwst_boot(&st, st_erase, st_program, st_read, app);
+  ok(boot3 == -1 && app[0] == 0x33 && !fwst_pending(&st, &h), "a staged image that does not check out is never copied; the mark is cleared",
+     boot3);
+  // a wrong CRC32 for the image
   fwst_begin(&st, isize, crc ^ 1);
   for(uint32_t off = 0; off < isize; off += 48) {
     line(buf, img, off, isize - off < 48 ? (int)(isize - off) : 48);
-    fwst_data(&st, buf);
+    send_line(&st, buf, &full);
   }
-  ok(fwst_end(&st) < 0 && st.state == FWST_FAILED, "a wrong CRC32 for the image: not ready", st.state);
-  printf("# in-band: %u bytes in %u lines (~%u console bytes, ~%.0f s at 1 kB/s)\n", isize, st.lines,
-         st.lines * 80, st.lines * 80 / 1000.0);
+  while((e = fwst_end(&st)) == 1) {
+    fwst_poll(&st, 1);
+  }
+  ok(e < 0 && st.state == FWST_FAILED && fwst_mark(&st) < 0, "a wrong CRC32 for the image: not ready, no mark", st.state);
+  ok(fwst_begin(&st, 449 * KB, crc) == -1, "an image larger than the application area is refused", 0);
+  printf("# in-band: %u bytes in %u lines (~%u console bytes, ~%.0f s at 1 kB/s)\n", isize, lines, lines * 80,
+         lines * 80 / 1000.0);
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }

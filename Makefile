@@ -77,6 +77,7 @@ SHARED_COMPS += shared/comps/pid.c
 SHARED_COMPS += shared/comps/spid.c
 SHARED_COMPS += shared/comps/pe.c
 SHARED_COMPS += shared/comps/scope.c
+SHARED_COMPS += shared/comps/fwup.c
 SHARED_COMPS += shared/comps/pmsm_limits.c
 SHARED_COMPS += shared/comps/pmsm_ttc.c
 SHARED_COMPS += shared/comps/dc_limits.c
@@ -148,6 +149,8 @@ SOURCES += src/conf_templates.c
 
 SOURCES += shared/ringbuf.c
 SOURCES += shared/sscon.c
+SOURCES += shared/fwstage.c
+SOURCES += src/fwup_f4.c
 
 CONFIG_TEMPLATES = $(wildcard conf/template/*.txt)
 
@@ -338,6 +341,10 @@ tbl: inc/commandslist.h src/hal_tbl.c src/conf_templates.c
 
 obj_boot/blboot.bin: force_look
 	$(MAKE) -f bootloader/Makefile
+
+#image for LinuxCNC's setsserial flash (the smart-serial bootloader)
+ssfw: $(TARGET).bin
+	$(PYTHON) tools/mkssfw.py $(TARGET).bin $(OBJDIR)/stmbl_ss.bin
 
 #build f4 bootloader
 boot: obj_boot/blboot.bin

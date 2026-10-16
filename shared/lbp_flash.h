@@ -22,7 +22,7 @@
  * The window: offset 0 is one erase block below the application, so block
  * 1 is the application's start. The platform gives erase / program of the
  * window (the uniform blocks presented need not be the flash's sectors:
- * see lbpf_sector_erase for uneven ones).
+ * lbpf_erase_lazy for uneven ones).
  */
 #pragma once
 #include <stdint.h>
@@ -66,15 +66,25 @@ int lbpf_local_read(lbpf_t *f, uint8_t cmd, uint8_t *out);
 int lbpf_mem_write(lbpf_t *f, uint16_t addr, const uint8_t *d, int n);
 int lbpf_mem_read(lbpf_t *f, uint16_t addr, uint8_t *d, int n);
 
-// Uneven physical sectors behind uniform blocks: erase a block's sector the
-// first time any block in it is to be erased (bitmap over the sectors);
-// later requests in the same sector are already done. A helper for the
-// platform's erase callback.
+// Uneven physical sectors behind uniform blocks, and the timing problem:
+// on a single-bank part (STM32F4, G4) an erase stalls the whole chip, and
+// an F4 128 kB sector takes 1-2 s, longer than hostmot2 waits for the
+// cookie after a commit (setsserial: 1 s). So the bootloader erases the
+// application area when it starts (lbpf_erase_all, before it answers
+// anything), and an erase commit (lbpf_erase_lazy) finds the block blank
+// and returns at once. Only stale data costs an erase: at block 1 (a new
+// setsserial run after a failed one) every sector, otherwise the block's
+// sector. setsserial writes blocks in order, so stale data in a sector
+// lies in front of what this run wrote there; that commit may time out,
+// and setsserial run again then finds everything blank.
 typedef struct {
   const uint32_t *sector_start;  // window offsets, ascending, n + 1 entries (end)
   int n;
-  uint32_t erased;  // bit per sector
+  const uint8_t *map;            // the window's bytes, readable
+  uint32_t first;                // window offset of block 1
   int (*erase_sector)(void *ctx, int sector);
   void *ctx;
+  uint32_t sector_erases;
 } lbpf_sectors_t;
-int lbpf_sector_erase(lbpf_sectors_t *s, uint32_t off, uint32_t len);
+int lbpf_erase_all(lbpf_sectors_t *s);
+int lbpf_erase_lazy(lbpf_sectors_t *s, uint32_t off, uint32_t len);

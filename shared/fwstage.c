@@ -36,12 +36,29 @@ static int b64val(char c) {
   return -1;
 }
 
+static int blank(const fwst_t *s, uint32_t off, uint32_t len) {
+  const uint8_t *p = s->read(s->ctx, off);
+  for(uint32_t i = 0; i < len; i++) {
+    if(p[i] != 0xff) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int fwst_begin(fwst_t *s, uint32_t size, uint32_t crc32) {
+  if(s->state == FWST_RECEIVING && size == s->size && crc32 == s->crc) {
+    return 1;  // resume: the sender continues at got
+  }
   s->lines = s->bad = 0;
-  s->got   = 0;
-  if(size == 0 || size > s->stage_size || s->erase(s->ctx, 0, s->stage_size)) {
+  s->got = s->done = 0;
+  if(size == 0 || size > s->max_size || size > s->stage_size - FWST_HDR_SIZE) {
     s->state = FWST_FAILED;
     return -1;
+  }
+  if(!blank(s, 0, (size + 3) & ~3u) || !blank(s, s->stage_size - FWST_HDR_SIZE, FWST_HDR_SIZE)) {
+    s->state = FWST_FAILED;  // only the bootloader erases (see fwstage.h)
+    return -2;
   }
   s->size  = size;
   s->crc   = crc32;
@@ -56,7 +73,7 @@ int fwst_data(fwst_t *s, const char *line) {
     s->bad++;
     return -1;
   }
-  uint8_t d[60];
+  uint8_t d[60] = {0};
   int n = 0, bits = 0;
   uint32_t v = 0;
   for(const char *p = b64; *p; p++) {
@@ -82,23 +99,96 @@ int fwst_data(fwst_t *s, const char *line) {
     s->bad++;
     return -3;
   }
-  if(s->program(s->ctx, off, d, (uint32_t)n)) {
-    s->state = FWST_FAILED;
-    return -4;
+  if(s->got - s->done + (uint32_t)n > FWST_QSIZE) {
+    return -5;  // the realtime loop has not caught up: send it again
+  }
+  for(int i = 0; i < n; i++) {
+    s->q[(off + (uint32_t)i) % FWST_QSIZE] = d[i];
   }
   s->got += (uint32_t)n;
   s->lines++;
   return 0;
 }
 
+int fwst_poll(fwst_t *s, int max_words) {
+  int w = 0;
+  while(w < max_words) {
+    uint8_t b[4];
+    uint32_t off;
+    if(s->state == FWST_RECEIVING && (s->got - s->done >= 4 || (s->got == s->size && s->done < s->got))) {
+      off = s->done;
+      for(int i = 0; i < 4; i++) {
+        b[i] = off + (uint32_t)i < s->got ? s->q[(off + (uint32_t)i) % FWST_QSIZE] : 0xff;
+      }
+      s->done += 4;
+    } else if(s->state == FWST_MARKING && s->hdr_words < 3) {
+      uint32_t h[3] = {FWST_MAGIC, s->size, s->crc};  // the state word stays all ones: pending
+      off = s->stage_size - FWST_HDR_SIZE + 4 * s->hdr_words;
+      memcpy(b, &h[s->hdr_words], 4);
+      if(++s->hdr_words == 3) {
+        s->state = FWST_MARKED;
+      }
+    } else {
+      break;
+    }
+    if(s->program(s->ctx, off, b, 4)) {
+      s->state = FWST_FAILED;
+      break;
+    }
+    w++;
+  }
+  return w;
+}
+
 int fwst_end(fwst_t *s) {
+  if(s->state == FWST_READY) {
+    return 0;
+  }
   if(s->state != FWST_RECEIVING || s->got != s->size) {
     s->state = FWST_FAILED;
     return -1;
   }
+  if(s->done < s->got) {
+    return 1;  // still in the queue
+  }
   uint32_t c = fwst_crc32(s->read(s->ctx, 0), s->size, 0);
   s->state   = c == s->crc ? FWST_READY : FWST_FAILED;
   return s->state == FWST_READY ? 0 : -1;
+}
+
+int fwst_mark(fwst_t *s) {
+  if(s->state != FWST_READY) {
+    return -1;
+  }
+  s->hdr_words = 0;
+  s->state     = FWST_MARKING;
+  return 0;
+}
+
+int fwst_pending(const fwst_t *s, fwst_hdr_t *h) {
+  memcpy(h, s->read(s->ctx, s->stage_size - FWST_HDR_SIZE), sizeof(*h));
+  return h->magic == FWST_MAGIC && h->state == 0xffffffffu && h->size > 0 && h->size <= s->max_size &&
+         h->size <= s->stage_size - FWST_HDR_SIZE;
+}
+
+int fwst_boot(fwst_t *s, int (*app_erase)(void *, uint32_t, uint32_t),
+              int (*app_program)(void *, uint32_t, const uint8_t *, uint32_t),
+              const uint8_t *(*app_read)(void *, uint32_t), void *app_ctx) {
+  fwst_hdr_t h;
+  int r = 0;
+  if(fwst_pending(s, &h)) {
+    int a = fwst_apply(s, h.size, h.crc, app_erase, app_program, app_read, app_ctx);
+    if(a < -1) {
+      return -2;  // still pending: the next reset copies again
+    }
+    r = a == 0 ? 1 : -1;
+    uint8_t zero[4] = {0, 0, 0, 0};
+    s->program(s->ctx, s->stage_size - 4, zero, 4);  // done
+  }
+  if(!blank(s, 0, s->stage_size)) {
+    s->erase(s->ctx, 0, s->stage_size);  // ready for the next fwbegin
+  }
+  return r;
 }
 
 int fwst_apply(const fwst_t *stage, uint32_t size, uint32_t crc32,
