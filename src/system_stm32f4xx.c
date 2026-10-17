@@ -201,7 +201,10 @@ static void SystemInit_ExtMemCtl(void);
   * @param  None
   * @retval None
   */
+void dfu_request_check(void);  // src/main.c: the `bootloader` command
+
 void SystemInit(void) {
+  dfu_request_check();  // before any clock setup
   SCB->CPACR |= ((3UL << 10 * 2) | (3UL << 11 * 2)); /* Set CP10 and CP11 to full access */
 
   /* Reset the RCC clock configuration to the default reset state ------------*/
