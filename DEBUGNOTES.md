@@ -524,7 +524,7 @@ Entry format:
 ## 2026-10-17  Motor kicks up to 0.9 mm at enable: autophasing (cause found)
 - Area:    `shared/comps/fb_switch.c` (autophasing), real drive, ECMA-C30604FS
   with a 2500-line incremental encoder (no commutation signals wired)
-- Status:  Open (cause known, fix not chosen)
+- Status:  Workaround (LinuxCNC side); phasing against a stop: Open
 - Symptom: Some boots: LinuxCNC machine on gives "joint 0 following error"
   (1 mm). pos_fb swings up to 0.9 mm within ~60 ms of the enable, the same
   on every enable of that boot, and settles in ~0.4 s; other boots
@@ -539,11 +539,17 @@ Entry format:
   fresh boot each: 0.007..0.895 mm. phase_gain 1000 is unstable: 3 of 9
   runs ran away 39..45 mm. diag at the kick: com_state 0, offset -2.97,
   0.047 Nm to hold at rest.
-- Fix:     Options: commutation from the encoder's U/V/W signals if the
-  cable carries them (no phasing); or find the index before LinuxCNC
-  enables (a slow move); or a gentler phasing (lower phase_cur / longer
-  phase_time, or a probing method); or hide the phasing transient from
-  LinuxCNC. hwtest/suite fails on any enable swing over 0.1 mm.
+- Fix:     Workaround, for motors with and without U/V/W:
+  hwtest/burnin/phasing_ferror.hal (POSTGUI_HALFILE) lets LinuxCNC allow
+  [JOINT_0]PHASING_FERROR (2 mm) until homed and for PHASING_TIME (1.5 s)
+  after each enable. Headless runners must wait for the task's ini.* pins
+  before loading it (they appear after the DISPLAY program starts). Test:
+  hwtest/suite "ferror limit: …" (bench 15/15, a re-enable phased 0.36 mm).
+  Still open: phasing needs the rotor to move; against a mechanical stop
+  (or a stiff axis) it keeps its first guess, up to 180 deg off, and the
+  drive then runs weak, reversed or away. Ideas: a direction check after
+  phasing that faults instead; phasing from small probing pulses that
+  needs only micrometres of travel in one direction.
 
 ## 2026-10-17  flashsaveconf stalls rt: RT_TOO_LONG after a config save
 - Area:    `src/config.c` (`flashsaveconf`, `hardboot`)

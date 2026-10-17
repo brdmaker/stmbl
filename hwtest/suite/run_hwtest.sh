@@ -65,6 +65,8 @@ if [[ " $PHASES " == *" lcnc "* ]]; then
 #!/bin/sh
 # as a GUI would: the POSTGUI_HALFILEs (e.g. phasing_ferror.hal)
 cd "$RUN/lcnc"
+# (after the task has made its ini.* pins, as AXIS does once it is connected)
+i=0; while ! halcmd getp ini.0.ferror >/dev/null 2>&1 && [ \$i -lt 150 ]; do sleep 0.2; i=\$((i+1)); done
 for f in \$(sed -n 's/^POSTGUI_HALFILE *= *//p' "$INI"); do halcmd -i "$INI" -f "\$f" || exit 1; done
 exec python3 "$HERE/hwtest.py" --phase lcnc $ARGS > "$RUN/lcnc-phase.log" 2>&1
 EOS
