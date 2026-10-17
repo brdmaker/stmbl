@@ -521,35 +521,33 @@ Entry format:
   active again when LinuxCNC sends. test_sscon covers it; hwtest/suite's
   post phase checks the USB console's speed after LinuxCNC exits.
 
-## 2026-10-17  Motor kicks up to 0.9 mm at enable: autophasing (cause found)
-- Area:    `shared/comps/fb_switch.c` (autophasing), real drive, ECMA-C30604FS
-  with a 2500-line incremental encoder (no commutation signals wired)
-- Status:  Workaround (LinuxCNC side); phasing against a stop: Open
-- Symptom: Some boots: LinuxCNC machine on gives "joint 0 following error"
-  (1 mm). pos_fb swings up to 0.9 mm within ~60 ms of the enable, the same
-  on every enable of that boot, and settles in ~0.4 s; other boots
-  0.002..0.02 mm. Seen on two drives (v274, v291). Gone after the axis has
-  passed the encoder index.
-- Cause:   Until the index is seen (fb_switch0.mot_state 1), every enable
-  autophases: d current ramps up at an assumed angle that starts at the
-  boot's encoder zero, and phase_gain (100) turns it towards the rotor.
-  How far the rotor moves depends on where it sat at boot (the start error
-  is fixed for the boot): up to half an electrical period, 2 mm / 2 at
-  5 pole pairs and 10 mm/rev. Sweep over 9 positions 0.25 mm apart, a
-  fresh boot each: 0.007..0.895 mm. phase_gain 1000 is unstable: 3 of 9
-  runs ran away 39..45 mm. diag at the kick: com_state 0, offset -2.97,
-  0.047 Nm to hold at rest.
-- Fix:     Workaround, for motors with and without U/V/W:
-  hwtest/burnin/phasing_ferror.hal (POSTGUI_HALFILE) lets LinuxCNC allow
-  [JOINT_0]PHASING_FERROR (2 mm) until homed and for PHASING_TIME (1.5 s)
-  after each enable. Headless runners must wait for the task's ini.* pins
-  before loading it (they appear after the DISPLAY program starts). Test:
-  hwtest/suite "ferror limit: …" (bench 15/15, a re-enable phased 0.36 mm).
-  Still open: phasing needs the rotor to move; against a mechanical stop
-  (or a stiff axis) it keeps its first guess, up to 180 deg off, and the
-  drive then runs weak, reversed or away. Ideas: a direction check after
-  phasing that faults instead; phasing from small probing pulses that
-  needs only micrometres of travel in one direction.
+## 2026-10-17  Autophasing kicked up to 1 mm, and failed silently against a stop
+- Area:    `shared/comps/fb_switch.c` (autophasing), `shared/comps/fault.c`,
+  real drive with the ECMA-C30604FS (2500-line incremental, no U/V/W)
+- Status:  Fixed (sim and bench); a blocked rotor on the bench not yet tried
+- Symptom: (1) Some boots: LinuxCNC machine on -> "joint 0 following error":
+  pos_fb swung up to 0.9 mm within ~60 ms of each enable (two drives) until
+  the encoder index was passed. (2) Against a mechanical stop, phasing
+  "succeeded" with a wrong angle; once free the axis could not move or ran
+  away (user's experience; reproduced in the sim: 172 deg off, fault 5).
+- Cause:   The align method lets the rotor fall into a d current at an
+  angle guessed from the boot's encoder zero: it moves up to half an
+  electrical period (1 mm here), depending on where it sat at boot; if it
+  cannot move, the guess stays. A faster correction (phase_gain 1000) ran
+  away 39..45 mm on the bench.
+- Fix:     Probe phasing (phase_mode 1, default; 0 = align, 2 = none for
+  id_pmsm / rlpsij): 16 short current pulses round the circle, the
+  movement each causes correlated with its angle (one side blocked only
+  halves it); pulses grow until the rotor moves; the field turns between
+  pulses instead of jumping (vel2 + cur_ind turned jumps into a wrong-way
+  q current); the rotor's own movement stays in the feedback, the
+  command's is absorbed. A check (+q / -q pulses) after either method:
+  wrong way or no movement -> fault PHASING_ERROR (17), phase_fail says
+  why. Sim: swing 0.03..0.06 mm (align 0.18..1.06), ~4 deg; stop on either
+  side phases, blocked both ways faults. Bench: swing 0.11..0.19 mm (align
+  0.47..1.12), LinuxCNC suite 15/15 (re-enable 0.11 mm). LinuxCNC side
+  still allows PHASING_FERROR until homed (phasing_ferror.hal). Tests:
+  host/tests/drive_phasing_*.test, console_link (jog while phasing).
 
 ## 2026-10-17  flashsaveconf stalls rt: RT_TOO_LONG after a config save
 - Area:    `src/config.c` (`flashsaveconf`, `hardboot`)
