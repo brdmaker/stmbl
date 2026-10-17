@@ -319,6 +319,9 @@ Motor constants convert with p/2pi (p = period in m): mass m gives
 (Kt = 1.5 psi per pole pair), friction F (N) gives `f = F p/2pi`, and
 `max_force` is the peak force times p/2pi.
 
+Baldor LMCF / LMBL motors (periods 60.96 / 45.72 mm, wiring, Halls, motor
+data): [docs/baldor_linear.md](../docs/baldor_linear.md).
+
 `examples/linear_axis.conf` with `--sim examples/linear_axis_sim.txt` is an
 ironless motor on a 1 m stroke with end stops and one reference mark at
 -477 mm (tests `linear_*.test`). It autophases at enable and switches to

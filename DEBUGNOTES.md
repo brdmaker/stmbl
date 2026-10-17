@@ -781,3 +781,14 @@ Entry format:
 - Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
   proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
 
+
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
