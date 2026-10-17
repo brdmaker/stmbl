@@ -126,6 +126,12 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
  * the rotor has stopped (at most 4 pulse lengths). A few micrometres of
  * travel in one direction are enough.
  *
+ * Over a sweep the pushes cancel, so the rotor ends near where it started
+ * (in between it wanders up to half a sweep's worth); probing keeps the
+ * position mapping, so what is left is corrected by the position loop
+ * rather than hidden as an offset (the align method takes the rotor's end
+ * position as the commanded one, as before).
+ *
  * The field never jumps: between pulses, with no current, it turns to the
  * next angle at PHASE_TURN rad/s and waits 4 ms (vel2 makes hv0.pos and
  * hv0.vel from com_fb; a jump was a speed spike, and with cur_ind the
@@ -217,10 +223,16 @@ static int pulse(struct fb_switch_ctx_t *ctx, struct fb_switch_pin_ctx_t *pins, 
   return 1;
 }
 
-static void phasing_done(struct fb_switch_ctx_t *ctx, struct fb_switch_pin_ctx_t *pins, float mot_pos) {
-  ctx->cmd_mot_offset  = minus(PIN(cmd_pos), mot_pos);
+// rezero: take the rotor's position after phasing as the commanded one (the
+// align method: it moved the rotor). Probing keeps the mapping set while
+// disabled, so a residual movement is corrected, not hidden as an offset.
+static void phasing_done(struct fb_switch_ctx_t *ctx, struct fb_switch_pin_ctx_t *pins, float mot_pos, int rezero) {
+  if(rezero) {
+    ctx->cmd_mot_offset = minus(PIN(cmd_pos), mot_pos);
+  }
   ctx->current_com_pos = 4.0;
 }
+
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fb_switch_ctx_t *ctx      = (struct fb_switch_ctx_t *)ctx_ptr;
@@ -371,7 +383,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
                 PIN(phase_fail)  = 2.0;
                 ctx->current_com_pos = 8;
               } else if(ctx->check_plus > m || ctx->check_minus < -m) {
-                phasing_done(ctx, pins, mot_pos);
+                phasing_done(ctx, pins, mot_pos, PIN(phase_mode) <= 0.0);
               } else if(ctx->probe_len < max_len) {  // nothing moved: longer pulses
                 check_start(ctx, mot_pos, ctx->probe_amp, MIN(ctx->probe_len * 4.0, max_len));
               } else {
@@ -393,7 +405,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
           PIN(phase_error) = 0.0;
           PIN(phase_fail)  = 0.0;
           if(PIN(phase_mode) >= 2.0) {
-            phasing_done(ctx, pins, mot_pos);
+            phasing_done(ctx, pins, mot_pos, 0);
           } else if(PIN(phase_mode) > 0.0) {
             ctx->probe_angle = 0.0;
             probe_start(ctx, pins, mot_pos, PIN(phase_cur) / 8.0, PIN(phase_pulse));
