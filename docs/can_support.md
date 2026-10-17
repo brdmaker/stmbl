@@ -1,8 +1,15 @@
 # CAN support for stmbl and brdstepper (investigation)
 
-Branch `can-support`, built on `brdstepper`. **Status:** an investigation;
-nothing implemented yet except `tools/canbus_budget.py` (the bus timing
-below).
+Branch `can-support`, built on `brdstepper`. **Status:**
+- **Investigation:** this document, with `tools/canbus_budget.py` for the
+  bus timing.
+- **First implementation:** the Raspberry Pi side, `linuxcnc/stmblcan`
+  (MCP2515s on SPI from the servo thread) and the frame format
+  `shared/canproto.h`.
+  - **Tested on the host** against simulated MCP2515s and drives
+    (`test_stmblcan`).
+  - **Not yet:** run on a Pi.
+  - **Not yet:** drive firmware speaking it.
 
 **What it would mean, in short:**
 - **Hardware:**
@@ -171,7 +178,8 @@ loop.**
 - **Good for:** setup tools (`candump`, `cansend`) when the machine is not
   running.
 
-**B. A realtime component that owns the MCP2515s (recommended).**
+**B. A realtime component that owns the MCP2515s (recommended;
+implemented as `linuxcnc/stmblcan`, see its README).**
 - **Polled, once per servo cycle,** with no interrupts and no network
   stack. Each controller sees the same SPI sequence every cycle, so the
   timing is deterministic.
@@ -219,6 +227,17 @@ period: workable, to be measured.
 - a 4th MCP2515,
 - 500 Hz (4 drives per bus),
 - or the wrist drive as its gateway (§6, now over CAN).
+
+**As built** (`linuxcnc/stmblcan`, tested in `host/tests/test_stmblcan.c`):
+- **The cycle:** `stmblcan.read` at the start of the servo thread (READ
+  STATUS, the full receive buffers); `stmblcan.write` at its end (abort
+  late frames, LOAD TX BUFFER × 3, RTS).
+- **SPI:** 3 calls and 73 bytes per bus and period.
+- **Receive filters:** only the expected feedback IDs. A higher-priority
+  foreign device can't take the buffers; it can only overload the bus.
+- **The user's overlay** (Pi 4: spi0, chip selects on GPIO 13 / 6 / 5,
+  16 MHz crystals) stays as it is. `spi_takeover.sh` moves the chips from
+  `mcp251x` to spidev for LinuxCNC (`driver_override`) and back.
 
 **Hardware to check on existing MCP2515 boards** ✱:
 - **Crystal:** 1 Mbit/s needs 16 MHz. 8 MHz modules top out at 500 kbit/s:

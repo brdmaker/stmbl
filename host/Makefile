@@ -92,13 +92,19 @@ test_bootloader: tests/test_bootloader.c ../shared/lbp_flash.c ../shared/lbp_fla
 test_bip: tests/test_bip.c ../shared/bip_loop.c ../shared/bip_loop.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bip.c ../shared/bip_loop.c -lm
 
+# linuxcnc/stmblcan: MCP2515 driver and bus logic against simulated chips
+STMBLCAN = ../linuxcnc/stmblcan
+test_stmblcan: tests/test_stmblcan.c tests/mcp2515_sim.c tests/mcp2515_sim.h $(STMBLCAN)/mcp2515.c $(STMBLCAN)/mcp2515.h $(STMBLCAN)/stmblcan_bus.c $(STMBLCAN)/stmblcan_bus.h ../shared/canproto.h ../shared/sscon.c
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -I$(STMBLCAN) -Itests -o $@ tests/test_stmblcan.c tests/mcp2515_sim.c $(STMBLCAN)/mcp2515.c $(STMBLCAN)/stmblcan_bus.c ../shared/sscon.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip
+check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_stmblcan
 	@./test_ssq
 	@./test_sscon
 	@./test_bootloader
 	@./test_bip
+	@./test_stmblcan
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py

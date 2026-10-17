@@ -953,3 +953,19 @@ Entry format:
   CAN FD frames on the bus.
 - Fix:     CAN on a v4.0 board needs a plug-on transceiver board on P10.
   stmbl v4.0 and FD brdsteppers need separate buses, or all classic.
+
+## 2026-10-17  MCP2515 in the servo loop: filters, priorities, bus time
+- Area:    `linuxcnc/stmblcan` (mcp2515.c, stmblcan_bus.c), `host/tests/test_stmblcan.c`
+- Status:  Note (simulated; not yet on a Pi)
+- Symptom: (simulation) without acceptance filters, a foreign device whose
+  frames have higher priority than the feedback (0x050 vs 0x18x) took
+  both MCP2515 receive buffers every period. No feedback got through, and
+  the drives never became present. With filters, 3 such 8-byte frames a
+  period still made drives miss periods.
+- Cause:   The MCP2515 has 2 receive buffers, and the higher-priority
+  frames reach them first. The 3-frame flood is bus time: 405 us on top of
+  the period's own 605 us is more than 1 ms.
+- Fix:     Accept only the expected feedback IDs (RXB0's two filters, with
+  rollover, so both buffers serve them). Bus time can only be fixed by
+  keeping foreign traffic off the servo buses, or giving it lower
+  priority and less volume.
