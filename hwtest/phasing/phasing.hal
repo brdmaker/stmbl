@@ -1,0 +1,11 @@
+# The phasing suite's HAL session (phasing.py starts one per drive boot:
+# hostmot2 does not take a drive back after it reset). The drive's
+# smart-serial pins only; phasing_worker.py drives them.
+loadrt threads name1=servo-thread period1=1000000
+loadrt hostmot2
+loadrt hm2_rpspi
+addf hm2_7c81.0.read  servo-thread
+addf hm2_7c81.0.write servo-thread
+setp hm2_7c81.0.watchdog.timeout_ns 50000000
+start
+loadusr -w sleep infinity
