@@ -59,9 +59,18 @@ int main(void) {
   RCC_AHB1PeriphResetCmd(RCC_AHB1Periph_GPIOA, DISABLE);
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, DISABLE);
 
+  // the app's `bootloader` command (src/main.c): a request word in CCM,
+  // then a reset. Taken here, straight from reset; an older bootloader
+  // passes it on and the app's SystemInit() takes it.
+  volatile uint32_t *dfu_request = (uint32_t *)0x1000FE00;
+  uint32_t requested             = *dfu_request == 0xD0F0B007;
+  if(requested) {
+    *dfu_request = 0;
+  }
+
   void (*SysMemBootJump)(void);
-  if((*((unsigned long *)0x2001C000) == 0xDEADBEEF) || pin || !app_ok()) {  //Memory map, datasheet
-    *((unsigned long *)0x2001C000) = 0xCAFEFEED;                            //Reset bootloader trigger
+  if(requested || (*((unsigned long *)0x2001C000) == 0xDEADBEEF) || pin || !app_ok()) {  //Memory map, datasheet
+    *((unsigned long *)0x2001C000) = 0xCAFEFEED;                                         //Reset bootloader trigger
     // AN2606: map the system memory at 0, so the ROM's interrupts (USB) use
     // its own vector table and not ours; without it the ROM's USB never
     // enumerated and the drive needed BOOT0 to recover.
