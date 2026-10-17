@@ -1,0 +1,54 @@
+# The drive over CAN (docs/can_support.md) instead of smart-serial: the
+# drive's can component (shared/comps/can.c, template "can") on a simulated
+# bus at 1 Mbit/s, LinuxCNC's end as it runs on the Raspberry Pi
+# (linuxcnc/stmblcan: its bus code and MCP2515 driver on a simulated
+# MCP2515), a 1 kHz servo period. The burn-in motor (tests/can/stmbl.conf).
+# - enable, phasing, a constant-velocity move: feedback one period behind
+# - every period's feedback received; ~325 us of bus time per period
+# - the console over the CAN frames: about
+# - the drive taken off the bus: it times out (CMD error, soft fault),
+#   LinuxCNC sees it not present and its frames unacknowledged (tx_late);
+#   back on: connected, and enabled again after LinuxCNC toggles enable
+@args --drive tests/can/stmbl.conf
+@timeout 120
+lcnccan 1
+lcnc 0 0
+run 0.5
+can0.connected
+lcnc 1 0
+run 1.5
+fault0.state
+lcnc 1 31.4
+run 1
+@sample pid0.pos_error 0.001 0.3
+hv0.sim_vel
+can0.syncs
+canstat
+con about
+run 0.5
+conread
+canplug 0
+run 0.05
+can0.connected
+fault0.state
+canstat
+canplug 1
+run 0.05
+can0.connected
+lcnc 0 0
+run 0.2
+lcnc 1 0
+run 1.5
+fault0.state
+@expect can0.connected[1] == 1
+@expect fault0.state[1] == 1
+@expect hv0.sim_vel ~ 19.73 1%
+@expect max|pid0.pos_error| < 0.01
+@expect can0.connected[2] == 0
+@expect fault0.state[2] == 3
+@expect can0.connected[3] == 1
+@expect fault0.state[3] == 1
+@match ^can: present 1 fb (29[0-9][0-9]|3[0-9]{3}) missed 0 tx_late 0 rx_overflow 0 foreign 0
+@match ^con> STMBL simulated drive
+@match ^can: present 0 fb [0-9]+ missed [1-9][0-9]* tx_late [1-9]
+@match Fault 1: CMD error

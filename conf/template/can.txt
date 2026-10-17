@@ -1,0 +1,48 @@
+load can
+load vel_int
+load linrev
+load idx_home
+can0.rt_prio = 2.0
+linrev0.rt_prio = 2.1
+vel_int0.rt_prio = 2.2
+idx_home0.rt_prio = 2.3
+linrev0.cmd_in = can0.pos_cmd
+linrev0.cmd_d_in = can0.pos_cmd_d
+vel_int0.pos_in = linrev0.cmd_out
+vel_int0.vel_in = linrev0.cmd_d_out
+fault0.en = can0.enable
+can0.fault = fault0.fault
+fault0.cmd_error = can0.error
+linrev0.fb_in = idx_home0.pos_out
+linrev0.fb_d_in = vel1.vel
+idx_home0.fb = fb_switch0.mot_fb_no_offset
+idx_home0.fb_abs = fb_switch0.mot_abs_fb_no_offset
+idx_home0.index_en = can0.index_out
+idx_home0.mot_state = fb_switch0.mot_state
+can0.index_clear = idx_home0.index_clear
+linrev0.rev_clear = can0.index_clear
+can0.pos_fb = linrev0.fb_out
+can0.vel_fb = linrev0.fb_d_out
+can0.pos_advance = 0.0008
+rev0.in = vel_int0.pos_out
+rev0.in_d = vel_int0.vel_out
+pid0.vel_ext_cmd = rev0.out_d
+vel_int0.wd = 0.002
+vel0.en = 0
+velbuf0.rt_prio = 0
+io0.cmdy = can0.error
+io0.cmdg = 1
+can0.in0 = io0.ind0
+can0.in1 = io0.ind1
+io0.out0 = can0.out0
+io0.out1 = can0.out1
+io0.out2 = can0.out2
+fault0.brake_release = can0.out3
+term0.wave2 = linrev0.cmd_d_out
+can0.current = hv0.iq_fb
+io0.clock_scale = can0.clock_scale
+can0.power = pe0.p_in
+
+linrev0.scale = can0.scale
+can0.temp = hv0.hv_temp
+can0.vbus = hv0.dc_volt

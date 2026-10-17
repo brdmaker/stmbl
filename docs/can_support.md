@@ -9,7 +9,11 @@ Branch `can-support`, built on `brdstepper`. **Status:**
   - **Tested on the host** against simulated MCP2515s and drives
     (`test_stmblcan`).
   - **Not yet:** run on a Pi.
-  - **Not yet:** drive firmware speaking it.
+- **The drive's side:** `shared/comps/can.c` (template `can`, the same
+  pins as `sserial`), on a per-board frame API (`shared/can_hw.h`).
+  - **In the host simulator:** a simulated drive runs closed loop over a
+    simulated bus against the Pi-side code (`lcnccan`, `can_link.test`).
+  - **Not yet:** the bxCAN (F4) and FDCAN (G4) drivers under it.
 
 **What it would mean, in short:**
 - **Hardware:**

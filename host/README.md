@@ -52,6 +52,20 @@ Two binaries are produced:
 - **`stmbl_host`** — the simulator (the core).
 - **`servoterm`** — the command-line client (talks to the core).
 
+## CAN
+
+`lcnccan [node [vel_scale]]` switches the LinuxCNC stand-in from smart-serial
+to CAN (docs/can_support.md):
+- **The drive's side:** its `can` component (the drive config links `can`
+  for `sserial`, e.g. `tests/can/stmbl.conf`).
+- **LinuxCNC's side:** the Raspberry Pi code of `linuxcnc/stmblcan` on a
+  simulated MCP2515 (`mcp2515_sim.c`), on a simulated 1 Mbit/s bus.
+
+`lcnc`, `con`, `conread` and `lcncstop` work as before. Two commands are
+added:
+- `canstat`: the link counters;
+- `canplug 0|1`: takes the drive off the bus and back.
+
 ## Build
 
 ```sh

@@ -33,6 +33,7 @@
 #include "pty.h"
 #include "sim_io.h"
 #include "sscon.h"
+#include "can_host.h"
 
 #include <time.h>
 
@@ -48,8 +49,30 @@ static sscon_t lcnc_con;      // LinuxCNC's end of the console (shared/sscon.h)
 static char con_in[65536];    // what came, emptied continuously (as sserialterm into its pty)
 static uint32_t con_in_len = 0;
 
+static int lcnc_can = 0;  // 1: the link is CAN (lcnccan), LinuxCNC's end as stmblcan on a Pi
+
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
+  if(lcnc_can) {
+    // stmblcan.read first in the servo thread, stmblcan.write last
+    stmblcan_node_t *n = can_host_node();
+    can_host_read();
+    io->pos_fb  = n->fb.pos;
+    io->vel_fb  = n->fb.vel;
+    io->current = n->slots[CANP_SLOT_CURRENT];
+    io->power   = n->slots[CANP_SLOT_POWER];
+    io->fault   = n->fb.fault || !n->present;
+    io->pos_cmd += io->vel_cmd * 0.001;
+    n->cmd.pos          = io->pos_cmd;
+    n->cmd.vel          = io->vel_cmd;
+    n->cmd.enable       = io->enable;
+    n->cmd.index_enable = io->index_enable;
+    n->cmd.out = (uint8_t)(io->out[0] | io->out[1] << 1 | io->out[2] << 2 | io->out[3] << 3);
+    n->cmd.con = sscon_frame(&lcnc_con, n->fb.con);  // as sserialterm on the con pins
+    con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
+    can_host_write();
+    return;
+  }
   io->pos_cmd += io->vel_cmd * 0.001;
   io->con_cmd = sscon_frame(&lcnc_con, io->con_fb);  // the last reply in, the next request out
   con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
@@ -60,6 +83,9 @@ static void run_cycles(long n) {
   for(long i = 0; i < n; i++) {
     if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
       lcnc_servo();
+    }
+    if(lcnc_can) {
+      can_host_run(RT_PERIOD * 1e6);  // the bus during this rt period
     }
     drive_tick();
   }
@@ -143,6 +169,37 @@ void cmd_conread(char *ptr) {
   fprintf(stdout, "con: %u bytes in, %u out\n", lcnc_con.n_rx, lcnc_con.n_tx);
 }
 COMMAND("conread", cmd_conread, "print what came over the smart-serial console");
+
+// the link is CAN (docs/can_support.md): LinuxCNC's end as stmblcan on a Pi
+// (its bus code and MCP2515 driver, on a simulated MCP2515), the drive's
+// can component on the same simulated bus. lcnc / con / conread / lcncstop
+// work as with smart-serial. The drive config links "can" for "sserial".
+void cmd_lcnccan(char *ptr) {
+  int node = 1;
+  float vs = 100.0f;
+  sscanf(ptr, " %i %f", &node, &vs);
+  if(can_host_init(node, vs)) {
+    printf("lcnccan: the simulated MCP2515 did not initialise\n");
+    return;
+  }
+  sscon_reset(&lcnc_con);
+  lcnc_can = 1;
+  printf("lcnccan: node %d, vel_scale %g, 1 Mbit/s\n", node, (double)vs);
+}
+COMMAND("lcnccan", cmd_lcnccan, "LinuxCNC side over CAN: lcnccan [node [vel_scale]]");
+
+void cmd_canstat(char *ptr) {
+  (void)ptr;
+  can_host_stat();
+}
+COMMAND("canstat", cmd_canstat, "CAN link counters (lcnccan)");
+
+void cmd_canplug(char *ptr) {
+  int on = 1;
+  sscanf(ptr, " %i", &on);
+  can_host_drive_attached(on);
+}
+COMMAND("canplug", cmd_canplug, "canplug 0: the drive off the CAN bus, 1: back on");
 
 // the link goes away (cable, LinuxCNC stopped): no more frames; the drive
 // times out. 'lcnc ...' starts them again.
