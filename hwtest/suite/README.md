@@ -44,6 +44,8 @@ v0.9.18-274 or later).
 | capture (USB) | a forced capture, 2 × 2048 samples, CRCs ok, DC bus samples plausible |
 | reset | a RAM-only pin is back at its default, uptime restarts (hw), HAL running, config unchanged |
 | fault record (hw) | `fault` → the drive resets, `crash` shows a bus fault at 0x30000000 and a PC in `fault()` |
+| bootloader (hw) | 5 × `tools/bootloader.py` → ROM DFU → a 4-byte read with `:leave` → the app is back, HAL running; ROM bounces retried and counted |
+| hardboot (hw) | `hardboot` erases the app → the stmbl bootloader's CRC check gives DFU over USB (no BOOT0) → `make btburn` restores it; only when the drive runs the repo's current build |
 | safe mode (hw) | 3 crashes in a row → safe mode (no rt functions, console working); `reset` → normal boot, config unchanged; the record is cleared |
 
 **lcnc**: LinuxCNC headless with this script as its DISPLAY, on a copy of

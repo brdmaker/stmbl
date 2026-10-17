@@ -476,6 +476,35 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
+## 2026-10-17  DFU entry unreliable; stmbl bootloader's DFU path dead; hardboot locked up
+- Area:    `src/main.c` (`bootloader`, `dfu_request_check`), `bootloader/src/main.c`,
+  `src/config.c` (`hardboot`), `tools/bootloader.py`, `base.mak` (`btburn`)
+- Status:  Fixed
+- Symptom: (1) `bootloader` rebooted into the app instead of DFU in 10 of 20
+  round trips (every other one). (2) With a bad app CRC, or the bootloader's
+  magic word, the drive came up with no USB at all; an interrupted flash plus
+  a power cycle needed BOOT0. (3) `hardboot` left USB enumerated and the
+  console dead until a power cycle. (4) `btburn` waited a fixed 1 s for DFU.
+- Cause:   (1) The app jumped into ST's ROM from the running firmware; after
+  dfu-util's `:leave` (a jump into flash, no reset) the ROM went straight
+  back to flash. (2) The stmbl bootloader jumped into the ROM without
+  mapping the system memory at 0 (AN2606), so the ROM's USB interrupts used
+  our vector table. (3) hardboot erases sector 4, which holds the vector
+  table, with interrupts on: the next one jumped into blank flash. (4) And
+  ST's ROM itself still goes back to flash in about 1 of 20 entries even
+  from a clean reset (a counter shows the bootloader did take the request),
+  most likely on a USB reset while the host enumerates it.
+- Fix:     `bootloader` leaves a request word in CCM (0x1000FE00) and resets;
+  the bootloader (v0.9.18-289+) takes it straight from reset, an older one
+  passes it on to the app's SystemInit(), which jumps before any clock
+  setup. The bootloader remaps system memory and counts requests (`about`).
+  hardboot keeps interrupts off from the erase to the reset. bootloader.py
+  waits for 0483:df11 and resends up to 10 times (first poll after 1.5 s;
+  polling at once raised ROM bounces from ~2 to ~7 in 25); btburn waits for
+  the device instead of a fixed sleep. Bench: 50/50 end-to-end entries, 3/3
+  hardboot recoveries without BOOT0. Tests: hwtest/suite "bootloader: …"
+  and "hardboot: …" (hw).
+
 ## 2026-10-17  USB console crawls after a smart-serial console session
 - Area:    `shared/sscon.c` (`sscon_reset`), `src/syscalls.c` (`sscon_out`)
 - Status:  Fixed
