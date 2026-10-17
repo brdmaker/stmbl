@@ -521,24 +521,29 @@ Entry format:
   active again when LinuxCNC sends. test_sscon covers it; hwtest/suite's
   post phase checks the USB console's speed after LinuxCNC exits.
 
-## 2026-10-17  Motor kicks 0.87 mm at every enable (one boot, not reproduced)
-- Area:    real drive, firmware v0.9.18-274 (merge of power quota + console)
-- Status:  Open (seen in 1 of ~12 boots)
-- Symptom: First hwtest/suite run on hardware: LinuxCNC machine on gave
-  "joint 0 following error" (limit 1 mm). Traced at 1 kHz: with pos_cmd held,
-  pos_fb ran 0.855 mm away within 57 ms of the enable and settled in ~0.4 s,
-  the same (0.86..0.88 mm, same direction) on all 12 enables of that boot,
-  with vel2.g 5 or 1. Normally 0.002..0.017 mm (v243 and v274 alike).
-- Cause:   Unknown. Not the firmware version: after a reflash the same
-  build was clean, and bisecting found every commit clean. Not reproduced by
-  rerunning the suite's drive phase (crash/safe-mode resets included) or in
-  6 more reboots. The motor never passed the encoder index in that boot, so
-  commutation stayed on the boot-time estimate (fb_switch0.mot_state 1); a
-  bad estimate would act like this, but it isn't confirmed.
-- Fix:     hwtest/suite now measures the swing at every enable (fails above
-  0.1 mm) and writes the commutation / feedback / controller pins to diag.txt.
-  If it recurs: keep the boot, compare fb_switch0.* and hv0.pos with a good
-  boot, then move past the index and see whether it goes away.
+## 2026-10-17  Motor kicks up to 0.9 mm at enable: autophasing (cause found)
+- Area:    `shared/comps/fb_switch.c` (autophasing), real drive, ECMA-C30604FS
+  with a 2500-line incremental encoder (no commutation signals wired)
+- Status:  Open (cause known, fix not chosen)
+- Symptom: Some boots: LinuxCNC machine on gives "joint 0 following error"
+  (1 mm). pos_fb swings up to 0.9 mm within ~60 ms of the enable, the same
+  on every enable of that boot, and settles in ~0.4 s; other boots
+  0.002..0.02 mm. Seen on two drives (v274, v291). Gone after the axis has
+  passed the encoder index.
+- Cause:   Until the index is seen (fb_switch0.mot_state 1), every enable
+  autophases: d current ramps up at an assumed angle that starts at the
+  boot's encoder zero, and phase_gain (100) turns it towards the rotor.
+  How far the rotor moves depends on where it sat at boot (the start error
+  is fixed for the boot): up to half an electrical period, 2 mm / 2 at
+  5 pole pairs and 10 mm/rev. Sweep over 9 positions 0.25 mm apart, a
+  fresh boot each: 0.007..0.895 mm. phase_gain 1000 is unstable: 3 of 9
+  runs ran away 39..45 mm. diag at the kick: com_state 0, offset -2.97,
+  0.047 Nm to hold at rest.
+- Fix:     Options: commutation from the encoder's U/V/W signals if the
+  cable carries them (no phasing); or find the index before LinuxCNC
+  enables (a slow move); or a gentler phasing (lower phase_cur / longer
+  phase_time, or a probing method); or hide the phasing transient from
+  LinuxCNC. hwtest/suite fails on any enable swing over 0.1 mm.
 
 ## 2026-10-17  flashsaveconf stalls rt: RT_TOO_LONG after a config save
 - Area:    `src/config.c` (`flashsaveconf`, `hardboot`)
