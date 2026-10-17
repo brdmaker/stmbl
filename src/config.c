@@ -117,14 +117,14 @@ void hardboot(char *ptr) {
     return;
   }
   hal_stop();  // the erase stalls rt, see flashsaveconf
-  printf("erasing flash page...\n");
+  printf("erasing flash page, then reset into the bootloader\n");
+  // Sector 4 holds the vector table (0x08010000): an interrupt after the
+  // erase jumped into blank flash and locked the core up (USB still
+  // enumerated, console dead, until a power cycle). No interrupts from
+  // here on, and reset in any case: the stmbl bootloader checks the CRC.
+  __disable_irq();
   FLASH_Unlock();
-  if(FLASH_EraseSector(FLASH_Sector_4, VoltageRange_3) != FLASH_COMPLETE) {
-    printf("error!\n");
-    FLASH_Lock();
-    return;
-  }
-  printf("OK, call bootloader\n");
+  FLASH_EraseSector(FLASH_Sector_4, VoltageRange_3);
   FLASH_Lock();
   NVIC_SystemReset();
 }
