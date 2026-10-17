@@ -69,17 +69,47 @@ void DMA2_Stream0_IRQHandler(void) {
   }
 }
 
-// Enter ST's USB DFU (ROM) through a reset: the stmbl bootloader
-// (bootloader/src/main.c) jumps to the ROM when it finds this word in SRAM2.
-// Jumping into the ROM from the running app failed every other time: after
-// dfu-util's ":leave" (a jump, not a reset) the ROM went straight back to
-// flash and the drive just rebooted into the app.
-#define BOOTLOADER_MAGIC_ADDR 0x2001C000
-#define BOOTLOADER_MAGIC 0xDEADBEEF
+// Enter ST's USB DFU (ROM bootloader). The `bootloader` command leaves a
+// request in CCM (not cleared at startup, like the crash record) and
+// resets; main() then jumps into the ROM before setting anything up.
+// Jumping from the running app failed every other time (after dfu-util's
+// ":leave", which jumps into flash without a reset, the ROM went straight
+// back to flash), and the stmbl bootloader's own DFU path (its magic word,
+// a bad app CRC) did not remap the system memory before v0.9.18-284, so
+// the ROM's USB never came up.
+#define DFU_REQUEST_ADDR 0x1000FE00
+#define DFU_REQUEST 0xD0F0B007
+
+static void enter_rom_dfu(void) {
+  void (*SysMemBootJump)(void);
+  volatile uint32_t addr = 0x1FFF0000;
+
+  RCC_DeInit();
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL  = 0;
+
+  RCC->AHB1RSTR = 0x22E017FF;
+  RCC->AHB1RSTR = 0;
+  RCC->AHB2RSTR = 0xF1;
+  RCC->AHB2RSTR = 0;
+  RCC->AHB3RSTR = 0x1;
+  RCC->AHB3RSTR = 0;
+  RCC->APB1RSTR = 0xF6FEC9FF;
+  RCC->APB1RSTR = 0;
+  RCC->APB2RSTR = 0x4777933;
+  RCC->APB2RSTR = 0;
+
+  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+  SYSCFG->MEMRMP = 0x01;  // system memory at 0: the ROM's own vectors (AN2606)
+  SysMemBootJump = (void (*)(void))(*((uint32_t *)(addr + 4)));
+  __set_MSP(*(uint32_t *)addr);
+  SysMemBootJump();
+}
 
 void bootloader(char *ptr) {
   hal_stop();
-  *((volatile uint32_t *)BOOTLOADER_MAGIC_ADDR) = BOOTLOADER_MAGIC;
+  *((volatile uint32_t *)DFU_REQUEST_ADDR) = DFU_REQUEST;
   __DSB();
   NVIC_SystemReset();
 }
@@ -161,6 +191,10 @@ void crash_running(void);
 int crash_safe_mode(void);
 
 int main(void) {
+  if(*((volatile uint32_t *)DFU_REQUEST_ADDR) == DFU_REQUEST) {  // see bootloader()
+    *((volatile uint32_t *)DFU_REQUEST_ADDR) = 0;
+    enter_rom_dfu();
+  }
   // Relocate interrupt vectors
   extern void *g_pfnVectors;
   SCB->VTOR = (uint32_t)&g_pfnVectors;

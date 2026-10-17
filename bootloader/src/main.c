@@ -62,7 +62,12 @@ int main(void) {
   void (*SysMemBootJump)(void);
   if((*((unsigned long *)0x2001C000) == 0xDEADBEEF) || pin || !app_ok()) {  //Memory map, datasheet
     *((unsigned long *)0x2001C000) = 0xCAFEFEED;                            //Reset bootloader trigger
-    __set_MSP(0x20001000);
+    // AN2606: map the system memory at 0, so the ROM's interrupts (USB) use
+    // its own vector table and not ours; without it the ROM's USB never
+    // enumerated and the drive needed BOOT0 to recover.
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+    SYSCFG->MEMRMP = 0x01;
+    __set_MSP(*((uint32_t *)0x1FFF0000));
     //Point the PC to the System Memory reset vector (+4)
     //AN2606
     //Table 64. Bootloader device-dependent parameters
