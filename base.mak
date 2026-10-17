@@ -76,7 +76,7 @@ showsize: build
 #
 # wait up to 30 s for the DFU device to enumerate, then download
 btburn: tools/bootloader.py build showsize $(TARGET).dfu
-	@$(PYTHON) tools/bootloader.py
+	@$(PYTHON) tools/bootloader.py $(DFU-UTIL)
 	@for i in $$(seq 30); do $(DFU-UTIL) -l 2>/dev/null | grep -q 0483:df11 && break; sleep 1; done
 	@$(DFU-UTIL) -d 0483:df11 -a 0 -s $(ADDRESS):leave -D $(TARGET).dfu
 

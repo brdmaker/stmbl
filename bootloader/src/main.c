@@ -63,9 +63,15 @@ int main(void) {
   // then a reset. Taken here, straight from reset; an older bootloader
   // passes it on and the app's SystemInit() takes it.
   volatile uint32_t *dfu_request = (uint32_t *)0x1000FE00;
-  uint32_t requested             = *dfu_request == 0xD0F0B007;
+  if(RCC->CSR & (RCC_CSR_PORRSTF | RCC_CSR_BORRSTF)) {  // power-on: CCM holds junk
+    dfu_request[0] = 0;
+    dfu_request[1] = 0;
+    RCC->CSR |= RCC_CSR_RMVF;
+  }
+  uint32_t requested = *dfu_request == 0xD0F0B007;
   if(requested) {
     *dfu_request = 0;
+    dfu_request[1]++;  // how many it took since power-on (`about` shows it)
   }
 
   void (*SysMemBootJump)(void);

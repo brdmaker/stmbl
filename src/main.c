@@ -133,6 +133,7 @@ void about(char *ptr) {
   printf("size: %lu crc:%lx\n", version_info.image_size, version_info.image_crc);
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
   printf("######## Bootloader info ########\n");
+  printf("DFU requests taken by the bootloader since power-on: %lu\n", ((volatile uint32_t *)DFU_REQUEST_ADDR)[1]);
   printf(
       "%s v%i.%i.%i %s\n",
       bt_version_info->product_name,

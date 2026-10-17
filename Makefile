@@ -392,7 +392,7 @@ f1_flash: boot
 f3_all_btburn: f3.bin
 	@$(DFU-UTIL) -d 0483:df11 -a 0 -s 0x08000000:leave -D f3.bin
 all_btburn: tools/bootloader.py f4.bin
-	@$(PYTHON) tools/bootloader.py
+	@$(PYTHON) tools/bootloader.py $(DFU-UTIL)
 	@sleep 1
 	@$(DFU-UTIL) -d 0483:df11 -a 0 -s 0x08000000:leave -D f4.bin
 all_flash: f4.bin
