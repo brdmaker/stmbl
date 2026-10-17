@@ -34,12 +34,13 @@ def stmbl_ports():
     return [p for p in serial.tools.list_ports.comports() if "483:5740" in p[2]]
 
 
-def wait(cond, timeout):
+def wait(cond, timeout, first=0.0, step=0.5):
+    time.sleep(first)
     end = time.time() + timeout
     while time.time() < end:
         if cond():
             return True
-        time.sleep(0.2)
+        time.sleep(step)
     return False
 
 
@@ -63,7 +64,9 @@ for attempt in range(1, ATTEMPTS + 1):
     except (OSError, serial.SerialException):
         print("Cannot open port, check permissions, or disconnect Servoterm")
         sys.exit(1)
-    wait(dfu_present, 4.0)
+    # let the ROM enumerate before asking: polling it at once made it go
+    # back to the app more often
+    wait(dfu_present, 4.0, first=1.5)
 
 print("STMBL did not stay in the DFU bootloader after %d attempts" % ATTEMPTS)
 sys.exit(1)

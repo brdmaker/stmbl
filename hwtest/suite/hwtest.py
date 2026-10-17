@@ -393,6 +393,81 @@ def t_safe_mode(ctx):
     ctx.cli(ctx.a.usb, "-c", "crash clear")
 
 
+def dfu_present():
+    r = subprocess.run(["dfu-util", "-l"], capture_output=True, text=True)
+    return "0483:df11" in r.stdout
+
+
+def dfu_requests(ctx):
+    rc, out = ctx.cli(ctx.a.usb, "-c", "about")
+    m = re.search(r"DFU requests taken by the bootloader since power-on: (\d+)", out)
+    return int(m.group(1)) if m else None
+
+
+def wait_for(cond, timeout, step=0.25):
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(step)
+    return False
+
+
+@test("drive", "bootloader: tools/bootloader.py enters DFU, leave boots the app, x5", targets=("hw",))
+def t_dfu_round_trips(ctx):
+    # The app's `bootloader` used to jump into the ROM itself: half the
+    # entries just rebooted the app, and the stmbl bootloader's own path
+    # never brought up USB. ST's ROM still goes back to the app now and
+    # then; bootloader.py retries.
+    c0 = dfu_requests(ctx)
+    for i in range(5):
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "bootloader.py"), "dfu-util"],
+                           capture_output=True, text=True, timeout=120)
+        ctx.note("bootloader.py: %s" % r.stdout.strip())
+        need(r.returncode == 0 and dfu_present(), "round trip %d: no DFU: %s" % (i, r.stdout.strip()[-200:]))
+        out = os.path.join(ctx.dir, "dfu-%d.bin" % i)
+        if os.path.exists(out):
+            os.remove(out)
+        r = subprocess.run(["dfu-util", "-d", "0483:df11", "-a", "0", "-s", "0x08000000:4:leave", "-U", out],
+                           capture_output=True, text=True, timeout=30)
+        need(r.returncode == 0 and os.path.getsize(out) == 4, "round trip %d: DFU read / leave failed" % i)
+        need(ctx.wait_port(ctx.a.usb, timeout=30), "round trip %d: the app did not come back" % i)
+    c1 = dfu_requests(ctx)
+    h = hal_info(ctx, ctx.a.usb)
+    need(h["state"] == "HAL_OK2" and h["rt_funcs"], "HAL after the round trips: %s" % h["state"])
+    if c0 is not None and c1 is not None:
+        ctx.m("dfu_rom_bounces", c1 - c0 - 5)
+        return "5 round trips, %d ROM bounce(s) retried" % (c1 - c0 - 5)
+    return "5 round trips"
+
+
+def build_version():
+    try:
+        data = open(os.path.join(REPO, "obj_app", "stmbl.bin"), "rb").read()
+    except OSError:
+        return None
+    m = re.search(rb"v\d+\.\d+\.\d+-\d+-g[0-9a-f]+(?:-dirty)?", data)
+    return m.group(0).decode() if m else None
+
+
+@test("drive", "hardboot: an erased app gives DFU from the stmbl bootloader, btburn restores it", targets=("hw",))
+def t_hardboot(ctx):
+    fw = ctx.meas.get("firmware") or ""
+    built = build_version()
+    if not built or built != fw:
+        return "skipped: the drive runs %s, the repo build is %s (btburn would change it)" % (fw, built)
+    ctx.cli(ctx.a.usb, "-c", "hardboot", quiet=0.3, timeout=20)
+    need(wait_for(dfu_present, 20), "no DFU after hardboot (bootloader CRC path)")
+    r = subprocess.run(["make", "-C", REPO, "btburn"], capture_output=True, text=True, timeout=600)
+    ctx.note(r.stdout[-2000:] + r.stderr[-1000:])
+    need(r.returncode == 0, "make btburn failed: %s" % (r.stdout + r.stderr)[-300:])
+    need(ctx.wait_port(ctx.a.usb, timeout=30), "the app did not come back after btburn")
+    rc, out = ctx.cli(ctx.a.usb, "-c", "about")
+    need(fw in out, "firmware after restore: %s" % out[-200:])
+    got = dump(ctx, ctx.a.usb, "after-hardboot.conf")
+    need(got == baseline(ctx), "config differs after hardboot / btburn")
+
+
 # --------------------------------------------------------------------------
 # lcnc phase: LinuxCNC display program
 
