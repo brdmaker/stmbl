@@ -158,6 +158,7 @@ typedef enum {
   HV_OVERCURRENT_RMS,
   HV_OVERCURRENT_PEAK,
   HV_OVERCURRENT_HW,
+  PHASING_ERROR,  // autophasing found no angle, or its check failed (fb_switch)
 } fault_t;
 
 //check if structs can be send at 5kHz with DATABAUD

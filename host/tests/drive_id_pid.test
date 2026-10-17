@@ -17,6 +17,9 @@ conf0.max_ac_cur = 40
 conf0.max_force = 14.4
 conf0.max_vel = 320
 conf0.cur_ind = 1
+# probe phasing must move this rotor (j 0.02, f 0.288 Nm): 1 A gives
+# only 0.36 Nm, it refuses (PHASING_ERROR); 8 A is 20% of its peak
+conf0.phase_cur = 8
 debug_level 1
 link id_pid
 relink

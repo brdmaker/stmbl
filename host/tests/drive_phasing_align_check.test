@@ -1,0 +1,33 @@
+# The align method (phase_mode 0) against a stop on the side it had to go:
+# the angle stayed at its guess (172 deg off), the drive enabled, and once
+# free it could not move (position error). The check after phasing now
+# faults PHASING_ERROR. A free rotor still passes. No index here: the
+# check's wrong-way pulse could reach it and switch to absolute commutation.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.6
+hv0.sim_pos = 0.6
+fb_switch0.phase_mode = 0
+enc_fb0.en_index = 0
+hv0.sim_stop_min = 0.5999
+hv0.sim_stop_max = 50
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 8
+fault0.fault
+lcnc 0 0
+run 0.5
+hv0.sim_stop_min = 0
+hv0.sim_stop_max = 0
+lcnc 1 0
+run 8
+fault0.state
+fault0.fault
+lcnc 1 31.4
+run 1.5
+hv0.sim_vel
+@expect fault0.fault[1] == 17
+@expect fault0.state[-1] == 1
+@expect fault0.fault[-1] == 0
+@expect hv0.sim_vel ~ 19.7 3%

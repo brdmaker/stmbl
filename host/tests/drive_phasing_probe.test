@@ -1,0 +1,28 @@
+# Probe autophasing (fb_switch phase_mode 1) from the worst start angle:
+# an incremental encoder counts from 0 at boot, so the assumed angle is
+# 0.6 rad * 5 pp = 172 deg elec off. The align method swung the rotor
+# 0.67 rad (1.06 mm) here; probing moves it only a few hundredths.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.6
+hv0.sim_pos = 0.6
+lcnc 0 0
+run 0.5
+lcnc 1 0
+@sample hv0.sim_upos 0.002 1.5
+fault0.state
+fault0.fault
+fb_switch0.current_com_pos
+lcnc 1 31.4
+run 2
+hv0.sim_vel
+fb_switch0.current_com_pos
+fault0.fault
+@expect max hv0.sim_upos < 0.65
+@expect min hv0.sim_upos > 0.55
+@expect fault0.state[1] == 1
+@expect fault0.fault[1] == 0
+@expect fb_switch0.current_com_pos[1] == 4
+@expect hv0.sim_vel ~ 19.7 3%
+@expect fb_switch0.current_com_pos[-1] == 1
+@expect fault0.fault[-1] == 0

@@ -6,6 +6,7 @@ idpmsm0.en = fault0.en_out
 fault0.pos_error = 0
 fault0.sat_error = 0
 pid0.en = 0
+fb_switch0.phase_mode = 2
 hv0.en = idpmsm0.en_out
 hv0.cur_bw = idpmsm0.cur_bw
 hv0.cmd_mode = idpmsm0.cmd_mode

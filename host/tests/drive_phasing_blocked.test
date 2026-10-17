@@ -1,0 +1,18 @@
+# Rotor blocked both ways during phasing (a brake, a stiff axis): nothing
+# moves even at phase_cur, so the drive faults PHASING_ERROR (17) instead
+# of running with a guessed angle.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.6
+hv0.sim_pos = 0.6
+hv0.sim_stop_min = 0.5999
+hv0.sim_stop_max = 0.6001
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 8
+fault0.state
+fault0.fault
+@expect fault0.state == 3
+@expect fault0.fault == 17
+@match ERROR: Fault 17: phasing failed

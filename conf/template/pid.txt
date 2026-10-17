@@ -115,6 +115,7 @@ fault0.hv_temp = hv0.hv_temp
 fault0.dc_cur = hv0.dc_cur
 fault0.hv_error = hv0.fault
 fault0.fb_ready = fb_switch0.state
+fault0.phase_error = fb_switch0.phase_error
 hv0.en = fault0.en_out
 hv0.pos = vel2.pos_out
 hv0.vel = vel2.vel

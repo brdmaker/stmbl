@@ -1,0 +1,29 @@
+# Probe autophasing with the rotor against a hard stop on one side (it can
+# only move up): the pulses towards the stop do nothing, the others still
+# give the angle. Released afterwards, the motor runs both ways.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.6
+hv0.sim_pos = 0.6
+hv0.sim_stop_min = 0.5999
+hv0.sim_stop_max = 50
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+fault0.state
+fault0.fault
+hv0.sim_stop_min = 0
+hv0.sim_stop_max = 0
+lcnc 1 31.4
+run 1.5
+hv0.sim_vel
+lcnc 1 -31.4
+run 1.5
+hv0.sim_vel
+fault0.fault
+@expect fault0.state[1] == 1
+@expect fault0.fault[1] == 0
+@expect hv0.sim_vel[1] ~ 19.7 3%
+@expect hv0.sim_vel[2] ~ -19.7 3%
+@expect fault0.fault[-1] == 0

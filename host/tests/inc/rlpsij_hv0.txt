@@ -6,6 +6,7 @@ pid0.en = 0
 hv0.en = rlpsij0.en_out
 hv0.cmd_mode = rlpsij0.cmd_mode
 hv0.d_cmd = rlpsij0.d_cmd
+fb_switch0.phase_mode = 2
 hv0.q_cmd = rlpsij0.q_cmd
 hv0.pos = rlpsij0.com_pos
 rlpsij0.ud_fb = hv0.ud_fb
