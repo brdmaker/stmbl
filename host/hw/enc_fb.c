@@ -44,10 +44,14 @@ HAL_PIN(indexprint);
 HAL_PIN(sim_pos);    // shaft angle [rad]
 HAL_PIN(sim_rev);    // count direction reversed
 HAL_PIN(sim_index);  // index angle in the encoder's raw angle [rad]
+HAL_PIN(sim_boot_zero);  // 1: count from 0 at boot like a real incremental
+                         // encoder (raw angle - raw angle at boot); 0: the
+                         // raw shaft angle, so commutation starts right
 
 struct enc_fb_ctx_t {
   int init;
   int32_t count;  // raw count, 0..res-1
+  float boot;     // raw angle at boot (sim_boot_zero)
   float absoffset;
 };
 
@@ -68,8 +72,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   int32_t res = MAX((int32_t)PIN(res), 1);
   float raw   = PIN(sim_rev) > 0.0 ? -PIN(sim_pos) : PIN(sim_pos);
-  int32_t c   = count_of(raw, res);
-  int32_t ic  = count_of(PIN(sim_index), res);
+  if(!ctx->init) {
+    ctx->boot = PIN(sim_boot_zero) > 0.0 ? raw : 0.0;
+  }
+  int32_t c  = count_of(raw - ctx->boot, res);
+  int32_t ic = count_of(PIN(sim_index) - ctx->boot, res);
 
   if(!ctx->init) {
     ctx->init  = 1;

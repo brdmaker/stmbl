@@ -75,11 +75,14 @@ HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // supply voltage [V]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
+HAL_PIN(sim_stop_min);   // hard stops on the unwrapped position sim_upos [rad];
+HAL_PIN(sim_stop_max);   // both 0: none. Set sim_upos to start against one.
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_acc);
+HAL_PIN(sim_upos);  // unwrapped mechanical position [rad] (sim_pos = mod(sim_upos))
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
 HAL_PIN(sim_iq);
@@ -97,6 +100,8 @@ struct hv_ctx_t {
   float iq_error_sum;
   float ud;  // F3 output voltage, rotor frame of the F3 angle
   float uq;
+  double upos;      // unwrapped position (float loses it after many turns)
+  float upos_pin;   // what we last wrote to sim_upos (a script may set it)
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -250,8 +255,24 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         }
         PIN(sim_acc) = acc;
         PIN(sim_vel) = nv;
-        PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * mot_dt);
+        if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside
+          ctx->upos = PIN(sim_upos);
+        }
+        ctx->upos += (v + nv) * 0.5 * mot_dt;
+        // a stiff, dead hard stop: the rotor stops there
+        float lo = PIN(sim_stop_min), hi = PIN(sim_stop_max);
+        if((lo != 0.0 || hi != 0.0) && (ctx->upos < lo || ctx->upos > hi)) {
+          ctx->upos    = ctx->upos < lo ? lo : hi;
+          PIN(sim_vel) = 0.0;
+          PIN(sim_acc) = 0.0;
+        }
+        PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
       }
+      if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside while at rest
+        ctx->upos     = PIN(sim_upos);
+        ctx->upos_pin = PIN(sim_upos);
+      }
+      PIN(sim_pos) = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
       PIN(sim_torque) = te;
     }
   }
