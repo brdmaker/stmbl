@@ -13,11 +13,18 @@ HAL_PIN(fb_abs);
 HAL_PIN(index_en);
 HAL_PIN(index_clear);
 HAL_PIN(pos_out);
+// after index homing: what the command must be shifted by. pos_out
+// switches to fb_abs at the index, and LinuxCNC moves its command into
+// those coordinates once it sees index_clear; the drive's loop still runs
+// in fb's (fb_switch). From the command that drops index_en on, linrev
+// takes this off the command (linrev0.cmd_offset).
+HAL_PIN(cmd_offset);
 
 struct idx_home_ctx_t {
   int state;
   int lastq;
   int waitabs;
+  int homed;  // index found and LinuxCNC answered (index_en dropped)
 };
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -41,7 +48,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(!(PIN(index_en) > 0) && ctx->state == 1) {
     PIN(index_clear) = 0;
+    ctx->homed       = 1;
   }
+  PIN(cmd_offset) = ctx->homed ? minus(PIN(fb_abs), PIN(fb)) : 0.0;
 
   if(ctx->state == 1) {
     PIN(pos_out) = PIN(fb_abs);

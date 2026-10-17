@@ -74,7 +74,7 @@ The simulated drive's HAL pins, for halshow or halscope:
 | `stmbl-sim.0.current` | out | motor current `hv0.iq_fb` [A] |
 | `stmbl-sim.0.enable` | in | drive enable |
 | `stmbl-sim.0.fault` | out | drive fault |
-| `stmbl-sim.0.index_enable` | io | index homing handshake (not wired in this config) |
+| `stmbl-sim.0.index_enable` | io | index homing handshake (not wired in this config; `can.hal` homes on the index over CAN) |
 | `stmbl-sim.0.out-00..03` | in | drive outputs `sserial0.out0..3` (`out-03` is the brake release) |
 | `stmbl-sim.0.in-00..03` | out | drive inputs |
 | `stmbl-sim.0.scale` | in | `sserial0.scale` (this config overrides it with `linrev0.scale = 10`) |
@@ -293,3 +293,32 @@ headless:
 - `about`, pin reads and writes;
 - `--dump` identical to the drive's config;
 - console traffic while the axis moves.
+
+## Over CAN (`make test-can`)
+
+`can.hal` in place of `stmbl_sim.hal`: the drive links `can`
+(`conf/template/can.txt`) instead of `sserial`. It sits on a simulated
+CAN bus with a simulated MCP2515 (`stmbl_sim can=1`). LinuxCNC's end is
+the real `stmblcan` component (`spi=sim`), as on a Raspberry Pi with
+MCP2515s (`linuxcnc/stmblcan/README.md`). The console goes over CAN too
+(`sserialterm` on the node's `con-cmd` / `con-fb`).
+
+To run it by hand:
+- set `HALFILE = can.hal`;
+- add `[SSERIALTERM]TTY = /tmp/drive-con`;
+- in `sim.conf`, change `link sserial` to `link can` and add
+  `can0.vel_scale = 600`.
+
+`vel-cmd` goes over the wire as 16 bits with that full scale. At the
+default 100 the 500 mm/s rapids are clipped (`stmblcan.0.1.vel-clipped`
+counts them) and the first one trips the following error.
+
+`make test-can` runs `can_test.py` headless and checks:
+- discovery at load;
+- slot values (supply, temperature, power, current);
+- joint 0 homed on the encoder index (`HOME_USE_INDEX`, index-only);
+- rapids at 500 mm/s with FERROR 1;
+- clean bus counters;
+- `servoterm-cli` over the CAN console, also while the axis moves.
+
+Needs `stmbl_sim.so`, `stmblcan.so` and `sserialterm.so` installed.

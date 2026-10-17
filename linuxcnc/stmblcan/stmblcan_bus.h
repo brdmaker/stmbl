@@ -31,6 +31,10 @@ typedef struct {
   int present;
   uint32_t age;      // periods since the last feedback
   uint32_t fb_frames, missed;
+  uint8_t sent_index;   // index_enable in the command sent last period
+  uint8_t index_found;  // this period: the drive answered that command with
+                        // the index no longer armed (it found it): LinuxCNC's
+                        // index-enable goes false, as hm2 does
   sscon_t con;       // this drive's console (LinuxCNC's end), if con_internal
   int con_internal;  // 0: cmd.con / fb.con are handled outside (HAL pins, sserialterm)
 } stmblcan_node_t;

@@ -81,7 +81,7 @@ static void apply(struct can_pin_ctx_t *pins, const canp_cmd_t *c) {
   PIN(pos_cmd)   = c->pos;
   PIN(pos_cmd_d) = c->vel;
   PIN(enable)    = c->enable;
-  PIN(index_out) = c->index_enable && PIN(index_clear) <= 0.0;
+  PIN(index_out) = c->index_enable;  // as sserial: idx_home holds index_clear while this is set
   PIN(out0)      = (c->out >> 0) & 1;
   PIN(out1)      = (c->out >> 1) & 1;
   PIN(out2)      = (c->out >> 2) & 1;

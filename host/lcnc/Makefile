@@ -34,7 +34,7 @@ INCLUDES = -I$(HOST)/shim -I$(HOST) -I. -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared 
 CORE_CFLAGS = -O2 -g -fPIC -DSSCON_TXSIZE=32768 -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv \
               -D_GNU_SOURCE -include host_compat.h $(INCLUDES)
 
-vpath %.c $(HOST) $(HOST)/hw $(ROOT)/shared $(ROOT)/shared/comps $(ROOT)/src/comps $(GEN) .
+vpath %.c $(HOST) $(HOST)/hw $(ROOT)/shared $(ROOT)/linuxcnc/stmblcan $(ROOT)/shared/comps $(ROOT)/src/comps $(GEN) .
 
 # --- LinuxCNC module rules (provides %.so, install) ---------------------------
 obj-m += stmbl_sim.o
@@ -50,7 +50,8 @@ stmbl_sim_rt.o: stmbl_sim.c stmbl_sim_api.h
 stmbl_core.o: $(OBJS)
 	ld -r -o $@.tmp $(OBJS)
 	objcopy --keep-global-symbol=stmbl_sim_open --keep-global-symbol=stmbl_sim_close \
-	        --keep-global-symbol=stmbl_sim_update $@.tmp $@
+	        --keep-global-symbol=stmbl_sim_update --keep-global-symbol=stmbl_sim_can \
+	        --keep-global-symbol=stmbl_sim_can_xfer --keep-global-symbol=stmbl_sim_can_wait $@.tmp $@
 	rm -f $@.tmp
 
 $(OBJ)/%.o: %.c $(GEN)/commandslist.h $(COMP_HDRS) | $(OBJ)

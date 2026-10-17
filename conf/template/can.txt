@@ -5,7 +5,7 @@ load idx_home
 can0.rt_prio = 2.0
 linrev0.rt_prio = 2.1
 vel_int0.rt_prio = 2.2
-idx_home0.rt_prio = 2.3
+idx_home0.rt_prio = 2.05 # before linrev0 (index homing)
 linrev0.cmd_in = can0.pos_cmd
 linrev0.cmd_d_in = can0.pos_cmd_d
 vel_int0.pos_in = linrev0.cmd_out
@@ -14,6 +14,7 @@ fault0.en = can0.enable
 can0.fault = fault0.fault
 fault0.cmd_error = can0.error
 linrev0.fb_in = idx_home0.pos_out
+linrev0.cmd_offset = idx_home0.cmd_offset
 linrev0.fb_d_in = vel1.vel
 idx_home0.fb = fb_switch0.mot_fb_no_offset
 idx_home0.fb_abs = fb_switch0.mot_abs_fb_no_offset

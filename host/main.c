@@ -52,6 +52,48 @@ static uint32_t con_in_len = 0;
 
 static int lcnc_can = 0;  // 1: the link is CAN (lcnccan), LinuxCNC's end as stmblcan on a Pi
 
+// index homing as LinuxCNC's motion does it (lcncindex): index-enable set,
+// the driver (hm2, stmblcan) clears it once the drive found the index, and
+// motion takes the position feedback of that same period as the index
+// position, moving its command by the feedback's jump. The next periods'
+// feedback must continue from there (a jump: the feedback that cleared
+// index-enable was from before the drive switched to the index position),
+// and the drive must keep following the moved command (the following
+// error stays small).
+static struct {
+  int armed, periods, found;
+  float at, prev, jump;  // the latched feedback; the largest jump after it
+  float ferr;            // the largest |pos_cmd - pos_fb| after it
+  float last;            // the feedback of the period before
+  int after;
+} lidx;
+
+// once per servo period, with the feedback just read; returns how much
+// motion moves its command (motor coordinates) at the index
+static float lcnc_index(int cleared, float pos_fb, float pos_cmd, float vel) {
+  float rebase = 0.0f;
+  if(lidx.armed) {
+    lidx.periods++;
+    if(cleared) {
+      lidx.armed = 0;
+      lidx.found = 1;
+      lidx.at = lidx.prev = pos_fb;
+      lidx.after          = 0;
+      lidx.jump = lidx.ferr = 0;
+      rebase                = pos_fb - lidx.last - vel * 0.001f;
+    }
+  } else if(lidx.found && lidx.after < 1000) {  // the second after
+    if(lidx.after < 20) {                        // continuous?
+      lidx.jump = fmaxf(lidx.jump, fabsf(pos_fb - lidx.prev - vel * 0.001f));
+    }
+    lidx.ferr = fmaxf(lidx.ferr, fabsf(pos_cmd - pos_fb));
+    lidx.prev = pos_fb;
+    lidx.after++;
+  }
+  lidx.last = pos_fb;
+  return rebase;
+}
+
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
   if(lcnc_can) {
@@ -63,6 +105,10 @@ static void lcnc_servo(void) {
     io->current = n->slots[CANP_SLOT_CURRENT];
     io->power   = n->slots[CANP_SLOT_POWER];
     io->fault   = n->fb.fault || !n->present;
+    if(n->index_found) {  // stmblcan clears index-enable
+      io->index_enable = 0;
+    }
+    io->pos_cmd += lcnc_index(n->index_found, n->fb.pos, io->pos_cmd, io->vel_cmd);
     io->pos_cmd += io->vel_cmd * 0.001;
     n->cmd.pos          = io->pos_cmd;
     n->cmd.vel          = io->vel_cmd;
@@ -74,6 +120,13 @@ static void lcnc_servo(void) {
     can_host_write();
     return;
   }
+  // hm2: the drive no longer echoes index-enable (the answer to the
+  // request of the period before, sent since)
+  int cleared = lidx.armed && lidx.periods > 0 && io->index_enable && !io->index_enable_fb;
+  if(cleared) {
+    io->index_enable = 0;
+  }
+  io->pos_cmd += lcnc_index(cleared, io->pos_fb, io->pos_cmd, io->vel_cmd);
   io->pos_cmd += io->vel_cmd * 0.001;
   io->con_cmd = sscon_frame(&lcnc_con, io->con_fb);  // the last reply in, the next request out
   con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
@@ -140,6 +193,21 @@ void cmd_lcnc(char *ptr) {
   }
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd]], or show feedback");
+
+void cmd_lcncindex(char *ptr) {
+  int arm = -1;
+  sscanf(ptr, " %i", &arm);
+  if(arm == 1) {
+    memset(&lidx, 0, sizeof(lidx));
+    lidx.armed                  = 1;
+    sim_sserial_io.index_enable = 1;
+    return;
+  }
+  // as pin values, for tests' @expect
+  printf("lcncindex.found = %d\nlcncindex.periods = %d\nlcncindex.at = %f\nlcncindex.jump = %f\nlcncindex.ferr = %f\n",
+         lidx.found, lidx.periods, (double)lidx.at, (double)lidx.jump, (double)lidx.ferr);
+}
+COMMAND("lcncindex", cmd_lcncindex, "LinuxCNC index homing: lcncindex 1 arms; lcncindex: found, the jump after");
 
 // the console over smart-serial, as LinuxCNC's sserialterm: send a line,
 // print what came back

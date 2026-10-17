@@ -11,3 +11,6 @@ void can_host_write(void);             // ... and last
 void can_host_run(double us);          // bus time
 void can_host_drive_attached(int on);  // unplug the drive
 void can_host_stat(void);
+// only the bus, the chip and the drive: LinuxCNC's end talks SPI to the chip
+void can_host_attach(void);
+int can_host_xfer(mcp_seg_t *segs, int n);  // mcp_xfer_fn on the chip

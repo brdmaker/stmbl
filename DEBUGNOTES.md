@@ -981,3 +981,57 @@ Entry format:
 - Fix:     stmblcan_bus_check refuses such a bus at load, with the reason.
   Frames with "every N" are staggered over the periods. Spread devices
   over the buses, or lower their rates.
+
+## 2026-10-17  Index homing: the switched position reached the link a cycle late
+- Area:    `conf/template/sserial.txt`, `can.txt`, `conf/haas_spindle_slip_uf.txt` (rt_prio), `shared/comps/idx_home.c`
+- Status:  Fixed (simulated, both links; to be confirmed on a real drive)
+- Symptom: Index homing (HOME_USE_INDEX) with joint.N.index-enable wired:
+  the feedback that cleared index-enable still had the old position, and
+  the next one was index-relative. LinuxCNC latched the home off by the
+  whole switch (11 mm in host/tests/index_link.test), then the jump
+  tripped the following error.
+- Cause:   idx_home0 (rt_prio 2.3) ran after linrev0 (2.1), whose fb_in it
+  feeds. index_clear reached the link comp (2.0) one rt cycle before the
+  switched position did, and over smart-serial and CAN alike.
+- Fix:     idx_home0.rt_prio = 2.05, so it runs before linrev0. Tests:
+  host/tests/index_link.test (smart-serial), can_index.test (CAN).
+
+## 2026-10-17  Index homing: the drive's loop kept the old command coordinates
+- Area:    `shared/comps/idx_home.c` (cmd_offset), `shared/comps/linrev.c`, templates
+- Status:  Fixed (simulated, both links; to be confirmed on a real drive)
+- Symptom: After a correct index latch, the motor ran away from the
+  command by fb_abs - fb (1 mm on the burn-in config: mot_fb_offset at
+  10 mm/rev), which tripped the following error at FERROR 1.
+- Cause:   At the index, idx_home switches the reported position from fb
+  (raw encoder angle) to fb_abs (index-relative), and LinuxCNC moves its
+  command into those coordinates. fb_switch still closes the position
+  loop on the raw angle plus the offset taken at enable, so it read the
+  moved command in the old coordinates.
+- Fix:     idx_home0.cmd_offset = fb_abs - fb, active from the command that
+  drops index_en (LinuxCNC re-based in that same packet).
+  linrev0.cmd_offset takes it off cmd_out. When unconnected it is 0, so
+  configs without index homing are unchanged. Tests as above
+  (lcncindex.ferr), and hwtest/burnin-sim `make test-can` homes on the index.
+
+## 2026-10-17  can comp: index_out gated by index_clear never finished homing
+- Area:    `shared/comps/can.c`
+- Status:  Fixed
+- Symptom: Over CAN, the drive found the index (position switched) but
+  index-enable never cleared; the following error tripped.
+- Cause:   index_out = index_enable && !index_clear: idx_home saw index_en
+  drop the cycle after it set index_clear, cleared it again, and the
+  feedback went back to "searching".
+- Fix:     index_out = index_enable, as src/comps/sserial.c does.
+
+## 2026-10-17  stmblcan: vel_scale clips vel-cmd silently
+- Area:    `linuxcnc/stmblcan` (vel-clipped pin), `can0.vel_scale`
+- Status:  Note
+- Symptom: The burn-in machine over CAN (rapids at 500 mm/s) tripped the
+  following error on the first rapid.
+- Cause:   vel-cmd goes over the wire as int16 with full scale vel_scale
+  (default 100), so 500 was clipped to 100 and the drive's velocity
+  feedforward was wrong.
+- Fix:     Set can0.vel_scale above the fastest joint speed (the burn-in
+  sim uses 600); stmblcan takes it from the drive (discover=1). The
+  stmblcan.B.N.vel-clipped pin counts clipped periods, so check that it
+  stays 0.

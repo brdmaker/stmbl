@@ -1,0 +1,30 @@
+# Index homing over smart-serial (tests/can_index.test: over CAN),
+# as LinuxCNC's motion does it: the joint moves slowly, index-enable is
+# set; the drive (idx_home, conf/template)
+# switches its position to the index-relative one and drops the echo; the
+# driver (hm2 / stmblcan) clears index-enable, and motion takes that
+# period's position feedback as the index position. The feedback after it
+# must continue from there: the feedback that drops the echo must already
+# be the index-relative position, or the home is off by the jump (and the
+# next periods' jump trips the following error). Then motion moves its
+# command into the index coordinates; the drive's loop still runs in the
+# encoder's own (fb_switch), so idx_home0.cmd_offset shifts the command
+# back (linrev0): without it the motor runs off by fb_abs - fb (1 mm here,
+# ferr 1.0).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 20
+run 0.5
+lcncindex 1
+run 2.5
+lcncindex
+@expect lcncindex.found == 1
+@expect lcncindex.periods < 1000
+@expect lcncindex.ferr < 0.05
+@expect lcncindex.jump < 0.001
+# (before idx_home0 ran ahead of linrev0 in the templates the feedback
+# that cleared index-enable was the old position: a jump of 11)

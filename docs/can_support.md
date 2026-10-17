@@ -242,6 +242,16 @@ period: workable, to be measured.
 - **The user's overlay** (Pi 4: spi0, chip selects on GPIO 13 / 6 / 5,
   16 MHz crystals) stays as it is. `spi_takeover.sh` moves the chips from
   `mcp251x` to spidev for LinuxCNC (`driver_override`) and back.
+- **In LinuxCNC without a Pi:** `stmblcan spi=sim` drives the simulated
+  drive's simulated MCP2515 (`stmbl_sim can=1`) from the servo thread.
+  `hwtest/burnin-sim`'s `make test-can` checks discovery, 500 mm/s rapids,
+  index homing and the console there. It found three issues, now fixed
+  (`DEBUGNOTES.md`):
+  - `vel_scale` silently clipping `vel-cmd` (now counted on the
+    `vel-clipped` pin);
+  - the CAN component's index handshake;
+  - two index-homing bugs in the drive's templates, which smart-serial
+    has as well.
 
 **Hardware to check on existing MCP2515 boards** ✱:
 - **Crystal:** 1 Mbit/s needs 16 MHz. 8 MHz modules top out at 500 kbit/s:

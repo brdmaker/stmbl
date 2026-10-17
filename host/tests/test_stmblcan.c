@@ -32,6 +32,7 @@ typedef struct {
   uint16_t host_con;  // the host's last console field
   float slots[CANP_SLOTS];
   uint32_t syncs;
+  int index_found;  // the index passed: no longer echo index_enable
 } drive_t;
 
 static void drive_rx(sim_node_t *s, const can_frame_t *f) {
@@ -59,7 +60,7 @@ static void drive_rx(sim_node_t *s, const can_frame_t *f) {
       int k = snprintf(ans, sizeof(ans), "node %d: %s\n", d->node, line);
       sscon_write(&d->con, ans, (uint32_t)k);
     }
-    canp_fb_t fb = {.pos = d->applied.pos, .vel = d->applied.vel, .fault = 0, .index = d->applied.index_enable,
+    canp_fb_t fb = {.pos = d->applied.pos, .vel = d->applied.vel, .fault = 0, .index = d->applied.index_enable && !d->index_found,
                     .in = d->applied.out, .con = out};
     can_frame_t fr;
     canp_fb_encode(&fr, d->node, &fb, d->vel_scale, f->d[0], d->slots);
@@ -237,6 +238,31 @@ int main(void) {
      "slots: current, power, temperature, supply every 32 periods", bus[1].node[0].slots[0]);
   ok(drv[2][1].applied.out == ((999 >> 4) & 15) && drv[2][1].applied.enable == 1, "flags and outputs reach the drive",
      drv[2][1].applied.out);
+
+  // index homing, as stmblcan.c's pins: LinuxCNC sets index-enable, the
+  // drive echoes it while it searches; once the drive found the index the
+  // pin goes false (hm2's io pin). The command is set between read and write.
+  {
+    stmblcan_node_t *nd = &bus[0].node[0];
+    int pin = 1, early = 0, at = -1;
+    for(int k = 0; k < 40; k++) {
+      stmblcan_bus_read(&bus[0]);
+      if(nd->index_found) {
+        early |= k < 20;  // the first answer after arming must not count
+        at  = at < 0 ? k : at;
+        pin = 0;
+      }
+      if(k == 20) {
+        drv[0][0].index_found = 1;
+      }
+      nd->cmd.index_enable = (uint8_t)pin;
+      stmblcan_bus_write(&bus[0]);
+      sim_bus_run(&sbus[0], 1000.0);
+    }
+    ok(!early && at >= 20 && at <= 22 && pin == 0,
+       "index-enable: kept while the drive searches, cleared within 2 periods of the index", at);
+    drv[0][0].index_found = 0;
+  }
 
   // 3. the console through the period frames
   sscon_write(&bus[1].node[1].con, "about\n", 6);

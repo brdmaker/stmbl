@@ -185,6 +185,7 @@ int stmblcan_bus_read(stmblcan_bus_t *b) {
   }
   for(int i = 0; i < b->nnodes; i++) {
     stmblcan_node_t *n = &b->node[i];
+    n->index_found = got[i] && n->sent_index && !n->fb.index;
     if(got[i]) {
       n->age     = 0;
       n->present = 1;
@@ -214,6 +215,7 @@ int stmblcan_bus_write(stmblcan_bus_t *b) {
       n->cmd.con = sscon_frame(&n->con, n->fb.con);  // the drive's last field in, ours out
     }
     canp_cmd_encode(&tx[ntx++], n->node, &n->cmd, n->vel_scale);
+    n->sent_index = n->cmd.index_enable;
   }
   for(int i = 0; i < b->ndevs; i++) {
     stmblcan_dev_t *v = &b->dev[i];

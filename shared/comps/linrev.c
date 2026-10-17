@@ -36,6 +36,7 @@ HAL_PIN(fb_d_out);
 
 HAL_PIN(rev_clear);
 HAL_PIN(rev);
+HAL_PIN(cmd_offset);  // taken off cmd_out [rad] (idx_home0.cmd_offset)
 
 struct linrev_ctx_t {
   int lastq;    //last quadrant
@@ -48,7 +49,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   float scale = PIN(scale);
   if(ABS(scale) > 0.01) {
-    PIN(cmd_out)   = mod((PIN(cmd_in) / scale) * 2.0 * M_PI);
+    PIN(cmd_out)   = mod((PIN(cmd_in) / scale) * 2.0 * M_PI - PIN(cmd_offset));
     PIN(cmd_d_out) = PIN(cmd_d_in) / scale * 2.0 * M_PI;
   }
   int q = quadrant(PIN(fb_in));

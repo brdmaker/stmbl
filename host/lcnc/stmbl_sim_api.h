@@ -35,3 +35,13 @@ void stmbl_sim_close(void);
 // One LinuxCNC servo period: exchange process data, then run the drive for
 // period_ns (in 200 us rt cycles; the remainder carries over).
 void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns);
+
+// CAN (stmbl_sim can=1, docs/can_support.md): the drive's can component on
+// a simulated bus with a simulated MCP2515, the bus running with the drive
+// in stmbl_sim_update. LinuxCNC's end is the real stmblcan component
+// (spi=sim): it finds these two in this module and talks SPI to the chip.
+void stmbl_sim_can(void);
+// an mcp_xfer_fn (linuxcnc/stmblcan/mcp2515.h): segs are mcp_seg_t
+int stmbl_sim_can_xfer(void *ctx, void *segs, int n);
+// discovery at stmblcan's load: the drive and the bus run for us
+void stmbl_sim_can_wait(void *ctx, int us);

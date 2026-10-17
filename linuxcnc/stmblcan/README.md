@@ -7,9 +7,12 @@ Design and timing: [docs/can_support.md](../../docs/can_support.md).
 **Status:**
 - **Driver and bus logic:** tested on the host against simulated MCP2515s
   and drives (`make -C ../../host check`: `test_stmblcan`).
-- **The component:** builds against LinuxCNC 2.9 and loads.
+- **The component:** runs in LinuxCNC 2.9's servo thread against the
+  simulated drive and a simulated MCP2515 (`spi=sim`, below): discovery,
+  rapids at 500 mm/s, index homing, the console
+  (`make -C ../../hwtest/burnin-sim test-can`).
 - **Not yet run:** on a Pi with real MCP2515s, nor with drive firmware
-  speaking the protocol (`shared/canproto.h`).
+  speaking the protocol (`shared/canproto.h`) on real hardware.
 
 ## Setup on the Pi (Pi 4, 3 × MCP2515, 16 MHz crystals)
 
@@ -46,34 +49,61 @@ net j0-pos-cmd joint.0.motor-pos-cmd => stmblcan.0.1.pos-cmd
 net j0-pos-fb  stmblcan.0.1.pos-fb   => joint.0.motor-pos-fb
 net j0-enable  joint.0.amp-enable-out => stmblcan.0.1.enable
 net j0-fault   stmblcan.0.1.fault     => joint.0.amp-fault-in
+net j0-index   joint.0.index-enable  <=> stmblcan.0.1.index-enable
 ```
 
 **Parameters:**
 
 | parameter | default | meaning |
 |---|---|---|
-| `spi` | — | one spidev per bus, comma separated |
+| `spi` | — | one spidev per bus, comma separated; `sim` for the simulated drive (below) |
 | `nodes` | — | node IDs per bus: up to 2 a bus (the MCP2515's receive buffers), `:` between buses |
 | `spi_hz` | 10000000 | SPI clock |
 | `bitrate` | 1000000 | CAN bit rate (1 Mbit/s needs 16 MHz crystals) |
 | `osc` | 16000000 | the MCP2515 crystal |
-| `vel_scale` | 100 | full scale of `vel-cmd` / `vel-fb` (16 bit on the wire) |
+| `vel_scale` | 100 | full scale of `vel-cmd` / `vel-fb` (16 bit on the wire), for drives not discovered. Above the fastest joint speed: faster commands are clipped (`vel-clipped`) |
 | `timeout` | 10 | periods without feedback before a node is not present (and faults) |
 | `desc` | — | a description file per bus, `,` between buses (empty for none) |
 | `discover` | 0 | 1: ask each drive in `nodes` for its description at load |
 
 **Pins:**
 - **Per node** (`stmblcan.B.N.*`, bus B, node ID N):
-  - in: `pos-cmd`, `vel-cmd`, `enable`, `index-enable`, `out-0..3`, `con-cmd`;
+  - in: `pos-cmd`, `vel-cmd`, `enable`, `out-0..3`, `con-cmd`;
+  - io: `index-enable`: LinuxCNC sets it, stmblcan clears it once the drive
+    found the index, as hm2 does;
   - out: `pos-fb`, `vel-fb`, `fault` (also when not present), `index`,
     `in-0..3`, `current`, `power`, `temp`, `vbus` (32 periods apart),
-    `present`, `missed`, `con-fb`.
+    `present`, `missed`, `vel-clipped` (periods with `vel-cmd` beyond
+    `vel_scale`: should stay 0), `con-fb`.
 - **Per bus** (`stmblcan.B.*`): `ok`, `tx-late`, `rx-overflow`, `foreign`,
   `tec`, `rec`.
 
 **Console:** `con-cmd` / `con-fb` are the console's 10-bit field, as
 `con_cmd` / `con_fb` on smart-serial. Link them to `sserialterm` for a pty
 per drive; `servoterm-cli` then works as over USB.
+
+## Without a Pi: `spi=sim`
+
+`loadrt stmbl_sim ... can=1` (host/lcnc) puts the simulated drive on a
+simulated CAN bus with a simulated MCP2515. `loadrt stmblcan spi=sim
+nodes=1` then drives that chip, the same code from the SPI instructions
+up, in LinuxCNC's servo thread. It finds the chip's SPI function in
+`stmbl_sim.so`. The drive's config links `can` (`conf/template/can.txt`).
+Add `stmbl-sim.0` after `stmblcan.write`, so the bus carries the period's
+frames before the next read, as on the wire:
+
+```
+loadrt stmbl_sim conf=sim.conf sim=sim.txt can=1
+loadrt stmblcan spi=sim nodes=1 discover=1
+addf stmblcan.read servo-thread
+...
+addf stmblcan.write servo-thread
+addf stmbl-sim.0    servo-thread
+```
+
+`hwtest/burnin-sim/can.hal` is the burn-in machine this way, and
+`make test-can` there tests it. Only one bus and one drive (stmbl_sim
+simulates one).
 
 ## Pin inventory: discovery and description files
 

@@ -22,8 +22,10 @@
  * (out for its rx frames, in for its tx frames), plus .present.
  *
  * Pins, for bus B and node N (stmblcan.B.N.*): pos-cmd vel-cmd enable
- * index-enable out-0..3 con-cmd (in); pos-fb vel-fb fault index in-0..3
- * con-fb current power temp vbus present missed (out). Per bus
+ * out-0..3 con-cmd (in); index-enable (io: LinuxCNC sets it, stmblcan
+ * clears it once the drive found the index, as hm2); pos-fb vel-fb fault
+ * index in-0..3 con-fb current power temp vbus present missed vel-clipped
+ * (out). Per bus
  * (stmblcan.B.*): tx-late rx-overflow foreign tec rec, ok.
  * con-cmd / con-fb are the console's 10-bit field: link them to
  * sserialterm for a pty per drive, as over smart-serial.
@@ -31,12 +33,20 @@
  * The SPI devices: the Pi's overlay binds the MCP2515s to the kernel's
  * mcp251x driver (SocketCAN, for candump); spi_takeover.sh hands them to
  * spidev before LinuxCNC starts and back afterwards.
+ *
+ * spi=sim (one bus): no Pi, the simulated drive's simulated MCP2515
+ * instead (host/lcnc: loadrt stmbl_sim can=1 first). The same code from
+ * the SPI instructions up, in LinuxCNC's servo thread; addf stmbl-sim.0
+ * after stmblcan.write, so the bus carries the frames in the period, as
+ * on the wire. hwtest/burnin-sim: make test-can.
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
 #include "hal.h"
 #include <errno.h>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <link.h>
 #include <linux/spi/spidev.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,6 +84,7 @@ typedef struct {
   hal_float_t *pos_cmd, *vel_cmd, *pos_fb, *vel_fb, *current, *power, *temp, *vbus;
   hal_bit_t *enable, *index_enable, *out[4], *fault, *index, *in[4], *present;
   hal_u32_t *con_cmd, *con_fb, *missed;
+  hal_u32_t *vel_clipped;  // periods with |vel-cmd| over vel_scale: raise the drive's can0.vel_scale
 } node_pins_t;
 
 typedef struct {
@@ -119,6 +130,32 @@ static int spidev_xfer(void *ctx, mcp_seg_t *segs, int n) {
   return ioctl(d->fd, SPI_IOC_MESSAGE(n), tr) < 0 ? -1 : 0;
 }
 
+// spi=sim: the simulated chip's SPI in stmbl_sim.so (host/lcnc)
+static int find_sim(struct dl_phdr_info *info, size_t size, void *data) {
+  (void)size;
+  if(info->dlpi_name && strstr(info->dlpi_name, "stmbl_sim.so")) {
+    snprintf(data, 512, "%s", info->dlpi_name);
+    return 1;
+  }
+  return 0;
+}
+
+static void *sim_symbol(const char *name) {
+  void *f = dlsym(RTLD_DEFAULT, name);  // rtapi_app may load modules RTLD_LOCAL:
+  if(f) {
+    return f;
+  }
+  char path[512] = "";  // then ask stmbl_sim.so itself
+  dl_iterate_phdr(find_sim, path);
+  void *h = path[0] ? dlopen(path, RTLD_NOW | RTLD_NOLOAD) : 0;
+  if(!h) {
+    return 0;
+  }
+  f = dlsym(h, name);
+  dlclose(h);
+  return f;
+}
+
 static void read_all(void *arg, long period) {
   (void)arg;
   (void)period;
@@ -140,6 +177,9 @@ static void read_all(void *arg, long period) {
       *q->vel_fb         = n->fb.vel;
       *q->fault          = n->fb.fault || !n->present;
       *q->index          = n->fb.index;
+      if(n->index_found) {
+        *q->index_enable = 0;
+      }
       for(int k = 0; k < 4; k++) {
         *q->in[k] = (n->fb.in >> k) & 1;
       }
@@ -189,6 +229,9 @@ static void write_all(void *arg, long period) {
       node_pins_t *q     = &p->node[i];
       n->cmd.pos          = (float)*q->pos_cmd;
       n->cmd.vel          = (float)*q->vel_cmd;
+      if(n->cmd.vel > n->vel_scale || n->cmd.vel < -n->vel_scale) {
+        *q->vel_clipped += 1;  // int16 on the wire, full scale vel_scale: clipped
+      }
       n->cmd.enable       = *q->enable;
       n->cmd.index_enable = *q->index_enable;
       n->cmd.out          = 0;
@@ -224,7 +267,7 @@ static int node_pins(node_pins_t *q, int b, int n) {
   FP(HAL_IN, pos_cmd, "pos-cmd");
   FP(HAL_IN, vel_cmd, "vel-cmd");
   BP(HAL_IN, enable, "enable");
-  BP(HAL_IN, index_enable, "index-enable");
+  BP(HAL_IO, index_enable, "index-enable");
   UP(HAL_IN, con_cmd, "con-cmd");
   FP(HAL_OUT, pos_fb, "pos-fb");
   FP(HAL_OUT, vel_fb, "vel-fb");
@@ -237,6 +280,7 @@ static int node_pins(node_pins_t *q, int b, int n) {
   BP(HAL_OUT, present, "present");
   UP(HAL_OUT, con_fb, "con-fb");
   UP(HAL_OUT, missed, "missed");
+  UP(HAL_OUT, vel_clipped, "vel-clipped");
   for(int k = 0; k < 4; k++) {
     r |= hal_pin_bit_newf(HAL_IN, &q->out[k], comp_id, "stmblcan.%d.%d.out-%d", b, n, k);
     r |= hal_pin_bit_newf(HAL_OUT, &q->in[k], comp_id, "stmblcan.%d.%d.in-%d", b, n, k);
@@ -264,7 +308,13 @@ static int dev_pins(dev_pins_t *q, const candesc_t *d, int b) {
   return r;
 }
 
+static void (*sim_wait)(void *ctx, int us);
+
 static void wait_us(void *ctx, int us) {
+  if(sim_wait) {  // spi=sim: the simulated drive and bus run instead
+    sim_wait(ctx, us);
+    return;
+  }
   (void)ctx;
   usleep((useconds_t)us);
 }
@@ -332,19 +382,33 @@ int rtapi_app_main(void) {
     stmblcan_bus_t *s = &bus[b];
     spidev_t *sd      = &dev[b];
     sd->hz            = (uint32_t)spi_hz;
-    sd->fd            = open(d, O_RDWR);
-    if(sd->fd < 0) {
-      rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: %s (spi_takeover.sh run?)\n", d, strerror(errno));
-      hal_exit(comp_id);
-      return -ENODEV;
+    sd->fd            = -1;
+    if(!strcmp(d, "sim")) {
+      mcp_xfer_fn x = (mcp_xfer_fn)sim_symbol("stmbl_sim_can_xfer");
+      sim_wait      = (void (*)(void *, int))sim_symbol("stmbl_sim_can_wait");
+      if(!x || !sim_wait || b > 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: spi=sim: %s\n",
+                        b > 0 ? "one bus only" : "no stmbl_sim (loadrt stmbl_sim can=1 first)");
+        hal_exit(comp_id);
+        return -ENODEV;
+      }
+      s->mcp.xfer = x;
+      s->mcp.ctx  = 0;
+    } else {
+      sd->fd = open(d, O_RDWR);
+      if(sd->fd < 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: %s (spi_takeover.sh run?)\n", d, strerror(errno));
+        hal_exit(comp_id);
+        return -ENODEV;
+      }
+      uint8_t mode = SPI_MODE_0, bits = 8;
+      uint32_t hz  = (uint32_t)spi_hz;
+      ioctl(sd->fd, SPI_IOC_WR_MODE, &mode);
+      ioctl(sd->fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
+      ioctl(sd->fd, SPI_IOC_WR_MAX_SPEED_HZ, &hz);
+      s->mcp.xfer = spidev_xfer;
+      s->mcp.ctx  = sd;
     }
-    uint8_t mode = SPI_MODE_0, bits = 8;
-    uint32_t hz  = (uint32_t)spi_hz;
-    ioctl(sd->fd, SPI_IOC_WR_MODE, &mode);
-    ioctl(sd->fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-    ioctl(sd->fd, SPI_IOC_WR_MAX_SPEED_HZ, &hz);
-    s->mcp.xfer = spidev_xfer;
-    s->mcp.ctx  = sd;
     s->timeout  = (uint32_t)timeout;
     char *save_g;
     for(char *t = strtok_r(grp, ",", &save_g); t && s->nnodes < STMBLCAN_NODES; t = strtok_r(NULL, ",", &save_g)) {
@@ -452,7 +516,9 @@ int rtapi_app_main(void) {
 
 void rtapi_app_exit(void) {
   for(int b = 0; b < nbus; b++) {
-    close(dev[b].fd);
+    if(dev[b].fd >= 0) {
+      close(dev[b].fd);
+    }
   }
   hal_exit(comp_id);
 }

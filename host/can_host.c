@@ -14,7 +14,8 @@
 static sim_bus_t bus;
 static sim_chip_t chip;
 static stmblcan_bus_t pi;  // LinuxCNC's end
-static int ready;
+static int ready;    // LinuxCNC's end is here (lcnccan)
+static int running;  // the bus runs
 
 // ---- the drive's controller: a node on the bus, with filters ----
 #define DRV_Q 32
@@ -74,7 +75,24 @@ int can_host_init(int node, float vel_scale) {
   pi.nnodes   = 1;
   pi.node[0]  = (stmblcan_node_t){.node = node, .vel_scale = vel_scale};
   ready       = stmblcan_bus_init(&pi, 16000000, 1000000) == 0;
+  running     = ready;
   return ready ? 0 : -1;
+}
+
+// the bus and the chip only: LinuxCNC's end is the real stmblcan component,
+// on the chip through can_host_xfer (host/lcnc: stmbl_sim can=1)
+void can_host_attach(void) {
+  memset(&bus, 0, sizeof(bus));
+  sim_chip_init(&chip, &bus);
+  drv_node.rx  = drv_on_frame;
+  drv_node.ntx = 0;
+  bus.node[bus.nnode++] = &drv_node;
+  ready                 = 0;
+  running               = 1;
+}
+
+int can_host_xfer(mcp_seg_t *segs, int n) {
+  return running ? sim_xfer(&chip, segs, n) : -1;
 }
 
 // discovery as at stmblcan's load; wait() lets the simulation run (the
@@ -88,9 +106,9 @@ int can_host_discover(int node, char *buf, int len, void (*wait)(void *ctx, int 
   bus.node[bus.nnode++] = &drv_node;
   pi.mcp.xfer = sim_xfer;
   pi.mcp.ctx  = &chip;
-  ready       = 1;  // the bus runs during discovery
+  running     = 1;  // the bus runs during discovery
   int r       = stmblcan_bus_discover(&pi, 16000000, 1000000, node, buf, len, wait, 0);
-  ready       = 0;
+  running     = 0;
   return r;
 }
 
@@ -111,7 +129,7 @@ void can_host_write(void) {
 }
 
 void can_host_run(double us) {
-  if(ready) {
+  if(running) {
     sim_bus_run(&bus, us);
   }
 }
@@ -121,6 +139,10 @@ void can_host_drive_attached(int on) {
 }
 
 void can_host_stat(void) {
+  if(!ready) {  // stmblcan has the counters on its pins
+    printf("can: bus %.0f us frames %u unacked %u drive_lost %u\n", bus.busy_us, bus.frames, bus.unacked, drv_rx_lost);
+    return;
+  }
   stmblcan_node_t *n = &pi.node[0];
   printf("can: present %d fb %u missed %u tx_late %u rx_overflow %u foreign %u bus %.0f us frames %u unacked %u "
          "drive_lost %u\n",
