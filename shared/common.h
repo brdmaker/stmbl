@@ -120,8 +120,10 @@ typedef union {
     float dc_volt;
     float pwm_volt;
     float y;
+    uint32_t uid[3];  // the F3's 96-bit unique ID (0x1FFFF7AC), raw words
   } pins;
   float data[sizeof(struct f3_state_data_temp) / 4];
+  uint32_t u32[sizeof(struct f3_state_data_temp) / 4];  // the same, sent bit for bit
 } f3_state_data_t;
 
 #pragma pack(pop)

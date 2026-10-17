@@ -9,6 +9,9 @@
 #include "common.h"
 #include "main.h"
 #include "ringbuf.h"
+#include <stddef.h>
+
+uint32_t hv_uid[3];  // the HV board's (F3) unique ID as it reports it, 0 until then (`uid`)
 
 HAL_COMP(hv);
 
@@ -260,9 +263,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
                 PIN(duty) = PIN(abs_volt) / PIN(pwm_volt);
               }
 
-              uint16_t a         = ctx->from_hv.packet_from_hv.header.conf_addr;
-              a                  = CLAMP(a, 0, sizeof(f3_state_data_t) / 4);
-              ctx->state.data[a] = ctx->from_hv.packet_from_hv.header.config.f32;
+              uint16_t a = ctx->from_hv.packet_from_hv.header.conf_addr;
+              if(a < sizeof(f3_state_data_t) / 4) {  // was CLAMP(.., size): one past the end
+                ctx->state.u32[a] = ctx->from_hv.packet_from_hv.header.config.u32;
+                if(a >= offsetof(struct f3_state_data_temp, uid) / 4) {
+                  hv_uid[a - offsetof(struct f3_state_data_temp, uid) / 4] = ctx->state.u32[a];
+                }
+              }
 
               PIN(dc_volt)   = ctx->state.pins.dc_volt;
               PIN(pwm_volt)  = ctx->state.pins.pwm_volt;

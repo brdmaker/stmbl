@@ -159,6 +159,9 @@ static void rt_start(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   ctx->timeout     = 0;
   ctx->tx_addr     = 0;
+  for(int i = 0; i < 3; i++) {  // unique ID, reported to the F4 with the state
+    state.pins.uid[i] = ((const uint32_t *)0x1FFFF7AC)[i];
+  }
   ctx->send        = 0;
   PIN(crc_error)   = 0.0;
   PIN(crc_ok)      = 0.0;
@@ -296,7 +299,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->packet_from_hv.ud_fb              = PIN(ud_fb);
     ctx->packet_from_hv.uq_fb              = PIN(uq_fb);
     ctx->packet_from_hv.header.conf_addr  = ctx->tx_addr;
-    ctx->packet_from_hv.header.config.f32 = state.data[ctx->tx_addr++];
+    ctx->packet_from_hv.header.config.u32 = state.u32[ctx->tx_addr++];
     ctx->tx_addr %= sizeof(state) / 4;
 
     extern struct ringbuf tx_buf;
