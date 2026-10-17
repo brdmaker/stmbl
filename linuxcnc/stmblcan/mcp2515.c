@@ -78,7 +78,10 @@ int mcp2515_init(mcp2515_t *m, uint32_t osc_hz, uint32_t bitrate, const uint16_t
     write_reg(m, 0x24, 0xFF);  // RXM1
     write_reg(m, 0x25, 0xE0);
     for(int f = 0; f < 6; f++) {
-      uint16_t id = ids[(f < 2 ? f : f - 2) % nids];
+      // up to 2 IDs: both on RXB0 (rollover gives them both buffers), RXB1
+      // repeats them; more: RXF0..1 the first two, RXF2..5 the rest (into
+      // RXB1 only)
+      uint16_t id = nids <= 2 ? ids[(f < 2 ? f : f - 2) % nids] : ids[f < nids ? f : nids - 1];
       write_reg(m, filt[f], (uint8_t)(id >> 3));
       write_reg(m, (uint8_t)(filt[f] + 1), (uint8_t)((id & 7) << 5));  // EXIDE 0: standard frames
     }

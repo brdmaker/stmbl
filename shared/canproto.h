@@ -18,6 +18,12 @@
  * The console is shared/sscon.h's 10-bit field: data byte 7, toggle and
  * ack in flags 6 and 7.
  *
+ * Discovery (at LinuxCNC's load, before the cyclic exchange): the host asks
+ * 0x600 + node with [0x40, block]; the device answers 0x580 + node with
+ * [block, 7 bytes of its description text], the text ending in a 0 byte
+ * (linuxcnc/stmblcan/candesc.h has the format). A stmbl drive's text:
+ * canp_desc_text().
+ *
  * Slots: the feedback's bytes 4..5 in every 8th period carry slot
  * (counter / 8) % CANP_SLOTS instead of vel_fb, as an int16 with the
  * slot's own full scale: current, power, temperatures at 1 kHz / 32 each.
@@ -30,6 +36,10 @@
 #define CANP_CMD_ID(node) (0x200 + (node))
 #define CANP_FB_ID(node) (0x180 + (node))
 #define CANP_NODE_MAX 127
+#define CANP_DESC_REQ_ID(node) (0x600 + (node))
+#define CANP_DESC_RSP_ID(node) (0x580 + (node))
+#define CANP_DESC_READ 0x40
+#define CANP_DESC_CHUNK 7
 
 #define CANP_SLOTS 4
 enum { CANP_SLOT_CURRENT, CANP_SLOT_POWER, CANP_SLOT_TEMP, CANP_SLOT_VBUS };
@@ -74,6 +84,49 @@ static inline int canp_slot_period(uint8_t counter) {
 }
 static inline int canp_slot_of(uint8_t counter) {
   return (counter >> 3) % CANP_SLOTS;
+}
+
+// a stmbl drive's description (discovery): device, profile, its velocity scale
+static inline int canp_desc_text(char *buf, int len, int vel_scale_x1000) {
+  // integers only: the drive's printf may not do floats
+  int n = 0;
+  const char *head = "device stbl\nprofile stmbl1\nvel_scale ";
+  while(head[n] && n < len - 1) {
+    buf[n] = head[n];
+    n++;
+  }
+  char num[16];
+  int k = 0, v = vel_scale_x1000 < 0 ? 0 : vel_scale_x1000;
+  int ip = v / 1000, fp = v % 1000;
+  do {
+    num[k++] = (char)('0' + ip % 10);
+    ip /= 10;
+  } while(ip && k < 10);
+  while(k && n < len - 1) {
+    buf[n++] = num[--k];
+  }
+  if(fp && n < len - 5) {
+    buf[n++] = '.';
+    buf[n++] = (char)('0' + fp / 100);
+    buf[n++] = (char)('0' + fp / 10 % 10);
+    buf[n++] = (char)('0' + fp % 10);
+  }
+  if(n < len - 1) {
+    buf[n++] = '\n';
+  }
+  buf[n] = 0;
+  return n;
+}
+
+// the answer to a description request for block b of text (length n)
+static inline void canp_desc_chunk(can_frame_t *f, int node, const char *text, int n, uint8_t b) {
+  f->id   = CANP_DESC_RSP_ID(node);
+  f->dlc  = 8;
+  f->d[0] = b;
+  for(int i = 0; i < CANP_DESC_CHUNK; i++) {
+    int k       = b * CANP_DESC_CHUNK + i;
+    f->d[1 + i] = (uint8_t)(k < n ? text[k] : 0);
+  }
 }
 
 static inline void canp_sync(can_frame_t *f, uint8_t counter) {

@@ -79,7 +79,8 @@ typedef struct {
 int mcp2515_timing(uint32_t osc_hz, uint32_t bitrate, uint8_t cnf[3]);
 // reset, timing, receive with rollover, transmit priorities, normal mode.
 // ids: accept only these identifiers (up to 2 on RXB0's filters: a foreign
-// device then cannot take the receive buffers); nids 0: any frame.
+// device then cannot take the receive buffers; 3..6: the rest on RXB1's
+// filters, without rollover); nids 0: any frame.
 // 0 ok, < 0: the chip does not answer as an MCP2515 should
 int mcp2515_init(mcp2515_t *m, uint32_t osc_hz, uint32_t bitrate, const uint16_t *ids, int nids);
 // the frames received since the last read (up to 2, into rx): the number,

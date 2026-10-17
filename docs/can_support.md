@@ -368,6 +368,21 @@ reviewed.
   no stmbl firmware. A CiA 402 drive's state machine can come from
   `hal-cia402`, connected to these pins.
 
+**As built** (`linuxcnc/stmblcan`, the simulator):
+- **The format:** `candesc.h` / `candesc.c`; the stmbl text is
+  `canp_desc_text` in `shared/canproto.h`.
+- **Discovery:** `stmblcan_bus_discover`; the drive's side is in
+  `shared/comps/can.c`.
+- **Devices without our firmware:** their frames are encoded and decoded
+  per field in `stmblcan_bus`.
+- **The per-period budget check:** `stmblcan_bus_check`.
+- **The HAL component:** the `desc=` and `discover=` parameters.
+- **Tested in the simulator:**
+  - `test_stmblcan`: the format and its errors, the codec, the budget, an
+    I/O module beside a drive, discovery;
+  - `can_discover.test`: the simulated drive describes itself and runs
+    with it.
+
 **Config precedence:**
 1. **A file entry for a node** means that node must be there and must
    match. A mismatch is reported at load, and the node stays offline.

@@ -3,6 +3,8 @@
 // host/can_host.c: a simulated CAN bus between the simulated drive and
 // LinuxCNC's end (linuxcnc/stmblcan's bus code on a simulated MCP2515)
 int can_host_init(int node, float vel_scale);
+// ask the drive for its description (discovery): 0 ok, < 0 none
+int can_host_discover(int node, char *buf, int len, void (*wait)(void *ctx, int us));
 stmblcan_node_t *can_host_node(void);  // the node LinuxCNC talks to
 void can_host_read(void);              // LinuxCNC's servo thread: first
 void can_host_write(void);             // ... and last

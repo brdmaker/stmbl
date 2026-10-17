@@ -21,6 +21,8 @@
 //                          LinuxCNC; here it is set in the config)
 //   can0.connected         SYNC seen within the timeout
 //   can0.syncs, frames     counters
+// Discovery: asked on 0x600 + node, it hands out its description
+// (canp_desc_text: device stbl, profile stmbl1, vel_scale) in 7-byte blocks.
 
 HAL_COMP(can);
 
@@ -92,8 +94,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   int node                   = (int)CLAMP(PIN(node), 1, CANP_NODE_MAX);
   float vs                   = MAX(PIN(vel_scale), 1e-3);
   if(node != ctx->node) {  // the controller's filters follow the node ID
-    uint16_t ids[2] = {CANP_SYNC_ID, (uint16_t)CANP_CMD_ID(node)};
-    can_hw_filter(ids, 2);
+    uint16_t ids[3] = {CANP_SYNC_ID, (uint16_t)CANP_CMD_ID(node), (uint16_t)CANP_DESC_REQ_ID(node)};
+    can_hw_filter(ids, 3);
     ctx->node = node;
   }
   ctx->since += period;
@@ -104,6 +106,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       if(!canp_cmd_decode(&f, &ctx->cmd, vs)) {
         ctx->have_cmd = 1;
       }
+    } else if(f.id == CANP_DESC_REQ_ID(node) && f.dlc >= 2 && f.d[0] == CANP_DESC_READ) {
+      // discovery: a block of this drive's description
+      char text[96];
+      int n = canp_desc_text(text, sizeof(text), (int)(vs * 1000.0f + 0.5f));
+      can_frame_t out;
+      canp_desc_chunk(&out, node, text, n + 1, f.d[1]);  // with the ending 0
+      can_hw_send(&out);
     } else if(f.id == CANP_SYNC_ID && f.dlc == 1) {
       PIN(syncs) += 1;
       ctx->since = 0.0;

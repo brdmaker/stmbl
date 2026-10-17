@@ -6,6 +6,7 @@
  */
 #include "stmblcan_bus.h"
 #include "mcp2515_sim.h"
+#include "candesc.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,6 +39,12 @@ static void drive_rx(sim_node_t *s, const can_frame_t *f) {
   if(f->id == CANP_CMD_ID(d->node)) {
     canp_cmd_decode(f, &d->cmd, d->vel_scale);
     d->have_cmd = 1;
+  } else if(f->id == CANP_DESC_REQ_ID(d->node) && f->d[0] == CANP_DESC_READ) {
+    char text[96];
+    int len = canp_desc_text(text, sizeof(text), (int)(d->vel_scale * 1000.0f + 0.5f));
+    can_frame_t fr;
+    canp_desc_chunk(&fr, d->node, text, len + 1, f->d[1]);
+    sim_node_send(&d->sn, &fr);
   } else if(f->id == CANP_SYNC_ID && f->dlc == 1) {
     d->syncs++;
     if(d->have_cmd) {
@@ -88,6 +95,53 @@ static void flood_rx(sim_node_t *s, const can_frame_t *f) {
       sim_node_send(&fl->sn, &fr);
     }
   }
+}
+
+// a device without our firmware: an I/O module that sends its status every
+// millisecond on its own clock (0x1A0) and takes outputs (0x220)
+typedef struct {
+  sim_node_t sn;
+  uint8_t di;
+  float ain0, temp;
+  int ready;
+  can_frame_t last_out;
+  uint32_t outs;
+} iomod_t;
+static void iomod_rx(sim_node_t *s, const can_frame_t *f) {
+  iomod_t *m = s->ctx;
+  if(f->id == 0x220) {
+    m->last_out = *f;
+    m->outs++;
+  }
+}
+static void iomod_tick(iomod_t *m) {  // every 1 ms
+  can_frame_t f = {.id = 0x1A0, .dlc = 8};
+  uint16_t a    = (uint16_t)(m->ain0 / 0.000805f + 0.5f);
+  int16_t t     = (int16_t)((m->temp + 40.0f) / 0.1f + (m->temp >= -40 ? 0.5f : -0.5f));
+  f.d[0]        = m->di;
+  f.d[1]        = (uint8_t)a;  // ain0: u12 at bit 8
+  f.d[2]        = (uint8_t)((a >> 8) & 0x0F);
+  f.d[3]        = (uint8_t)t;  // temp: s16 at bit 24
+  f.d[4]        = (uint8_t)((uint16_t)t >> 8);
+  f.d[5]        = (uint8_t)(m->ready ? 1 : 0);  // ready: bit 40
+  sim_node_send(&m->sn, &f);
+}
+
+static const char *iomod_desc =
+    "# an I/O module without stmbl firmware\n"
+    "device iomod\n"
+    "node 32\n"
+    "frame status 0x1A0 8 rx\n"
+    "  di     u8   0\n"
+    "  ain0   u12  8   scale=0.000805\n"
+    "  temp   s16  24  scale=0.1 offset=-40\n"
+    "  ready  bit  40\n"
+    "frame outputs 0x220 4 tx every 2\n"
+    "  do     u8   0\n"
+    "  pwm    u16  8   scale=0.0015259\n";
+
+static void wait_bus(void *ctx, int us) {
+  sim_bus_run((sim_bus_t *)ctx, us);
 }
 
 // ---- the Pi's side ----
@@ -281,6 +335,166 @@ int main(void) {
   stmblcan_bus_t b4;
   bus_setup(&b4, &none, 1, 2);
   ok(stmblcan_bus_init(&b4, 16000000, 1000000) == -3, "no MCP2515 on a chip select: init fails (CANSTAT)", 0);
+
+  // 8. descriptions: the text format
+  candesc_t d;
+  char err[96];
+  int pr = candesc_parse(&d, iomod_desc, err, sizeof(err));
+  ok(pr == 0 && !strcmp(d.name, "iomod") && d.node == 32 && d.nframes == 2 && d.frame[0].id == 0x1A0 &&
+         d.frame[0].nfields == 4 && d.frame[0].field[1].len == 12 && d.frame[0].field[2].type == CD_SINT &&
+         d.frame[1].dir == CD_TX && d.frame[1].every == 2,
+     "description: an I/O module's frames and fields parsed", pr);
+  struct {
+    const char *text, *why;
+    int line;
+  } bad[] = {
+      {"device x\nframe a 0x100 4 rx\n  p u12 8\n  q u8 12\n", "overlaps field", 4},
+      {"device x\nframe a 0x100 2 rx\n  p u12 8\n", "bit position outside the frame", 3},
+      {"device x\nframe a 0x100 8 rx\n  p q7 0\n", "type: bit, uN, sN, f32", 3},
+      {"frame a 0x100 8 rx\n  p u8 0\n", "no device line", 2},
+      {"device x\nframe a 0x900 8 rx\n", "frame ID", 2},
+      {"device x\nframe a 0x180+node 8 tx\n", "frame ID", 2},  // +node with no node line: 0x180 + 0 ok?
+      {"device x\nprofile stmbl1\nframe a 0x100 8 rx\n", "profile stmbl1 has its own frames", 3},
+  };
+  int bad_ok = 1;
+  for(unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    int l = candesc_parse(&d, bad[i].text, err, sizeof(err));
+    if(i == 5) {  // "+node" without a node line resolves to node 0: accepted
+      bad_ok &= l == 0 && d.frame[0].id == 0x180;
+      continue;
+    }
+    bad_ok &= l == bad[i].line && strstr(err, bad[i].why) != 0;
+    if(!(l == bad[i].line && strstr(err, bad[i].why))) {
+      printf("#   case %u: line %d: %s\n", i, l, err);
+    }
+  }
+  ok(bad_ok, "description errors: the line and the reason (overlap, outside the frame, type, no device, ID, profile)",
+     0);
+
+  // the generic codec
+  candesc_parse(&d, iomod_desc, err, sizeof(err));
+  float vin[4] = {0xA5, 2.5f, -12.3f, 1}, vout[4];
+  can_frame_t cf;
+  candesc_encode(&d.frame[0], vin, &cf);
+  candesc_decode(&d.frame[0], &cf, vout);
+  ok(vout[0] == 0xA5 && fabsf(vout[1] - 2.5f) < 0.000805f && fabsf(vout[2] + 12.3f) < 0.06f && vout[3] == 1,
+     "codec: u8, u12 with scale, s16 with scale and offset (negative), bit: round trip", vout[2]);
+  float big[4] = {300, 99.0f, 9999.0f, 0};
+  candesc_encode(&d.frame[0], big, &cf);
+  candesc_decode(&d.frame[0], &cf, vout);
+  ok(vout[0] == 255 && fabsf(vout[1] - 4095 * 0.000805f) < 1e-4f && vout[2] > 3000.0f && vout[2] < 3280.0f,
+     "codec: out-of-range values clamp to the field's range", vout[1]);
+  char stext[96];
+  candesc_stmbl_text(stext, sizeof(stext), 12.5f);
+  pr = candesc_parse(&d, stext, err, sizeof(err));
+  ok(pr == 0 && d.stmbl && !strcmp(d.name, "stbl") && fabsf(d.vel_scale - 12.5f) < 1e-6f,
+     "a stmbl drive's description: profile stmbl1 with its vel_scale", d.vel_scale);
+
+  // 9. the period budget (3 out incl. SYNC, 2 in)
+  stmblcan_bus_t bb;
+  candesc_t io, st;
+  candesc_parse(&io, iomod_desc, err, sizeof(err));
+  candesc_parse(&st, "device stbl\nprofile stmbl1\nnode 1\n", err, sizeof(err));
+  memset(&bb, 0, sizeof(bb));
+  stmblcan_bus_add(&bb, &st);
+  stmblcan_bus_add(&bb, &io);
+  int c1 = stmblcan_bus_check(&bb, err, sizeof(err));
+  st.node = 2;
+  stmblcan_bus_add(&bb, &st);
+  int c2 = stmblcan_bus_check(&bb, err, sizeof(err));
+  ok(c1 == 0 && c2 < 0 && (strstr(err, "transmit buffers") || strstr(err, "receive buffers")),
+     "budget: 1 drive + the I/O module fits; 2 drives + it (4 out, 3 in a period): refused", c2);
+  printf("#   %s\n", err);
+
+  // 10. a drive and the file-described I/O module on one bus
+  static sim_bus_t sb6;
+  static sim_chip_t ch6;
+  static drive_t d6;
+  static iomod_t io6;
+  memset(&sb6, 0, sizeof(sb6));
+  sim_chip_init(&ch6, &sb6);
+  drive_init(&d6, &sb6, 1);
+  io6       = (iomod_t){.sn = {.rx = iomod_rx}, .di = 0x3C, .ain0 = 1.65f, .temp = 36.6f, .ready = 1};
+  io6.sn.ctx = &io6;
+  sb6.node[sb6.nnode++] = &io6.sn;
+  stmblcan_bus_t b6;
+  memset(&b6, 0, sizeof(b6));
+  b6.mcp.xfer = sim_xfer;
+  b6.mcp.ctx  = &ch6;
+  st.node     = 1;
+  stmblcan_bus_add(&b6, &st);
+  stmblcan_bus_add(&b6, &io);
+  b6.node[0].vel_scale = 100.0f;
+  int ck = stmblcan_bus_check(&b6, err, sizeof(err));
+  int in6 = stmblcan_bus_init(&b6, 16000000, 1000000);
+  b6.dev[0].val[1][0] = 0x81;   // do
+  b6.dev[0].val[1][1] = 50.0f;  // pwm
+  for(int k = 0; k < 200; k++) {
+    b6.node[0].cmd.pos = k * 0.01f;
+    stmblcan_bus_cycle(&b6);
+    sim_bus_run(&sb6, 400.0);
+    iomod_tick(&io6);  // its own clock, partway through the period
+    sim_bus_run(&sb6, 600.0);
+  }
+  float *v6 = b6.dev[0].val[0];
+  ok(ck == 0 && in6 == 0 && b6.dev[0].present && v6[0] == 0x3C && fabsf(v6[1] - 1.65f) < 0.001f &&
+         fabsf(v6[2] - 36.6f) < 0.06f && v6[3] == 1,
+     "the I/O module's status, decoded into its fields every period", v6[2]);
+  uint16_t pwm_raw = (uint16_t)(io6.last_out.d[1] | io6.last_out.d[2] << 8);
+  ok(io6.last_out.d[0] == 0x81 && fabsf(pwm_raw * 0.0015259f - 50.0f) < 0.002f && io6.outs >= 99 && io6.outs <= 101,
+     "the I/O module's outputs sent every 2nd period", io6.outs);
+  ok(b6.node[0].present && b6.node[0].missed == 0 && b6.foreign == 0 && b6.mcp.tx_late == 0,
+     "the drive beside it: every feedback, nothing late or unknown", b6.node[0].missed);
+
+  // 11. discovery: the drive hands out its description
+  static sim_bus_t sb7;
+  static sim_chip_t ch7;
+  static drive_t d7;
+  memset(&sb7, 0, sizeof(sb7));
+  sim_chip_init(&ch7, &sb7);
+  drive_init(&d7, &sb7, 9);
+  d7.vel_scale = 250.0f;
+  stmblcan_bus_t b7;
+  memset(&b7, 0, sizeof(b7));
+  b7.mcp.xfer = sim_xfer;
+  b7.mcp.ctx  = &ch7;
+  char dtext[128];
+  int dr = stmblcan_bus_discover(&b7, 16000000, 1000000, 9, dtext, sizeof(dtext), wait_bus, &sb7);
+  candesc_t found;
+  int fp = dr == 0 ? candesc_parse(&found, dtext, err, sizeof(err)) : -1;
+  ok(dr == 0 && fp == 0 && found.stmbl && fabsf(found.vel_scale - 250.0f) < 1e-3f,
+     "discovery: node 9 answers with its description (stbl, stmbl1, vel_scale 250)", dr);
+  found.node = 9;
+  stmblcan_bus_add(&b7, &found);
+  int i7 = stmblcan_bus_init(&b7, 16000000, 1000000);
+  for(int k = 0; k < 50; k++) {
+    b7.node[0].cmd.pos = 1.0f;
+    stmblcan_bus_cycle(&b7);
+    sim_bus_run(&sb7, 1000.0);
+  }
+  ok(i7 == 0 && b7.node[0].present && b7.node[0].fb.pos == 1.0f && b7.node[0].vel_scale == 250.0f,
+     "  ...and runs with what it found", b7.node[0].fb.pos);
+  char dtext2[128];
+  int dr2 = stmblcan_bus_discover(&b7, 16000000, 1000000, 10, dtext2, sizeof(dtext2), wait_bus, &sb7);
+  ok(dr2 == -2, "discovery of an absent node: no answer (-2)", dr2);
+
+  // 12. the example description file, as stmblcan loads it
+  FILE *ef = fopen("../linuxcnc/stmblcan/examples/bus0.desc", "r");
+  static char etext[4096];
+  size_t en = ef ? fread(etext, 1, sizeof(etext) - 1, ef) : 0;
+  if(ef) {
+    fclose(ef);
+  }
+  etext[en] = 0;
+  candesc_t all[4];
+  int cnt = 0;
+  int el  = candesc_parse_all(etext, all, 4, &cnt, err, sizeof(err));
+  ok(en > 0 && el == 0 && cnt == 2 && all[0].stmbl && all[0].node == 1 && !strcmp(all[1].name, "iomod") &&
+         all[1].nframes == 2 && all[1].frame[1].every == 2,
+     "examples/bus0.desc: a drive pinned down and the I/O module", el);
+  int bl = candesc_parse_all("# two devices\ndevice a\nnode 3\nprofile stmbl1\ndevice b\nframe f 0x300 2 rx\n  x u20 0\n",
+                             all, 4, &cnt, err, sizeof(err));
+  ok(bl == 7 && strstr(err, "outside the frame"), "an error in the 2nd device: the line of the whole file", bl);
 
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;

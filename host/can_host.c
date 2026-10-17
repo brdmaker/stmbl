@@ -77,6 +77,23 @@ int can_host_init(int node, float vel_scale) {
   return ready ? 0 : -1;
 }
 
+// discovery as at stmblcan's load; wait() lets the simulation run (the
+// drive answers in its rt loop)
+int can_host_discover(int node, char *buf, int len, void (*wait)(void *ctx, int us)) {
+  memset(&bus, 0, sizeof(bus));
+  memset(&pi, 0, sizeof(pi));
+  sim_chip_init(&chip, &bus);
+  drv_node.rx  = drv_on_frame;
+  drv_node.ntx = 0;
+  bus.node[bus.nnode++] = &drv_node;
+  pi.mcp.xfer = sim_xfer;
+  pi.mcp.ctx  = &chip;
+  ready       = 1;  // the bus runs during discovery
+  int r       = stmblcan_bus_discover(&pi, 16000000, 1000000, node, buf, len, wait, 0);
+  ready       = 0;
+  return r;
+}
+
 stmblcan_node_t *can_host_node(void) {
   return ready ? &pi.node[0] : 0;
 }

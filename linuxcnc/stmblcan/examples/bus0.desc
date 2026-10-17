@@ -1,0 +1,23 @@
+# stmblcan description file for one bus (loadrt stmblcan ... desc=bus0.desc)
+# Format: candesc.h. Several devices, each from its "device" line.
+
+# the stmbl drive on node 1, pinned down (with discover=1 the drive must
+# say the same)
+device stbl
+node 1
+profile stmbl1
+vel_scale 100
+
+# an I/O module without stmbl firmware: status every period from it,
+# outputs every 2nd period to it. Pins: stmblcan.0.iomod.di, .ain0, .temp,
+# .ready (out), .do, .pwm (in), .present
+device iomod
+node 32
+frame status 0x1A0 8 rx
+  di     u8   0
+  ain0   u12  8   scale=0.000805          # 12-bit ADC, 3.3 V
+  temp   s16  24  scale=0.1 offset=-40    # degC
+  ready  bit  40
+frame outputs 0x220 4 tx every 2
+  do     u8   0
+  pwm    u16  8   scale=0.0015259         # 0..100 %

@@ -59,6 +59,8 @@ net j0-fault   stmblcan.0.1.fault     => joint.0.amp-fault-in
 | `osc` | 16000000 | the MCP2515 crystal |
 | `vel_scale` | 100 | full scale of `vel-cmd` / `vel-fb` (16 bit on the wire) |
 | `timeout` | 10 | periods without feedback before a node is not present (and faults) |
+| `desc` | — | a description file per bus, `,` between buses (empty for none) |
+| `discover` | 0 | 1: ask each drive in `nodes` for its description at load |
 
 **Pins:**
 - **Per node** (`stmblcan.B.N.*`, bus B, node ID N):
@@ -72,6 +74,31 @@ net j0-fault   stmblcan.0.1.fault     => joint.0.amp-fault-in
 **Console:** `con-cmd` / `con-fb` are the console's 10-bit field, as
 `con_cmd` / `con_fb` on smart-serial. Link them to `sserialterm` for a pty
 per drive; `servoterm-cli` then works as over USB.
+
+## Pin inventory: discovery and description files
+
+**One text format** (`candesc.h`) describes a device, whether it comes
+from the device or from a file:
+- **`discover=1`:** each drive in `nodes` is asked for its description at
+  load (0x600 / 0x580 + node). A stmbl drive answers `device stbl`,
+  `profile stmbl1`, `vel_scale ...`, and its pins are made from that.
+- **`desc=bus0.desc`:**
+  - **Devices without our firmware:** their frames and fields, as in
+    `examples/bus0.desc`. Every field becomes a pin,
+    `stmblcan.B.<device>.<field>`: out for frames from the device, in for
+    frames to it.
+  - **Drives pinned down:** with `discover=1` as well, a drive must
+    describe itself as the file does, or the load is refused.
+- **Errors:** a description error is reported with file, line and reason,
+  e.g. `bus0.desc:5: type: bit, uN, sN, f32: q7`.
+
+**The budget check:** a bus whose period does not fit the MCP2515 is
+refused at load. That means at most 3 frames out (commands, the devices'
+tx frames, SYNC) and 2 in, in the worst period. Frames with `every N`
+are staggered over periods.
+
+For example, 1 drive plus the I/O module fits, while 2 drives plus it
+need 4 frames out and 3 in, and are refused.
 
 ## Per servo period (each bus)
 

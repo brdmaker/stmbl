@@ -969,3 +969,15 @@ Entry format:
   rollover, so both buffers serve them). Bus time can only be fixed by
   keeping foreign traffic off the servo buses, or giving it lower
   priority and less volume.
+
+## 2026-10-17  stmblcan: a bus's period has to fit the MCP2515
+- Area:    `linuxcnc/stmblcan` (stmblcan_bus_check), description files
+- Status:  Note
+- Symptom: (design) a description file can ask for more frames per period
+  than the MCP2515 can hold: 2 drives plus a foreign I/O module need 4
+  frames out and 3 in.
+- Cause:   3 transmit buffers (SYNC included) and 2 receive buffers,
+  serviced once per servo period.
+- Fix:     stmblcan_bus_check refuses such a bus at load, with the reason.
+  Frames with "every N" are staggered over the periods. Spread devices
+  over the buses, or lower their rates.

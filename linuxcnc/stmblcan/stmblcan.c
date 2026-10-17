@@ -8,10 +8,18 @@
  *   ... motion, pid ...
  *   addf stmblcan.write servo-thread     (last: commands and SYNC)
  *
- * Parameters: spi (one spidev per bus), nodes (per bus, ':' between
- * buses, up to 2 a bus), spi_hz (10 MHz, the MCP2515's maximum), bitrate
- * (1000000), osc (16000000), vel_scale (100: vel_cmd / vel_fb full scale),
- * timeout (10 periods).
+ * Parameters: spi (one spidev per bus), nodes (stmbl drives per bus, ':'
+ * between buses, up to 2 a bus), desc (a description file per bus, ','
+ * between buses, empty for none: devices without our firmware, and
+ * stmbl drives pinned down), discover (1: ask each node in nodes for its
+ * description at load; a file entry for the same node must match),
+ * spi_hz (10 MHz, the MCP2515's maximum), bitrate (1000000), osc
+ * (16000000), vel_scale (100, for drives not discovered), timeout (10
+ * periods). A bus whose period does not fit the MCP2515 (3 frames out
+ * with SYNC, 2 in) is refused at load.
+ *
+ * A described device's fields become pins stmblcan.B.<device>.<field>
+ * (out for its rx frames, in for its tx frames), plus .present.
  *
  * Pins, for bus B and node N (stmblcan.B.N.*): pos-cmd vel-cmd enable
  * index-enable out-0..3 con-cmd (in); pos-fb vel-fb fault index in-0..3
@@ -55,6 +63,10 @@ static char *vel_scale = "100";
 RTAPI_MP_STRING(vel_scale, "full scale of vel-cmd / vel-fb");
 static int timeout = 10;
 RTAPI_MP_INT(timeout, "periods without feedback before a node is not present");
+static char *desc = "";
+RTAPI_MP_STRING(desc, "description files, one per bus, comma separated (empty: none)");
+static int discover = 0;
+RTAPI_MP_INT(discover, "1: ask the drives in nodes for their description at load");
 
 #define MAXBUS 4
 
@@ -65,9 +77,16 @@ typedef struct {
 } node_pins_t;
 
 typedef struct {
+  hal_float_t *f[CANDESC_FRAMES][CANDESC_FIELDS];  // numeric fields
+  hal_bit_t *b[CANDESC_FRAMES][CANDESC_FIELDS];    // bit fields
+  hal_bit_t *present;
+} dev_pins_t;
+
+typedef struct {
   hal_u32_t *tx_late, *rx_overflow, *foreign, *tec, *rec;
   hal_bit_t *ok;
   node_pins_t node[STMBLCAN_NODES];
+  dev_pins_t dev[STMBLCAN_DEVS];
 } bus_pins_t;
 
 typedef struct {
@@ -132,6 +151,22 @@ static void read_all(void *arg, long period) {
       *q->present = n->present;
       *q->missed  = n->missed;
     }
+    for(int i = 0; i < s->ndevs; i++) {
+      stmblcan_dev_t *v = &s->dev[i];
+      for(int f = 0; f < v->desc.nframes; f++) {
+        if(v->desc.frame[f].dir != CD_RX) {
+          continue;
+        }
+        for(int k = 0; k < v->desc.frame[f].nfields; k++) {
+          if(v->desc.frame[f].field[k].type == CD_BIT) {
+            *p->dev[i].b[f][k] = v->val[f][k] != 0.0f;
+          } else {
+            *p->dev[i].f[f][k] = v->val[f][k];
+          }
+        }
+      }
+      *p->dev[i].present = v->present;
+    }
     *p->tx_late     = s->mcp.tx_late;
     *p->rx_overflow = s->mcp.rx_overflow;
     *p->foreign     = s->foreign;
@@ -161,6 +196,18 @@ static void write_all(void *arg, long period) {
         n->cmd.out |= (uint8_t)((*q->out[k] ? 1 : 0) << k);
       }
       n->cmd.con = (uint16_t)(*q->con_cmd & 0x3ff);
+    }
+    for(int i = 0; i < s->ndevs; i++) {
+      stmblcan_dev_t *v = &s->dev[i];
+      for(int f = 0; f < v->desc.nframes; f++) {
+        if(v->desc.frame[f].dir != CD_TX) {
+          continue;
+        }
+        for(int k = 0; k < v->desc.frame[f].nfields; k++) {
+          v->val[f][k] = v->desc.frame[f].field[k].type == CD_BIT ? (*p->dev[i].b[f][k] ? 1.0f : 0.0f)
+                                                                   : (float)*p->dev[i].f[f][k];
+        }
+      }
     }
     if(stmblcan_bus_write(s) < 0) {
       bus_ok[b] = 0;
@@ -200,6 +247,68 @@ static int node_pins(node_pins_t *q, int b, int n) {
   return r;
 }
 
+static int dev_pins(dev_pins_t *q, const candesc_t *d, int b) {
+  int r = 0;
+  for(int f = 0; f < d->nframes; f++) {
+    const candesc_frame_t *fr = &d->frame[f];
+    hal_pin_dir_t dir         = fr->dir == CD_RX ? HAL_OUT : HAL_IN;
+    for(int k = 0; k < fr->nfields; k++) {
+      if(fr->field[k].type == CD_BIT) {
+        r |= hal_pin_bit_newf(dir, &q->b[f][k], comp_id, "stmblcan.%d.%s.%s", b, d->name, fr->field[k].name);
+      } else {
+        r |= hal_pin_float_newf(dir, &q->f[f][k], comp_id, "stmblcan.%d.%s.%s", b, d->name, fr->field[k].name);
+      }
+    }
+  }
+  r |= hal_pin_bit_newf(HAL_OUT, &q->present, comp_id, "stmblcan.%d.%s.present", b, d->name);
+  return r;
+}
+
+static void wait_us(void *ctx, int us) {
+  (void)ctx;
+  usleep((useconds_t)us);
+}
+
+// the devices of a description file (several, each from its "device" line)
+static int load_desc(stmblcan_bus_t *s, const char *path) {
+  FILE *fp = fopen(path, "r");
+  if(!fp) {
+    rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: %s\n", path, strerror(errno));
+    return -1;
+  }
+  static char text[8192];
+  size_t n = fread(text, 1, sizeof(text) - 1, fp);
+  fclose(fp);
+  text[n] = 0;
+  static candesc_t all[STMBLCAN_NODES + STMBLCAN_DEVS];
+  static char err[96];
+  int count;
+  int l = candesc_parse_all(text, all, STMBLCAN_NODES + STMBLCAN_DEVS, &count, err, sizeof(err));
+  if(l) {
+    rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s:%d: %s\n", path, l, err);
+    return -1;
+  }
+  for(int k = 0; k < count; k++) {
+    candesc_t *d = &all[k];
+    if(d->stmbl && !d->node) {
+      rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: device %s needs a node line\n", path, d->name);
+      return -1;
+    }
+    // a drive listed in nodes and described here: the file pins it down
+    int dup = -1;
+    for(int i = 0; i < s->nnodes; i++) {
+      dup = d->stmbl && s->node[i].node == d->node ? i : dup;
+    }
+    if(dup >= 0) {
+      s->node[dup].vel_scale = d->vel_scale;
+    } else if(stmblcan_bus_add(s, d)) {
+      rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: too many devices on one bus\n", path);
+      return -1;
+    }
+  }
+  return 0;
+}
+
 int rtapi_app_main(void) {
   comp_id = hal_init("stmblcan");
   if(comp_id < 0) {
@@ -212,7 +321,7 @@ int rtapi_app_main(void) {
     return -ENOMEM;
   }
   float vs = (float)atof(vel_scale ? vel_scale : "100");
-  char devs[1024], nds[256];
+  static char devs[1024], nds[256];
   snprintf(devs, sizeof(devs), "%s", spi ? spi : "");
   snprintf(nds, sizeof(nds), "%s", nodes ? nodes : "");
   char *save_d, *save_n;
@@ -247,6 +356,58 @@ int rtapi_app_main(void) {
       }
       s->node[s->nnodes++] = (stmblcan_node_t){.node = id, .vel_scale = vs};
     }
+    if(discover) {
+      for(int i = 0; i < s->nnodes; i++) {
+        static char text[160], err[96];
+        static candesc_t found;
+        int dr = stmblcan_bus_discover(s, (uint32_t)osc, (uint32_t)bitrate, s->node[i].node, text, sizeof(text),
+                                       wait_us, 0);
+        if(dr == -1) {
+          rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: no MCP2515\n", d);
+          hal_exit(comp_id);
+          return -ENODEV;
+        }
+        if(dr == -2 || candesc_parse(&found, text, err, sizeof(err)) || !found.stmbl) {
+          rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: bus %d node %d: no stmbl description (%s)\n", b,
+                          s->node[i].node, dr == -2 ? "no answer" : "not a stmbl drive");
+          hal_exit(comp_id);
+          return -ENODEV;
+        }
+        s->node[i].vel_scale = found.vel_scale;
+        rtapi_print_msg(RTAPI_MSG_INFO, "stmblcan: bus %d node %d: %s, vel_scale %g\n", b, s->node[i].node,
+                        found.name, (double)found.vel_scale);
+      }
+    }
+    static char files[1024];
+    snprintf(files, sizeof(files), "%s", desc ? desc : "");
+    char *save_f, *file = strtok_r(files, ",", &save_f);
+    for(int k = 0; k < b && file; k++) {
+      file = strtok_r(NULL, ",", &save_f);
+    }
+    if(file && *file) {
+      float before[STMBLCAN_NODES];
+      for(int i = 0; i < s->nnodes; i++) {
+        before[i] = s->node[i].vel_scale;
+      }
+      if(load_desc(s, file)) {
+        hal_exit(comp_id);
+        return -EINVAL;
+      }
+      for(int i = 0; i < s->nnodes && discover; i++) {
+        if(s->node[i].vel_scale != before[i]) {
+          rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: bus %d node %d: the file says vel_scale %g, the drive %g\n", b,
+                          s->node[i].node, (double)s->node[i].vel_scale, (double)before[i]);
+          hal_exit(comp_id);
+          return -EINVAL;
+        }
+      }
+    }
+    char berr[128];
+    if(stmblcan_bus_check(s, berr, sizeof(berr))) {
+      rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: bus %d: %s\n", b, berr);
+      hal_exit(comp_id);
+      return -EINVAL;
+    }
     int r = stmblcan_bus_init(s, (uint32_t)osc, (uint32_t)bitrate);
     if(r < 0) {
       rtapi_print_msg(RTAPI_MSG_ERR, "stmblcan: %s: MCP2515 init failed (%d): wiring, chip select, SPI clock?\n", d, r);
@@ -264,12 +425,15 @@ int rtapi_app_main(void) {
     for(int i = 0; i < s->nnodes; i++) {
       e |= node_pins(&p->node[i], b, s->node[i].node);
     }
+    for(int i = 0; i < s->ndevs; i++) {
+      e |= dev_pins(&p->dev[i], &s->dev[i].desc, b);
+    }
     if(e) {
       hal_exit(comp_id);
       return -EINVAL;
     }
     *p->ok = 1;
-    rtapi_print_msg(RTAPI_MSG_INFO, "stmblcan: bus %d on %s, %d nodes\n", b, d, s->nnodes);
+    rtapi_print_msg(RTAPI_MSG_INFO, "stmblcan: bus %d on %s, %d drives, %d devices\n", b, d, s->nnodes, s->ndevs);
     nbus++;
   }
   if(nbus < 1) {

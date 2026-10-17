@@ -34,6 +34,7 @@
 #include "sim_io.h"
 #include "sscon.h"
 #include "can_host.h"
+#include "candesc.h"
 
 #include <time.h>
 
@@ -174,10 +175,39 @@ COMMAND("conread", cmd_conread, "print what came over the smart-serial console")
 // (its bus code and MCP2515 driver, on a simulated MCP2515), the drive's
 // can component on the same simulated bus. lcnc / con / conread / lcncstop
 // work as with smart-serial. The drive config links "can" for "sserial".
+static int can_discovering;
+static void can_wait(void *ctx, int us) {  // discovery: the drive and the bus run
+  (void)ctx;
+  for(int t = 0; t < us; t += (int)(RT_PERIOD * 1e6)) {
+    can_host_run(RT_PERIOD * 1e6);
+    drive_tick();
+  }
+}
+
 void cmd_lcnccan(char *ptr) {
   int node = 1;
   float vs = 100.0f;
-  sscanf(ptr, " %i %f", &node, &vs);
+  if(sscanf(ptr, " discover %i", &node) == 1) {
+    // as stmblcan with discover=1: ask the drive, then run with what it says
+    char text[160], err[96];
+    candesc_t d;
+    can_discovering = 1;
+    int r           = can_host_discover(node, text, sizeof(text), can_wait);
+    can_discovering = 0;
+    if(r < 0) {
+      printf("lcnccan: node %d: no answer\n", node);
+      return;
+    }
+    int l = candesc_parse(&d, text, err, sizeof(err));
+    printf("lcnccan: node %d describes itself:\n%s", node, text);
+    if(l || !d.stmbl) {
+      printf("lcnccan: not a stmbl drive (%s)\n", l ? err : "profile");
+      return;
+    }
+    vs = d.vel_scale;
+  } else {
+    sscanf(ptr, " %i %f", &node, &vs);
+  }
   if(can_host_init(node, vs)) {
     printf("lcnccan: the simulated MCP2515 did not initialise\n");
     return;
@@ -186,7 +216,7 @@ void cmd_lcnccan(char *ptr) {
   lcnc_can = 1;
   printf("lcnccan: node %d, vel_scale %g, 1 Mbit/s\n", node, (double)vs);
 }
-COMMAND("lcnccan", cmd_lcnccan, "LinuxCNC side over CAN: lcnccan [node [vel_scale]]");
+COMMAND("lcnccan", cmd_lcnccan, "LinuxCNC side over CAN: lcnccan [node [vel_scale]] | lcnccan discover node");
 
 void cmd_canstat(char *ptr) {
   (void)ptr;

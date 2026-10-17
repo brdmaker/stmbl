@@ -24,7 +24,8 @@ TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) $(HOST)/sim_board.txt
 CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
             $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c \
             $(ROOT)/shared/fwstage.c $(ROOT)/shared/bip_loop.c \
-            $(ROOT)/linuxcnc/stmblcan/mcp2515.c $(ROOT)/linuxcnc/stmblcan/stmblcan_bus.c
+            $(ROOT)/linuxcnc/stmblcan/mcp2515.c $(ROOT)/linuxcnc/stmblcan/stmblcan_bus.c \
+            $(ROOT)/linuxcnc/stmblcan/candesc.c
 DRIVE_SRCS = $(addprefix $(HOST)/,drive.c cdc_host.c pty.c fwup_host.c can_host.c mcp2515_sim.c) sim_api.c
 SRCS = $(DRIVE_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 OBJS = $(addprefix $(OBJ)/,$(notdir $(SRCS:.c=.o)))
