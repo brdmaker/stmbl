@@ -153,6 +153,84 @@ link, on one of a Mesa card's 2–8 ports. A 6-axis robot at 1 kHz is
   realtime thread. That works under PREEMPT_RT, but with the NIC's
   interrupt thread to tune. This needs measuring on real hardware early.
 
+### Raspberry Pi with MCP2515s (no Mesa card)
+
+**The setup:** LinuxCNC on a Raspberry Pi (PREEMPT_RT), 3 × MCP2515 on
+SPI, one classic CAN bus each. There are two ways to the realtime thread.
+
+**A. The kernel driver (`mcp251x`) and SocketCAN: not for the servo
+loop.**
+- **The path:** a frame arrives, the GPIO interrupt fires, the driver's
+  threaded handler queues SPI transfers through the kernel SPI framework,
+  and the network stack hands the frame to the socket.
+- **The problem:** every step adds latency and jitter, and the MCP2515
+  holds only 2 received frames. A late handler loses frames (`rx_over_errors`;
+  see the HI-311x and MCP2518FD reports in Sources).
+- **The tuning:** IRQ threads pinned to a core with raised priority.
+  Possible, but every reboot and kernel update is a new measurement.
+- **Good for:** setup tools (`candump`, `cansend`) when the machine is not
+  running.
+
+**B. A realtime component that owns the MCP2515s (recommended).**
+- **Polled, once per servo cycle,** with no interrupts and no network
+  stack. Each controller sees the same SPI sequence every cycle, so the
+  timing is deterministic.
+- **Precedent:** LinuxCNC's own Pi drivers do the same for Mesa SPI
+  cards (`hm2_rpspi`).
+
+**SPI access, in order of preference:**
+- **`/dev/spidev` from the realtime thread:** works on the Pi 4 and Pi 5.
+  Batch each controller's transfers into one `SPI_IOC_MESSAGE(n)` ioctl
+  per phase, to pay the syscall cost a few times per cycle, not per
+  transfer. Measure early.
+- **Direct registers, as `hm2_rpspi`:** faster, but tied to the Pi model.
+  hm2_rpspi covers the Pi 2/3 (BCM2835 SPI). The Pi 5's SPI sits in RP1
+  behind PCIe and needs a new register driver (forum reports). Only if
+  spidev proves too slow.
+
+**The cycle per bus** (classic 1 Mbit/s, 2 drives, §2):
+
+| when | SPI (MCP2515 instructions ✱) | bytes |
+|---|---|---|
+| start of the servo period | RX STATUS; READ RX BUFFER ×2 (clears the flags): the 2 drives' feedback from the last cycle | 3 + 2 × 14 |
+| | LOAD TX BUFFER ×3: SYNC + the 2 commands; RTS | 3 × 14 + 1 |
+| **sum** | | **~74** |
+
+**SPI time:** 74 bytes at 10 MHz is ~60 µs per bus, ~180 µs for three,
+plus chip-select gaps and ioctl overhead. That is ~25–40 % of a 1 ms servo
+period: workable, to be measured.
+
+**The rules this sets for the protocol:**
+- **Receive buffers:** a bus may carry at most 2 frames toward the Pi per
+  cycle (the MCP2515's 2 receive buffers, rollover on). So no separate
+  heartbeat or console frames: everything rides in the one feedback frame
+  per drive.
+- **Transmit buffers:** 3 frames out per cycle (SYNC + 2 commands).
+- **Classic CAN, 8 bytes:**
+  - command: pos_cmd f32, vel_cmd 16-bit scaled, flags, 1 console byte;
+  - feedback: pos_fb f32, vel_fb 16-bit, flags, 1 console byte;
+  - current, power and temperatures in a rotating slot.
+  - The console then runs at 1 byte per cycle (1 kB/s), as over
+    smart-serial. A service mode, with the machine idle, can stream faster.
+- **Latency:** a command takes effect, and feedback comes back, one cycle
+  later, as with hostmot2.
+
+**Capacity:** 3 buses × 2 drives at 1 kHz = 6 joints. A toolhead needs
+- a 4th MCP2515,
+- 500 Hz (4 drives per bus),
+- or the wrist drive as its gateway (§6, now over CAN).
+
+**Hardware to check on existing MCP2515 boards** ✱:
+- **Crystal:** 1 Mbit/s needs 16 MHz. 8 MHz modules top out at 500 kbit/s:
+  a bit needs at least 5 time quanta, and a quantum is at least 2 clock
+  periods.
+- **Transceiver:** a TJA1050 needs 5 V, and its RX output then drives the
+  Pi's 3.3 V input. Use a 3.3 V transceiver, or level-shift RX.
+- **Chip selects:** SPI0 has CE0 / CE1. The third controller needs SPI1
+  or a GPIO chip select.
+- **Kernel driver:** the `mcp251x` overlay must be off for controllers the
+  realtime component owns.
+
 ## 4. Protocol
 
 ### Option A: CANopen, CiA 402 drive profile
@@ -381,6 +459,15 @@ onto 4 wires through the wrist.
    buses; or everything classic.
 
 ## Sources
+
+Raspberry Pi SPI and MCP2515:
+- [hm2_rpspi(9): BCM2835 SPI from realtime, Pi 2/3](https://dyn.manpages.debian.org/trixie/linuxcnc-uspace/hm2_rpspi.9)
+- [LinuxCNC forum: SPI on the Raspberry Pi 5](https://forum.linuxcnc.org/18-computer/51748-eoi-in-getting-spi-going-on-the-rpi5?start=10)
+- [LinuxCNC forum: LinuxCNC on Raspberry Pi 5](https://forum.linuxcnc.org/9-installing-linuxcnc/50203-linuxcnc-on-raspberry-pi-5?start=70)
+- [HI-311x CAN-over-SPI driver thread: RX FIFO filling, IRQ threads on another core](https://lkml.iu.edu/hypermail/linux/kernel/1703.1/01321.html)
+- [MCP2518FD RX overflow under load (NXP community)](https://community.nxp.com/t5/i-MX-Processors/MCP2518FD-Rx-buffer-overflow-on-imx8mm/td-p/1237909)
+- [mcp251x: re-check the interrupt flags after mailbox 0 (kernel log)](https://git.zx2c4.com/linux-dev/log/drivers/net/can/spi?showmsg=1)
+- [MCP2515 family data sheet DS20001801K](https://cdn.sparkfun.com/assets/1/0/e/4/0/MCP2515-Family-Data-Sheet-DS20001801K.pdf)
 
 Tool flanges and joint buses of cobots:
 - [Universal Robots UR7e: tool connector (M8 8-pin, 2 AI or 1 RS-485)](https://www.universal-robots.com/products/ur7e-920/)
