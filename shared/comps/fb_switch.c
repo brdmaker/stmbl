@@ -81,6 +81,7 @@ struct fb_switch_ctx_t {
   int32_t probe_k;
   float probe_t, probe_amp, probe_len, probe_pos0, probe_angle, probe_last, probe_still;
   float probe_target, probe_settle;  // the angle to turn to before the next pulse
+  float phase_cmd0;                  // cmd_pos when phasing began
   int32_t probe_on;                  // 1: in the pulse or its pause
   float probe_c, probe_s, probe_max, check_plus, check_minus;
 };
@@ -224,11 +225,15 @@ static int pulse(struct fb_switch_ctx_t *ctx, struct fb_switch_pin_ctx_t *pins, 
 }
 
 // rezero: take the rotor's position after phasing as the commanded one (the
-// align method: it moved the rotor). Probing keeps the mapping set while
-// disabled, so a residual movement is corrected, not hidden as an offset.
+// align method: it moved the rotor). Probing keeps the rotor's movement in
+// the feedback (the position loop corrects it, nothing is hidden as an
+// offset) and only absorbs how far the command moved meanwhile (LinuxCNC
+// may jog while the drive phases), as the align method did.
 static void phasing_done(struct fb_switch_ctx_t *ctx, struct fb_switch_pin_ctx_t *pins, float mot_pos, int rezero) {
   if(rezero) {
     ctx->cmd_mot_offset = minus(PIN(cmd_pos), mot_pos);
+  } else {
+    ctx->cmd_mot_offset = mod(ctx->cmd_mot_offset + minus(PIN(cmd_pos), ctx->phase_cmd0));
   }
   ctx->current_com_pos = 4.0;
 }
@@ -400,6 +405,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
         default: // init
           ctx->phase_start_pos = mot_pos; // safe start pos
+          ctx->phase_cmd0      = PIN(cmd_pos);
           PIN(com_fb) = 0.0;
           ctx->com_offset = 0.0;
           PIN(phase_error) = 0.0;
