@@ -63,6 +63,9 @@ if [[ " $PHASES " == *" lcnc "* ]]; then
   INI=$RUN/lcnc/stmbl.ini
   cat > "$RUN/lcnc/display.sh" <<EOS
 #!/bin/sh
+# as a GUI would: the POSTGUI_HALFILEs (e.g. phasing_ferror.hal)
+cd "$RUN/lcnc"
+for f in \$(sed -n 's/^POSTGUI_HALFILE *= *//p' "$INI"); do halcmd -i "$INI" -f "\$f" || exit 1; done
 exec python3 "$HERE/hwtest.py" --phase lcnc $ARGS > "$RUN/lcnc-phase.log" 2>&1
 EOS
   chmod +x "$RUN/lcnc/display.sh"

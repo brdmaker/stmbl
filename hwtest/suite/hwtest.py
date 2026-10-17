@@ -706,7 +706,7 @@ def check_swing(ctx, L, where):
         raise Fail("%s: the motor swung %.3f mm at enable (limit %.2f; see diag.txt)" % (where, L.swing, ctx.a.max_swing))
 
 
-@test("lcnc", "machine on: drive enables without a kick, homes, no fault")
+@test("lcnc", "machine on: drive enables (phasing swing within limits), homes, no fault")
 def t_on(ctx):
     L = lcnc(ctx)
     ok = L.on()
@@ -723,7 +723,43 @@ def t_on(ctx):
     need(not errs, "LinuxCNC: %s" % errs)
 
 
-@test("lcnc", "enable cycles: machine off/on x5, the drive follows, no kick, no fault")
+def ini_value(ctx, section, key):
+    try:
+        text = open(os.path.join(ctx.dir, "lcnc", "stmbl.ini")).read()
+    except OSError:
+        return None
+    m = re.search(r"^\[%s\](.*?)(?=^\[|\Z)" % re.escape(section), text, re.S | re.M)
+    v = re.search(r"^%s\s*=\s*(\S+)" % key, m.group(1), re.M) if m else None
+    return float(v.group(1)) if v else None
+
+
+@test("lcnc", "ferror limit: PHASING_FERROR until homed and right after an enable, FERROR once settled")
+def t_phasing_ferror(ctx):
+    # The drive autophases at each enable until it has seen the encoder
+    # index; phasing_ferror.hal keeps LinuxCNC's limit above that swing.
+    L = ready(ctx)
+    relaxed, normal = ini_value(ctx, "JOINT_0", "PHASING_FERROR"), ini_value(ctx, "JOINT_0", "FERROR")
+    hold = ini_value(ctx, "JOINT_0", "PHASING_TIME")
+    if relaxed is None:
+        return "skipped: no [JOINT_0]PHASING_FERROR in the config"
+    ferr = lambda: L.hal.get_value("ini.0.ferror")
+    time.sleep(hold + 0.5)
+    settled = ferr()
+    need(abs(settled - normal) < 1e-6, "homed and enabled %.1f s: limit %.3f, expected %.3f" % (hold + 0.5, settled, normal))
+    L.off()
+    time.sleep(0.5)
+    need(abs(ferr() - relaxed) < 1e-6, "disabled: limit %.3f, expected %.3f" % (ferr(), relaxed))
+    need(L.on(), "machine on failed: %s" % L.errors())
+    early = ferr()
+    check_swing(ctx, L, "re-enable")
+    time.sleep(hold + 0.5)
+    late = ferr()
+    need(abs(early - relaxed) < 1e-6 and abs(late - normal) < 1e-6,
+         "after the enable: %.3f, then %.3f; expected %.3f, then %.3f" % (early, late, relaxed, normal))
+    return "limit %.1f mm while phasing, %.1f mm settled; swing %.3f mm" % (relaxed, normal, L.swing)
+
+
+@test("lcnc", "enable cycles: machine off/on x5, the drive follows, no fault")
 def t_enable_cycles(ctx):
     L = lcnc(ctx)
     for i in range(5):
@@ -980,7 +1016,8 @@ def main():
     p.add_argument("--dc-volt", type=float, default=0.0, help="V, expected DC bus (+-5%%; 0: not checked)")
     p.add_argument("--vel", type=float, default=500.0, help="mm/s, the program's top speed")
     p.add_argument("--max-ferror", type=float, default=0.5, help="mm during motion")
-    p.add_argument("--max-swing", type=float, default=0.1, help="mm, motor movement at enable")
+    p.add_argument("--max-swing", type=float, default=1.5,
+                   help="mm, motor movement at enable (autophasing; below [JOINT_0]PHASING_FERROR)")
     p.add_argument("--max-ferror-rest", type=float, default=0.02, help="mm at rest")
     p.add_argument("--rt-note", type=float, default=0.85, help="note rt max above this part of the period")
     p.add_argument("--rt-fail", type=float, default=0.97, help="fail rt max above this part of the period")

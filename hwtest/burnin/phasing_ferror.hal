@@ -1,0 +1,35 @@
+# A larger following error while the drive may be autophasing.
+#
+# Without commutation signals (U/V/W, absolute encoder) the drive finds the
+# rotor's electrical angle at each enable until it has seen the encoder
+# index (shared/comps/fb_switch.c): the rotor moves up to half an
+# electrical period (here ~1 mm: 5 pole pairs, 10 mm/rev) and settles back
+# within ~0.5 s. So the limit is [JOINT_0]PHASING_FERROR unless the joint
+# is homed and has been enabled for [JOINT_0]PHASING_TIME seconds, then
+# the normal [JOINT_0]FERROR / MIN_FERROR.
+#
+# A POSTGUI_HALFILE: LinuxCNC creates the ini.* pins after the HALFILEs.
+loadrt timedelay names=phasing-enabled
+loadrt and2 names=phasing-settled
+loadrt not names=phasing-relax
+loadrt mux2 names=phasing-ferror,phasing-min-ferror
+addf phasing-enabled    servo-thread
+addf phasing-settled    servo-thread
+addf phasing-relax      servo-thread
+addf phasing-ferror     servo-thread
+addf phasing-min-ferror servo-thread
+
+setp phasing-enabled.on-delay  [JOINT_0]PHASING_TIME
+setp phasing-enabled.off-delay 0
+net xenable => phasing-enabled.in
+net phasing-x-homed joint.0.homed => phasing-settled.in0
+net phasing-x-on phasing-enabled.out => phasing-settled.in1
+net phasing-x-settled phasing-settled.out => phasing-relax.in
+net phasing-x-relax phasing-relax.out => phasing-ferror.sel phasing-min-ferror.sel
+
+setp phasing-ferror.in0     [JOINT_0]FERROR
+setp phasing-ferror.in1     [JOINT_0]PHASING_FERROR
+setp phasing-min-ferror.in0 [JOINT_0]MIN_FERROR
+setp phasing-min-ferror.in1 [JOINT_0]PHASING_FERROR
+net phasing-x-ferror     phasing-ferror.out     => ini.0.ferror
+net phasing-x-min-ferror phasing-min-ferror.out => ini.0.min_ferror
