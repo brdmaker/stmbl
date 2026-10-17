@@ -112,7 +112,7 @@ void uid(char *ptr) {
   if(hv_uid[0] | hv_uid[1] | hv_uid[2]) {
     printf("hv uid: %08lx%08lx%08lx\n", hv_uid[2], hv_uid[1], hv_uid[0]);
   } else {
-    printf("hv uid: not reported (no HV board, or its firmware is older than v0.9.18-292)\n");
+    printf("hv uid: not reported (no HV board, or its firmware is older than v0.9.18-293)\n");
   }
 }
 COMMAND("uid", uid, "show the unique IDs of the lv (F4) and hv (F3) CPUs");

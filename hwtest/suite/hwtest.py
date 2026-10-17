@@ -253,6 +253,24 @@ def t_readings(ctx):
     return "DC %.1f V, HV %.1f C, motor %.1f C" % (dc, p["hv0.hv_temp"], p.get("iit0.temp", float("nan")))
 
 
+@test("drive", "uid: lv and hv CPU unique IDs reported; the USB serial matches the lv ID", targets=("hw",))
+def t_uid(ctx):
+    rc, out = ctx.cli(ctx.a.usb, "-c", "uid")
+    lv = re.search(r"lv uid: ([0-9a-f]{24})", out)
+    hv = re.search(r"hv uid: ([0-9a-f]{24})", out)
+    usb = re.search(r"usb serial: ([0-9A-F]{12})", out)
+    need(lv and usb, "no lv uid / usb serial: %r" % out[-200:])
+    need(hv, "no hv uid (HV firmware too old? run hv_update): %r" % out[-200:])
+    need(lv.group(1) != hv.group(1), "lv and hv IDs are the same")
+    r = subprocess.run(["lsusb", "-v", "-d", "0483:5740"], capture_output=True, text=True)
+    m = re.search(r"iSerial\s+\d+\s+(\S+)", r.stdout)
+    if m:
+        need(m.group(1) == usb.group(1), "USB descriptor serial %s, drive says %s" % (m.group(1), usb.group(1)))
+    ctx.m("lv_uid", lv.group(1))
+    ctx.m("hv_uid", hv.group(1))
+    return "lv %s, hv %s" % (lv.group(1), hv.group(1))
+
+
 @test("drive", "console: unknown command answers 'not found'")
 def t_unknown(ctx):
     rc, out = ctx.cli(ctx.a.usb, "-c", "hwtest_no_such_pin")
