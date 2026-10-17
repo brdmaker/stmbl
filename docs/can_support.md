@@ -303,6 +303,62 @@ drive's internals.
    component, as the cobots do. This works for open / close / force
    commands, not for servo-rate control.
 
+### The data budget through the wrist drive
+
+**The limit** (hostmot2's source, `sserial.h`): `HM2_SSERIAL_NUMREGS` 7,
+"224 bits of data per channel in sserialb". Older smart-serial firmware
+stops at 96 bits. Which one a card has depends on its bitfile: check
+yours.
+
+**stmbl's frame today** (`tools/gentable.c`):
+
+| direction | used | fields | free (96) | free (224) |
+|---|---|---|---|---|
+| to the drive | 80 bits | pos_cmd 32, vel_cmd 32, console 10, out 0..3, enable, index_enable | 16 | 144 |
+| from the drive | 96 bits | pos_fb 32, vel_fb 32, current 8, power 8, console 10, in 0..3, fault, index | 0 | 128 |
+
+**What the toolhead needs every servo period is small,** as long as its
+fast loops close on the tool. The gripper's position and current loops
+run in the gripper's own drive (a brdstepper on the tool), as the
+joints' do. Through the wrist go only setpoints and status, for example:
+
+| to the tool | bits | from the tool | bits |
+|---|---|---|---|
+| gripper target (0.01 mm, 16 bit) | 16 | gripper position | 16 |
+| gripper force / current limit | 8 | gripper current (force) | 8 |
+| gripper mode (move / grip / release / home) | 4 | status: gripped, moving, homed, fault, tool present | 8 |
+| tool digital outputs (valves, lights) | 8 | tool digital inputs | 8 |
+| | | tool ID | 8 |
+| **sum** | **36** | **sum** | **48** |
+
+- **With 224-bit firmware:** it fits with room to spare, in both
+  directions.
+- **With 96-bit firmware:** the drive-to-host direction is full today.
+  48 bits have to come from compacting stmbl's own fields:
+  - `vel_fb` 32 → 16 bits, scaled to the axis's top speed;
+  - or `vel_fb` dropped altogether, since LinuxCNC can differentiate
+    `pos_fb`.
+
+**What doesn't need the cyclic frame:**
+- **Rotating slot:** a 4-bit slot number and a 16-bit value, a different
+  tool value each period. That gives 16 values, each at 1 kHz / 16 =
+  60 Hz: temperatures, tool counters, sensor readings.
+- **Console relay:** the 10-bit console channel already reaches the wrist
+  drive. It can pass console lines on to the toolhead's nodes over CAN
+  (`tool1 about`, `tool1 showconf`, `servoterm-cli --update` of a tool
+  node). That covers configuration, tool data and firmware, without
+  cyclic bits. Smart-serial's ~1 kB/s console is the bottleneck there,
+  not CAN.
+- **Tool change** (identify, load parameters, check the gripper) is
+  event-driven: the console and slow slots suffice.
+
+**When the wrist path is not enough:**
+- **Signs:** several fast tool axes, a toolhead streaming sensor data
+  (force/torque at a high rate), or a servo-rate loop closed in LinuxCNC
+  through the tool.
+- **Remedy:** the toolhead's CAN goes to the host directly (option 1), and
+  the wrist drive only passes the wires through.
+
 For the robot work on `claude/robot-dynamics` (the stmbl electric gripper,
 the pneumatic tool changer), option 2 fits best. Joint 6's smart-serial
 already runs, and the gripper and the tool changer's sensors would move
