@@ -74,10 +74,12 @@ showsize: build
 
 # Flash the device
 #
+# dfu-util -w waits for the DFU device to enumerate (bounded where timeout exists)
+DFU-WAIT = $(shell command -v timeout >/dev/null 2>&1 && echo timeout 30)
 btburn: tools/bootloader.py build showsize $(TARGET).dfu
 	@$(PYTHON) tools/bootloader.py
 	@sleep 1
-	@$(DFU-UTIL) -d 0483:df11 -a 0 -s $(ADDRESS):leave -D $(TARGET).dfu
+	@$(DFU-WAIT) $(DFU-UTIL) -w -d 0483:df11 -a 0 -s $(ADDRESS):leave -D $(TARGET).dfu
 
 flash: $(TARGET).bin
 	@$(ST-FLASH) --reset write $(TARGET).bin $(ADDRESS)

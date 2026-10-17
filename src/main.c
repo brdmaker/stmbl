@@ -69,36 +69,19 @@ void DMA2_Stream0_IRQHandler(void) {
   }
 }
 
+// Enter ST's USB DFU (ROM) through a reset: the stmbl bootloader
+// (bootloader/src/main.c) jumps to the ROM when it finds this word in SRAM2.
+// Jumping into the ROM from the running app failed every other time: after
+// dfu-util's ":leave" (a jump, not a reset) the ROM went straight back to
+// flash and the drive just rebooted into the app.
+#define BOOTLOADER_MAGIC_ADDR 0x2001C000
+#define BOOTLOADER_MAGIC 0xDEADBEEF
+
 void bootloader(char *ptr) {
   hal_stop();
-
-  NVIC_DisableIRQ(TIM_SLAVE_IRQ);
-  NVIC_DisableIRQ(DMA2_Stream0_IRQn);
-  NVIC_DisableIRQ(SysTick_IRQn);
-
-  void (*SysMemBootJump)(void);
-  volatile uint32_t addr = 0x1FFF0000;
-
-  RCC_DeInit();
-  SysTick->CTRL = 0;
-  SysTick->LOAD = 0;
-  SysTick->VAL  = 0;
-
-  RCC->AHB1RSTR = 0x22E017FF;
-  RCC->AHB1RSTR = 0;
-  RCC->AHB2RSTR = 0xF1;
-  RCC->AHB2RSTR = 0;
-  RCC->AHB3RSTR = 0x1;
-  RCC->AHB3RSTR = 0;
-  RCC->APB1RSTR = 0xF6FEC9FF;
-  RCC->APB1RSTR = 0;
-  RCC->APB2RSTR = 0x4777933;
-  RCC->APB2RSTR = 0;
-
-  SYSCFG->MEMRMP = 0x01;
-  SysMemBootJump = (void (*)(void))(*((uint32_t *)(addr + 4)));
-  __set_MSP(*(uint32_t *)addr);
-  SysMemBootJump();
+  *((volatile uint32_t *)BOOTLOADER_MAGIC_ADDR) = BOOTLOADER_MAGIC;
+  __DSB();
+  NVIC_SystemReset();
 }
 COMMAND("bootloader", bootloader, "enter bootloader");
 
