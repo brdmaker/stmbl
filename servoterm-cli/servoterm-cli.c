@@ -32,6 +32,13 @@
  *                  --no-arm), wait for the capture (--capture-timeout SEC,
  *                  default 60), download it (scopedump: CRC per line), write
  *                  CSV: t (0 at the trigger) and a column per channel
+ *     --update IMAGE  in-band firmware update (shared/comps/fwup.c, the drive
+ *                  disabled): stage the application image (.bin) in the
+ *                  drive's flash, line by line with a CRC each (resumes an
+ *                  interrupted transfer), check its CRC32, then fwapply: the
+ *                  drive resets and its bootloader copies the image. Over
+ *                  USB in seconds; over the smart-serial console (sserialterm)
+ *                  at ~1 kB/s. --no-apply stops before fwapply.
  *     SCRIPT    file of commands to send; if omitted (and no --dump/--load),
  *               reads stdin
  *
@@ -1031,6 +1038,166 @@ static int scope_capture(int fd, const char *path, int arm, double timeout) {
   return 0;
 }
 
+// ---- in-band firmware update (shared/comps/fwup.c, shared/fwstage.h) ----
+
+#define FW_LINE 30   // bytes per fwdata line: the console's 63 characters
+#define FW_WINDOW 3  // lines in flight: the smart-serial console buffers 256 bytes
+
+static unsigned long fw_crc32(const unsigned char *d, size_t n) {
+  unsigned long c = 0xffffffffUL;
+  for(size_t i = 0; i < n; i++) {
+    c ^= d[i];
+    for(int b = 0; b < 8; b++) {
+      c = c & 1 ? (c >> 1) ^ 0xEDB88320UL : c >> 1;
+    }
+  }
+  return c ^ 0xffffffffUL;
+}
+
+// send cmd, wait for its "fw ..." reply line; NULL on timeout
+static const char *fw_cmd(int fd, const char *cmd, double timeout) {
+  if(capture_cmd(fd, cmd, 0.1, "\n", timeout) < 0 || !cap_buf) {
+    return NULL;
+  }
+  const char *r = strstr(cap_buf, "fw ");
+  return r && strchr(r, '\n') ? r : NULL;
+}
+
+static int fw_update(int fd, const char *path, int apply) {
+  FILE *f = fopen(path, "rb");
+  if(!f) {
+    fprintf(stderr, "servoterm-cli: %s: %s\n", path, strerror(errno));
+    return -1;
+  }
+  fseek(f, 0, SEEK_END);
+  long size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  unsigned char *img = malloc(size > 0 ? size : 1);
+  if(size <= 0 || fread(img, 1, size, f) != (size_t)size) {
+    fprintf(stderr, "servoterm-cli: %s: cannot read\n", path);
+    fclose(f);
+    free(img);
+    return -1;
+  }
+  fclose(f);
+  unsigned long crc = fw_crc32(img, size);
+  char cmd[128];
+  snprintf(cmd, sizeof(cmd), "fwbegin %ld %08lx", size, crc);
+  const char *r = fw_cmd(fd, cmd, 5.0);
+  long off = 0;
+  if(!r || strncmp(r, "fw ok", 5)) {
+    fprintf(stderr, "servoterm-cli: fwbegin: %.*s\n", r ? (int)strcspn(r, "\n") : 7, r ? r : "no reply");
+    free(img);
+    return -1;
+  }
+  if(sscanf(r, "fw ok resume %ld", &off) == 1) {
+    fprintf(stderr, "servoterm-cli: resuming at %ld of %ld bytes\n", off, size);
+  }
+  // a window of lines in flight (the drive's console buffers a few); every
+  // reply carries the drive's position, the last one says where to go on
+  double t0 = now();
+  int retries = 0, busy = 0, last_pct = -1;
+  while(off < size && !stop_req) {
+    int k = 0;
+    capturing = 1;
+    cap_len   = 0;
+    if(cap_buf) {
+      cap_buf[0] = '\0';
+    }
+    for(long o2 = off; o2 < size && k < FW_WINDOW; o2 += FW_LINE, k++) {
+      int n = size - o2 < FW_LINE ? (int)(size - o2) : FW_LINE;
+      static const char t[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      char b64[64];
+      int o = 0;
+      for(int i = 0; i < n; i += 3) {
+        const unsigned char *p = img + o2 + i;
+        unsigned v = (unsigned)p[0] << 16 | (i + 1 < n ? (unsigned)p[1] << 8 : 0) | (i + 2 < n ? p[2] : 0);
+        b64[o++]   = t[(v >> 18) & 63];
+        b64[o++]   = t[(v >> 12) & 63];
+        b64[o++]   = i + 1 < n ? t[(v >> 6) & 63] : '=';
+        b64[o++]   = i + 2 < n ? t[v & 63] : '=';
+      }
+      b64[o] = 0;
+      snprintf(cmd, sizeof(cmd), "fwdata %ld %s %04x", o2, b64, crc16(img + o2, n));
+      if(write_line(fd, cmd, strlen(cmd)) < 0) {
+        capturing = 0;
+        free(img);
+        return -1;
+      }
+    }
+    // the replies: one line each, "fw ok GOT" / "fw busy" / "fw err E at GOT"
+    double end = now() + 3.0;
+    int replies = 0;
+    while(replies < k && now() < end) {
+      if(pump(fd, 0.02) < 0) {
+        capturing = 0;
+        free(img);
+        return -1;
+      }
+      replies = 0;
+      for(const char *q = cap_buf; q && (q = strstr(q, "fw ")); q++) {
+        replies += strchr(q, '\n') != NULL;
+      }
+    }
+    capturing = 0;
+    long pos = -1, got;
+    int bad = 0;
+    for(const char *q = cap_buf; q && (q = strstr(q, "fw ")); q++) {
+      if(sscanf(q, "fw ok %ld", &got) == 1 || sscanf(q, "fw err %*d at %ld", &got) == 1) {
+        pos = got;
+      }
+      if(!strncmp(q, "fw busy", 7)) {
+        busy++;
+      }
+      bad += !strncmp(q, "fw err", 6) && strncmp(q, "fw err -3", 9);  // a gap after a busy line is expected
+    }
+    if(pos > off && pos <= size && pos % FW_LINE == 0) {
+      off     = pos;
+      retries = 0;
+    } else if(pos >= 0 && pos <= size && pos % FW_LINE == 0 && bad == 0) {
+      off = pos;  // no progress (busy): again
+      pump(fd, 0.01);
+    } else if(pos == size) {
+      off = size;
+    } else if(++retries > 10) {
+      fprintf(stderr, "servoterm-cli: fwdata at %ld: no progress (%s)\n", off, cap_buf ? cap_buf : "no reply");
+      free(img);
+      return -1;
+    }
+    int pct = (int)(100 * off / size);
+    if(pct / 10 != last_pct / 10) {
+      fprintf(stderr, "servoterm-cli: %3d%% (%ld bytes, %.0f s)\n", pct, off, now() - t0);
+      last_pct = pct;
+    }
+  }
+  free(img);
+  if(stop_req) {
+    return -1;  // fwbegin with the same image resumes
+  }
+  for(int i = 0; i < 50; i++) {
+    r = fw_cmd(fd, "fwend", 3.0);
+    if(!r || strncmp(r, "fw busy", 7)) {
+      break;
+    }
+    pump(fd, 0.05);
+  }
+  if(!r || strncmp(r, "fw ok staged", 12)) {
+    fprintf(stderr, "servoterm-cli: fwend: %.*s\n", r ? (int)strcspn(r, "\n") : 8, r ? r : "no reply");
+    return -1;
+  }
+  fprintf(stderr, "servoterm-cli: staged %ld bytes, crc32 %08lx, in %.1f s (%d busy)\n", size, crc, now() - t0, busy);
+  if(!apply) {
+    return 0;
+  }
+  r = fw_cmd(fd, "fwapply", 3.0);
+  if(!r || strncmp(r, "fw ok", 5)) {
+    fprintf(stderr, "servoterm-cli: fwapply: %.*s\n", r ? (int)strcspn(r, "\n") : 8, r ? r : "no reply");
+    return -1;
+  }
+  fprintf(stderr, "servoterm-cli: applied: the drive resets, its bootloader copies the image\n");
+  return 0;
+}
+
 static void usage(void) {
   fprintf(stderr,
           "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
@@ -1038,6 +1205,7 @@ static void usage(void) {
           "                     [-C pin:gain,...] [--step N] [--log SEC]\n"
           "                     [--autotune [--autotune-comp COMP] [--autotune-timeout SEC]]\n"
           "                     [--capture FILE [--no-arm] [--capture-timeout SEC]]\n"
+          "                     [--update IMAGE [--no-apply]]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -1061,6 +1229,8 @@ int main(int argc, char **argv) {
   const char *capture_path   = NULL;  // --capture: the capture scope's samples as CSV
   int capture_arm            = 1;
   double capture_timeout     = 60.0;
+  const char *update_path    = NULL;  // --update: in-band firmware update
+  int update_apply           = 1;
 
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
@@ -1077,6 +1247,10 @@ int main(int argc, char **argv) {
       autotune_timeout = atof(argv[++i]);
     } else if(strcmp(argv[i], "--capture") == 0 && i + 1 < argc) {
       capture_path = argv[++i];
+    } else if(strcmp(argv[i], "--update") == 0 && i + 1 < argc) {
+      update_path = argv[++i];
+    } else if(strcmp(argv[i], "--no-apply") == 0) {
+      update_apply = 0;
     } else if(strcmp(argv[i], "--no-arm") == 0) {
       capture_arm = 0;
     } else if(strcmp(argv[i], "--capture-timeout") == 0 && i + 1 < argc) {
@@ -1211,7 +1385,7 @@ int main(int argc, char **argv) {
     for(int i = 0; i < ncmds && rc == 0; i++) {
       rc = send_line(fd, cmds[i], wait_ms);
     }
-  } else if(script || !(dump_path || load_path || log_sec >= 0.0 || scope_cfg || capture_path)) {
+  } else if(script || !(dump_path || load_path || log_sec >= 0.0 || scope_cfg || capture_path || update_path)) {
     FILE *in = stdin;
     if(script) {
       in = fopen(script, "r");
@@ -1287,6 +1461,11 @@ int main(int argc, char **argv) {
   if(rc == 0 && capture_path) {
     pump(fd, 0.3);
     rc = scope_capture(fd, capture_path, capture_arm, capture_timeout) < 0;
+  }
+
+  if(rc == 0 && update_path) {
+    pump(fd, 0.3);
+    rc = fw_update(fd, update_path, update_apply) < 0;
   }
 
   // Collect trailing output until the drive goes quiet. Scope frames alone do

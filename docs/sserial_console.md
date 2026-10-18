@@ -19,8 +19,9 @@ Related docs:
 - [capture_scope.md](capture_scope.md): the capture scope, downloaded over
   this console.
 - `linuxcnc/sserialterm/README.md`: the component, in short.
-- On branch `sserial_bootloader`, `sserial_bootloader.md`: firmware updates
-  over this console.
+- [sserial_bootloader.md](sserial_bootloader.md): firmware updates over
+  this console (`fwup`, `servoterm-cli --update`) and the smart-serial
+  bootloader.
 
 ## Quick start
 
@@ -162,6 +163,7 @@ speed:
 | `-c CMD` (repeatable), SCRIPT | commands | the reply's length at ~1 kB/s, plus the `-w` gap (50 ms) |
 | `--dump FILE` / `--load FILE` | the flash config | ~3 s for 1 kB; `--load` sends a line at a time and verifies, so longer |
 | `--capture FILE` | the capture scope (see [capture_scope.md](capture_scope.md)) | ~14 s for 2 × 2048 samples |
+| `--update IMAGE` | in-band firmware update, drive disabled (see [sserial_bootloader.md](sserial_bootloader.md)) | ~15 min for 345 kB |
 
 ## Limits and gotchas
 

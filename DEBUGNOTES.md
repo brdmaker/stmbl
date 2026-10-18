@@ -903,6 +903,64 @@ Entry format:
   checked first, and only a valid request steps the console. The F3 build
   shares term.c but has no console: weak references there.
 
+## 2026-10-16  setsserial flash skips all-zero blocks
+- Area:    `shared/lbp_flash.c`, `tools/mkssfw.py`
+- Status:  Workaround
+- Symptom: (host model) an all-zero 16 kB block in the image reads 0xFF
+  on the device after `setsserial flash`.
+- Cause:   setsserial skips blocks of zeros (neither erase nor write), and
+  the device erases a whole sector at the first block written into it.
+- Fix:     `tools/mkssfw.py` (`make ssfw`) refuses an application with an
+  all-zero erase block. Otherwise the CRC check keeps the bootloader from
+  starting it, which is safe but confusing. See
+  docs/sserial_bootloader.md.
+
+## 2026-10-16  Flash erase/program stalls the whole F4 (single bank)
+- Area:    `bootloader/src/main.c`, `shared/comps/fwup.c`, `src/fwup_f4.c`,
+  `src/config.c` (`flashsaveconf`, `hardboot`)
+- Status:  Workaround
+- Symptom: (design) an in-band update that erases staging sectors while the
+  drive runs would stop the rt/frt interrupts for 1-2 s (128 kB sector).
+  HAL would stop with RT_TOO_LONG or FRT_TOO_LONG, and hm2 would drop the
+  smart-serial remote. During `setsserial flash`, an erase commit outlasts
+  hostmot2's 1 s wait for the cookie ("Timeout waiting for CMD to clear").
+- Cause:   STM32F405 and G431 have one flash bank. While it erases or
+  programs, every instruction fetch from flash waits, including vector
+  fetches and ISRs. Typical times: 16 kB 0.25 s, 128 kB 1 s (max 2 s), one
+  word 16 us (max 100 us). `flashsaveconf` already stalls ~0.25 s today.
+- Fix:     The application never erases staging; the bootloader leaves it
+  blank (`fwst_boot`). fwup programs one word per rt period and only while
+  `fwup0.en` (`fault0.en_out`) is 0. `hal.flash_grace` makes the rt/frt ISRs
+  tolerate a late period after a word write instead of stopping HAL. The
+  smart-serial loader erases the application area before answering
+  anything (`lbpf_erase_all`), so erase commits find blank blocks
+  (`lbpf_erase_lazy`). Only a re-run over stale data costs one timed-out
+  setsserial run. Its RX uses DMA, so bytes received during a stall are
+  kept. None of this has been tried on hardware yet.
+
+## 2026-10-16  Console lines are 63 characters at most
+- Area:    `shared/comps/term.c` (64-byte line buffers), `shared/commands.c`
+  (`call_cmd`: `sscanf` into `char a[64]` without a width)
+- Status:  Known
+- Symptom: Longer console lines can't be sent. `call_cmd` also has no
+  `sscanf` width, so a longer argument from another path would overflow
+  `a[64]`.
+- Cause:   Fixed 64-byte buffers.
+- Fix:     fwdata lines carry 30 bytes each (60 characters, `FWUP_LINE`).
+  Widths in `call_cmd`'s `sscanf` would be a cheap hardening.
+
+## 2026-10-16  In-band update speed over the smart-serial console
+- Area:    `servoterm-cli --update`, `shared/sscon.c`
+- Status:  Note
+- Symptom: Over sserialterm, 3 kB took 9.7 s in the LinuxCNC simulation
+  (~350 B/s once running). A 345 kB application would take ~15 min. Over the
+  simulator's USB-like pty it ran at ~4.5 kB/s (20 kB in 4.6 s).
+- Cause:   The console moves one byte per servo period (1 kHz). A fwdata
+  line is 61 characters for 30 image bytes, plus the replies. servoterm-cli
+  keeps 3 lines in flight; sscon's RX buffer is 256 bytes.
+- Fix:     Acceptable for unattended updates. A binary fwdata (no base64)
+  or a wider console field would roughly halve the time.
+
 ## 2026-10-16  Capture scope: pre = 1 lost the trigger sample
 - Area:    `shared/comps/scope.c` (`do_arm`)
 - Status:  Fixed

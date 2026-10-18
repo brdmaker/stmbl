@@ -53,6 +53,10 @@ void TIM_SLAVE_HANDLER(void) {
   TIM_ClearITPendingBit(TIM_SLAVE, TIM_IT_Update);
   hal_run_frt();
   if(TIM_GetITStatus(TIM_SLAVE, TIM_IT_Update) == SET) {
+    if(hal.flash_grace > 0) {  // late after a flash write (fwup)
+      hal.flash_late++;
+      return;
+    }
     hal_stop();
     hal.hal_state = FRT_TOO_LONG;
   }
@@ -63,6 +67,13 @@ void TIM_SLAVE_HANDLER(void) {
 void DMA2_Stream0_IRQHandler(void) {
   DMA_ClearITPendingBit(DMA2_Stream0, DMA_IT_TCIF0);
   hal_run_rt();
+  if(hal.flash_grace > 0) {
+    hal.flash_grace--;
+    if(DMA_GetITStatus(DMA2_Stream0, DMA_IT_TCIF0) == SET) {
+      hal.flash_late++;
+      return;
+    }
+  }
   if(DMA_GetITStatus(DMA2_Stream0, DMA_IT_TCIF0) == SET) {
     hal_stop();
     hal.hal_state = RT_TOO_LONG;

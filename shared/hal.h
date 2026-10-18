@@ -138,6 +138,10 @@ typedef struct {
   int32_t active_rt_func;
   int32_t active_frt_func;
   int32_t active_nrt_func;
+  // rt periods in which a late rt / frt interrupt is tolerated: a flash
+  // write stalls the chip (src/fwup_f4.c)
+  volatile int32_t flash_grace;
+  uint32_t flash_late;
 
   struct hal_comp_inst_t comp_insts[HAL_MAX_COMPS];
   struct hal_pin_inst_t pin_insts[HAL_MAX_PINS];
