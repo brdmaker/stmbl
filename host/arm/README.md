@@ -43,6 +43,9 @@ Tests: `arm_move` (hold, a 1.5 s move of all joints, brakes on disable),
 `arm_force` (gear torques change by -Jᵀf under a push), `arm_brake`
 (brakes hold; without J2's the arm falls onto its stop).
 
+HMI previews for the arm (operator screen, teach pendant, a real-time 3D
+view) are in `docs/hmi/`.
+
 ## Collision detector
 
 `detector FILE` runs `shared/robot/collide.c` (the code of

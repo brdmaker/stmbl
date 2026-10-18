@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARM-6 operator screen</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;background:#070A0E}
+a{color:#7FE6DE}a:hover{color:#B8F3EE}
+.panel{background:#0E141B;border:1px solid #1C2733;border-radius:6px}
+.lbl{font:600 11px/1 'Space Grotesk',sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#7D8C9B}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.btn{font:600 13px/1 'Space Grotesk',sans-serif;letter-spacing:.06em;color:#DCE6EF;background:#141C25;border:1px solid #2A3845;border-radius:4px;min-height:44px;padding:0 14px;cursor:pointer}
+.btn:hover{border-color:#4A6174}
+.btn.on{background:#13302F;border-color:#2BD4C9;color:#7FE6DE}
+.jog{min-width:44px;min-height:44px;font:600 16px/1 'JetBrains Mono',monospace;color:#DCE6EF;background:#141C25;border:1px solid #2A3845;border-radius:4px;cursor:pointer}
+.jog:hover{border-color:#2BD4C9;color:#7FE6DE}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+table{border-collapse:collapse}
+td,th{padding:6px 8px;text-align:right;font:400 12px/1.2 'JetBrains Mono',monospace;color:#C5D0DA;border-bottom:1px solid #16202A}
+th{font:600 10px/1 'Space Grotesk',sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#7D8C9B}
+td:first-child,th:first-child{text-align:left}
+.gline{font:400 12px/1.6 'JetBrains Mono',monospace;color:#8FA0B0;padding:1px 10px;white-space:pre}
+.gline.cur{background:#13302F;color:#B8F3EE;border-left:2px solid #2BD4C9}
+</style>
+</helmet>
+
+<div style="width: 100%; min-height: 960px; box-sizing: border-box; background: #070A0E; color: #DCE6EF; font-family: 'Space Grotesk', sans-serif; display: flex; flex-direction: column; gap: 12px; padding: 12px">
+
+  <!-- top bar -->
+  <header class="panel" style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="{{accent}}" stroke-width="2"><circle cx="14" cy="14" r="11"/><path d="M14 3v6M14 19v6M3 14h6M19 14h6"/></svg>
+      <div>
+        <div style="font-size: 18px; font-weight: 700; letter-spacing: .04em">ARM-6 / CELL 2</div>
+        <div class="lbl" style="margin-top: 4px">LinuxCNC 2.9 · armkins · 7 drives on CAN</div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 6px" role="group" aria-label="Mode">
+      <sc-for list="{{modes}}" as="m" hint-placeholder-count="4">
+        <button class="btn {{m.cls}}" onClick="{{m.pick}}">{{m.name}}</button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; gap: 20px; margin-left: auto; align-items: center">
+      <div>
+        <div class="lbl">Program</div>
+        <div class="mono" style="font-size: 14px; margin-top: 4px">palletize_B.ngc · line 142 / 388</div>
+      </div>
+      <div>
+        <div class="lbl">Cycle</div>
+        <div class="mono" style="font-size: 14px; margin-top: 4px">00:04:12</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #1C2733; border-radius: 4px">
+        <span class="dot" style="background: {{stateColor}}"></span>
+        <span style="font-weight: 600; font-size: 13px; letter-spacing: .08em">{{stateText}}</span>
+      </div>
+      <button class="btn" style="background: {{estopBg}}; border-color: {{estopBorder}}; color: #FFF; min-width: 120px; font-size: 14px" onClick="{{toggleEstop}}" aria-pressed="{{estopPressed}}">{{estopText}}</button>
+    </div>
+  </header>
+
+  <!-- body: three columns, wrap on narrow screens -->
+  <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch">
+
+    <!-- left: joints and drives -->
+    <section class="panel" style="flex: 1 1 360px; min-width: 0; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <div class="lbl">Joints</div>
+        <div class="lbl" style="color: #4F6070">deg · deg/s · ferror</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{joints}}" as="j" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 36px 1fr 86px 70px 64px; align-items: center; gap: 8px; padding: 6px 8px; background: #0A1016; border-radius: 4px">
+            <div class="mono" style="font-size: 13px; color: #7FE6DE">{{j.name}}</div>
+            <div style="height: 6px; background: #16202A; border-radius: 3px; position: relative">
+              <div style="position: absolute; top: 0; bottom: 0; left: {{j.barLeft}}; width: {{j.barWidth}}; background: {{accent}}; border-radius: 3px"></div>
+            </div>
+            <div class="mono" style="font-size: 16px; font-weight: 600; text-align: right">{{j.pos}}</div>
+            <div class="mono" style="font-size: 12px; color: #8FA0B0; text-align: right">{{j.vel}}</div>
+            <div class="mono" style="font-size: 12px; color: {{j.ferrColor}}; text-align: right">{{j.ferr}}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div class="lbl" style="margin-top: 8px">Drives (stmbl)</div>
+      <div style="overflow-x: auto">
+        <table style="width: 100%">
+          <thead><tr><th>Drive</th><th>Bus V</th><th>I rms</th><th>W</th><th>HV °C</th><th>State</th></tr></thead>
+          <tbody>
+            <sc-for list="{{drives}}" as="d" hint-placeholder-count="7">
+              <tr>
+                <td>{{d.name}}</td><td>{{d.bus}}</td><td>{{d.cur}}</td><td>{{d.pwr}}</td><td style="color: {{d.tempColor}}">{{d.temp}}</td>
+                <td><span class="dot" style="background: {{d.color}}; margin-right: 6px"></span>{{d.state}}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- center: viewport and pose -->
+    <section style="flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+          <div class="lbl">Live model · side view</div>
+          <div style="display: flex; gap: 14px; align-items: center">
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8FA0B0"><span class="dot" style="background: {{guardColor}}"></span>Guard: {{guardText}}</span>
+            <span class="mono" style="font-size: 12px; color: #8FA0B0">clearance {{clearance}} mm</span>
+          </div>
+        </div>
+
+        <svg role="img" aria-label="Side view of the arm: six joints, gripper and the guard clearance ring" viewBox="0 0 640 400" style="width: 100%; height: auto; background: #0A1016; border-radius: 4px">
+          <g stroke="#15202A" stroke-width="1">
+            <path d="M0 50H640M0 100H640M0 150H640M0 200H640M0 250H640M0 300H640M0 350H640"/>
+            <path d="M50 0V400M100 0V400M150 0V400M200 0V400M250 0V400M300 0V400M350 0V400M400 0V400M450 0V400M500 0V400M550 0V400M600 0V400"/>
+          </g>
+          <path d="M60 360H580" stroke="#2A3845" stroke-width="2"/>
+          <rect x="280" y="330" width="80" height="30" rx="4" fill="#141C25" stroke="#2A3845"/>
+          <text x="320" y="382" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#4F6070">J1 {{j1}}°</text>
+          <!-- collision cell boxes -->
+          <rect x="470" y="250" width="110" height="110" fill="none" stroke="#5A4A2B" stroke-dasharray="4 4"/>
+          <text x="478" y="266" font-family="Space Grotesk" font-size="10" fill="#9A7F49">CONVEYOR</text>
+          <!-- arm -->
+          <g transform="translate(320 330)">
+            <line x1="0" y1="0" x2="0" y2="-40" stroke="#8FA0B0" stroke-width="14" stroke-linecap="round"/>
+            <g transform="translate(0 -40) rotate({{j2}})">
+              <line x1="0" y1="0" x2="0" y2="-140" stroke="{{accent}}" stroke-width="10" stroke-linecap="round"/>
+              <circle cx="0" cy="0" r="9" fill="#0A1016" stroke="#DCE6EF" stroke-width="2"/>
+              <g transform="translate(0 -140) rotate({{j3}})">
+                <line x1="0" y1="0" x2="120" y2="0" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
+                <circle cx="0" cy="0" r="8" fill="#0A1016" stroke="#DCE6EF" stroke-width="2"/>
+                <g transform="translate(120 0) rotate({{j5}})">
+                  <line x1="0" y1="0" x2="44" y2="0" stroke="#DCE6EF" stroke-width="6" stroke-linecap="round"/>
+                  <circle cx="0" cy="0" r="7" fill="#0A1016" stroke="#DCE6EF" stroke-width="2"/>
+                  <path d="M44 -{{gripHalf}} h18 M44 {{gripHalf}} h18" stroke="#F2B34B" stroke-width="4" stroke-linecap="round"/>
+                </g>
+              </g>
+            </g>
+          </g>
+          <circle cx="{{tcpX}}" cy="{{tcpY}}" r="{{clearR}}" fill="none" stroke="{{guardColor}}" stroke-dasharray="3 5"/>
+          <circle cx="{{tcpX}}" cy="{{tcpY}}" r="4" fill="#F2B34B"/>
+          <text x="{{tcpLabelX}}" y="{{tcpLabelY}}" font-family="JetBrains Mono" font-size="11" fill="#F2B34B">TCP</text>
+        </svg>
+
+        <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{pose}}" as="p" hint-placeholder-count="6">
+            <div style="background: #0A1016; border-radius: 4px; padding: 8px 10px">
+              <div class="lbl" style="color: #4F6070">{{p.name}}</div>
+              <div class="mono" style="font-size: 18px; font-weight: 600; margin-top: 4px">{{p.val}}</div>
+              <div class="lbl" style="color: #4F6070; margin-top: 2px; letter-spacing: .06em; text-transform: none">{{p.unit}}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap">
+          <span class="mono" style="font-size: 12px; color: #8FA0B0">TCP 182 mm/s</span>
+          <span class="mono" style="font-size: 12px; color: #8FA0B0">frame WORLD · G54</span>
+          <span class="mono" style="font-size: 12px; color: #8FA0B0">tool T3 vacuum, TCP z 118.0</span>
+        </div>
+      </div>
+
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <div class="lbl">Program</div>
+          <div style="display: flex; gap: 6px">
+            <button class="btn" style="min-height: 36px">Run</button>
+            <button class="btn" style="min-height: 36px">Step</button>
+            <button class="btn" style="min-height: 36px">Pause</button>
+            <button class="btn" style="min-height: 36px">Stop</button>
+          </div>
+        </div>
+        <div style="background: #0A1016; border-radius: 4px; padding: 6px 0; overflow-x: auto">
+          <div class="gline">N140 G1 X612.0 Y-240.5 Z118.0 A180 B0 C45 F18000</div>
+          <div class="gline">N141 M64 P0            (vacuum on)</div>
+          <div class="gline cur">N142 G1 Z302.0 F9000  (lift)</div>
+          <div class="gline">N143 G0 X-180.0 Y410.0</div>
+          <div class="gline">N144 G1 Z140.0 F6000</div>
+          <div class="gline">N145 M65 P0            (vacuum off)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- right: jog, gripper, tool, power, safety -->
+    <section style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div class="lbl">Jog</div>
+        <div style="display: flex; gap: 6px" role="group" aria-label="Jog frame">
+          <sc-for list="{{frames}}" as="f" hint-placeholder-count="3">
+            <button class="btn {{f.cls}}" style="flex: 1" onClick="{{f.pick}}">{{f.name}}</button>
+          </sc-for>
+        </div>
+        <div style="display: flex; gap: 6px" role="group" aria-label="Jog increment">
+          <sc-for list="{{incs}}" as="i" hint-placeholder-count="4">
+            <button class="btn {{i.cls}}" style="flex: 1; min-height: 36px" onClick="{{i.pick}}">{{i.name}}</button>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <sc-for list="{{jogAxes}}" as="a" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: 44px 1fr 44px; gap: 8px; align-items: center">
+              <button class="jog" onClick="{{a.minus}}" aria-label="Jog {{a.name}} negative">−</button>
+              <div style="text-align: center">
+                <div class="mono" style="font-size: 13px; color: #7FE6DE">{{a.name}}</div>
+                <div class="mono" style="font-size: 11px; color: #4F6070">{{a.pos}}</div>
+              </div>
+              <button class="jog" onClick="{{a.plus}}" aria-label="Jog {{a.name}} positive">+</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px">
+          <label for="jogspeed" class="lbl">Jog speed</label>
+          <input id="jogspeed" type="range" min="1" max="100" value="35" style="flex: 1; accent-color: {{accent}}">
+          <span class="mono" style="font-size: 12px; width: 36px; text-align: right">35%</span>
+        </div>
+      </div>
+
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <div class="lbl">Gripper · drive 7</div>
+          <span class="mono" style="font-size: 12px; color: {{partColor}}">{{partText}}</span>
+        </div>
+        <div style="display: flex; gap: 6px">
+          <button class="btn {{openCls}}" style="flex: 1" onClick="{{gripOpen}}">Open</button>
+          <button class="btn {{closeCls}}" style="flex: 1" onClick="{{gripClose}}">Close</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+          <div><div class="lbl" style="color: #4F6070">Width</div><div class="mono" style="font-size: 16px; margin-top: 4px">{{gripWidth}} mm</div></div>
+          <div><div class="lbl" style="color: #4F6070">Force</div><div class="mono" style="font-size: 16px; margin-top: 4px">{{gripForce}} N</div></div>
+          <div><div class="lbl" style="color: #4F6070">Payload</div><div class="mono" style="font-size: 16px; margin-top: 4px">1.8 kg</div></div>
+        </div>
+      </div>
+
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div class="lbl">Power quota</div>
+        <div style="height: 10px; background: #16202A; border-radius: 5px; position: relative">
+          <div style="position: absolute; top: 0; bottom: 0; left: 0; width: 61%; background: {{accent}}; border-radius: 5px"></div>
+          <div style="position: absolute; top: -4px; bottom: -4px; left: 85%; width: 2px; background: #F2B34B"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between" class="mono">
+          <span style="font-size: 12px; color: #8FA0B0">1 220 W of 2 000 W</span>
+          <span style="font-size: 12px; color: #8FA0B0">fuse C16 · feed 100%</span>
+        </div>
+      </div>
+
+      <div class="panel" style="padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <div class="lbl">Safety</div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+          <div style="display: flex; justify-content: space-between"><span style="color: #8FA0B0">Emergency braking</span><span class="mono" style="color: #7FE6DE">qstop + dbrake armed</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #8FA0B0">F3 brake on F4 loss</span><span class="mono" style="color: #7FE6DE">6 / 6 drives</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #8FA0B0">Protective stop</span><span class="mono">at 40 mm · 0.6 s</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #8FA0B0">Holding brakes</span><span class="mono">J2 J3 J5 · 80 ms</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- footer: log -->
+  <footer class="panel" style="padding: 10px 16px; display: flex; gap: 24px; flex-wrap: wrap; align-items: center">
+    <div class="lbl">Events</div>
+    <span class="mono" style="font-size: 12px; color: #8FA0B0">14:02:11 guard: clearance 92 mm, conveyor box</span>
+    <span class="mono" style="font-size: 12px; color: #8FA0B0">14:01:48 tool change T2 → T3 ok, 2.1 s</span>
+    <span class="mono" style="font-size: 12px; color: #F2B34B">13:58:02 J4 HV 71 °C: current scaled</span>
+    <span class="mono" style="font-size: 12px; color: #4F6070; margin-left: auto">CAN 1 Mbit · 0 missed · rt 5 kHz</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2BD4C9","options":["#2BD4C9","#4FA3FF","#8BEB5A","#F2B34B"]},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = {
+      mode: 'AUTO', frame: 'JOINT', inc: 1, estop: false, grip: 'closed',
+      j: [12.4, -35.2, 48.75, 0, 76.1, -12.4],
+      guardArmed: true,
+    };
+  }
+  renderVals() {
+    const accent = this.props.accent ?? '#2BD4C9';
+    const s = this.state;
+    const names = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6'];
+    const vels = [0, 8.2, -12.5, 0, 4.1, 0];
+    const ferr = [0.001, 0.012, 0.009, 0.0, 0.021, 0.002];
+    const lim = 180;
+    const joints = names.map((n, i) => {
+      const v = s.j[i];
+      const frac = (v + lim) / (2 * lim);
+      return {
+        name: n,
+        pos: v.toFixed(2),
+        vel: vels[i].toFixed(1),
+        ferr: ferr[i].toFixed(3),
+        ferrColor: ferr[i] > 0.02 ? '#F2B34B' : '#8FA0B0',
+        barLeft: Math.min(frac, 0.5) * 100 + '%',
+        barWidth: Math.abs(frac - 0.5) * 100 + '%',
+      };
+    });
+    const nudge = (i, d) => () => {
+      const j = s.j.slice();
+      j[i] = Math.max(-lim, Math.min(lim, j[i] + d * s.inc));
+      this.setState({ j });
+    };
+    const jogAxes = s.frame === 'JOINT'
+      ? names.map((n, i) => ({ name: n, pos: s.j[i].toFixed(2) + '°', plus: nudge(i, 1), minus: nudge(i, -1) }))
+      : ['X', 'Y', 'Z', 'A', 'B', 'C'].map((n, i) => ({ name: n, pos: ['612.0', '-240.5', '302.0', '180.0', '0.0', '45.0'][i], plus: nudge(i, 1), minus: nudge(i, -1) }));
+
+    // 2D forward kinematics for the side view (same link lengths as the SVG)
+    const rad = (d) => d * Math.PI / 180;
+    const a2 = rad(s.j[1]), a3 = rad(s.j[1] + s.j[2]), a5 = rad(s.j[1] + s.j[2] + s.j[4]);
+    const sx = 320, sy = 290;
+    const ex = sx + 140 * Math.sin(a2), ey = sy - 140 * Math.cos(a2);
+    // the forearm points along +x of its frame, the wrist too; SVG rotates clockwise
+    const fx = ex + 120 * Math.cos(a3), fy = ey + 120 * Math.sin(a3);
+    const tx = fx + 62 * Math.cos(a5), ty = fy + 62 * Math.sin(a5);
+    const clear = s.guardArmed ? 92 : 0;
+    const drives = [
+      ['J1', 323, 1.2, 38, 41, 'ENABLED', '#2BD4C9'],
+      ['J2', 322, 4.8, 240, 52, 'ENABLED', '#2BD4C9'],
+      ['J3', 322, 3.1, 150, 48, 'ENABLED', '#2BD4C9'],
+      ['J4', 323, 0.9, 22, 71, 'SCALED', '#F2B34B'],
+      ['J5', 323, 1.4, 44, 44, 'ENABLED', '#2BD4C9'],
+      ['J6', 323, 0.3, 6, 39, 'ENABLED', '#2BD4C9'],
+      ['GRIP', 48, 0.6, 12, 35, 'HOLD', '#2BD4C9'],
+    ].map((d) => ({ name: d[0], bus: d[1], cur: d[2].toFixed(1), pwr: d[3], temp: d[4], tempColor: d[4] >= 70 ? '#F2B34B' : '#C5D0DA', state: d[5], color: d[6] }));
+    const modes = ['AUTO', 'MDI', 'JOG', 'TEACH'].map((m) => ({ name: m, cls: s.mode === m ? 'on' : '', pick: () => this.setState({ mode: m }) }));
+    const frames = ['JOINT', 'WORLD', 'TOOL'].map((f) => ({ name: f, cls: s.frame === f ? 'on' : '', pick: () => this.setState({ frame: f }) }));
+    const incs = [0.1, 1, 10, 45].map((v) => ({ name: v + (s.frame === 'JOINT' ? '°' : ' mm'), cls: s.inc === v ? 'on' : '', pick: () => this.setState({ inc: v }) }));
+    const gripOpen = s.grip === 'open';
+    return {
+      accent,
+      modes, frames, incs, joints, drives, jogAxes,
+      j1: s.j[0].toFixed(1), j2: s.j[1].toFixed(2), j3: s.j[2].toFixed(2), j5: s.j[4].toFixed(2),
+      tcpX: tx.toFixed(1), tcpY: ty.toFixed(1), tcpLabelX: (tx + 10).toFixed(1), tcpLabelY: (ty - 10).toFixed(1),
+      clearR: (clear * 0.55).toFixed(0), clearance: clear,
+      gripHalf: gripOpen ? 14 : 5,
+      guardColor: s.guardArmed ? '#8BEB5A' : '#F2B34B', guardText: s.guardArmed ? 'armed' : 'bypassed',
+      pose: [['X', '612.0', 'mm'], ['Y', '-240.5', 'mm'], ['Z', '302.0', 'mm'], ['A', '180.00', 'deg'], ['B', '0.00', 'deg'], ['C', '45.00', 'deg']].map((p) => ({ name: p[0], val: p[1], unit: p[2] })),
+      stateColor: s.estop ? '#FF6B6B' : '#8BEB5A', stateText: s.estop ? 'E-STOP' : 'MACHINE ON',
+      estopBg: s.estop ? '#B3261E' : '#7A1B15', estopBorder: s.estop ? '#FF6B6B' : '#B3261E',
+      estopText: s.estop ? 'RESET' : 'E-STOP', estopPressed: s.estop ? 'true' : 'false',
+      toggleEstop: () => this.setState({ estop: !s.estop }),
+      gripOpen: () => this.setState({ grip: 'open' }), gripClose: () => this.setState({ grip: 'closed' }),
+      openCls: gripOpen ? 'on' : '', closeCls: gripOpen ? '' : 'on',
+      gripWidth: gripOpen ? '64.0' : '41.2', gripForce: gripOpen ? '0' : '38',
+      partText: gripOpen ? 'no part' : 'part detected', partColor: gripOpen ? '#8FA0B0' : '#8BEB5A',
+    };
+  }
+}
+</script>
+</body>
+</html>
