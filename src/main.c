@@ -21,6 +21,7 @@
 //#include "stm32f4xx_conf.h"
 #include "hal.h"
 #include "setup.h"
+#include "setup_api.h"
 #include "defines.h"
 #include <string.h>
 #include <stdio.h>
@@ -128,6 +129,7 @@ void about(char *ptr) {
       version_info.patch,
       version_info.git_version);
   printf("Branch %s\n", version_info.git_branch);
+  printf("setup api %d\n", STMBL_SETUP_API);
   printf("Compiled %s %s ", version_info.build_date, version_info.build_time);
   printf("by %s on %s\n", version_info.build_user, version_info.build_host);
   printf("GCC        %s\n", __VERSION__);

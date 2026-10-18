@@ -12,6 +12,11 @@ hv0.cmd_mode = idpmsm0.cmd_mode
 hv0.d_cmd = idpmsm0.d_cmd
 hv0.q_cmd = idpmsm0.q_cmd
 hv0.pos = idpmsm0.com_pos
+# idpmsm sets the angle every packet: the F3 must not
+# advance it by the normal commutation velocity, which
+# scales with conf0.polecount, still a guess here (a
+# wrong one spun the motor to the voltage limit)
+hv0.vel = 0
 hv0.rev = idpmsm0.out_rev
 hv0.r = idpmsm0.r
 hv0.l = idpmsm0.l

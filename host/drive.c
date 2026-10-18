@@ -22,6 +22,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "setup_api.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -180,6 +181,8 @@ void drive_poll_reset(void) {
 void about(char *ptr) {
   printf("######## software info ########\n");
   printf("STMBL simulated drive (host/drive.c)\n");
+  printf("stmbl_host v0.0.0 sim\n");
+  printf("setup api %d\n", STMBL_SETUP_API);
   printf("sim time: %.3f s\n", sim_time_s);
 }
 COMMAND("about", about, "show system infos");

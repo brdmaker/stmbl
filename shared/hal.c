@@ -990,6 +990,29 @@ void hal_linked_pins(char *ptr){
 
 COMMAND("linked", hal_linked_pins, "show linked pins");
 
+// a pin's value with full float precision ("idm0.ls_j = 4.38211e-05"): for
+// tools such as the setup wizard (shared/setup_api.h); the normal print's
+// %f has 6 decimals, 0.000000 for a micro motor's inertia
+void hal_getf(char *ptr) {
+  char sinkc[64];
+  unsigned long sinki = 0;
+  char sinkp[64];
+  if(sscanf(ptr, " %[a-zA-Z_]%lu.%[a-zA-Z0-9_]", sinkc, &sinki, sinkp) == 3) {
+    hal_pin_inst_t *pin = pin_inst_by_name(sinkc, sinki, sinkp);
+    if(pin) {
+      hal_pin_inst_t *src = pin;
+      for(int i = 0; i < 3 && src->source != src; i++) {
+        src = src->source;
+      }
+      printf("%s%lu.%s = %.9g\n", sinkc, sinki, sinkp, src->value);
+      return;
+    }
+  }
+  printf("not found: %s\n", ptr);
+}
+
+COMMAND("getf", hal_getf, "print a pin with full precision");
+
 void hal_relink_pins(char *ptr){
   for(int i = 0; i < hal.comp_inst_count; i++) {
     for(int j = 0; j < hal.comp_insts[i].comp->pin_count; j++) {

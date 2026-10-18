@@ -112,6 +112,8 @@ check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_s
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test
+	@$(MAKE) -s -C $(ROOT)/servoterm-cli check
+	@$(MAKE) -s wizard-smoke
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
@@ -128,6 +130,19 @@ ebrake: stmbl_host
 	@$(PYTHON) tests/gen_ebrake_tests.py --out $(GEN)/ebrake
 	@$(PYTHON) tests/run_tests.py tests/ebrake/*.test $(GEN)/ebrake/*.test
 
+# The setup wizard (servoterm-cli --wizard) end to end against the simulated
+# drive: every motor in tests/motors.py with an encoder variant
+# (tests/run_wizard_sim.py, ~2 min per motor, run in parallel).
+# wizard-smoke: the bench motor only (part of check).
+WIZARD_J ?= 8
+wizard: stmbl_host
+	@$(MAKE) -s -C $(ROOT)/servoterm-cli
+	@$(PYTHON) tests/run_wizard_sim.py -j $(WIZARD_J)
+
+wizard-smoke: stmbl_host
+	@$(MAKE) -s -C $(ROOT)/servoterm-cli
+	@$(PYTHON) tests/run_wizard_sim.py --only ecma_c30604fs
+
 test: all check
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
 	@for f in examples/*.servoterm; do echo "=== $$f ==="; ./servoterm $$f; done
@@ -137,4 +152,4 @@ test: all check
 clean:
 	rm -rf $(GEN) stmbl_host servoterm
 
-.PHONY: ebrake all check soak test clean
+.PHONY: ebrake wizard wizard-smoke all check soak test clean

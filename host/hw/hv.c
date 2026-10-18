@@ -136,6 +136,7 @@ HAL_PIN(sense_off_b);
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
+HAL_PIN(sim_turn); // a hand on the shaft: turns it by this much [rad], at 1 rev/s, counting down to 0
 HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
@@ -577,6 +578,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
 feedback:
+  if(PIN(sim_turn) != 0.0) {  // the hand wins over the motor
+    float step = SIGN(PIN(sim_turn)) * MIN(fabsf(PIN(sim_turn)), 2.0 * M_PI * period);
+    PIN(sim_pos)  = mod(PIN(sim_pos) + step);
+    PIN(sim_dist) += step;
+    PIN(sim_turn) -= step;
+    PIN(sim_vel)  = 0.0;
+  }
   // --- back to the F4, as src/comps/hv.c reports it, optionally delayed
   ctx->fb_pos = (ctx->fb_pos + 1) % (FB_DELAY_MAX + 1);
   if(PIN(sim_cur_noise) > 0.0) {  // xorshift32: same noise on every run

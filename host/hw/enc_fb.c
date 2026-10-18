@@ -8,6 +8,12 @@
  * index sits at sim_index in the encoder's own (raw) angle, which is what
  * conf0.mot_fb_offset measures. As on the drive, state is 1 (incremental)
  * until the first index pulse with en_index set, then 3 (absolute).
+ *
+ * sim_res: the encoder's own counts per revolution (0: res). The drive's
+ * timer counts them and wraps at res, as TIM_SetAutoreload does on the
+ * drive, so a res that doesn't match the encoder shows as an index that
+ * moves from turn to turn. indexprint = 1 prints the count at each index
+ * pulse ("cnt = N", from nrt), as src/comps/enc_fb.c does.
  */
 #include "enc_fb_comp.h"
 #include "hal.h"
@@ -44,11 +50,14 @@ HAL_PIN(indexprint);
 HAL_PIN(sim_pos);    // shaft angle [rad]
 HAL_PIN(sim_rev);    // count direction reversed
 HAL_PIN(sim_index);  // index angle in the encoder's raw angle [rad]
+HAL_PIN(sim_res);    // the encoder's counts per revolution (0: res)
 HAL_PIN(sim_fail);   // 1: the encoder is broken (cable): position frozen, error
 
 struct enc_fb_ctx_t {
   int init;
-  int32_t count;  // raw count, 0..res-1
+  int32_t tcount; // the encoder's own count, 0..sim_res-1
+  int32_t tim;    // the drive's timer, 0..res-1
+  int printed, cnt;
   float absoffset;
 };
 
@@ -74,38 +83,49 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   int32_t res = MAX((int32_t)PIN(res), 1);
+  int32_t n   = PIN(sim_res) > 0.0 ? (int32_t)PIN(sim_res) : res;  // the encoder's
   float raw   = PIN(sim_rev) > 0.0 ? -PIN(sim_pos) : PIN(sim_pos);
-  int32_t c   = count_of(raw, res);
-  int32_t ic  = count_of(PIN(sim_index), res);
+  int32_t tc  = count_of(raw, n);
+  int32_t ic  = count_of(PIN(sim_index), n);
 
   if(!ctx->init) {
-    ctx->init  = 1;
-    ctx->count = c;
+    ctx->init   = 1;
+    ctx->tcount = tc;
+    ctx->tim    = tc % res;
   }
+  ctx->tim %= res;  // res changed: the timer wraps at the new reload
 
-  // index pulse: the count stepped onto, or across, the index count
-  int32_t step = c - ctx->count;
-  if(step > res / 2) {
-    step -= res;
-  } else if(step < -res / 2) {
-    step += res;
+  // the encoder's counts since the last cycle; an index pulse when it
+  // stepped onto, or across, the index count
+  int32_t step = tc - ctx->tcount;
+  if(step > n / 2) {
+    step -= n;
+  } else if(step < -n / 2) {
+    step += n;
   }
   int crossed = 0;
+  int32_t at  = 0;  // the timer at the index
   for(int32_t i = 1; i <= ABS(step) && !crossed; i++) {
-    int32_t k = ctx->count + (step > 0 ? i : -i);
-    k %= res;
-    if(k < 0) {
-      k += res;
+    int32_t k = (ctx->tcount + (step > 0 ? i : -i)) % n;
+    k += k < 0 ? n : 0;
+    if(k == ic) {
+      crossed = 1;
+      at      = ((ctx->tim + (step > 0 ? i : -i)) % res + res) % res;
     }
-    crossed = k == ic;
   }
-  ctx->count = c;
+  ctx->tcount = tc;
+  ctx->tim    = ((ctx->tim + step) % res + res) % res;
+  int32_t c   = ctx->tim;
 
   PIN(index) = crossed;
   if(crossed && PIN(en_index) > 0.0) {
     PIN(state)     = 3.0;
-    PIN(ccr3)      = ic;
-    ctx->absoffset = mod(ic * 2.0f * M_PI / res);
+    PIN(ccr3)      = at;
+    ctx->absoffset = mod(at * 2.0f * M_PI / res);
+    if(PIN(indexprint) > 0.0) {
+      ctx->cnt     = at;
+      ctx->printed = 1;
+    }
   }
 
   float p      = mod(c * 2.0f * M_PI / res);
@@ -118,9 +138,17 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(oquad)   = PIN(quad);
 }
 
+static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct enc_fb_ctx_t *ctx = (struct enc_fb_ctx_t *)ctx_ptr;
+  if(ctx->printed) {
+    ctx->printed = 0;
+    printf("cnt = %i\n", (int)ctx->cnt);
+  }
+}
+
 hal_comp_t enc_fb_comp_struct = {
     .name      = "enc_fb",
-    .nrt       = 0,
+    .nrt       = nrt_func,
     .rt        = rt_func,
     .frt       = 0,
     .nrt_init  = nrt_init,
