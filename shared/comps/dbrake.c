@@ -51,7 +51,20 @@ HAL_PIN(ki);         // [1/s], relative to rn = pwm_volt / max_cur
 HAL_PIN(kp);         // relative
 HAL_PIN(stop_cur);   // [A], 0: 5 % of max_cur
 HAL_PIN(stop_time);  // [s]
+HAL_PIN(l);          // [H] the motor's (conf0.l): rv stays below l / (2 rt periods), stable
+HAL_PIN(trip);       // give up (outputs off) above trip * the target ...
+HAL_PIN(trip_time);  // [s] ... this long
 
+// the raw feedback errors (before fault0's filter): commutation is on a
+// frozen or wrong angle then, and even a zero current command can't be
+// held at speed in that frame, so the bridge goes off (en_out) until
+// fault0 decides (a glitch: the drive goes on; a fault: the brake starts)
+HAL_PIN(fb_err0);
+HAL_PIN(fb_err1);
+HAL_PIN(en_in);   // fault0.en_out
+HAL_PIN(en_out);  // to hv0.en
+
+HAL_PIN(gave_up);  // out: the current couldn't be held, fault0 switched off (kept until the next brake)
 HAL_PIN(rv);     // [ohm]
 HAL_PIN(cur);    // [A]
 HAL_PIN(power);  // [W] into the DC bus
@@ -70,6 +83,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(ki)                       = 500.0;
   PIN(kp)                       = 0.1;
   PIN(stop_time)                = 0.1;
+  PIN(trip)                     = 1.3;
+  PIN(trip_time)                = 0.002;
   PIN(mode_in)                  = 1.0;
 }
 
@@ -83,7 +98,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(cur) = i;
 
   if(PIN(brake) <= 0.0) {
+    int hold      = PIN(fb_err0) > 0.0 || PIN(fb_err1) > 0.0;
     ctx->active   = 0;
+    PIN(en_out)   = hold ? 0.0 : PIN(en_in);
     PIN(d_out)    = PIN(d_in);
     PIN(q_out)    = PIN(q_in);
     PIN(mode_out) = PIN(mode_in);
@@ -100,6 +117,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->active = 1;
     ctx->pos    = PIN(pos_in);
     vbrake_reset(&ctx->b);
+    PIN(gave_up) = 0.0;
   }
   vbrake_cfg_t c = {.max_cur      = PIN(max_cur) * PIN(cur_share),
                     .pwm_volt     = PIN(pwm_volt),
@@ -108,10 +126,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
                     .kp           = PIN(kp),
                     .ki           = PIN(ki),
                     .stop_cur     = PIN(stop_cur) > 0.0 ? PIN(stop_cur) : 0.05 * PIN(max_cur),
-                    .stop_time    = PIN(stop_time)};
+                    .stop_time    = PIN(stop_time),
+                    .l            = PIN(l),
+                    .delay        = 2.0 * period,
+                    .trip         = PIN(trip),
+                    .trip_time    = PIN(trip_time)};
   float ud, uq;
   vbrake_step(&ctx->b, &c, id, iq, period, &ud, &uq);
 
+  PIN(en_out)   = PIN(en_in);
   PIN(d_out)    = ud;
   PIN(q_out)    = uq;
   PIN(mode_out) = 0.0;  // VOLT_MODE
@@ -120,7 +143,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(rv)       = ctx->b.rv;
   PIN(power)    = ctx->b.power;
   PIN(active)   = 1.0;
-  PIN(stopped)  = ctx->b.stopped;
+  PIN(gave_up)  = ctx->b.gave_up;
+  PIN(stopped)  = ctx->b.stopped || ctx->b.gave_up;  // either way: outputs off
 }
 
 hal_comp_t dbrake_comp_struct = {

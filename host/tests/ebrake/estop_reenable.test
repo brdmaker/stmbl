@@ -1,0 +1,32 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# Enable is ignored while a stop runs (estop_disable.test's quick stop),
+# then the drive enables again as usual and follows a move.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+lcnc 0 300
+run 0.004
+lcnc 1 0
+run 0.01
+fault0.stop
+fault0.state
+run 0.3
+fault0.stop
+fault0.state
+lcnc 1 100
+run 0.5
+fault0.state
+hv0.sim_vel
+@expect fault0.stop[1] == 1
+@expect fault0.state[1] == 0
+@expect fault0.stop[2] == 0
+@expect fault0.state[2] == 1
+@expect fault0.state[3] == 1
+@expect hv0.sim_vel[1] ~ 62.8 2%

@@ -1,0 +1,23 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# An HV board fault during a quick stop: the stop ends at once, outputs
+# off, the rest coasts.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+lcncstop
+run 0.007
+fault0.stop
+hv0.sim_fault = 11
+run 0.002
+fault0.stop
+fault0.en_out
+@expect fault0.stop[1] == 1
+@expect fault0.stop[2] == 0
+@expect fault0.en_out == 0

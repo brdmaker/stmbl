@@ -1104,15 +1104,18 @@ Entry format:
   observer to keep its torque feedforward during a stop.
 
 ## 2026-10-18  A failed encoder drives the motor for 1 ms before the fault
-- Area:    `shared/comps/fault.c` (err_filter on mot_fb_error), fb_switch
-- Status:  Open
+- Area:    `shared/comps/fault.c` (err_filter on mot_fb_error), `shared/comps/dbrake.c`
+- Status:  Fixed (simulated)
 - Symptom: (simulation) after enc_fb0.sim_fail at 188 rad/s, the 5 rt
   cycles until MOT_FB_ERROR commutated on the frozen angle: uq rose to
   114 V and the current to ~2 A in the wrong direction, before dbrake
   took over.
 - Cause:   err_filter needs 5 cycles. Commutation keeps the last angle.
-- Fix:     Idea: start dbrake (or zero the current command) on the raw
-  feedback error, and keep the filter only for the fault code.
+  Even a zero current command can't be held in that frame at speed: on
+  rx60_123 the current still rose to 3 A.
+- Fix:     dbrake0.en_out gates hv0.en: the bridge is off while the raw
+  feedback error is set (fb_err0/1 = fault0.mot/com_fb_error), until the
+  filter decides. A glitch just resumes.
 
 ## 2026-10-18  F3: the config index allowed one word past the array
 - Area:    `stm32f303/src/comps/ls.c` (WRITE_CONF / READ_CONF)
@@ -1127,15 +1130,17 @@ Entry format:
 
 ## 2026-10-18  F3 voltage mode clamps current by lowering the voltage
 - Area:    `shared/comps/curpid.c` (VOLT_MODE), dynamic braking
-- Status:  Note
-- Symptom: (design) for the virtual-resistor brake, the F3's voltage-mode
-  current clamp works backwards.
-- Cause:   Above max_cur, curpid scales the commanded voltage down
-  (kci 500). For u = -rv * i that is less resistance, so more current, and
-  it would fight the brake's own current control. The simulated F3 didn't
-  model the clamp at all.
-- Fix:     The brake holds 0.9 * max_cur (dbrake0.cur_share), below the
-  clamp. host/hw/hv.c now models the clamp.
+- Status:  Fixed (simulated; needs the F3 firmware)
+- Symptom: The ebrake suite: on manutec_r15_1 (0.4 ohm, 2 mH) the brake
+  current went to 24 A against a 5.25 A limit.
+- Cause:   Above max_cur, curpid scales the commanded voltage down (kci
+  500). For u = -rv * i that is less resistance, so more current; the
+  scale ran to 0, a plain short at the motor's short-circuit current.
+  Keeping the brake at 0.9 * max_cur didn't help once a transient crossed
+  max_cur.
+- Fix:     curpid0.brake (on the F3: ls0.vbrake = flags.brake from the F4's
+  dbrake, or the F3's own brake) applies only the voltage limit. An older
+  F3 ignores the flag. host/hw/hv.c models the clamp and the flag.
 
 ## 2026-10-18  The F3 brakes when the F4 is lost (LV side gone)
 - Area:    `stm32f303/src/comps/ls.c`, `shared/vbrake.h`, `src/comps/hv.c`, `shared/common.h`
@@ -1162,3 +1167,45 @@ Entry format:
   the bus has high_dc_volt, max_dc_volt and the F3's ABS_MAX_VOLT.
   conf0.max_hv_power limits the quick stop's regenerated power
   (qstop0.max_power), where it does work.
+
+## 2026-10-18  Virtual-resistor brake unstable on low-inductance motors
+- Area:    `shared/vbrake.h`
+- Status:  Fixed (simulated)
+- Symptom: The ebrake suite: on the Yaskawa r2aa06020f (2.7 ohm, 0.7 mH) the
+  brake voltage flipped sign every rt cycle (+-164 V) and the current rang
+  at ~15 A against 5.6 A.
+- Cause:   u = -rv * i is applied a delay after i was measured (2 F4 rt
+  periods). With L / R (0.26 ms) not much longer than that, an rv well above
+  the winding's impedance is delayed feedback with a gain above 1.
+- Fix:     rv stays below l / delay (dbrake0.l = conf0.l; the F3 uses its own
+  period). If the current then can't be held (above 1.3 x the target for
+  2 ms), the brake gives up and the outputs go off (gave_up): coasting is
+  safe for the stage. In the suite only manutec_r15_1 with the F4's brake
+  gives up.
+
+## 2026-10-18  The brake's start as a short overshot the current
+- Area:    `shared/vbrake.h`
+- Status:  Fixed (simulated)
+- Symptom: Up to twice the short-circuit current in the first ms of a
+  dynamic brake (manutec 9 A, sr60_1 15 A for 5 / 11 A motors).
+- Cause:   A sudden short has a transient of up to twice its steady current,
+  and rv started at 0 and only rose once the current was over the target.
+- Fix:     Start at rv = rn (pwm_volt / max_cur: about the target at full
+  back-EMF) and relax towards the short while the current is below target.
+
+## 2026-10-18  host build missed changes in shared/*.h
+- Area:    `host/Makefile` (stmbl_host)
+- Status:  Fixed
+- Symptom: A change to shared/vbrake.h alone did not rebuild stmbl_host;
+  tests ran the old code.
+- Cause:   The stmbl_host rule depended on host/*.h and the sources, but not on
+  the shared headers.
+- Fix:     $(ROOT)/shared/*.h added to its prerequisites.
+
+## 2026-10-18  The simulated F3 runs at 20 kHz, the real one at 15 kHz
+- Area:    `host/hw/hv.c` (F3_PER_RT), `stm32f303/src/main.c` (hal_init 1/15000)
+- Status:  Known
+- Symptom: none.
+- Cause:   The model steps the F3 current loop 4 times per 5 kHz rt cycle.
+- Fix:     Keep in mind for rate-sensitive F3 code: the F3 brake's rv limit
+  (l / 1.5 periods) is a little lower on the real F3.

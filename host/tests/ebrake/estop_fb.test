@@ -5,7 +5,8 @@
 # The motor encoder fails (enc_fb0.sim_fail: a cut cable): no feedback, no
 # quick stop; fb_stop = 2 (pmsm template) runs the dynamic brake: dbrake0
 # shorts the motor through a virtual resistor in voltage mode, no angle
-# needed (~3 rad, 5 mm). The short current (~2 A, a transient up to ~5 A)
+# needed (~3.8 rad, 6 mm; the bridge is off during the 1 ms the fault
+# filter takes). The short current (~2 A, a transient up to ~5 A)
 # stays under max_ac_cur (10 A), so rv stays 0. Then outputs off with mot
 # FB error.
 @args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
@@ -31,7 +32,7 @@ fault0.en_out
 fault0.stop
 @expect fault0.stop[1] == 2
 @expect max|hv0.abs_cur| < 6
-@expect hv0.sim_dist ~ 3.1 0.5
+@expect hv0.sim_dist ~ 3.8 0.5
 @expect hv0.sim_vel[2] ~ 0 0.5
 @expect fault0.fault == 2
 @expect fault0.en_out == 0

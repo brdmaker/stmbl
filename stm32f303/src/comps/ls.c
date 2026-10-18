@@ -73,6 +73,7 @@ HAL_PIN(window);
 // voltage mode, frame frozen, until the current has died down
 HAL_PIN(brake);     // out: braking
 HAL_PIN(brake_rv);  // out: [ohm]
+HAL_PIN(vbrake);    // out: to curpid0.brake: the F4's brake (flags.brake) or this one
 
 struct ls_ctx_t {
   uint32_t timeout;
@@ -230,6 +231,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(en)         = ctx->packet_to_hv.flags.enable;
       PIN(phase_mode) = ctx->packet_to_hv.flags.phase_type;
       PIN(cmd_mode)   = ctx->packet_to_hv.flags.cmd_type;
+      PIN(vbrake)     = ctx->packet_to_hv.flags.brake;
       PIN(ignore_fault_pin) = ctx->packet_to_hv.flags.ignore_fault_pin;
       PIN(d_cmd)      = ctx->packet_to_hv.d_cmd;
       PIN(q_cmd)      = ctx->packet_to_hv.q_cmd;
@@ -351,7 +353,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
                         .kp           = 0.1,
                         .ki           = 500.0,
                         .stop_cur     = 0.05 * PIN(max_cur),
-                        .stop_time    = 0.1};
+                        .stop_time    = 0.1,
+                        .l            = PIN(l),
+                        .delay        = 1.5 * period,
+                        .trip         = 1.3,
+                        .trip_time    = 0.002};
       float ud, uq;
       vbrake_step(&ctx->vb, &c, PIN(id_fb), PIN(iq_fb), period, &ud, &uq);
       ctx->brake_t += period;
@@ -360,13 +366,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(d_cmd)    = ud;
       PIN(q_cmd)    = uq;
       PIN(brake)    = 1.0;
+      PIN(vbrake)   = 1.0;
       PIN(brake_rv) = ctx->vb.rv;
-      if(ctx->vb.stopped || ctx->brake_t > 2.0) {
+      if(ctx->vb.stopped || ctx->vb.gave_up || ctx->brake_t > 2.0) {
         ctx->brake_done = 1;
       }
     } else {
-      PIN(en)    = 0.0;
-      PIN(brake) = 0.0;
+      PIN(en)     = 0.0;
+      PIN(brake)  = 0.0;
+      PIN(vbrake) = 0.0;
     }
     PIN(timeout)
     ++;

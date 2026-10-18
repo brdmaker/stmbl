@@ -45,7 +45,7 @@ LDLIBS   = -lm -lpthread
 
 all: stmbl_host servoterm
 
-stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c
+stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c $(ROOT)/shared/*.h
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
 
 # CLI servoterm: standalone, no firmware sources, no special includes.
@@ -111,7 +111,7 @@ check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_s
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
-	@$(PYTHON) tests/run_tests.py tests/*.test
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
@@ -120,6 +120,13 @@ SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
+
+# Emergency braking (docs/emergency_stop.md): the hand-written tests in
+# tests/ebrake (also part of check), then every motor in tests/motors.py
+# through the stops (tests/gen_ebrake_tests.py), generated into gen/ebrake.
+ebrake: stmbl_host
+	@$(PYTHON) tests/gen_ebrake_tests.py --out $(GEN)/ebrake
+	@$(PYTHON) tests/run_tests.py tests/ebrake/*.test $(GEN)/ebrake/*.test
 
 test: all check
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
@@ -130,4 +137,4 @@ test: all check
 clean:
 	rm -rf $(GEN) stmbl_host servoterm
 
-.PHONY: all check soak test clean
+.PHONY: ebrake all check soak test clean

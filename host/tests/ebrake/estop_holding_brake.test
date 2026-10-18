@@ -1,0 +1,36 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# A holding brake (hv0.sim_brake, 1.3 Nm on io0.out0 = fault0.mot_brake)
+# and a hanging load (0.5 Nm, as a vertical axis): the brake stays released
+# while the quick stop runs, so it isn't dragged at speed, and grips once
+# the motor stands still and the outputs go off; the load then can't move
+# the axis.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+hv0.sim_brake = 1.3
+hv0.sim_load = -0.5
+lcnc 1 300
+run 1
+hv0.sim_dist = 0
+lcncstop
+run 0.01
+fault0.mot_brake
+run 0.3
+fault0.mot_brake
+fault0.en_out
+hv0.sim_dist
+hv0.sim_dist = 0
+run 0.5
+hv0.sim_dist
+hv0.sim_vel
+@expect fault0.mot_brake[1] == 1
+@expect fault0.mot_brake[2] == 0
+@expect fault0.en_out == 0
+@expect hv0.sim_dist[1] < 3
+@expect hv0.sim_dist[3] ~ 0 0.01
+@expect hv0.sim_vel ~ 0 0.01

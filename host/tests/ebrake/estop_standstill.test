@@ -1,0 +1,24 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# The link lost while the axis stands still: the quick stop has nothing to
+# do; it ends after its 20 ms standstill check, and the axis doesn't move.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+run 0.5
+hv0.sim_dist = 0
+lcncstop
+run 0.008
+fault0.stop
+run 0.05
+fault0.stop
+fault0.en_out
+hv0.sim_dist
+@expect fault0.stop[1] == 1
+@expect fault0.stop[2] == 0
+@expect fault0.en_out == 0
+@expect hv0.sim_dist ~ 0 0.01

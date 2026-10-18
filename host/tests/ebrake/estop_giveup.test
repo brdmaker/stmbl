@@ -1,0 +1,29 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# The dynamic brake can't hold the current: its target here is 0.45 A
+# (dbrake0.max_cur 0.5), the short alone draws ~2 A, more than 1.3 x the
+# target for 2 ms. It gives up rather than overload the power stage: the
+# outputs go off and the axis coasts (~16 rad).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+dbrake0.max_cur = 0.5
+hv0.sim_dist = 0
+enc_fb0.sim_fail = 1
+run 0.003
+fault0.stop
+run 0.006
+fault0.stop
+fault0.en_out
+run 0.4
+hv0.sim_dist
+@expect fault0.stop[1] == 2
+@expect fault0.stop[2] == 0
+@expect fault0.en_out == 0
+@expect hv0.sim_dist > 12

@@ -89,6 +89,10 @@ typedef struct {
       // the F3 brakes on its own (shared/vbrake.h) if the packets stop while
       // enabled; an older F3 ignores it, an older F4 sends 0
       uint32_t brake_on_loss : 1;
+      // the F4 brakes with a virtual resistor (dbrake0): no voltage-mode
+      // current clamp (shared/comps/curpid.c), which would turn it into a
+      // short; an older F3 ignores it and clamps
+      uint32_t brake : 1;
     } flags;
     uint32_t padding;
   };

@@ -1,0 +1,29 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# The F4 stops at speed (the F3 brakes), then comes back: once LinuxCNC
+# toggles enable (the drive went to a fault meanwhile, hv timeout), the
+# axis moves again.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_f4_dead = 1
+run 0.3
+hv0.sim_vel
+hv0.sim_f3_brake
+hv0.sim_f4_dead = 0
+lcnc 0 0
+run 0.1
+lcnc 1 100
+run 1
+hv0.sim_vel
+fault0.state
+@expect hv0.sim_vel[1] ~ 0 0.5
+@expect hv0.sim_f3_brake == 0
+@expect hv0.sim_vel[2] ~ 62.8 2%
+@expect fault0.state == 1
