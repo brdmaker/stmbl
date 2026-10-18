@@ -475,7 +475,8 @@ def t_hardboot(ctx):
     if not built or built != fw:
         return "skipped: the drive runs %s, the repo build is %s (btburn would change it)" % (fw, built)
     ctx.cli(ctx.a.usb, "-c", "hardboot", quiet=0.3, timeout=20)
-    need(wait_for(dfu_present, 20), "no DFU after hardboot (bootloader CRC path)")
+    # the bootloader first waits 30 s in its smart-serial loader for setsserial
+    need(wait_for(dfu_present, 45), "no DFU after hardboot (bootloader CRC path)")
     r = subprocess.run(["make", "-C", REPO, "btburn"], capture_output=True, text=True, timeout=600)
     ctx.note(r.stdout[-2000:] + r.stderr[-1000:])
     need(r.returncode == 0, "make btburn failed: %s" % (r.stdout + r.stderr)[-300:])
