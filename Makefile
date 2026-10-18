@@ -352,6 +352,18 @@ ssfw_install: ssfw
 	sudo mkdir -p /lib/firmware/stmbl
 	sudo cp $(OBJDIR)/stmbl_ss.bin /lib/firmware/stmbl/STMBL_SS.BIN
 
+# development flashing over smart-serial (CLAUDE.md); make btburn is the backup
+# in-band: staged by the running application, copied by the bootloader
+# (DEV=/dev/ttyACM0, or sserialterm's pty for the smart-serial console)
+DEV ?= /dev/ttyACM0
+update: build
+	$(MAKE) -C servoterm-cli
+	servoterm-cli/servoterm-cli -d $(DEV) -t 5 --update $(TARGET).bin
+
+# recovery path: sserialboot, then LinuxCNC's setsserial through the loader
+ssburn: ssfw_install
+	tools/ssflash.sh
+
 #build f4 bootloader
 boot: obj_boot/blboot.bin
 
@@ -476,6 +488,6 @@ force_look:
         f3 f3_flash f3_btburn \
         f1 f1_flash \
         f3_all_btburn all_btburn all_flash f3_all_flash \
-        deploy \
+        deploy ssfw ssfw_install update ssburn \
         format \
         force_look

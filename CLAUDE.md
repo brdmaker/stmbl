@@ -42,18 +42,31 @@ firmware builds with `make all` at the repo root on the bench Pi (binutils
 
 ## Flashing hardware
 
-Always flash with the repo's official make targets, never with your own
-`dfu-util`, `st-flash` or `tools/bootloader.py` commands:
+Flash the F4 application over **smart-serial during development**, using
+both paths so they stay tested in real use; **USB DFU is only the backup.**
+Always use the repo's make targets, never your own `dfu-util`, `st-flash`,
+`setsserial` or `tools/bootloader.py` commands.
 
-| Target | Flashes |
-|---|---|
-| `make btburn` | F4 application (`obj_app/stmbl.dfu` at 0x08010000) over USB DFU; builds first and enters the bootloader itself |
-| `make boot_btburn`, `make f3_btburn`, `make f3_boot_btburn` | F4 bootloader, F3 application, F3 bootloader |
-| `make all_btburn`, `make f3_all_btburn` | whole-chip images (`f4.bin`, `f3.bin`) |
-| `make flash`, `boot_flash`, `f3_flash`, ... | the same over ST-Link (`st-flash`) |
+| Target | How | When |
+|---|---|---|
+| `make update` | in-band: the running application stages the image over its console, the bootloader copies it (`servoterm-cli --update`). `DEV=` the console: `/dev/ttyACM0` (USB, ~90 s) or sserialterm's pty (the smart-serial console, ~14 min) | the usual way |
+| `make ssburn` | recovery path: `sserialboot`, then LinuxCNC's `setsserial` through the bootloader's smart-serial loader (`tools/ssflash.sh`, `--in-loader` for a drive already in its loader). LinuxCNC and halrun must not run | alternate it with `make update` (e.g. every other flash) |
+| `make btburn` | F4 application over USB DFU (ST's ROM) | backup only: firmware without fwup / the loader, a smart-serial flash failed, or a change to the update path itself is being brought up |
+| `make boot_btburn`, `make f3_btburn`, `make f3_boot_btburn` | F4 bootloader, F3 application, F3 bootloader over DFU | always (setsserial never writes block 0, the bootloader) |
+| `make all_btburn`, `make f3_all_btburn` | whole-chip images (`f4.bin`, `f3.bin`) | |
+| `make flash`, `boot_flash`, `f3_flash`, ... | the same over ST-Link (`st-flash`) | |
 
-To flash an older version, check out that commit (for example in a
-`git worktree`) and run the same target there. Reading flash for a backup
-(`dfu-util -U`) is not flashing and is fine. Before flashing, back up the
-drive's config (`servoterm-cli --dump`) and confirm the motor is safe to
-move; after flashing, check `about` and that the config is unchanged.
+- **Drive disabled:** `fwup` and `sserialboot` refuse while it is enabled;
+  flash writes under motion are not supported.
+- **Use the smart-serial console** for `make update` now and then too, not
+  only USB, so that path is exercised as well.
+- **A failed smart-serial flash** is a bug like any other: DEBUGNOTES entry
+  and regression test (see above). Recover with `make btburn`: a drive
+  stuck in its loader falls back to DFU 30 s after power-up without
+  smart-serial traffic.
+- **Older versions:** check out that commit (for example in a `git worktree`)
+  and run the same target there.
+- **Backups:** reading flash (`dfu-util -U`) is not flashing and is fine.
+  Before flashing, back up the drive's config (`servoterm-cli --dump`) and
+  confirm the motor is safe to move; after flashing, check `about` and that
+  the config is unchanged.
