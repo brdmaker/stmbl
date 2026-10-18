@@ -298,7 +298,7 @@ use the same component and pin names as `src/comps/`:
 
 | Stand-in | Simulates |
 |---|---|
-| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply voltage. `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). |
+| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply (below, "DC bus"). `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). |
 | `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3; `sim_fail = 1` breaks it (position frozen, error) |
 | `hw/sserial.c` | smart-serial link to LinuxCNC; process data in `sim_io.h`, with timeout to `CMD error` as on the drive |
 | `hw/adc.c`, `hw/io.c` | pins only |
@@ -320,6 +320,30 @@ to test an autotune), override those pins with `--sim FILE`.
   `flashsaveconf` writes back to CONF, so `servoterm-cli --load ... -c reset`
   works as on the drive. Nothing plays LinuxCNC, so the drive shows
   `CMD error`, as a real drive does without LinuxCNC.
+
+### DC bus
+
+`sim_board.txt` sets `hv0.sim_supply = 1`: the bus is the mains
+(`sim_mains` 230 V rms, `sim_mains_hz` 50), rectified by a single-phase
+diode bridge through `sim_mains_r` (1 Ω) straight into the drive's own
+capacitors (`sim_cap`, 540 µF as `pe0.cap`); the supply has none. The HV
+board's own supply takes `sim_bus_load` (2 W). The bridge's power,
+1.5 (ud id + uq iq), comes out of the capacitors; when braking it goes back
+into them (the diodes can't return it to the mains). A brake chopper
+(`sim_chop_r` 47 Ω, on above `sim_chop_on` 345 V, off below
+`sim_chop_off` 335 V; 0 Ω: none) stands in for a supply card's.
+
+The F3 measures the bus filtered (io.c, ~1.3 ms) and sets its voltage limit
+and duties from that measurement, so ripple it hasn't seen yet shows in the
+output voltage. Above `ABS_MAX_VOLT` (410 V) it switches its bridge off with
+`HV_VOLT_ERROR` until the F4 disables it, as io.c does. Outputs:
+`hv0.sim_vbus` (on the capacitors; `dc_volt` is the F3's measurement),
+`sim_ibus` (into the bridge, negative when regenerating), `sim_irect`,
+`sim_chop_e` (J, resettable), `sim_hv_fault` (the F3's own trip, kept).
+`sim_mains = 0` is a mains loss. `sim_supply = 0` gives the old stiff
+`sim_udc`; the stepper (`sim_motor = 1`) always uses `sim_udc`. Not
+modelled: the freewheel diodes charging the bus from back-EMF above it while
+the bridge is off. Tests: `tests/bus/`.
 
 ## LinuxCNC module (`lcnc/`)
 

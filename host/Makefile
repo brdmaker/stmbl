@@ -111,7 +111,7 @@ check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_s
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@./test_quota
-	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.

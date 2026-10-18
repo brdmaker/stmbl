@@ -1209,3 +1209,93 @@ Entry format:
 - Cause:   The model steps the F3 current loop 4 times per 5 kHz rt cycle.
 - Fix:     Keep in mind for rate-sensitive F3 code: the F3 brake's rv limit
   (l / 1.5 periods) is a little lower on the real F3.
+
+## 2026-10-18  Simulated DC bus: rectified mains into the drive's own caps
+- Area:    `host/hw/hv.c` (sim_supply, sim_mains, sim_cap, sim_chop_*), `host/sim_board.txt`
+- Status:  Note
+- Symptom: the old fixed 300 V supply soaked up any regeneration, so no
+  over-voltage path was ever exercised.
+- Cause:   model choice.
+- Fix:     230 V 50 Hz through a diode bridge and 1 ohm into 540 uF, no
+  supply caps; the F3 sees the bus through io.c's ~1.3 ms filter and trips
+  at 410 V. A 47 ohm chopper at 345 / 335 V stands in for the planned supply
+  card; without it the soak's manutec_r15_1 and sr8_0 and the spindle fail
+  (regen pushes the bus past high_dc_volt, fault0 scales the current to 0,
+  following error). Tests in `host/tests/bus/`. Not modelled: freewheel
+  diodes charging the bus from back-EMF while the bridge is off.
+
+## 2026-10-18  Without a chopper a hard stop overshoots the F3's 410 V
+- Area:    DC bus, `shared/comps/fault.c` (max_dc_volt), supply card design
+- Status:  Known
+- Symptom: syn_spindle (829 J at speed) quick stop with no chopper: fault0
+  trips HV_VOLT_ERROR at 380 V but the bus is at ~427 V when the bridge is
+  off (`host/tests/bus/bus_regen_nochop.test`).
+- Cause:   540 uF hold ~20 J between 323 and 410 V; braking at kilowatts
+  the bus climbs ~40 V/ms, and the trip takes err_filter's 5 rt periods
+  plus the F3's measurement filter.
+- Fix:     hardware: a brake chopper (docs/emergency_stop.md). Idea for the
+  firmware: limit regenerative torque only (fault0's dc_volt scale cuts
+  motoring torque too, which doesn't lower the bus), or dissipate in the
+  windings with d-axis current while the bus is high.
+
+## 2026-10-18  dbrake gave up the current limit when the bus was high
+- Area:    `shared/vbrake.h`
+- Status:  Fixed
+- Symptom: ebrake_syn_spindle_fb with the mains bus: 64 A against the 52 A
+  limit.
+- Cause:   above high_dc_volt the error was forced to -1 (towards the
+  short) regardless of the current.
+- Fix:     back off only while the current is below its target; if the bus
+  still rises the F3 cuts off at 410 V and the motor coasts.
+  `estop_bus_high.test` rewritten (it had checked the old give-up).
+
+## 2026-10-18  Chopper and high_dc_volt below the +10 % mains peak
+- Area:    `conf/template/conf.txt` (high_dc_volt 350, max_dc_volt 380), supply card
+- Status:  Open
+- Symptom: at 253 V mains (peak 356 V) the simulator's 345 V chopper burns
+  ~460 W at standstill and the bus sits above high_dc_volt
+  (`host/tests/bus/bus_mains_high.test`).
+- Cause:   the template's limits are below 230 V +10 % rectified.
+- Fix:     for the card: chopper ~375 / 365 V and the drives' high_dc_volt /
+  max_dc_volt ~385 / 400 V (tested in bus_mains_high). Changing the template
+  defaults would also apply to drives without a chopper; left to the user.
+
+## 2026-10-18  ebrake suite: the spindle's quick stop rings on bench gains
+- Area:    `host/tests/gen_ebrake_tests.py` (loop gains: the bench motor's)
+- Status:  Open
+- Symptom: ebrake_syn_spindle_link: the current swings 3 <-> 40 A for the
+  whole stop (same with a stiff 300 V supply); with the mains bus that is
+  80 V of bus swing. The checks pass (peaks below 52 A).
+- Cause:   the generator doesn't use id_pid's gains; the soak's tuned gains
+  (pos_bw 32, vel_d 4.1) settle in a few cycles.
+- Fix:     idea: take the gains from the soak's id_pid result.
+
+## 2026-10-18  fault0.last_fault doesn't keep an HV fault behind a link error
+- Area:    `shared/comps/fault.c`
+- Status:  Note
+- Symptom: link lost, then the F3's over-voltage trip: fault0.fault and
+  last_fault read CMD_ERROR afterwards; hv0.fault reads 0 once the F4 has
+  disabled the F3 (io.c clears it).
+- Cause:   the cmd_error filter rewrites the fault every cycle while the link
+  is down.
+- Fix:     tests read `hv0.sim_hv_fault` (kept). The stop logic is right
+  (hv_fault ends the stop).
+
+## 2026-10-18  Mains loss shows up as a following error
+- Area:    `shared/comps/fault.c` (min_dc_volt 20 V)
+- Status:  Note
+- Symptom: mains gone at 188 rad/s and ~300 W: the bus falls ~2.5 V/ms; at
+  ~190 V the burn-in motor can't hold speed; POS_ERROR, dynamic brake
+  (`host/tests/bus/bus_mains_loss.test`).
+- Cause:   no under-voltage stop above min_dc_volt.
+- Fix:     fine as is (the dynamic brake needs no bus). Idea: start the quick
+  stop on a falling bus while there is still voltage to brake with.
+
+## 2026-10-18  LinuxCNC tests refuse to run as root
+- Area:    `hwtest/burnin-sim` (make test-*), rtapi_app
+- Status:  Workaround
+- Symptom: make test-can fails with an empty linuxcnc.log.
+- Cause:   rtapi_app: "Refusing to run as root without fallback UID"; with no
+  tty linuxcnc sends its output to a temp file that it deletes.
+- Fix:     run as the `lcnc` user: `chmod -R a+rX hwtest servoterm-cli;
+  su lcnc -c 'cd .../hwtest/burnin-sim && make test-can'`.

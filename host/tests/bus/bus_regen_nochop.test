@@ -1,0 +1,1048 @@
+# DC bus (host/hw/hv.c): 230 V 50 Hz mains rectified into the drive's own
+# 540 uF, no capacitors on the supply. Motor syn_spindle (j 0.02, 40 A,
+# 14.4 Nm), ramped to 288 rad/s: 829 J in the rotor; 540 uF hold ~20 J
+# between 323 V and 410 V.
+# Without a brake chopper (sim_chop_r = 0) the quick stop (1000 W) has
+# nowhere to put the energy: the bus climbs past conf0.high_dc_volt
+# (350 V, fault0 scales the current down) to max_dc_volt (380 V): fault0
+# trips HV_VOLT_ERROR and the dynamic brake can't hold the current at a
+# full bus either: the drive switches off and the motor coasts. Before the
+# bridge is off the bus is past the F3's ABS_MAX_VOLT (410 V): a motor like
+# this needs the chopper (DEBUGNOTES).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 240
+conf0.r = 0.15
+conf0.l = 0.002
+conf0.psi = 0.12
+conf0.polecount = 2
+conf0.j = 0.02
+conf0.f = 0.288
+conf0.d = 0.000403
+conf0.max_ac_cur = 40
+conf0.max_force = 14.4
+conf0.max_vel = 320.0
+conf0.cur_ind = 1
+# id_pid result (soak_syn_spindle)
+conf0.pos_bw = 32.1648
+conf0.vel_bw = 500
+conf0.vel_d = 4.1381
+hv0.sim_chop_r = 0
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 0.91673
+run 0.002
+lcnc 1 1.83346
+run 0.002
+lcnc 1 2.75020
+run 0.002
+lcnc 1 3.66693
+run 0.002
+lcnc 1 4.58366
+run 0.002
+lcnc 1 5.50039
+run 0.002
+lcnc 1 6.41713
+run 0.002
+lcnc 1 7.33386
+run 0.002
+lcnc 1 8.25059
+run 0.002
+lcnc 1 9.16732
+run 0.002
+lcnc 1 10.08406
+run 0.002
+lcnc 1 11.00079
+run 0.002
+lcnc 1 11.91752
+run 0.002
+lcnc 1 12.83425
+run 0.002
+lcnc 1 13.75099
+run 0.002
+lcnc 1 14.66772
+run 0.002
+lcnc 1 15.58445
+run 0.002
+lcnc 1 16.50118
+run 0.002
+lcnc 1 17.41792
+run 0.002
+lcnc 1 18.33465
+run 0.002
+lcnc 1 19.25138
+run 0.002
+lcnc 1 20.16811
+run 0.002
+lcnc 1 21.08485
+run 0.002
+lcnc 1 22.00158
+run 0.002
+lcnc 1 22.91831
+run 0.002
+lcnc 1 23.83504
+run 0.002
+lcnc 1 24.75178
+run 0.002
+lcnc 1 25.66851
+run 0.002
+lcnc 1 26.58524
+run 0.002
+lcnc 1 27.50197
+run 0.002
+lcnc 1 28.41871
+run 0.002
+lcnc 1 29.33544
+run 0.002
+lcnc 1 30.25217
+run 0.002
+lcnc 1 31.16890
+run 0.002
+lcnc 1 32.08564
+run 0.002
+lcnc 1 33.00237
+run 0.002
+lcnc 1 33.91910
+run 0.002
+lcnc 1 34.83583
+run 0.002
+lcnc 1 35.75257
+run 0.002
+lcnc 1 36.66930
+run 0.002
+lcnc 1 37.58603
+run 0.002
+lcnc 1 38.50276
+run 0.002
+lcnc 1 39.41950
+run 0.002
+lcnc 1 40.33623
+run 0.002
+lcnc 1 41.25296
+run 0.002
+lcnc 1 42.16969
+run 0.002
+lcnc 1 43.08643
+run 0.002
+lcnc 1 44.00316
+run 0.002
+lcnc 1 44.91989
+run 0.002
+lcnc 1 45.83662
+run 0.002
+lcnc 1 46.75336
+run 0.002
+lcnc 1 47.67009
+run 0.002
+lcnc 1 48.58682
+run 0.002
+lcnc 1 49.50355
+run 0.002
+lcnc 1 50.42029
+run 0.002
+lcnc 1 51.33702
+run 0.002
+lcnc 1 52.25375
+run 0.002
+lcnc 1 53.17048
+run 0.002
+lcnc 1 54.08722
+run 0.002
+lcnc 1 55.00395
+run 0.002
+lcnc 1 55.92068
+run 0.002
+lcnc 1 56.83741
+run 0.002
+lcnc 1 57.75415
+run 0.002
+lcnc 1 58.67088
+run 0.002
+lcnc 1 59.58761
+run 0.002
+lcnc 1 60.50434
+run 0.002
+lcnc 1 61.42108
+run 0.002
+lcnc 1 62.33781
+run 0.002
+lcnc 1 63.25454
+run 0.002
+lcnc 1 64.17127
+run 0.002
+lcnc 1 65.08801
+run 0.002
+lcnc 1 66.00474
+run 0.002
+lcnc 1 66.92147
+run 0.002
+lcnc 1 67.83820
+run 0.002
+lcnc 1 68.75494
+run 0.002
+lcnc 1 69.67167
+run 0.002
+lcnc 1 70.58840
+run 0.002
+lcnc 1 71.50513
+run 0.002
+lcnc 1 72.42187
+run 0.002
+lcnc 1 73.33860
+run 0.002
+lcnc 1 74.25533
+run 0.002
+lcnc 1 75.17206
+run 0.002
+lcnc 1 76.08880
+run 0.002
+lcnc 1 77.00553
+run 0.002
+lcnc 1 77.92226
+run 0.002
+lcnc 1 78.83899
+run 0.002
+lcnc 1 79.75573
+run 0.002
+lcnc 1 80.67246
+run 0.002
+lcnc 1 81.58919
+run 0.002
+lcnc 1 82.50592
+run 0.002
+lcnc 1 83.42265
+run 0.002
+lcnc 1 84.33939
+run 0.002
+lcnc 1 85.25612
+run 0.002
+lcnc 1 86.17285
+run 0.002
+lcnc 1 87.08958
+run 0.002
+lcnc 1 88.00632
+run 0.002
+lcnc 1 88.92305
+run 0.002
+lcnc 1 89.83978
+run 0.002
+lcnc 1 90.75651
+run 0.002
+lcnc 1 91.67325
+run 0.002
+lcnc 1 92.58998
+run 0.002
+lcnc 1 93.50671
+run 0.002
+lcnc 1 94.42344
+run 0.002
+lcnc 1 95.34018
+run 0.002
+lcnc 1 96.25691
+run 0.002
+lcnc 1 97.17364
+run 0.002
+lcnc 1 98.09037
+run 0.002
+lcnc 1 99.00711
+run 0.002
+lcnc 1 99.92384
+run 0.002
+lcnc 1 100.84057
+run 0.002
+lcnc 1 101.75730
+run 0.002
+lcnc 1 102.67404
+run 0.002
+lcnc 1 103.59077
+run 0.002
+lcnc 1 104.50750
+run 0.002
+lcnc 1 105.42423
+run 0.002
+lcnc 1 106.34097
+run 0.002
+lcnc 1 107.25770
+run 0.002
+lcnc 1 108.17443
+run 0.002
+lcnc 1 109.09116
+run 0.002
+lcnc 1 110.00790
+run 0.002
+lcnc 1 110.92463
+run 0.002
+lcnc 1 111.84136
+run 0.002
+lcnc 1 112.75809
+run 0.002
+lcnc 1 113.67483
+run 0.002
+lcnc 1 114.59156
+run 0.002
+lcnc 1 115.50829
+run 0.002
+lcnc 1 116.42502
+run 0.002
+lcnc 1 117.34176
+run 0.002
+lcnc 1 118.25849
+run 0.002
+lcnc 1 119.17522
+run 0.002
+lcnc 1 120.09195
+run 0.002
+lcnc 1 121.00869
+run 0.002
+lcnc 1 121.92542
+run 0.002
+lcnc 1 122.84215
+run 0.002
+lcnc 1 123.75888
+run 0.002
+lcnc 1 124.67562
+run 0.002
+lcnc 1 125.59235
+run 0.002
+lcnc 1 126.50908
+run 0.002
+lcnc 1 127.42581
+run 0.002
+lcnc 1 128.34255
+run 0.002
+lcnc 1 129.25928
+run 0.002
+lcnc 1 130.17601
+run 0.002
+lcnc 1 131.09274
+run 0.002
+lcnc 1 132.00948
+run 0.002
+lcnc 1 132.92621
+run 0.002
+lcnc 1 133.84294
+run 0.002
+lcnc 1 134.75967
+run 0.002
+lcnc 1 135.67641
+run 0.002
+lcnc 1 136.59314
+run 0.002
+lcnc 1 137.50987
+run 0.002
+lcnc 1 138.42660
+run 0.002
+lcnc 1 139.34334
+run 0.002
+lcnc 1 140.26007
+run 0.002
+lcnc 1 141.17680
+run 0.002
+lcnc 1 142.09353
+run 0.002
+lcnc 1 143.01027
+run 0.002
+lcnc 1 143.92700
+run 0.002
+lcnc 1 144.84373
+run 0.002
+lcnc 1 145.76046
+run 0.002
+lcnc 1 146.67720
+run 0.002
+lcnc 1 147.59393
+run 0.002
+lcnc 1 148.51066
+run 0.002
+lcnc 1 149.42739
+run 0.002
+lcnc 1 150.34413
+run 0.002
+lcnc 1 151.26086
+run 0.002
+lcnc 1 152.17759
+run 0.002
+lcnc 1 153.09432
+run 0.002
+lcnc 1 154.01106
+run 0.002
+lcnc 1 154.92779
+run 0.002
+lcnc 1 155.84452
+run 0.002
+lcnc 1 156.76125
+run 0.002
+lcnc 1 157.67799
+run 0.002
+lcnc 1 158.59472
+run 0.002
+lcnc 1 159.51145
+run 0.002
+lcnc 1 160.42818
+run 0.002
+lcnc 1 161.34492
+run 0.002
+lcnc 1 162.26165
+run 0.002
+lcnc 1 163.17838
+run 0.002
+lcnc 1 164.09511
+run 0.002
+lcnc 1 165.01184
+run 0.002
+lcnc 1 165.92858
+run 0.002
+lcnc 1 166.84531
+run 0.002
+lcnc 1 167.76204
+run 0.002
+lcnc 1 168.67877
+run 0.002
+lcnc 1 169.59551
+run 0.002
+lcnc 1 170.51224
+run 0.002
+lcnc 1 171.42897
+run 0.002
+lcnc 1 172.34570
+run 0.002
+lcnc 1 173.26244
+run 0.002
+lcnc 1 174.17917
+run 0.002
+lcnc 1 175.09590
+run 0.002
+lcnc 1 176.01263
+run 0.002
+lcnc 1 176.92937
+run 0.002
+lcnc 1 177.84610
+run 0.002
+lcnc 1 178.76283
+run 0.002
+lcnc 1 179.67956
+run 0.002
+lcnc 1 180.59630
+run 0.002
+lcnc 1 181.51303
+run 0.002
+lcnc 1 182.42976
+run 0.002
+lcnc 1 183.34649
+run 0.002
+lcnc 1 184.26323
+run 0.002
+lcnc 1 185.17996
+run 0.002
+lcnc 1 186.09669
+run 0.002
+lcnc 1 187.01342
+run 0.002
+lcnc 1 187.93016
+run 0.002
+lcnc 1 188.84689
+run 0.002
+lcnc 1 189.76362
+run 0.002
+lcnc 1 190.68035
+run 0.002
+lcnc 1 191.59709
+run 0.002
+lcnc 1 192.51382
+run 0.002
+lcnc 1 193.43055
+run 0.002
+lcnc 1 194.34728
+run 0.002
+lcnc 1 195.26402
+run 0.002
+lcnc 1 196.18075
+run 0.002
+lcnc 1 197.09748
+run 0.002
+lcnc 1 198.01421
+run 0.002
+lcnc 1 198.93095
+run 0.002
+lcnc 1 199.84768
+run 0.002
+lcnc 1 200.76441
+run 0.002
+lcnc 1 201.68114
+run 0.002
+lcnc 1 202.59788
+run 0.002
+lcnc 1 203.51461
+run 0.002
+lcnc 1 204.43134
+run 0.002
+lcnc 1 205.34807
+run 0.002
+lcnc 1 206.26481
+run 0.002
+lcnc 1 207.18154
+run 0.002
+lcnc 1 208.09827
+run 0.002
+lcnc 1 209.01500
+run 0.002
+lcnc 1 209.93174
+run 0.002
+lcnc 1 210.84847
+run 0.002
+lcnc 1 211.76520
+run 0.002
+lcnc 1 212.68193
+run 0.002
+lcnc 1 213.59867
+run 0.002
+lcnc 1 214.51540
+run 0.002
+lcnc 1 215.43213
+run 0.002
+lcnc 1 216.34886
+run 0.002
+lcnc 1 217.26560
+run 0.002
+lcnc 1 218.18233
+run 0.002
+lcnc 1 219.09906
+run 0.002
+lcnc 1 220.01579
+run 0.002
+lcnc 1 220.93253
+run 0.002
+lcnc 1 221.84926
+run 0.002
+lcnc 1 222.76599
+run 0.002
+lcnc 1 223.68272
+run 0.002
+lcnc 1 224.59946
+run 0.002
+lcnc 1 225.51619
+run 0.002
+lcnc 1 226.43292
+run 0.002
+lcnc 1 227.34965
+run 0.002
+lcnc 1 228.26639
+run 0.002
+lcnc 1 229.18312
+run 0.002
+lcnc 1 230.09985
+run 0.002
+lcnc 1 231.01658
+run 0.002
+lcnc 1 231.93332
+run 0.002
+lcnc 1 232.85005
+run 0.002
+lcnc 1 233.76678
+run 0.002
+lcnc 1 234.68351
+run 0.002
+lcnc 1 235.60025
+run 0.002
+lcnc 1 236.51698
+run 0.002
+lcnc 1 237.43371
+run 0.002
+lcnc 1 238.35044
+run 0.002
+lcnc 1 239.26718
+run 0.002
+lcnc 1 240.18391
+run 0.002
+lcnc 1 241.10064
+run 0.002
+lcnc 1 242.01737
+run 0.002
+lcnc 1 242.93411
+run 0.002
+lcnc 1 243.85084
+run 0.002
+lcnc 1 244.76757
+run 0.002
+lcnc 1 245.68430
+run 0.002
+lcnc 1 246.60104
+run 0.002
+lcnc 1 247.51777
+run 0.002
+lcnc 1 248.43450
+run 0.002
+lcnc 1 249.35123
+run 0.002
+lcnc 1 250.26796
+run 0.002
+lcnc 1 251.18470
+run 0.002
+lcnc 1 252.10143
+run 0.002
+lcnc 1 253.01816
+run 0.002
+lcnc 1 253.93489
+run 0.002
+lcnc 1 254.85163
+run 0.002
+lcnc 1 255.76836
+run 0.002
+lcnc 1 256.68509
+run 0.002
+lcnc 1 257.60182
+run 0.002
+lcnc 1 258.51856
+run 0.002
+lcnc 1 259.43529
+run 0.002
+lcnc 1 260.35202
+run 0.002
+lcnc 1 261.26875
+run 0.002
+lcnc 1 262.18549
+run 0.002
+lcnc 1 263.10222
+run 0.002
+lcnc 1 264.01895
+run 0.002
+lcnc 1 264.93568
+run 0.002
+lcnc 1 265.85242
+run 0.002
+lcnc 1 266.76915
+run 0.002
+lcnc 1 267.68588
+run 0.002
+lcnc 1 268.60261
+run 0.002
+lcnc 1 269.51935
+run 0.002
+lcnc 1 270.43608
+run 0.002
+lcnc 1 271.35281
+run 0.002
+lcnc 1 272.26954
+run 0.002
+lcnc 1 273.18628
+run 0.002
+lcnc 1 274.10301
+run 0.002
+lcnc 1 275.01974
+run 0.002
+lcnc 1 275.93647
+run 0.002
+lcnc 1 276.85321
+run 0.002
+lcnc 1 277.76994
+run 0.002
+lcnc 1 278.68667
+run 0.002
+lcnc 1 279.60340
+run 0.002
+lcnc 1 280.52014
+run 0.002
+lcnc 1 281.43687
+run 0.002
+lcnc 1 282.35360
+run 0.002
+lcnc 1 283.27033
+run 0.002
+lcnc 1 284.18707
+run 0.002
+lcnc 1 285.10380
+run 0.002
+lcnc 1 286.02053
+run 0.002
+lcnc 1 286.93726
+run 0.002
+lcnc 1 287.85400
+run 0.002
+lcnc 1 288.77073
+run 0.002
+lcnc 1 289.68746
+run 0.002
+lcnc 1 290.60419
+run 0.002
+lcnc 1 291.52093
+run 0.002
+lcnc 1 292.43766
+run 0.002
+lcnc 1 293.35439
+run 0.002
+lcnc 1 294.27112
+run 0.002
+lcnc 1 295.18786
+run 0.002
+lcnc 1 296.10459
+run 0.002
+lcnc 1 297.02132
+run 0.002
+lcnc 1 297.93805
+run 0.002
+lcnc 1 298.85479
+run 0.002
+lcnc 1 299.77152
+run 0.002
+lcnc 1 300.68825
+run 0.002
+lcnc 1 301.60498
+run 0.002
+lcnc 1 302.52172
+run 0.002
+lcnc 1 303.43845
+run 0.002
+lcnc 1 304.35518
+run 0.002
+lcnc 1 305.27191
+run 0.002
+lcnc 1 306.18865
+run 0.002
+lcnc 1 307.10538
+run 0.002
+lcnc 1 308.02211
+run 0.002
+lcnc 1 308.93884
+run 0.002
+lcnc 1 309.85558
+run 0.002
+lcnc 1 310.77231
+run 0.002
+lcnc 1 311.68904
+run 0.002
+lcnc 1 312.60577
+run 0.002
+lcnc 1 313.52251
+run 0.002
+lcnc 1 314.43924
+run 0.002
+lcnc 1 315.35597
+run 0.002
+lcnc 1 316.27270
+run 0.002
+lcnc 1 317.18944
+run 0.002
+lcnc 1 318.10617
+run 0.002
+lcnc 1 319.02290
+run 0.002
+lcnc 1 319.93963
+run 0.002
+lcnc 1 320.85637
+run 0.002
+lcnc 1 321.77310
+run 0.002
+lcnc 1 322.68983
+run 0.002
+lcnc 1 323.60656
+run 0.002
+lcnc 1 324.52330
+run 0.002
+lcnc 1 325.44003
+run 0.002
+lcnc 1 326.35676
+run 0.002
+lcnc 1 327.27349
+run 0.002
+lcnc 1 328.19023
+run 0.002
+lcnc 1 329.10696
+run 0.002
+lcnc 1 330.02369
+run 0.002
+lcnc 1 330.94042
+run 0.002
+lcnc 1 331.85715
+run 0.002
+lcnc 1 332.77389
+run 0.002
+lcnc 1 333.69062
+run 0.002
+lcnc 1 334.60735
+run 0.002
+lcnc 1 335.52408
+run 0.002
+lcnc 1 336.44082
+run 0.002
+lcnc 1 337.35755
+run 0.002
+lcnc 1 338.27428
+run 0.002
+lcnc 1 339.19101
+run 0.002
+lcnc 1 340.10775
+run 0.002
+lcnc 1 341.02448
+run 0.002
+lcnc 1 341.94121
+run 0.002
+lcnc 1 342.85794
+run 0.002
+lcnc 1 343.77468
+run 0.002
+lcnc 1 344.69141
+run 0.002
+lcnc 1 345.60814
+run 0.002
+lcnc 1 346.52487
+run 0.002
+lcnc 1 347.44161
+run 0.002
+lcnc 1 348.35834
+run 0.002
+lcnc 1 349.27507
+run 0.002
+lcnc 1 350.19180
+run 0.002
+lcnc 1 351.10854
+run 0.002
+lcnc 1 352.02527
+run 0.002
+lcnc 1 352.94200
+run 0.002
+lcnc 1 353.85873
+run 0.002
+lcnc 1 354.77547
+run 0.002
+lcnc 1 355.69220
+run 0.002
+lcnc 1 356.60893
+run 0.002
+lcnc 1 357.52566
+run 0.002
+lcnc 1 358.44240
+run 0.002
+lcnc 1 359.35913
+run 0.002
+lcnc 1 360.27586
+run 0.002
+lcnc 1 361.19259
+run 0.002
+lcnc 1 362.10933
+run 0.002
+lcnc 1 363.02606
+run 0.002
+lcnc 1 363.94279
+run 0.002
+lcnc 1 364.85952
+run 0.002
+lcnc 1 365.77626
+run 0.002
+lcnc 1 366.69299
+run 0.002
+lcnc 1 367.60972
+run 0.002
+lcnc 1 368.52645
+run 0.002
+lcnc 1 369.44319
+run 0.002
+lcnc 1 370.35992
+run 0.002
+lcnc 1 371.27665
+run 0.002
+lcnc 1 372.19338
+run 0.002
+lcnc 1 373.11012
+run 0.002
+lcnc 1 374.02685
+run 0.002
+lcnc 1 374.94358
+run 0.002
+lcnc 1 375.86031
+run 0.002
+lcnc 1 376.77705
+run 0.002
+lcnc 1 377.69378
+run 0.002
+lcnc 1 378.61051
+run 0.002
+lcnc 1 379.52724
+run 0.002
+lcnc 1 380.44398
+run 0.002
+lcnc 1 381.36071
+run 0.002
+lcnc 1 382.27744
+run 0.002
+lcnc 1 383.19417
+run 0.002
+lcnc 1 384.11091
+run 0.002
+lcnc 1 385.02764
+run 0.002
+lcnc 1 385.94437
+run 0.002
+lcnc 1 386.86110
+run 0.002
+lcnc 1 387.77784
+run 0.002
+lcnc 1 388.69457
+run 0.002
+lcnc 1 389.61130
+run 0.002
+lcnc 1 390.52803
+run 0.002
+lcnc 1 391.44477
+run 0.002
+lcnc 1 392.36150
+run 0.002
+lcnc 1 393.27823
+run 0.002
+lcnc 1 394.19496
+run 0.002
+lcnc 1 395.11170
+run 0.002
+lcnc 1 396.02843
+run 0.002
+lcnc 1 396.94516
+run 0.002
+lcnc 1 397.86189
+run 0.002
+lcnc 1 398.77863
+run 0.002
+lcnc 1 399.69536
+run 0.002
+lcnc 1 400.61209
+run 0.002
+lcnc 1 401.52882
+run 0.002
+lcnc 1 402.44556
+run 0.002
+lcnc 1 403.36229
+run 0.002
+lcnc 1 404.27902
+run 0.002
+lcnc 1 405.19575
+run 0.002
+lcnc 1 406.11249
+run 0.002
+lcnc 1 407.02922
+run 0.002
+lcnc 1 407.94595
+run 0.002
+lcnc 1 408.86268
+run 0.002
+lcnc 1 409.77942
+run 0.002
+lcnc 1 410.69615
+run 0.002
+lcnc 1 411.61288
+run 0.002
+lcnc 1 412.52961
+run 0.002
+lcnc 1 413.44634
+run 0.002
+lcnc 1 414.36308
+run 0.002
+lcnc 1 415.27981
+run 0.002
+lcnc 1 416.19654
+run 0.002
+lcnc 1 417.11327
+run 0.002
+lcnc 1 418.03001
+run 0.002
+lcnc 1 418.94674
+run 0.002
+lcnc 1 419.86347
+run 0.002
+lcnc 1 420.78020
+run 0.002
+lcnc 1 421.69694
+run 0.002
+lcnc 1 422.61367
+run 0.002
+lcnc 1 423.53040
+run 0.002
+lcnc 1 424.44713
+run 0.002
+lcnc 1 425.36387
+run 0.002
+lcnc 1 426.28060
+run 0.002
+lcnc 1 427.19733
+run 0.002
+lcnc 1 428.11406
+run 0.002
+lcnc 1 429.03080
+run 0.002
+lcnc 1 429.94753
+run 0.002
+lcnc 1 430.86426
+run 0.002
+lcnc 1 431.78099
+run 0.002
+lcnc 1 432.69773
+run 0.002
+lcnc 1 433.61446
+run 0.002
+lcnc 1 434.53119
+run 0.002
+lcnc 1 435.44792
+run 0.002
+lcnc 1 436.36466
+run 0.002
+lcnc 1 437.28139
+run 0.002
+lcnc 1 438.19812
+run 0.002
+lcnc 1 439.11485
+run 0.002
+lcnc 1 440.03159
+run 0.002
+lcnc 1 440.94832
+run 0.002
+lcnc 1 441.86505
+run 0.002
+lcnc 1 442.78178
+run 0.002
+lcnc 1 443.69852
+run 0.002
+lcnc 1 444.61525
+run 0.002
+lcnc 1 445.53198
+run 0.002
+lcnc 1 446.44871
+run 0.002
+lcnc 1 447.36545
+run 0.002
+lcnc 1 448.28218
+run 0.002
+lcnc 1 449.19891
+run 0.002
+lcnc 1 450.11564
+run 0.002
+lcnc 1 451.03238
+run 0.002
+lcnc 1 451.94911
+run 0.002
+lcnc 1 452.86584
+run 0.002
+lcnc 1 453.78257
+run 0.002
+lcnc 1 454.69931
+run 0.002
+lcnc 1 455.61604
+run 0.002
+lcnc 1 456.53277
+run 0.002
+lcnc 1 457.44950
+run 0.002
+lcnc 1 458.36624
+run 0.002
+lcnc 1 458.36624
+run 0.002
+run 0.3
+hv0.sim_dist = 0
+lcncstop
+@sample hv0.sim_vbus 0.001 0.1
+run 0.5
+hv0.sim_vel
+fault0.fault
+fault0.en_out
+@expect fault0.fault == 11
+@expect fault0.en_out == 0
+@expect max hv0.sim_vbus > 410
+@expect hv0.sim_vel > 250

@@ -217,9 +217,10 @@ outputs the mode in use (0, 1, 2).
   rises to hold the current at its limit, and then the bus gets 1.5·rv·i²
   (`dbrake0.power`). Capping that as well would mean letting the current
   rise, and overcurrent destroys the stage at once. The bus has its own
-  protection: rv backs off above `high_dc_volt`, the drive faults at
-  `max_dc_volt`, and the F3 at 410 V. A brake resistor on the supply
-  (below) is what makes room for that energy.
+  protection: rv backs off towards the short above `high_dc_volt` (but not
+  past the current target), the drive faults at `max_dc_volt`, and the F3
+  at 410 V. A brake resistor on the supply (below) is what makes room for
+  that energy.
 
 ## Braking on the HV side when the F4 is lost
 
@@ -330,6 +331,44 @@ What the suite found and fixed: the F3 clamp turning the brake into a short,
 the instability on low-L motors, the start transient, and the bridge driving
 on a frozen angle before the fault filter trips.
 
+### The DC bus
+
+The simulated bus is 230 V 50 Hz mains, rectified by a single-phase diode
+bridge straight into the drive's own 540 µF (no capacitors on the supply),
+with a brake chopper standing in for the supply card (47 Ω from 345 V,
+off below 335 V; `host/README.md`, "DC bus"). So regeneration is now
+tested: the energy a stop sends back charges the capacitors, and only the
+chopper, the windings and the motor's losses take it away.
+
+`host/tests/bus/` (part of `make check`):
+
+| Test | What it checks |
+|---|---|
+| `ripple` | 323 V at rest; ~17 V of 100 Hz ripple at ~300 W, the speed holding |
+| `mains_loss` | the mains gone at speed: the caps carry the axis ~40 ms, then a following error and the dynamic brake |
+| `regen_chopper` | the 829 J spindle's quick stop: the chopper takes it, the bus stays below `high_dc_volt` |
+| `regen_nochop` | the same without a chopper: `max_dc_volt` trips, the drive coasts, and the bus has overshot the F3's 410 V |
+| `ov_f3` | the F3's own cut-off at 410 V (`hv0.sim_hv_fault`) with the F4's limits out of the way |
+| `mains_high` | 253 V mains (+10 %): the simulator's 345 V chopper clips every peak (~460 W); the recommended 375 / 365 V with `high_dc_volt` 385 idles |
+
+What it showed:
+- **A heavy motor needs the chopper.** 540 µF hold about 20 J between
+  323 V and 410 V; the spindle has 829 J at speed. Without a chopper the
+  bus climbs ~40 V/ms while braking, so by the time `max_dc_volt` (380 V)
+  has tripped and the bridge is off it is at ~427 V, past the F3's 410 V.
+  The burn-in motor (0.5 J at speed, 2 Ω windings) never gets near.
+- **The dynamic brake gave up the current for the bus.** With the bus above
+  `high_dc_volt` rv went to a plain short whatever the current; on the
+  spindle that drew 64 A against a 52 A limit. Now it backs off only while
+  the current is below its target; if the bus still rises, the F3 cuts off
+  at 410 V and the motor coasts (`estop_bus_high`).
+- **Thresholds against the mains tolerance.** At 230 V +10 % the rectified
+  peak is 358 V: a chopper below that burns power on every peak, and a
+  `high_dc_volt` below it throttles the drive at rest. The card's chopper
+  at 375 / 365 V needs the drives' `high_dc_volt` / `max_dc_volt` raised to
+  about 385 / 400 V (`bus_mains_high`); the simulator keeps 345 V so the
+  template's 350 / 380 V work.
+
 ### Simulator pins
 
 New simulator pins:
@@ -360,7 +399,7 @@ The hand-written `estop_*` tests (`host/tests/ebrake/`):
 | `f4dead`, `f4dead_coast` | the F3 braking on its own when the F4 is lost, and coasting without the flag |
 | `reverse`, `standstill`, `reenable` | the quick stop moving backwards, at standstill, and re-enabling after it (enable is ignored while a stop runs) |
 | `holding_brake` | the holding brake stays released while braking, grips at standstill, and then holds a hanging load |
-| `bus_high`, `giveup` | rv backs off to a short when the bus is high; the brake gives up when the current can't be held |
+| `bus_high`, `giveup` | rv backs off towards a short when the bus is high, but not past the current target; the brake gives up when the current can't be held |
 | `f4dead_standstill`, `f4_returns` | the F3 brake at standstill; the F4 coming back after it |
 | `hv_during` | an HV fault during a quick stop ends it at once |
 | `stepper` | the quick stop on the brdstepper NEMA11 (stepper template) |
@@ -375,8 +414,10 @@ unchanged.
 - **Old F3 firmware:** without this branch's F3 firmware, the F3 keeps its
   voltage-mode clamp during the F4's brake. Motors whose short-circuit current
   is far above `max_ac_cur` then brake as a plain short. Flash the F3 too.
-- **Regeneration:** a rv > 0 stop feeds energy into the DC bus. The simulator's
-  bus is a fixed supply, so the over-voltage path (`high_dc_volt`) is untested.
+- **Regeneration:** the simulator's bus is the rectified mains into the
+  drive's own capacitors, so over-voltage is tested (above). Not modelled:
+  the bridge's freewheel diodes charging the bus from back-EMF above it
+  while the bridge is off (a motor driven above its voltage-limited speed).
 - **F3 untested on hardware:** the F3 brake has only run against the
   simulated F3. The simulated F3 loop runs at 20 kHz, the real F3's rt at
   15 kHz. The F3 code uses its own period for the delay, so its rv limit

@@ -14,6 +14,20 @@
  * shared/bip_loop.c, the code brdstepper runs, at 20 kHz; the coils (A =
  * alpha, B = beta) and the detent torque (4 per electrical turn) are
  * integrated at 80 kHz; sim_ia / sim_ib are the coil currents.
+ *
+ * The DC bus (PMSM): sim_supply = 1 (host/sim_board.txt) rectifies the
+ * mains (sim_mains V rms, sim_mains_hz) through a single-phase diode bridge
+ * and the source resistance sim_mains_r straight into the drive's own bus
+ * capacitors (sim_cap); the supply has no capacitors of its own. The bus
+ * sags with ripple under load, and the energy a braking motor sends back
+ * charges the capacitors: the diode bridge can't return it to the mains.
+ * The F3 measures the bus filtered (io.c, ~1.3 ms), sets its voltage limit
+ * and duties from that measurement, and switches off with HV_VOLT_ERROR
+ * above ABS_MAX_VOLT (410 V) until the F4 disables it. A brake chopper
+ * (the supply card's, sim_chop_r > 0) puts sim_chop_r across the bus from
+ * sim_chop_on until it is back below sim_chop_off. sim_supply = 0: a stiff
+ * sim_udc. Not modelled: the bridge's freewheel diodes charging the
+ * bus from back-EMF above it while the bridge is off.
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -21,6 +35,8 @@
 #include "angle.h"
 #include "bip_loop.h"
 #include "vbrake.h"
+#include "common.h"
+#include "f3hw.h"
 #include <math.h>
 
 HAL_COMP(hv);
@@ -82,7 +98,21 @@ HAL_PIN(sim_load);   // external load torque [Nm]
 HAL_PIN(sim_brake);  // holding brake torque [Nm], applied while not released
 HAL_PIN(sim_brake_release);  // brake output (io0.out0), 1 = released
 HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
-HAL_PIN(sim_udc);        // supply voltage [V]
+HAL_PIN(sim_udc);        // sim_supply 0 (and the stepper): the supply voltage [V]
+HAL_PIN(sim_supply);     // 0: stiff sim_udc, 1: rectified mains into the drive's capacitors
+HAL_PIN(sim_mains);      // mains [V rms] (0: lost)
+HAL_PIN(sim_mains_hz);   // [Hz]
+HAL_PIN(sim_mains_r);    // mains, rectifier and wiring resistance [ohm]
+HAL_PIN(sim_cap);        // the drive's bus capacitance [F]
+HAL_PIN(sim_bus_load);   // constant load on the bus [W] (the HV board's own supply)
+HAL_PIN(sim_chop_r);     // brake chopper resistor [ohm] (0: none)
+HAL_PIN(sim_chop_on);    // [V] it switches on above this ...
+HAL_PIN(sim_chop_off);   // [V] ... and off below this
+HAL_PIN(sim_chop_e);     // out: the energy it took [J]
+HAL_PIN(sim_hv_fault);   // out: the F3's own last fault (over-voltage), kept (the F3 clears it on disable)
+HAL_PIN(sim_vbus);       // out: the bus voltage [V] (dc_volt is the F3's filtered measurement)
+HAL_PIN(sim_ibus);       // out: the current into the bridge [A], < 0: regeneration
+HAL_PIN(sim_irect);      // out: the rectifier current [A]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 HAL_PIN(sim_motor);      // 0: PMSM on the HV board, 1: two-phase stepper on two H-bridges
@@ -140,6 +170,14 @@ struct hv_ctx_t {
   float brake_t;
   vbrake_t vb;
   float vscale;  // curpid's voltage-mode current clamp
+  // the DC bus
+  int bus_init;
+  float vbus;      // [V] on the capacitors
+  float udc_meas;  // [V] what the F3 measures (io.c)
+  float mains_ph;  // mains phase, 0..1
+  float ov_err;    // io.c's err_filter state
+  int hv_fault;    // the F3's own fault (over-voltage), until the F4 disables it
+  int chop;        // the chopper is on
 };
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
@@ -275,6 +313,13 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_d)   = 0.0001;
   PIN(sim_f)   = 0.01;
   PIN(sim_udc) = 300;
+  PIN(sim_mains)    = 230;
+  PIN(sim_mains_hz) = 50;
+  PIN(sim_mains_r)  = 1.0;
+  PIN(sim_cap)      = 0.00054;
+  PIN(sim_bus_load) = 2.0;
+  PIN(sim_chop_on)  = 345;
+  PIN(sim_chop_off) = 335;
   PIN(max_duty) = 0.95;
   PIN(sense_window) = 0.1;
   PIN(sense_thr)    = 0.01;
@@ -289,7 +334,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float q_cmd = PIN(q_cmd);
   float pos   = PIN(pos);
   float vel   = PIN(vel);
-  int en      = PIN(en) > 0.0 && PIN(sim_fault) <= 0.0;  // the F3 switches off on its faults
+  if(PIN(en) <= 0.0) {  // the F3 clears its faults when disabled
+    ctx->hv_fault = NO_ERROR;
+  }
+  int en = PIN(en) > 0.0 && PIN(sim_fault) <= 0.0 && !ctx->hv_fault;  // the F3 switches off on its faults
   if(PIN(rev) > 0.0) {
     q_cmd *= -1.0;
     pos = minus(0, pos);
@@ -331,6 +379,16 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_f3_brake) = f3_brake;
 
   float udc = MAX(PIN(sim_udc), 0.0);
+  int mains = PIN(sim_supply) > 0.0 && PIN(sim_motor) <= 0.0;
+  if(!ctx->bus_init) {  // charged: peak minus two diodes
+    ctx->bus_init = 1;
+    ctx->vbus     = mains ? MAX(PIN(sim_mains) * M_SQRT2 - 1.8, 0.0) : udc;
+    ctx->udc_meas = ctx->vbus;
+  }
+  if(!mains) {
+    ctx->vbus = udc;
+  }
+  float cap  = MAX(PIN(sim_cap), 1e-6);
   float id = 0.0, iq = 0.0, ud = 0.0, uq = 0.0;
   float max_volt;
   if(PIN(sim_motor) > 0.0) {
@@ -341,8 +399,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     goto feedback;
   }
 
-  // --- F3 side: curpid with the config the F4 sends
-  max_volt = udc / M_SQRT3 * 0.95;
+  // --- F3 side: curpid with the config the F4 sends, on the bus it measures
+  max_volt = ctx->udc_meas / M_SQRT3 * 0.95;
   float r        = MAX(PIN(r), 0.1);
   float l        = MAX(PIN(l), 0.001);
   float psi      = PIN(psi);
@@ -403,10 +461,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ud += ctx->id_error_sum;
     uq += ctx->iq_error_sum;
     if(f3_brake) {  // ls.c's brake, on the F3's own current measurement
-      vbrake_cfg_t c = {.max_cur      = 0.9 * MIN(max_cur, 30.0),  // f3hw.h ABS_MAX_CURRENT
+      vbrake_cfg_t c = {.max_cur      = 0.9 * MIN(max_cur, ABS_MAX_CURRENT),
                         .pwm_volt     = max_volt,
-                        .dc_volt      = udc,
-                        .high_dc_volt = 0.9 * 410.0,  // f3hw.h ABS_MAX_VOLT
+                        .dc_volt      = ctx->udc_meas,
+                        .high_dc_volt = 0.9 * ABS_MAX_VOLT,
                         .kp           = 0.1,
                         .ki           = 500.0,
                         .stop_cur     = 0.05 * max_cur,
@@ -448,9 +506,16 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->ud = ud;
     ctx->uq = uq;
 
-    // inverter output in alpha/beta, as the motor sees it
-    float ua = ud * ca - uq * sa;
-    float ub = (ud * sa + uq * ca) * prev;
+    // inverter output in alpha/beta, as the motor sees it: the duties are
+    // set for the measured bus, the bus that is there makes the voltage
+    float ks = ctx->vbus / MAX(ctx->udc_meas, 1.0);
+    float ua = (ud * ca - uq * sa) * ks;
+    float ub = (ud * sa + uq * ca) * prev * ks;
+    float uu = sqrtf(ua * ua + ub * ub), umax = ctx->vbus / M_SQRT3;
+    if(uu > umax) {
+      ua *= umax / uu;
+      ub *= umax / uu;
+    }
 
     for(int m = 0; m < MOT_PER_F3; m++) {
       sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
@@ -469,6 +534,37 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
 
       mech_step(pins, 1.5 * pp * mpsi * PIN(sim_iq), mj, mot_dt);
+
+      // the bus: the bridge's power (< 0 regenerates), the rectifier
+      if(mains) {
+        float p    = en ? 1.5 * (mud * PIN(sim_id) + muq * PIN(sim_iq)) : 0.0;
+        float vb   = MAX(ctx->vbus, 1.0);
+        float vm   = PIN(sim_mains) * M_SQRT2 * fabsf(sinf(2.0 * M_PI * ctx->mains_ph));
+        float ir   = MAX(vm - 1.8 - ctx->vbus, 0.0) / MAX(PIN(sim_mains_r), 0.01);
+        float ib   = (p + MAX(PIN(sim_bus_load), 0.0)) / vb;
+        if(ctx->vbus > PIN(sim_chop_on)) {
+          ctx->chop = PIN(sim_chop_r) > 0.0;
+        } else if(ctx->vbus < PIN(sim_chop_off)) {
+          ctx->chop = 0;
+        }
+        if(ctx->chop) {
+          ib += ctx->vbus / PIN(sim_chop_r);
+          PIN(sim_chop_e) += ctx->vbus * ctx->vbus / PIN(sim_chop_r) * mot_dt;
+        }
+        ctx->vbus  = MAX(ctx->vbus + (ir - ib) * mot_dt / cap, 0.0);
+        ctx->mains_ph += PIN(sim_mains_hz) * mot_dt;
+        ctx->mains_ph -= floorf(ctx->mains_ph);
+        PIN(sim_ibus)  = p / vb;
+        PIN(sim_irect) = ir;
+      }
+    }
+
+    // the F3's measurement (io.c: 0.05 per sample at 15 kHz) and over-voltage cut-off
+    ctx->udc_meas += (ctx->vbus - ctx->udc_meas) * MIN(f3_dt / 0.00133, 1.0);
+    if(err_filter(&ctx->ov_err, 5.0, 0.001, ctx->udc_meas > ABS_MAX_VOLT) && en) {
+      ctx->hv_fault     = HV_VOLT_ERROR;
+      PIN(sim_hv_fault) = HV_VOLT_ERROR;
+      en                = 0;
     }
   }
 
@@ -519,8 +615,9 @@ feedback:
   PIN(abs_volt) = sqrtf(ud * ud + uq * uq);
   PIN(pwm_volt) = max_volt;
   PIN(duty)     = max_volt > 0.0 ? PIN(abs_volt) / max_volt : 0.0;
-  PIN(dc_volt)  = udc;
-  PIN(fault)    = PIN(sim_fault);
+  PIN(dc_volt)  = PIN(sim_motor) > 0.0 ? udc : ctx->udc_meas;
+  PIN(sim_vbus) = PIN(sim_motor) > 0.0 ? udc : ctx->vbus;
+  PIN(fault)    = PIN(sim_fault) > 0.0 ? PIN(sim_fault) : ctx->hv_fault;
   PIN(value)    = 1.0;
 }
 

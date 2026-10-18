@@ -5,7 +5,8 @@
  * needed. rv = 0 is a short circuit (the energy goes into the windings);
  * rv rises only to hold the current at its target (the power stage's and
  * the motor's limit), and falls back towards the short when the bus is
- * high. So energy goes into the DC bus (1.5 * rv * i^2, reported as power)
+ * high, but not past the current target: if the bus still rises, the
+ * F3's ABS_MAX_VOLT cut-off switches off and the motor coasts. So energy goes into the DC bus (1.5 * rv * i^2, reported as power)
  * only when the short alone would draw too much current: the current
  * comes first, overcurrent destroys the power stage at once, while the bus
  * has high_dc_volt here and the F3's ABS_MAX_VOLT cut-off. (Capping that
@@ -78,8 +79,8 @@ static inline void vbrake_step(vbrake_t *b, const vbrake_cfg_t *c, float id, flo
     b->rvi     = rn < rv_max ? rn : rv_max;
   }
   float e       = (i - max_cur) / max_cur;
-  if(c->high_dc_volt > 0.0f && c->dc_volt > c->high_dc_volt) {
-    e = -1.0f;  // the bus is full: back towards the short circuit
+  if(c->high_dc_volt > 0.0f && c->dc_volt > c->high_dc_volt && e < 0.0f) {
+    e = -1.0f;  // the bus is full: back towards the short circuit, as far as the current allows
   }
   b->rvi += rn * c->ki * e * period;
   b->rvi = b->rvi < 0.0f ? 0.0f : b->rvi > rv_max ? rv_max : b->rvi;

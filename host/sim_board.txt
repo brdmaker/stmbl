@@ -12,6 +12,15 @@ hv0.sim_f = conf0.f
 hv0.sim_phase_rev = conf0.out_rev
 hv0.sim_brake_release = io0.out0
 hv0.sim_udc = 300
+# DC bus: 230 V 50 Hz mains rectified into the drive's
+# own caps (pe0.cap), no PSU caps. sim_supply = 0: sim_udc
+hv0.sim_supply = 1
+hv0.sim_mains = 230
+hv0.sim_mains_hz = 50
+hv0.sim_cap = 0.00054
+# the supply card's brake chopper: 47 ohm from 345 V
+# (below conf0.high_dc_volt), off below 335 V
+hv0.sim_chop_r = 47
 enc_fb0.sim_pos = hv0.sim_pos
 enc_fb0.sim_rev = conf0.mot_fb_rev
 enc_fb0.sim_index = conf0.mot_fb_offset
