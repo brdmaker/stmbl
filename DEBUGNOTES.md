@@ -814,3 +814,23 @@ Entry format:
   ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
   Still to check on a drive: counts against distance at speed, and the
   direction.
+
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Known
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
