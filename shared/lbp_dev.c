@@ -75,7 +75,7 @@ static void handle(lbpd_t *d, int n) {
   uint8_t c = d->buf[0], r[16];
   int ct = c >> 6, wr = (c >> 5) & 1, as = (c >> 2) & 1, ai = (c >> 3) & 1, ds = c & 3;
   d->cmds++;
-  if(n > 1 && !(ct == CT_LOCAL && wr) && crc(d->buf, n - 1) != d->buf[n - 1]) {
+  if(n > 1 && crc(d->buf, n - 1) != d->buf[n - 1]) {
     d->crc_errors++;  // no reply: hostmot2 retries or reports
     return;
   }
@@ -88,8 +88,7 @@ static void handle(lbpd_t *d, int n) {
         if(d->flash) {
           lbpf_local_write(d->flash, c, d->buf[1]);
         }
-        r[0] = 0;
-        reply(d, r, 1, 0);  // as the application's parser: no CRC
+        reply(d, r, 0, 1);  // SSLBP waits for the CRC of no data: one 0x00
       }
       return;
     }
@@ -126,6 +125,10 @@ static void handle(lbpd_t *d, int n) {
       if(!(d->flash && lbpf_mem_write(d->flash, d->addr, data, nb))) {
         // the tables are read only here
       }
+      // SSLBP waits for a reply to every write: the CRC of no data, one 0x00
+      // (SSLBP.MAC sendLBPstring, SSLBP.SUB recvstring); without it each
+      // write timed out after 50 ms and set the error flag
+      reply(d, r, 0, 1);
     } else {
       mem_read(d, d->addr, r, nb);
       reply(d, r, nb, 1);

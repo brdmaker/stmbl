@@ -72,6 +72,7 @@ static uint8_t crc8(const uint8_t *p, int len) {
 }
 // one LBP transaction as hostmot2 sends it: request + CRC8 (local writes
 // and the RPCs too), the reply checked; returns the reply's data bytes
+static int writes_seen, write_ack_bad;
 static int device(const uint8_t *req, int len, uint8_t *rep) {
   uint8_t w[32];
   memcpy(w, req, len);
@@ -83,7 +84,13 @@ static int device(const uint8_t *req, int len, uint8_t *rep) {
   }
   wire_bytes += len + 1 + rxn;
   uint8_t c = req[0];
-  if((c >> 6) == 3 && (c >> 5 & 1)) {  // local write: one 0 byte, no CRC
+  if((c >> 5 & 1) && ((c >> 6) == 3 || (c >> 6) == 1)) {
+    // a local or memory write: SSLBP waits for exactly one byte, the CRC of
+    // no data (0x00), and times out (error flag) without it
+    writes_seen++;
+    if(rxn != 1 || rx[0] != 0) {
+      write_ack_bad++;
+    }
     return 0;
   }
   if(rxn == 0) {
@@ -430,6 +437,19 @@ int main(void) {
   ok(fwst_begin(&st, 449 * KB, crc) == -1, "an image larger than the application area is refused", 0);
   printf("# in-band: %u bytes in %u lines (~%u console bytes, ~%.0f s at 1 kB/s)\n", isize, lines, lines * 80,
          lines * 80 / 1000.0);
+  // SSLBP (Mesa's smart-serial firmware, SSLBP.SUB recvstring) waits for one
+  // reply byte to every write; the loader sent none to memory writes, so
+  // on the bench each write of setsserial timed out with the error flag
+  ok(writes_seen > 100 && write_ack_bad == 0, "every write (local and memory) answered with exactly one 0x00", write_ack_bad);
+  {
+    uint8_t bad[3] = {0xec, 0x02, 0};  // a local write with a wrong CRC: no reply
+    bad[2]         = (uint8_t)(crc8(bad, 2) ^ 0x55);
+    rxn            = 0;
+    for(int i = 0; i < 3; i++) {
+      lbpd_byte(&lbp, bad[i]);
+    }
+    ok(rxn == 0, "a local write with a bad CRC gets no reply (SSLBP times out cleanly)", rxn);
+  }
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }

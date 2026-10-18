@@ -133,9 +133,23 @@ static int win_erase_sector(void *ctx, int i) {
   return erase_sectors(4 + i, 4 + i);
 }
 static lbpf_sectors_t sectors = {win_sectors, 4, (const uint8_t *)WIN_START, 0x4000, win_erase_sector, 0, 0};
+// An erase inside setsserial's commit must not stall: SSLBP wants the
+// commit's reply and then the cookie within 50 ms each, and a 16 kB sector
+// takes 250..500 ms. The loader erases everything when it starts, so a
+// commit normally finds blank flash; stale data (a second run after a
+// failed one) fails the commit at once (setsserial aborts: "Synch failed")
+// and the whole application area is erased once the line is quiet, so the
+// next run works.
+static int erase_pending;
 static int win_erase(void *ctx, uint32_t off, uint32_t len) {
   (void)ctx;
-  return lbpf_erase_lazy(&sectors, off, len);
+  for(uint32_t i = 0; i < len; i++) {
+    if(((const uint8_t *)WIN_START)[off + i] != 0xff) {
+      erase_pending = 1;
+      return -1;
+    }
+  }
+  return 0;
 }
 static int win_program(void *ctx, uint32_t off, const uint8_t *d, uint32_t len) {
   (void)ctx;
@@ -242,8 +256,14 @@ static void sserial_loader(int dfu_timeout_s) {
         rxpos = (rxpos + 1) % sizeof(rxbuf);
       }
       last = now;
-    } else if(now - last > tick_s / 1000) {
-      lbpd_idle(&lbp);  // 1 ms quiet: drop a partial request
+    } else if(now - last > tick_s / 50) {
+      // 20 ms quiet: drop a partial request (SSLBP sends a frame in one go
+      // and times out at 50 ms; 1 ms dropped good ones under load)
+      lbpd_idle(&lbp);
+      if(erase_pending && now - last > tick_s / 10) {  // 100 ms quiet: setsserial gave up
+        erase_pending = 0;
+        lbpf_erase_all(&sectors);
+      }
       if(flash.writes != writes && now - last > tick_s) {
         // setsserial wrote and went quiet for 1 s: a complete image starts
         writes = flash.writes;
