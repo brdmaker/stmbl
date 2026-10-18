@@ -476,6 +476,34 @@ Entry format:
   scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
   and `--load` verifies by reading back, so a garbled read can't go to flash.
 
+## 2026-10-18  setsserial could not flash through the smart-serial loader
+- Area:    `shared/lbp_dev.c`, `bootloader/src/main.c` (sserial_loader),
+  `servoterm-cli` (--update exit code); 7c81 card, SSLBP v43
+- Status:  Fixed (bench)
+- Symptom: (1) hostmot2 at 115200 found no remote: "found a" with a blank
+  name, setsserial "Unable to find sserial remote". (2) Then every write of
+  setsserial failed ("Error in sslbp_write_long/_byte/_double", "Error flag
+  set after CMD Clear 1"), thousands of times, while the data still landed.
+  (3) The erase-size read was dropped. (4) `servoterm-cli --update` exited 1
+  after a good update.
+- Cause:   (1) In setup mode (115200) hostmot2 keeps a remote only if the
+  second byte of its card name is 'I'; the loader was "stbl". (2) SSLBP
+  (source in Mesa's 7c81 package, hostmot2/source/sslbp.zip) waits for one
+  reply byte to every write, the CRC of no data (0x00); the loader sent
+  none to memory writes. (3) The loader dropped a partial request after
+  1 ms of silence. (4) After applying, servoterm-cli read the port while
+  the drive reset. The branch's host model had none of these: it followed
+  hostmot2's C code, not the card's firmware. Found by running the
+  loader's lbp_dev inside the application at 115200 with a byte log.
+- Fix:     Name "sIbl" (HAL name ...sibl.0.0); a 0x00 reply to every write;
+  local-write CRCs checked; 20 ms idle; no erase inside a commit (stale
+  data fails it, erased afterwards); `make ssfw_install`; servoterm-cli
+  skips the trailing read after applying. Bench: setsserial 23 blocks in
+  67 s without errors after hardboot. Tests: test_bootloader (name rule,
+  write replies, bad-CRC local write), hwtest/suite update_usb, setsserial.
+  Also: inc/commandslist.h now depends on the Makefile (a removed source
+  left a stale command list and a link error).
+
 ## 2026-10-17  DFU entry unreliable; stmbl bootloader's DFU path dead; hardboot locked up
 - Area:    `src/main.c` (`bootloader`, `dfu_request_check`), `bootloader/src/main.c`,
   `src/config.c` (`hardboot`), `tools/bootloader.py`, `base.mak` (`btburn`)

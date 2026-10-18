@@ -308,7 +308,7 @@ sym: $(TARGET).sym
 
 $(OBJDIR)/shared/commands.o: inc/commandslist.h
 
-inc/commandslist.h: tools/create_cmd.py $(SOURCES)
+inc/commandslist.h: tools/create_cmd.py $(SOURCES) Makefile
 	@echo Generating commands list
 	@$(MKDIR) -p $(dir $@)
 	@$(PYTHON) tools/create_cmd.py $@ $(SOURCES)
@@ -345,6 +345,12 @@ obj_boot/blboot.bin: force_look
 #image for LinuxCNC's setsserial flash (the smart-serial bootloader)
 ssfw: $(TARGET).bin
 	$(PYTHON) tools/mkssfw.py $(TARGET).bin $(OBJDIR)/stmbl_ss.bin
+
+# setsserial (LinuxCNC) loads its image from /lib/firmware and refuses a
+# name without ".BIN": loadrt setsserial cmd="flash hm2_<card>.0.sibl.0.0 stmbl/STMBL_SS.BIN"
+ssfw_install: ssfw
+	sudo mkdir -p /lib/firmware/stmbl
+	sudo cp $(OBJDIR)/stmbl_ss.bin /lib/firmware/stmbl/STMBL_SS.BIN
 
 #build f4 bootloader
 boot: obj_boot/blboot.bin

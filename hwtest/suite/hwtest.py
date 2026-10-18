@@ -48,6 +48,10 @@ class Fail(Exception):
     pass
 
 
+class Skip(Exception):
+    pass
+
+
 def need(cond, msg):
     if not cond:
         raise Fail(msg)
@@ -459,6 +463,15 @@ def t_dfu_round_trips(ctx):
     return "5 round trips"
 
 
+def drive_version(ctx):
+    if not ctx.meas.get("firmware"):
+        rc, out = ctx.cli(ctx.a.usb, "-c", "about")
+        m = re.search(r"STMBL v\S+ (\S+)", out)
+        if m:
+            ctx.m("firmware", m.group(1))
+    return ctx.meas.get("firmware") or ""
+
+
 def build_version():
     try:
         data = open(os.path.join(REPO, "obj_app", "stmbl.bin"), "rb").read()
@@ -470,10 +483,10 @@ def build_version():
 
 @test("drive", "hardboot: an erased app gives DFU from the stmbl bootloader, btburn restores it", targets=("hw",))
 def t_hardboot(ctx):
-    fw = ctx.meas.get("firmware") or ""
+    fw = drive_version(ctx)
     built = build_version()
     if not built or built != fw:
-        return "skipped: the drive runs %s, the repo build is %s (btburn would change it)" % (fw, built)
+        raise Skip("the drive runs %s, the repo build is %s (btburn would change it)" % (fw, built))
     ctx.cli(ctx.a.usb, "-c", "hardboot", quiet=0.3, timeout=20)
     # the bootloader first waits 30 s in its smart-serial loader for setsserial
     need(wait_for(dfu_present, 45), "no DFU after hardboot (bootloader CRC path)")
@@ -485,6 +498,76 @@ def t_hardboot(ctx):
     need(fw in out, "firmware after restore: %s" % out[-200:])
     got = dump(ctx, ctx.a.usb, "after-hardboot.conf")
     need(got == baseline(ctx), "config differs after hardboot / btburn")
+
+
+@test("drive", "update over USB: servoterm-cli --update stages, the bootloader copies, the app is back", targets=("hw",))
+def t_update_usb(ctx):
+    fw = drive_version(ctx)
+    built = build_version()
+    if not built or built != fw:
+        raise Skip("the drive runs %s, the repo build is %s" % (fw, built))
+    image = os.path.join(REPO, "obj_app", "stmbl.bin")
+    t0 = time.time()
+    # a long quiet time: after the last line the drive checks the image
+    # (fwend busy) before it answers
+    rc, out = ctx.cli(ctx.a.usb, "--update", image, quiet=5, timeout=600)
+    need(rc == 0 and "applied" in out, "--update: %s" % out[-300:])
+    need(ctx.wait_port(ctx.a.usb, gone_first=True, timeout=60), "the app did not come back after the update")
+    rc, out = ctx.cli(ctx.a.usb, "-c", "about")
+    need(fw in out, "firmware after the update: %s" % out[-200:])
+    got = dump(ctx, ctx.a.usb, "after-update.conf")
+    need(got == baseline(ctx), "config differs after the update")
+    ctx.m("update_usb_s", time.time() - t0)
+    return "%.0f s" % (time.time() - t0)
+
+
+SSFW = "/lib/firmware/stmbl/STMBL_SS.BIN"
+
+
+@test("drive", "recovery: hardboot, then setsserial flash through the bootloader's smart-serial loader", targets=("hw",))
+def t_setsserial(ctx):
+    # The loader must be found at 115200 (card name sIbl), answer every
+    # write with 0x00 and keep commits under SSLBP's 50 ms (DEBUGNOTES).
+    fw = drive_version(ctx)
+    built = build_version()
+    if not built or built != fw:
+        raise Skip("the drive runs %s, the repo build is %s" % (fw, built))
+    try:
+        img = open(SSFW, "rb").read()
+    except OSError:
+        raise Skip("no %s (make ssfw_install)" % SSFW)
+    if built.encode() not in img:
+        raise Skip("%s is not the repo build (make ssfw_install)" % SSFW)
+    hal = os.path.join(ctx.dir, "setsserial.hal")
+    open(hal, "w").write('loadrt hostmot2 sserial_baudrate=115200\nloadrt hm2_rpspi\n'
+                         'loadrt setsserial cmd="flash %ssibl.0.0 stmbl/STMBL_SS.BIN"\n'
+                         % ctx.a.prefix.replace("stbl.0.0.", ""))
+    ctx.cli(ctx.a.usb, "-c", "hardboot", quiet=0.3, timeout=20)
+    need(wait_for(lambda: not os.path.exists(ctx.a.usb), 10), "hardboot did not reset the drive")
+    t_boot = time.time()
+    # One attempt, once the loader is surely ready: the bootloader may first
+    # erase a staging area, then the loader erases the application area
+    # before it answers. A hostmot2 started earlier finds no remote (it then
+    # also turns the channel's CRC off in the card for its 8i20 search; the
+    # loader ignores requests without CRC). Within the loader's 30 s, after
+    # which it falls back to DFU.
+    time.sleep(max(0.0, t_boot + 15 - time.time()))
+    t0 = time.time()
+    r = subprocess.run(["halrun", "-f", hal], capture_output=True, text=True, timeout=400)
+    out = r.stdout + r.stderr
+    subprocess.run(["halrun", "-U"], capture_output=True)
+    open(os.path.join(ctx.dir, "setsserial.log"), "w").write(out)
+    wrote = out.count("Wrote block")
+    errors = len(re.findall(r"Error in sslbp|Synch failed|Flash Failed", out))
+    need("Flash Success" in out and wrote > 0 and errors == 0,
+         "setsserial: %d blocks written, %d errors (setsserial.log)" % (wrote, errors))
+    need(ctx.wait_port(ctx.a.usb, timeout=30), "the app did not start after setsserial")
+    rc, o = ctx.cli(ctx.a.usb, "-c", "about")
+    need(fw in o, "firmware after setsserial: %s" % o[-200:])
+    got = dump(ctx, ctx.a.usb, "after-setsserial.conf")
+    need(got == baseline(ctx), "config differs after setsserial")
+    ctx.m("setsserial_s", time.time() - t0)
+    return "%d blocks in %.0f s, no errors" % (wrote, time.time() - t0)
 
 
 # --------------------------------------------------------------------------
@@ -953,6 +1036,8 @@ def run_phase(ctx, phase):
             status = "ok"
         except Fail as e:
             status, detail = "fail", str(e)
+        except Skip as e:
+            status, detail = "skip", str(e)
         except Exception as e:
             status, detail = "fail", "exception: %r" % e
             ctx.note(traceback.format_exc())

@@ -2,14 +2,18 @@
 
 Drives in tight places should be updatable through the cable they already
 have: the smart-serial link to the Mesa card, without USB or SWD. This lives
-on branch `sserial_bootloader`, which is built on `sserial_console`.
+on master (merged from `sserial_bootloader` on 2026-10-18).
 
 What is tested where:
 - **Host tests:** the protocol pieces (`make -C host check`).
 - **Simulator:** the drive side, end to end, in the host simulator and in
   LinuxCNC's simulation.
 - **ARM builds:** the bootloader and the application compile and fit.
-- **Not yet tried on a real drive with a Mesa card.**
+- **Bench** (7c81 card, SSLBP v43, LinuxCNC 2.9.1), both paths work:
+  - in-band `--update`: 367 kB in 83 s over USB, 820 s over smart-serial;
+  - recovery with `setsserial flash` after `hardboot`: 23 blocks in 67 s,
+    no errors;
+  - `hwtest/suite` checks both (`update_usb`, `setsserial`).
 
 Related: [sserial_console.md](sserial_console.md) (the console the in-band
 path uses) and [capture_scope.md](capture_scope.md).
@@ -74,11 +78,25 @@ The application sets a RAM word at `0x2001C000` and resets:
 | `0x5353424C` "SSBL" | `sserialboot` | smart-serial loader, stays there until flashed or power cycled |
 | — (application CRC bad) | — | smart-serial loader; if no valid LBP request comes in 30 s, ROM DFU |
 
-The application `bootloader` command still jumps into ROM DFU directly.
+The application's `bootloader` command enters ROM DFU through a reset: a
+request word in CCM, taken by the bootloader (see `src/main.c`).
 
 **Smart-serial loader** (115200 baud, polled, RX by DMA):
-- **What it answers:** name `stbl`, the unit number (as the application's),
+- **What it answers:** name `sIbl`, the unit number (as the application's),
   an empty process data table, and the flash window.
+- **The name:** at 115200 baud hostmot2 runs the port in setup mode and
+  keeps a remote only if the second byte of its name is `I` (Mesa's XIXX
+  boards, `sserial.c`); it dropped `stbl` without a word. hostmot2
+  lower-cases that byte: the remote is `hm2_<card>.<n>.sibl.<i>.<c>`
+  (`LBPD_LOADER_NAME`, `shared/lbp_dev.h`).
+- **What SSLBP (Mesa's smart-serial firmware) expects,** from its source in
+  Mesa's card package (`hostmot2/source/sslbp.zip`):
+  - a reply to every write, local or memory: exactly one byte, the CRC of
+    no data (0x00); without it each write times out (50 ms) and sets the
+    error flag hostmot2 reports ("Error in sslbp_write_…");
+  - every reply within 50 ms, a commit's and then the cookie's: the loader
+    never erases inside a commit (see below);
+  - a frame comes in one go; the loader drops a partial one after 20 ms.
 - **Shared code:** `shared/lbp_dev.c` is the byte-level LBP parser, the
   same request and reply formats as `src/comps/sserial.c`. Every request is
   CRC8-checked, and a request with a bad CRC gets no reply.
@@ -115,8 +133,11 @@ smart-serial LBP commands. Decoded from `setsserial.c` and `sserial.h`:
     sector;
   - stale data elsewhere: erase the block's sector.
 
-  Such a commit can outlast hostmot2's wait. That setsserial run fails
-  once, and the next one finds everything blank.
+  The loader erases everything when it starts, so commits find blank
+  flash. Stale data (a second run after a failed one) fails the commit at
+  once (setsserial: "Synch failed"); the loader then erases the whole
+  application area once the line has been quiet for 100 ms, and the next
+  run works. (An erase inside the commit would outlast SSLBP's 50 ms.)
 
 **The image:** `make ssfw` (`tools/mkssfw.py`) writes
 `obj_app/stmbl_ss.bin`: one block of zeros (block 0), then the application
@@ -125,15 +146,28 @@ all-zero erase block, because setsserial would skip that block and the CRC
 would fail.
 
 **Procedure:**
-1. `sserialboot` on the console (drive disabled), or a drive whose
-   application is broken.
-2. Stop LinuxCNC.
-3. `halrun`, then `loadrt hostmot2` and the card driver with
-   `sserial_baudrate=115200`.
-4. `setsserial flash hm2_<card>.0.<remote> obj_app/stmbl_ss.bin`.
-
-With a broken application, power the drive at most 30 s before hm2 loads,
-or it goes on to DFU.
+1. `make ssfw_install`: setsserial loads its image from `/lib/firmware`
+   and refuses a name without `.BIN`, so the image goes to
+   `/lib/firmware/stmbl/STMBL_SS.BIN`.
+2. Put the drive into the loader: `sserialboot` on the console (drive
+   disabled), or a drive whose application is broken (`hardboot` erases it).
+3. Stop LinuxCNC.
+4. **Wait about 15 s, but less than 30 s.** The loader first erases the
+   application area (and the bootloader may first erase a staging area),
+   then answers; a hostmot2 started earlier finds nothing. After 30 s
+   without smart-serial traffic a broken application goes on to USB DFU.
+5. ```
+   halrun
+   loadrt hostmot2 sserial_baudrate=115200
+   loadrt hm2_rpspi          # or the card's driver
+   loadrt setsserial cmd="flash hm2_7c81.0.sibl.0.0 stmbl/STMBL_SS.BIN"
+   ```
+   hostmot2 prints `found a sIbl`, setsserial `Erased block` / `Wrote
+   block` for each 16 kB block and `Firmware Flash Success`. Its feedback
+   is printed by hostmot2 (also `dmesg` on a kernel build). Note that
+   setsserial reports success even when it could not read the block sizes.
+6. The loader checks the application's CRC once the line is quiet for 1 s
+   and starts it.
 
 ## In-band: staged update over the console (`fwup`)
 
@@ -203,12 +237,9 @@ sserialboot                 reset into the smart-serial loader
 
 ## Still to do
 
-- **Real hardware:**
-  - a drive with a Mesa card: `setsserial flash` into the loader, and
-    `--update` through sserialterm;
-  - hm2's per-command overhead (the host model leaves it out);
-  - whether a word write really fits the rt/frt slack. `hal.flash_late`
-    counts the late periods.
+- **Real hardware:** whether a word write really fits the rt/frt slack
+  under motion (`hal.flash_late` counts the late periods; the bench updates
+  ran with the drive disabled, as `fwup` requires).
 - **brdstepper:** the G431 flash driver (2 kB pages; the same layout ideas).
 - **Speed:** a binary `fwdata`, or a wider console field, would roughly
   halve the in-band time.

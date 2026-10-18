@@ -46,6 +46,8 @@ v0.9.18-274 or later).
 | fault record (hw) | `fault` → the drive resets, `crash` shows a bus fault at 0x30000000 and a PC in `fault()` |
 | bootloader (hw) | 5 × `tools/bootloader.py` → ROM DFU → a 4-byte read with `:leave` → the app is back, HAL running; ROM bounces retried and counted |
 | hardboot (hw) | `hardboot` erases the app → the stmbl bootloader's CRC check gives DFU over USB (no BOOT0) → `make btburn` restores it; only when the drive runs the repo's current build |
+| update over USB (hw) | `servoterm-cli --update obj_app/stmbl.bin`: staged, applied, the bootloader copies it, the app is back with the same config, `servoterm-cli` exits 0; only when the drive runs the repo's build |
+| setsserial recovery (hw) | `hardboot`, then 15 s later hostmot2 at 115200 and `setsserial flash …sibl.0.0 stmbl/STMBL_SS.BIN`: every block written, no SSLBP error, the app starts with the same config; needs `make ssfw_install` of the repo's build |
 | safe mode (hw) | 3 crashes in a row → safe mode (no rt functions, console working); `reset` → normal boot, config unchanged; the record is cleared |
 
 **lcnc**: LinuxCNC headless with this script as its DISPLAY, on a copy of

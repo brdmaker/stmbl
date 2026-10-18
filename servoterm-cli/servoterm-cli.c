@@ -1466,6 +1466,9 @@ int main(int argc, char **argv) {
   if(rc == 0 && update_path) {
     pump(fd, 0.3);
     rc = fw_update(fd, update_path, update_apply) < 0;
+    if(rc == 0 && update_apply) {
+      settle = 0.0;  // the drive resets now: its port goes away, which is no error
+    }
   }
 
   // Collect trailing output until the drive goes quiet. Scope frames alone do
