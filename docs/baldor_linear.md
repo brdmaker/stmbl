@@ -182,8 +182,10 @@ so check the head's full part number.
 
 On the drive side, 1 µm at 4–5 m/s is 4–5 M counts/s (edges at least 0.2 µs
 apart). stmbl's FB0 counts in the timer (TIM4, 84 MHz) and its 16-bit
-reload holds the 60960 counts of one LMCF period. The input filter is the
-catch: see DEBUGNOTES "enc_fb: input filter set before the timer clock".
+reload holds the 60960 counts of one LMCF period. The A/B input filter is
+`enc_fb0.input_filter` (default 3, ~0.1 µs). Keep it at 3 or below for
+1 µm scales: 0xF would limit them to about 0.65 m/s (DEBUGNOTES, "enc_fb:
+input filter set before the timer clock").
 
 Periodic reference marks (MS6x every n × 50 mm, Mix 5) re-latch `enc_fb`'s
 absolute position at each mark. If the mark spacing is not a multiple of the

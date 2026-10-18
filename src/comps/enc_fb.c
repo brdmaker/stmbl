@@ -30,6 +30,7 @@ HAL_PIN(vel);
 HAL_PIN(ccr3);
 HAL_PIN(en_index);
 HAL_PIN(indexprint);
+HAL_PIN(input_filter);  // A/B digital filter (TIMx ICxF, 0..15), set at load: 3 = 8 samples at 84 MHz, ~0.1 us
 
 
 struct enc_fb_ctx_t {
@@ -47,26 +48,20 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   ctx->absoffset                = 0.0;
   PIN(res)                      = 2048.0;
   PIN(ires)                     = 1024.0;
+  PIN(input_filter)             = 3;
 }
 
 static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct enc_fb_ctx_t *ctx      = (struct enc_fb_ctx_t *)ctx_ptr;
   struct enc_fb_pin_ctx_t *pins = (struct enc_fb_pin_ctx_t *)pin_ptr;
   GPIO_InitTypeDef GPIO_InitStructure;
-  TIM_ICInitTypeDef TIM_ICInitStructure;
-  TIM_ICInitStructure.TIM_Channel     = TIM_Channel_1 | TIM_Channel_2;
-  TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_BothEdge;
-  TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
-  TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
-  TIM_ICInitStructure.TIM_ICFilter    = 0xF;
-  TIM_ICInit(FB0_ENC_TIM, &TIM_ICInitStructure);
 
   /***************** port 1, quadrature , sin/cos or resolver *********************/
   ctx->e_res = (int)PIN(res);
   if(ctx->e_res < 1) {
     ctx->e_res = 1;
   }
-  // enable clocks
+  // enable clocks: the timer ignores register writes until this
   RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC, ENABLE);
 
   // pin mode: af
@@ -94,6 +89,10 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // quad
   TIM_Cmd(FB0_ENC_TIM, DISABLE);
   TIM_EncoderInterfaceConfig(FB0_ENC_TIM, TIM_EncoderMode_TI12, TIM_ICPolarity_Rising, TIM_ICPolarity_Falling);
+  // the same filter on A and B (TIM_ICInit would only reach one channel and
+  // set CC2NP, which encoder mode must not have)
+  uint16_t f          = (uint16_t)CLAMP((int)PIN(input_filter), 0, 15);
+  FB0_ENC_TIM->CCMR1 = (FB0_ENC_TIM->CCMR1 & ~(TIM_CCMR1_IC1F | TIM_CCMR1_IC2F)) | (f << 4) | (f << 12);
   TIM_Cmd(FB0_ENC_TIM, ENABLE);
   FB0_ENC_TIM->CCMR2 |= TIM_CCMR2_CC3S_0;  //CC3 channel is configured as input, IC3 is mapped on CH3
   FB0_ENC_TIM->CCER |= TIM_CCER_CC3E;      //Capture enabled
