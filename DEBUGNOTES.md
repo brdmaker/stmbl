@@ -1026,3 +1026,18 @@ Entry format:
   layout in them while libstmbl_drive.so had the new one.
 - Fix:     Both now depend on stmbl_sim_api.h. After a header change in
   host/lcnc, `make clean` is the safe way.
+
+## 2026-10-18  vis3d: offscreen GL here, and what core GL leaves out
+- Area:    `linuxcnc/vis3d` (vis3d_render, tests)
+- Status:  Note
+- Symptom: Mesa's surfaceless EGL platform offered no EGLConfig at all, so
+  eglCreateContext failed; PyQt5's xcb plugin wouldn't load ("could not
+  load the Qt platform plugin xcb even though it was found"); the TCP trail
+  drawn as GL_LINE_STRIP was a hair-thin line.
+- Cause:   surfaceless contexts need EGL_KHR_no_config_context; the PyQt5
+  wheel's xcb plugin wants libxcb-icccm4, -image0, -keysyms1,
+  -render-util0, -xinerama0, -xkb1 and libxkbcommon-x11-0; core profiles
+  have no wide lines (glLineWidth > 1).
+- Fix:     create the context with EGL_NO_CONFIG_KHR and render into an
+  FBO; install those packages for `make qt-check`; draw the trail as a
+  ribbon facing the camera.

@@ -37,7 +37,9 @@ Every panel maps to pins that exist on this branch:
 | Safety | `fault0.*_stop` (quick stop / dynamic brake), `brake_on_loss`, `fault0.brake_time` |
 | Gripper | the 7th drive: width, force, part detection, payload |
 
-Rendering the arm in real time:
+Rendering the arm in real time (the native option is built:
+`linuxcnc/vis3d`, a C library with shaders and a QtVCP widget, for a
+Raspberry Pi 4 GUI):
 
 1. **Web HMI** (as `arm3d.html`): a small Python bridge reads the joint
    pins with the `hal` module and pushes them over a WebSocket at
