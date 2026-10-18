@@ -171,6 +171,20 @@ which suits stmbl's FB0 encoder input.
 | ELGO Mix 4 / Mix 5 (magnetic) | 5, 10, 50 | Mix 4: 2, 4, 20 m/s; Mix 5: 1.2, 2.5, 12.5 m/s | Mix 4: one shot after power-up; Mix 5: every pass (≤ 0.1 m/s) | 5 V 200 mA |
 | Danaher LR0xxRD | 5, 10, 25 | 20 m/s | yes | 5 V 100 mA |
 
+**1 µm heads, maximum speed** (checked 2026-10-18):
+- **RGH22X:** 3 m/s (MN1800, with 0.15 µs edge separation).
+- **RGH24X:** 196 in/s ≈ 5.0 m/s (MN1800 encoder table), and 5 m/s in
+  Renishaw's RGH24 data sheet.
+- **RSF MS62-27:** 78 in/s ≈ 2.0 m/s.
+
+Neither document gives 4 m/s. The speed is fixed by the readhead variant,
+so check the head's full part number.
+
+On the drive side, 1 µm at 4–5 m/s is 4–5 M counts/s (edges at least 0.2 µs
+apart). stmbl's FB0 counts in the timer (TIM4, 84 MHz) and its 16-bit
+reload holds the 60960 counts of one LMCF period. The input filter is the
+catch: see DEBUGNOTES "enc_fb: input filter set before the timer clock".
+
 Periodic reference marks (MS6x every n × 50 mm, Mix 5) re-latch `enc_fb`'s
 absolute position at each mark. If the mark spacing is not a multiple of the
 electrical period (60.96 mm), commutation goes wrong after the next mark

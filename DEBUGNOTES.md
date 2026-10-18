@@ -792,3 +792,19 @@ Entry format:
 - Fix:     On stmbl, find the phase order by scoping the back-EMF against
   Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
   checks").
+
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Open (found by reading the code; not measured)
+- Symptom: none seen yet. Relevant for fast linear scales: 1 µm at 4–5 m/s
+  is 4–5 M counts/s.
+- Cause:   TIM_ICInit (ICFilter = 0xF) runs before
+  RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC). On the F4, writes to a timer
+  whose clock is off are lost, so the filter is probably 0 (unfiltered,
+  fast enough), unless res.c already enabled TIM4. If the filter did apply
+  (0xF: fDTS/32, N = 8 at 84 MHz = 3 µs per level), A/B would be limited to
+  about 160 kHz: 0.65 M counts/s, i.e. 0.65 m/s at 1 µm or 3.3 m/s at 5 µm.
+- Fix:     Enable the clock first and pick a filter on purpose (e.g. 0x3:
+  fCK_INT, N = 8, about 0.1 µs), so the behaviour doesn't depend on load
+  order. Check it with the scale at speed: counts vs distance, no lost
+  counts.
