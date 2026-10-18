@@ -27,6 +27,12 @@ typedef struct {
   uint32_t cmds, crc_errors, good;  // good: requests with a right CRC
 } lbpd_t;
 
+// The bootloader's card name. At 115200 baud (the speed setsserial needs)
+// hostmot2 is in setup mode and keeps a remote only if the name's second
+// byte is 'I' (0x49, Mesa's "XIXX" boards; sserial.c); "stbl" was dropped
+// unseen. hostmot2 lower-cases that byte for the HAL name: hm2_<card>.<n>.sibl.<i>.<c>.
+#define LBPD_LOADER_NAME "sIbl"
+
 // the bootloader's tables: no process data (1 input byte: the fault byte)
 extern const uint8_t lbpd_empty_mem[10];
 

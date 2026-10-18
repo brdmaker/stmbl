@@ -18,6 +18,7 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <string.h>
 #include "stm32f4xx_conf.h"
 #include "version.h"
 #include "lbp_dev.h"
@@ -223,7 +224,7 @@ static void sserial_loader(int dfu_timeout_s) {
   flash.program     = win_program;
   lbp.mem           = lbpd_empty_mem;
   lbp.mem_size      = sizeof(lbpd_empty_mem);
-  lbp.name[0] = 's', lbp.name[1] = 't', lbp.name[2] = 'b', lbp.name[3] = 'l';
+  memcpy(lbp.name, LBPD_LOADER_NAME, 4);  // hm2: ...sibl.<i>.<c> (lbp_dev.h)
   const uint32_t *uid = (const uint32_t *)0x1FFF7A10;
   lbp.unit  = uid[0] ^ uid[1] ^ uid[2];  // as the application
   lbp.flash = &flash;

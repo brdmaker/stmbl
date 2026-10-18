@@ -243,9 +243,16 @@ int main(void) {
   lbpf_init(&dev);
   dev.erase_log2 = 14, dev.write_log2 = 8, dev.window_size = WIN;
   dev.erase = win_erase, dev.program = win_program;
-  lbp = (lbpd_t){.mem = lbpd_empty_mem, .mem_size = sizeof(lbpd_empty_mem), .name = {'s', 't', 'b', 'l'},
+  lbp = (lbpd_t){.mem = lbpd_empty_mem, .mem_size = sizeof(lbpd_empty_mem), .name = {0},
                  .unit = 0x12345678, .flash = &dev, .send = dev_send};
+  memcpy(lbp.name, LBPD_LOADER_NAME, 4);
   lbpd_init(&lbp);
+  // hostmot2 at 115200 (setup mode) keeps a remote only if its name's second
+  // byte is 'I'; the HAL name is the name with that byte lower-cased
+  char hal[5] = LBPD_LOADER_NAME;
+  hal[1] |= 0x20;
+  ok(LBPD_LOADER_NAME[1] == 0x49 && !strcmp(hal, "sibl"),
+     "loader name: second byte 'I' for hostmot2's setup mode, HAL name sibl", LBPD_LOADER_NAME[1]);
   // hostmot2's enumeration of the remote: name, unit, discovery, tables
   uint8_t x[16];
   char nm[5] = {0};
@@ -260,8 +267,8 @@ int main(void) {
   memcpy(&unit, x, 4);
   q = 0xbb;
   int dn = device(&q, 1, x);
-  ok(!strcmp(nm, "stbl") && un == 4 && unit == 0x12345678 && dn == 6 && x[0] == 1 && x[1] == 0 && x[2] == 8,
-     "enumeration: name stbl, unit number, discovery (1 byte in, none out)", dn);
+  ok(!strcmp(nm, LBPD_LOADER_NAME) && un == 4 && unit == 0x12345678 && dn == 6 && x[0] == 1 && x[1] == 0 && x[2] == 8,
+     "enumeration: name sIbl, unit number, discovery (1 byte in, none out)", dn);
   uint8_t ptoc[3] = {0x44, 8, 0};  // READ_REM_BYTE at the PTOC: 0 = end of list
   int pn = device(ptoc, 3, x);
   uint8_t pd[2] = {0xbd, 0};       // process data: no output bytes, 1 input byte
