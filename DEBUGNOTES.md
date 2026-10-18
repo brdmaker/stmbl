@@ -1041,3 +1041,58 @@ Entry format:
 - Fix:     create the context with EGL_NO_CONFIG_KHR and render into an
   FBO; install those packages for `make qt-check`; draw the trail as a
   ribbon facing the camera.
+
+## 2026-10-18  armguard clearance is mm; clearance-stop is not a limit
+- Area:    `linuxcnc/armguard` pins, `linuxcnc/arm6hmi`, `linuxcnc/vis3d/qtvcp/vis3d_widget.py`
+- Status:  Fixed
+- Symptom: the first ARM-6 screen showed "clearance 33797 mm" and a wrong guard
+  state.
+- Cause:   two mistakes in the screen:
+  - it read `.clearance` as metres, but armguard gives mm;
+  - it used `.clearance-stop` as the limit, but that pin is the clearance
+    along the stop path. The limit is `prevent MM` in the cell file.
+- Fix:     the screen and the widget take `armguard.0.state` (non-zero:
+  stopped, `.reason` 1 collision / 2 protective stop) plus `.clearance` in mm
+  against the cell's `prevent` (parsed with its includes; INI `PREVENT_MM`
+  overrides it). NEAR is shown below twice the limit.
+
+## 2026-10-18  QtVCP joint jog on genserkins: warning but it works
+- Area:    QtVCP `Action.DO_JOG`, `linuxcnc/arm6hmi`
+- Status:  Known
+- Symptom: joint jogging logs "Joint jogging not supported for non-identity
+  kinematics".
+- Cause:   QtVCP warns for any non-identity kinematics. The jog is still sent
+  in joint mode (teleop off) and moves the joint.
+- Fix:     none needed; arm6hmi's self-test jogs J1 +10 deg through it.
+
+## 2026-10-18  LinuxCNC stat.joint has max_ferror, not ferror_limit
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py`
+- Status:  Fixed
+- Symptom: the screen's 100 ms refresh silently stopped (nothing updated past
+  the first joint).
+- Cause:   `stat.joint[N]["ferror_limit"]` doesn't exist in 2.9 (the keys are
+  `ferror_current`, `ferror_highmark`, `max_ferror`, `min_ferror`). A QTimer
+  slot that raises dies quietly in QtVCP.
+- Fix:     use `max_ferror`. `_update` now wraps the refresh in try/except and
+  logs the traceback once.
+
+## 2026-10-18  Incremental jog cancelled by the button release
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py` (jog rows)
+- Status:  Fixed
+- Symptom: an incremental jog (e.g. 10 deg) moved only a fraction of a degree.
+- Cause:   the release handler sent a jog stop, which also aborts an
+  incremental jog in progress.
+- Fix:     on release, stop only in continuous mode.
+
+## 2026-10-18  QtVCP in the cloud image needs PyQt5 for python3.12
+- Area:    `hwtest/arcmate-sim` `make hmi` / `test-hmi`, cloud session
+- Status:  Workaround
+- Symptom: `qtvcp` fails to import PyQt5 (LinuxCNC's modules are python3.12;
+  Ubuntu's python3-pyqt5 doesn't match it). Then the xcb platform plugin
+  fails to load.
+- Cause:   `linuxcnc_restore.sh` installs no Qt.
+- Fix:     install by hand:
+  - `python3.12 -m pip install --break-system-packages PyQt5 QScintilla PyOpenGL`
+  - `apt-get install xvfb libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0`
+
+  Idea: add both to the restore script.

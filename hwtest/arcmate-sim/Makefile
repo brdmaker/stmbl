@@ -87,4 +87,30 @@ genserkins-ref:
 run:
 	@$(ENV) cd $(HERE) && linuxcnc arcmate.ini
 
-.PHONY: test test-grip test-tool test-quota run genserkins-ref soak
+# The ARM-6 operator screen (QtVCP, linuxcnc/arm6hmi) with the 3D view
+# (linuxcnc/vis3d) on the gripper arm with the power quota:
+#   make hmi        run it (a display needed)
+#   make test-hmi   its self-test on a virtual X server (Xvfb): the screen's
+#                   own buttons drive LinuxCNC; TAP + a screenshot
+VIS3D := $(abspath ../../linuxcnc/vis3d)
+HMI   := $(abspath ../../linuxcnc/arm6hmi)
+HMI_SETUP = cp $(HERE)/* $$d/ && cd $$d && mkdir -p qtvcp/screens && cp -r $(HMI) qtvcp/screens/arm6 && \
+	cp $(HMI)/arm6_postgui.hal . && \
+	sed -i 's|^DISPLAY = axis|DISPLAY = qtvcp arm6|; s|^ARM = .*|ARM = $(GRIP_ARM)|; s|^LIB = .*|LIB = $(LIB)|; s|^MODEL = .*|MODEL = $(MODEL)|; s|^CELL = .*|CELL = $(GRIP_CELL)|; s|^HALFILE = arcmate.hal|HALFILE = arcmate.hal\nHALFILE = grip.hal\nHALFILE = powerquota.hal\nPOSTGUI_HALFILE = arm6_postgui.hal|' arcmate.ini && \
+	printf '\n[POWERQUOTA]\nCONFIG = quota.txt\n\n[ARM6HMI]\nVIS3D = $(VIS3D)\n' >> arcmate.ini
+
+hmi:
+	@$(MAKE) -s -C $(VIS3D)
+	@d=$$(mktemp -d /tmp/arcmate-hmi.XXXXXX) && $(HMI_SETUP) && $(ENV) linuxcnc arcmate.ini
+
+test-hmi:
+	@$(MAKE) -s -C $(VIS3D)
+	@d=$$(mktemp -d /tmp/arcmate-hmi.XXXXXX) && $(HMI_SETUP) && \
+	(Xvfb :92 -screen 0 1600x1000x24 >/dev/null 2>&1 & echo $$! > xvfb.pid; sleep 1; \
+	 export DISPLAY=:92 ARM6HMI_TEST=$$d/hmi_test.tap; $(ENV) timeout 240 linuxcnc arcmate.ini > linuxcnc.log 2>&1; \
+	 kill $$(cat xvfb.pid); true) && \
+	cat hmi_test.tap 2>/dev/null; echo "# screenshot: $$d/hmi_test.png"; \
+	test -f hmi_test.result && test "$$(cat hmi_test.result)" = 0 || \
+	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
+
+.PHONY: test test-grip test-tool test-quota run genserkins-ref soak hmi test-hmi

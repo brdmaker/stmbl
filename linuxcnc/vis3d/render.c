@@ -185,23 +185,31 @@ static GLuint program(struct gl_state *g, const char *hdr, const char *vs, const
   return p;
 }
 
-// the shader dialect for the current context
-static const char *dialect(struct gl_state *g, char *name, int len) {
-  const char *ver = (const char *)g->GetString(GL_VERSION);
+// the GLSL dialect for a GL_VERSION string: "300 es", "100", "330" or
+// "120" (desktop GL below 3.3: the Pi 4's 2.1 / 3.1 through Mesa V3D)
+const char *v3_glsl_for(const char *ver) {
   int maj = 0, min = 0;
   if(!ver) {
-    snprintf(name, len, "no GL_VERSION");
     return NULL;
   }
   if(strstr(ver, "OpenGL ES")) {
     sscanf(strstr(ver, "OpenGL ES") + 9, " %d.%d", &maj, &min);
-    snprintf(name, len, "%s / GLSL %s", ver, maj >= 3 ? "300 es" : "100");
-    return maj >= 3 ? HDR_ES3 : HDR_ES2;
+    return maj >= 3 ? "300 es" : "100";
   }
   sscanf(ver, "%d.%d", &maj, &min);
-  int core = maj > 3 || (maj == 3 && min >= 3);
-  snprintf(name, len, "OpenGL %s / GLSL %s", ver, core ? "330" : "120");
-  return core ? HDR_GL33 : HDR_GL21;
+  return maj > 3 || (maj == 3 && min >= 3) ? "330" : "120";
+}
+
+// the shader header for the current context
+static const char *dialect(struct gl_state *g, char *name, int len) {
+  const char *ver = (const char *)g->GetString(GL_VERSION);
+  const char *d   = v3_glsl_for(ver);
+  if(!d) {
+    snprintf(name, len, "no GL_VERSION");
+    return NULL;
+  }
+  snprintf(name, len, "%s%s / GLSL %s", strstr(ver, "OpenGL ES") ? "" : "OpenGL ", ver, d);
+  return !strcmp(d, "300 es") ? HDR_ES3 : !strcmp(d, "100") ? HDR_ES2 : !strcmp(d, "330") ? HDR_GL33 : HDR_GL21;
 }
 
 static void push_sphere(float *o, int *n, float th, float ph) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """vis3d drawing, offscreen (vis3d_render, EGL): the ARM-6 model in every GL
 flavour the library supports (GLES 3 as on a Pi 4, GLES 2, GL 3.3 core,
-GL 2.1 compatibility as QtVCP on X11 may give), checked on the image:
+GL 3.1 and 2.1 as a Pi 4's desktop GL gives QtVCP on X11), checked on the image:
 the scene is there, the flavours agree, the overlays show. TAP output.
 Also prints the frame rate (here: Mesa's software renderer, not a GPU).
 """
@@ -70,7 +70,7 @@ def red(r, g, b):
 os.makedirs(OUT, exist_ok=True)
 pose = ["-q", "-20,25,-5,10,-70,15"]
 imgs = {}
-for api in ("gles3", "gles2", "gl33", "gl21"):
+for api in ("gles3", "gles2", "gl33", "gl31", "gl21"):
     rc, out, path = render("arm6_" + api, "--api", api, *pose)
     info = [l for l in out.splitlines() if "GLSL" in l]
     ok(rc == 0 and os.path.exists(path), "%s: draws without GL errors (%s)" % (api, info[0].split(": ", 1)[1] if info else out.strip()))

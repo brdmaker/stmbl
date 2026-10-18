@@ -1,0 +1,4 @@
+# ARM-6 as LinuxCNC sees it (hwtest/arcmate-sim, genserkins): the joint
+# positions are the DH theta, theta0 included (J2 is -90 at home)
+include arm6.vis
+joints theta

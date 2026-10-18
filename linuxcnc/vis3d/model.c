@@ -6,6 +6,9 @@
  *
  *   dh J a alpha d theta0             Craig DH as genserkins / arm_sim (J from 1)
  *   prismatic J                       joint J moves d instead of theta
+ *   joints offset|theta               joint values are offsets from theta0 (default, as
+ *                                     arm_sim's q), or the DH theta itself (theta0
+ *                                     included), as genserkins' joint positions
  *   pin J NAME                        the HAL pin with joint J's position
  *   limits J MIN MAX                  joint limits (deg / unit)
  *   tcp X Y Z                         tool point in the last link's frame
@@ -381,6 +384,12 @@ static int parse_line(parse_t *p, const char *file, int line, char **tok, int nt
     if(j + 1 > v->n) {
       v->n = j + 1;
     }
+  } else if(!strcmp(k, "joints")) {
+    NEED(2);
+    if(strcmp(tok[1], "theta") && strcmp(tok[1], "offset")) {
+      return fail(p, file, line, "joints offset or theta");
+    }
+    v->q_theta = !strcmp(tok[1], "theta");
   } else if(!strcmp(k, "prismatic")) {
     NEED(2);
     JOINT(1);
@@ -678,7 +687,7 @@ void v3_update_frames(vis3d_t *v) {
   mat4 T     = m4_identity();
   v->link[0] = T;
   for(int j = 0; j < v->n; j++) {
-    double th = v->theta0[j], d = v->d[j];
+    double th = v->q_theta ? 0.0 : v->theta0[j], d = v->d[j];
     if(v->prismatic[j]) {
       d += v->q[j] * v->unit;
     } else {

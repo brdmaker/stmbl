@@ -4,7 +4,7 @@
  * board's frame rate before building a screen around it (on a Pi 4: run it
  * there with --api gles3 --bench 300).
  *
- *   vis3d_render MODEL [-o out.png] [-s WxH] [--api gles3|gles2|gl33|gl21]
+ *   vis3d_render MODEL [-o out.png] [-s WxH] [--api gles3|gles2|gl33|gl31|gl21]
  *                [-q J1,J2,..] [--path J1,J2,..] [--cam YAW,PITCH,DIST]
  *                [--guard STATE,RADIUS,NEAREST] [--tint LINK,R,G,B,A]
  *                [--ssaa N] [--bench FRAMES]
@@ -191,7 +191,9 @@ int main(int argc, char **argv) {
   EGLint ca_gl33[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3, EGL_CONTEXT_OPENGL_PROFILE_MASK,
                       EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
   EGLint ca_gl21[] = {EGL_CONTEXT_MAJOR_VERSION, 2, EGL_CONTEXT_MINOR_VERSION, 1, EGL_NONE};
-  EGLint *ca       = !strcmp(api, "gles2") ? ca_es2 : es ? ca_es3 : !strcmp(api, "gl21") ? ca_gl21 : ca_gl33;
+  EGLint ca_gl31[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 1, EGL_NONE};  // the Pi 4's desktop GL
+  EGLint *ca       = !strcmp(api, "gles2") ? ca_es2 : es ? ca_es3 : !strcmp(api, "gl21") ? ca_gl21
+                   : !strcmp(api, "gl31") ? ca_gl31 : ca_gl33;
   EGLContext ctx   = eglCreateContext(dpy, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, ca);
   if(ctx == EGL_NO_CONTEXT || !eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx)) {
     fprintf(stderr, "vis3d_render: cannot make a %s context (EGL 0x%x)\n", api, eglGetError());

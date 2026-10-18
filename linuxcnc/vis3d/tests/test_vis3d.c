@@ -125,6 +125,28 @@ static void test_arm6(void) {
   vis3d_free(v);
 }
 
+static void test_joints_theta(void) {
+  char err[300];
+  write("theta.vis", "include ../../models/arm6.vis\njoints theta\n");
+  vis3d_t *a = load("theta.vis", err), *b = vis3d_load("models/arm6.vis", err, 300);
+  ok(a && b, "joints theta: loads");
+  if(!a || !b) {
+    return;
+  }
+  // genserkins' joint = the model's offset + theta0 (J2 -90, J6 180)
+  double q[6] = {10, 20, 30, 40, 50, 60}, th[6] = {10, 20 - 90, 30, 40, 50, 60 + 180};
+  vis3d_set_joints(b, q, 6);
+  vis3d_set_joints(a, th, 6);
+  double pa[3], pb[3], Ra[9], Rb[9], worst = 0;
+  vis3d_frame(a, -1, pa, Ra), vis3d_frame(b, -1, pb, Rb);
+  for(int i = 0; i < 3; i++) {
+    worst = fmax(worst, fabs(pa[i] - pb[i]));
+  }
+  ok(worst < 1e-6, "joints theta: genserkins' joint values give the same pose");
+  vis3d_free(a);
+  vis3d_free(b);
+}
+
 static void test_units_and_shapes(void) {
   char err[300];
   write("mm.vis",
@@ -197,6 +219,25 @@ static void test_stl(void) {
   vis3d_free(v);
 }
 
+static void test_dialects(void) {
+  // GL_VERSION strings as Mesa reports them, the Pi 4's (V3D) included
+  struct {
+    const char *ver, *want;
+  } c[] = {{"OpenGL ES 3.1 Mesa 25.0.7", "300 es"}, {"OpenGL ES 3.2 Mesa 25.2.8", "300 es"},
+           {"OpenGL ES 2.0 Mesa 22.3.6", "100"},     {"3.1 Mesa 25.0.7", "120"},
+           {"2.1 Mesa 24.2.8", "120"},               {"4.5 (Core Profile) Mesa 25.2.8", "330"},
+           {"3.3 (Compatibility Profile) Mesa", "330"}};
+  int good = 1;
+  for(size_t i = 0; i < sizeof(c) / sizeof(c[0]); i++) {
+    const char *d = v3_glsl_for(c[i].ver);
+    if(!d || strcmp(d, c[i].want)) {
+      printf("# %s: %s, want %s\n", c[i].ver, d ? d : "NULL", c[i].want);
+      good = 0;
+    }
+  }
+  ok(good, "GLSL dialect from GL_VERSION (the Pi 4's ES 3.1 and desktop 2.1 / 3.1 included)");
+}
+
 static void test_errors(void) {
   char err[300];
   write("bad1.vis", "dh 1 0 0 0 0\npart 1 box 1 1 1 material nope\n");
@@ -227,9 +268,11 @@ int main(void) {
     return 1;
   }
   test_arm6();
+  test_joints_theta();
   test_units_and_shapes();
   test_stl();
   test_errors();
+  test_dialects();
   printf("1..%d\n# %d/%d passed\n", n, n - failed, n);
   return failed != 0;
 }

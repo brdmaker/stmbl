@@ -44,6 +44,7 @@ struct vis3d {
   double lim[VIS3D_MAXJ][2];  // [deg] or [unit]
   double tcp[3];              // tool point in the last link's frame [m]
   double unit;                // file unit in metres (1 or 0.001)
+  int q_theta;                // joint values are DH theta (theta0 included), as genserkins' joints
 
   double q[VIS3D_MAXJ];         // joints as set [deg / unit]
   mat4 link[VIS3D_MAXJ + 1];    // link frames in the base frame
@@ -82,5 +83,6 @@ struct vis3d {
 void v3_update_frames(vis3d_t *v);
 mat4 v3_view(const vis3d_t *v);
 mat4 v3_proj(const vis3d_t *v);
+const char *v3_glsl_for(const char *gl_version);
 
 #endif

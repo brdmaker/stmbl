@@ -4,11 +4,12 @@ In a QtVCP screen: put a Vis3dView in Designer (or create it in the handler),
 set its `model` property to a .vis file, and net its HAL pins:
 
     net j0 joint.0.pos-fb => qtvcp.vis3d.joint-0      (one per joint)
-    net clear      armguard.clearance      => qtvcp.vis3d.clearance
-    net clear-stop armguard.clearance-stop => qtvcp.vis3d.clearance-stop
+    net guard-state armguard.0.state     => qtvcp.vis3d.guard-state
+    net clearance   armguard.0.clearance => qtvcp.vis3d.clearance
 
-From the clearance and its limit the widget shows the guard's state as
-armguard reacts: ok, slowing below twice the limit, stop at it; the shell
+and set guard_limit_mm (the cell's `prevent MM`) from the handler. The
+widget then shows the guard as armguard acts: stop while armguard holds the
+arm (state != 0), near below twice the limit, armed otherwise; the shell
 around the tool point has the limit's radius. guard-nearest (an obstacle's
 index in the model, -1 none) is optional. Outside QtVCP (plain PyQt5, no
 HAL) it runs too: set_joints() feeds it.
@@ -38,12 +39,15 @@ except ImportError:  # plain PyQt5: no HAL
         pass
 
 
-def guard_state(clearance, limit):
-    """the guard's state from the clearance and its stop limit, as armguard
-    reacts: off (no limit), ok, slowing below 2x the limit, stop at it"""
-    if limit <= 0:
+def guard_state(armguard_state, clearance_mm, limit_mm):
+    """vis3d's guard state (0 off, 1 ok, 2 near, 3 stop) from armguard's
+    state (0: passing the commands through, else stopping / backing off /
+    holding), its clearance and the cell's prevent limit [mm]"""
+    if armguard_state:
+        return 3
+    if limit_mm <= 0:
         return 0
-    return 3 if clearance <= limit else 2 if clearance < 2 * limit else 1
+    return 2 if clearance_mm < 2 * limit_mm else 1
 
 
 class Vis3dView(QOpenGLWidget, _HalWidgetBase):
@@ -57,9 +61,18 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
         self._pins = {}
         self._drag = None
         self._t0 = time.monotonic()
+        self.guard_limit_mm = 0.0  # the cell's prevent limit; 0: no guard shown
+        self._unit_m = 1.0         # the model's length unit in metres
+        # MSAA off by default: on the Pi 4's tile-based GPU QOpenGLWidget
+        # renders into a multisample FBO and resolves it every frame, not
+        # free (VIS3D_SAMPLES=4 to try it). VIS3D_GLES=1 asks Qt for OpenGL
+        # ES (the Pi's conformant ES 3.1) instead of desktop GL 2.1 / 3.1.
         fmt = QSurfaceFormat()
         fmt.setDepthBufferSize(24)
-        fmt.setSamples(4)  # MSAA where the board has it (the Pi 4 does)
+        fmt.setSamples(int(os.environ.get("VIS3D_SAMPLES", "0")))
+        if os.environ.get("VIS3D_GLES") == "1":
+            fmt.setRenderableType(QSurfaceFormat.OpenGLES)
+            fmt.setVersion(3, 0)
         self.setFormat(fmt)
         self.setMinimumSize(200, 150)
         self._timer = QTimer(self)
@@ -96,8 +109,8 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
         n = 9  # VIS3D_MAXJ: the model may be loaded later (GL init)
         for j in range(n):
             self._pins["joint-%d" % j] = self.HAL_GCOMP_.newpin("%s.joint-%d" % (name, j), hal.HAL_FLOAT, hal.HAL_IN)
+        self._pins["guard-state"] = self.HAL_GCOMP_.newpin(name + ".guard-state", hal.HAL_S32, hal.HAL_IN)
         self._pins["clearance"] = self.HAL_GCOMP_.newpin(name + ".clearance", hal.HAL_FLOAT, hal.HAL_IN)
-        self._pins["clearance-stop"] = self.HAL_GCOMP_.newpin(name + ".clearance-stop", hal.HAL_FLOAT, hal.HAL_IN)
         self._pins["guard-nearest"] = self.HAL_GCOMP_.newpin(name + ".guard-nearest", hal.HAL_S32, hal.HAL_IN)
         self._pins["trail-clear"] = self.HAL_GCOMP_.newpin(name + ".trail-clear", hal.HAL_BIT, hal.HAL_IN)
 
@@ -138,8 +151,9 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
             return
         if self._pins:
             q = [self._pins["joint-%d" % j].get() for j in range(self.v.n)]
-            c, lim = self._pins["clearance"].get(), self._pins["clearance-stop"].get()
-            self.v.set_guard(guard_state(c, lim), lim, self._pins["guard-nearest"].get())
+            lim = self.guard_limit_mm
+            st = guard_state(self._pins["guard-state"].get(), self._pins["clearance"].get(), lim)
+            self.v.set_guard(st, lim / 1000.0 / self._unit_m, self._pins["guard-nearest"].get())
             if self._pins["trail-clear"].get():
                 self.v.trail(True, True)
         else:

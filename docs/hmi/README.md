@@ -12,6 +12,9 @@ ranges, nothing is wired to HAL yet.
 | `operator.dc.html` | Operator screen, 1440 wide and down to a phone: mode bar, E-STOP, joint DROs with following error, the seven drives (bus, current, power, HV temperature, state), a live side view, Cartesian pose, program, jog in JOINT / WORLD / TOOL, gripper, power quota, safety panel, event strip | A Design-canvas artboard: https://claude.ai/artifact/9RudHWYvcZ9PHFBBEccGvs (needs its runtime; the file is the source) |
 | `pendant.dc.html` | Teach pendant, 390×844: big jog keys, frame and increment, pose strip, record point / grip / home, a deadman that gates every move | The same canvas |
 
+The operator screen is built as a QtVCP screen: `linuxcnc/arm6hmi`, with
+`linuxcnc/vis3d` as its 3D view (`make -C hwtest/arcmate-sim hmi`).
+
 The live 3D demo is also published at https://claude.ai/artifact/Fc7dxVy4o2ACBKtQ646cDH.
 
 ## Design

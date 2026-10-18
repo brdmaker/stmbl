@@ -70,6 +70,8 @@ Text, `#` comments, angles in degrees, lengths in the file's unit
 dh J a alpha d theta0          Craig DH as genserkins / arm_sim (J from 1)
 prismatic J                    joint J moves d instead of theta
 pin J NAME                     the HAL pin with joint J's position
+joints offset|theta            joint values are offsets from theta0 (default, arm_sim)
+                               or the whole DH theta (LinuxCNC's genserkins)
 limits J MIN MAX
 tcp X Y Z                      tool point in the last link's frame
 material NAME [color R G B] [metal M] [rough R] [emissive E] [alpha A] [accent]
@@ -95,18 +97,28 @@ Default materials: `body`, `dark`, `metal`, `accent`, `warn`, `obstacle`.
 
 ## Using it
 
-**In a QtVCP screen:** add a `Vis3dView`, set `model`, and net its pins:
+**In a QtVCP screen:** add a `Vis3dView`, set `model`, and net its pins
+(the prefix is the screen's name; `linuxcnc/arm6hmi` is a whole screen):
 
 ```
-net j0 joint.0.pos-fb => qtvcp.vis3d.joint-0                # ... joint-5
-net clear      armguard.clearance      => qtvcp.vis3d.clearance
-net clear-stop armguard.clearance-stop => qtvcp.vis3d.clearance-stop
+net j0 joint.0.pos-fb => arm6.vis3d.joint-0                 # ... joint-5
+net guard armguard.0.state     => arm6.vis3d.guard-state
+net clear armguard.0.clearance => arm6.vis3d.clearance      # mm
 ```
 
-From the clearance and its limit the widget shows the guard's state as
-armguard reacts (ok, slowing below twice the limit, stop at it), with the
-clearance shell at the limit's radius. `guard-nearest` (an obstacle's
-index in the model) is optional: armguard has no pin for it yet.
+Set `guard_limit_mm` to the cell's `prevent` limit. The widget shows:
+- STOP while armguard's state is non-zero;
+- slowing below twice the limit;
+- OK otherwise, with the clearance shell at the limit's radius.
+
+`guard-nearest` (an obstacle's index in the model) is optional: armguard
+has no pin for it yet. With LinuxCNC's joint values use a model with
+`joints theta` (`models/arm6_lcnc.vis`).
+
+The surface format comes from the environment:
+- `VIS3D_GLES=1` asks for GLES 3.0 (the Pi's native API);
+- `VIS3D_SAMPLES=N` turns on MSAA (default off; on the Pi it costs a resolve
+  every frame).
 
 Mouse: left drag orbits, right or middle drag pans, the wheel zooms, and a
 double click clears the trail. `python3 qtvcp/vis3d_widget.py` opens it on
@@ -142,7 +154,7 @@ building a screen around it.
 | OpenGL ES 3.x | GLSL ES 3.00 | Raspberry Pi 4 (ES 3.1, V3D), EGL / Wayland |
 | OpenGL ES 2.0 | GLSL ES 1.00 | older boards |
 | OpenGL 3.3+ (core or compatibility) | GLSL 3.30 | PCs; Qt on X11 got a 4.5 compatibility context here |
-| OpenGL 2.1 | GLSL 1.20 | the Pi's desktop GL through Mesa (GLX) |
+| OpenGL 2.1 / 3.0–3.2 | GLSL 1.20 | the Pi's desktop GL through Mesa (GLX, 2.1 or 3.1): Qt on the Pi's X11 desktop |
 
 Core profiles get one vertex array object, created and kept bound. The
 shaders use no derivatives and no textures, so ES 2.0 needs no extensions.
@@ -150,7 +162,7 @@ shaders use no derivatives and no textures, so ES 2.0 needs no extensions.
 ## Tests
 
 ```
-make check       # 28 loader / kinematics checks, 12 drawing checks
+make check       # 31 loader / kinematics checks, 14 drawing checks
 make qt-check    # the widget in PyQt5 on Xvfb (PYTHON=python3.13 here)
 make shots       # the screenshots above
 ```
@@ -160,7 +172,7 @@ make shots       # the screenshots above
 - **The loader:** units, every shape, STL (including a binary file whose
   header starts with `solid`), and error messages with file and line.
 - **Drawing:** `tests/render_tests.py` draws offscreen in GLES 3, GLES 2,
-  GL 3.3 core and GL 2.1. It checks the four images agree, the accent
+  GL 3.3 core, GL 3.1 and GL 2.1. It checks the five images agree, the accent
   shows, a protective stop turns things red, and a move leaves a trail.
 - **Where it ran:** on Mesa's software renderer (llvmpipe), about 60–70 fps
   at 720p on this machine's CPU. That says nothing about a Pi's GPU; use
@@ -170,9 +182,9 @@ make shots       # the screenshots above
 
 - **Not run on a Raspberry Pi yet:** the GLES 3.1 path is the one the Pi
   takes, but it has only been exercised on Mesa's llvmpipe here.
-- **Not loaded into QtVCP yet:** the widget follows QtVCP's
-  `_HalWidgetBase` pattern (pins in `_hal_init`) and was tested in plain
-  PyQt5. It still needs a Designer plugin entry
+- **No Designer entry yet:** the widget follows QtVCP's
+  `_HalWidgetBase` pattern and runs inside LinuxCNC in `linuxcnc/arm6hmi`
+  (created by the handler). It still needs a Designer plugin entry
   (`qtvcp/plugins/`) to show in the widget box.
 - **Placeholder geometry:** the parts in `arm6.vis` are primitives around
   arm_sim's guessed capsules. The real arm wants STL meshes.

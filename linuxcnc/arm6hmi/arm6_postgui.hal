@@ -1,0 +1,11 @@
+# ARM-6 screen: the 3D view's inputs ([HAL] POSTGUI_HALFILE = arm6_postgui.hal).
+# The joint positions as LinuxCNC has them (genserkins' DH theta: the model
+# arm6_lcnc.vis says "joints theta"), the guard's state and clearance [mm].
+net arm6-j0 joint.0.pos-fb => arm6.vis3d.joint-0
+net arm6-j1 joint.1.pos-fb => arm6.vis3d.joint-1
+net arm6-j2 joint.2.pos-fb => arm6.vis3d.joint-2
+net arm6-j3 joint.3.pos-fb => arm6.vis3d.joint-3
+net arm6-j4 joint.4.pos-fb => arm6.vis3d.joint-4
+net arm6-j5 joint.5.pos-fb => arm6.vis3d.joint-5
+net arm6-guard-state armguard.0.state     => arm6.vis3d.guard-state
+net arm6-clearance   armguard.0.clearance => arm6.vis3d.clearance

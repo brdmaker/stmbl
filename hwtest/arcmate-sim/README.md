@@ -37,6 +37,8 @@ make test-grip   # the same with the electric gripper (lcnc_grip_test.py)
 make test-tool   # the pneumatic tool changer (lcnc_tool_test.py)
 make test-quota  # power quotas: two drives per phase (lcnc_quota_test.py)
 make run         # with AXIS
+make hmi         # with the ARM-6 QtVCP screen (linuxcnc/arm6hmi), gripper and quotas
+make test-hmi    # the screen's self-test on Xvfb (TAP + screenshot)
 ```
 
 `make test` (as a non-root user; rtapi_app refuses root) copies this
@@ -185,6 +187,18 @@ to a 0.17 A breaker that the test's sweeps overload about 3x.
   untouched; no collision hit.
 - **M52 P0:** the same sweeps at full speed heat L1 until the alarm stops
   the machine at damage 0.9, before the breaker would trip.
+
+## The operator screen (`make hmi`, `make test-hmi`)
+
+`linuxcnc/arm6hmi` is a QtVCP screen with `linuxcnc/vis3d` as the 3D view.
+The setup:
+- `make hmi` copies the config with the gripper and the power quotas;
+- the screen goes into `qtvcp/screens/arm6`;
+- `arm6_postgui.hal` nets the view's pins.
+
+`make test-hmi` runs it on Xvfb with `ARM6HMI_TEST` set, and the screen tests
+itself through its own buttons (16 checks, see `linuxcnc/arm6hmi/README.md`).
+It needs `Xvfb` and PyQt5, QScintilla and PyOpenGL for LinuxCNC's Python.
 
 ## In a cloud session
 
