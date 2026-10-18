@@ -83,6 +83,7 @@ HAL_PIN(sim_udc);        // supply voltage [V]
 HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 HAL_PIN(sim_motor);      // 0: PMSM on the HV board, 1: two-phase stepper on two H-bridges
+HAL_PIN(sim_fault);      // an HV board fault code (common.h fault_t): reported, and the bridge off
 HAL_PIN(sim_detent);     // stepper detent torque amplitude [Nm]
 HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
 HAL_PIN(sim_sense);      // stepper current sensing: 0 ideal, 1 DRV8876 IPROPI (low side only, see bip_sense)
@@ -98,6 +99,7 @@ HAL_PIN(sense_off_b);
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
+HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
 HAL_PIN(sim_acc);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
@@ -177,6 +179,7 @@ static void mech_step(struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
     PIN(sim_acc) = acc;
     PIN(sim_vel) = nv;
     PIN(sim_pos) = mod(PIN(sim_pos) + (v + nv) * 0.5 * dt);
+    PIN(sim_dist) += (v + nv) * 0.5 * dt;
   }
   PIN(sim_torque) = te;
 }
@@ -274,7 +277,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float q_cmd = PIN(q_cmd);
   float pos   = PIN(pos);
   float vel   = PIN(vel);
-  int en      = PIN(en) > 0.0;
+  int en      = PIN(en) > 0.0 && PIN(sim_fault) <= 0.0;  // the F3 switches off on its faults
   if(PIN(rev) > 0.0) {
     q_cmd *= -1.0;
     pos = minus(0, pos);
@@ -435,7 +438,7 @@ feedback:
   PIN(pwm_volt) = max_volt;
   PIN(duty)     = max_volt > 0.0 ? PIN(abs_volt) / max_volt : 0.0;
   PIN(dc_volt)  = udc;
-  PIN(fault)    = 0.0;
+  PIN(fault)    = PIN(sim_fault);
   PIN(value)    = 1.0;
 }
 

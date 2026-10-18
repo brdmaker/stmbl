@@ -1035,3 +1035,81 @@ Entry format:
   sim uses 600); stmblcan takes it from the drive (discover=1). The
   stmblcan.B.N.vel-clipped pin counts clipped periods, so check that it
   stays 0.
+
+## 2026-10-18  No emergency braking: every fault coasted the motor
+- Area:    `shared/comps/fault.c`, `qstop.c`, `dbrake.c`, `conf/template/pid.txt`, `pmsm.txt`
+- Status:  Fixed (simulated; not yet on hardware)
+- Symptom: Any fault, a lost link or a disable switched the power stage off
+  at once: a moving axis coasted (burn-in axis from 300 mm/s: 26 mm,
+  180 ms).
+- Cause:   fault.c only had "outputs off". fault0.dc_brake was computed but
+  unused.
+- Fix:     Per-cause stop modes in fault.c (cmd_stop, en_stop, fb_stop,
+  err_stop; stop_time):
+  - qstop: a planned S-curve stop on the feedback (3 mm);
+  - dbrake: a virtual resistor in voltage mode, needing no angle, for
+    feedback faults (5 mm);
+  - HV faults still coast.
+  docs/emergency_stop.md; host/tests/estop_*.test.
+
+## 2026-10-18  Link loss arrives as a disable first
+- Area:    `shared/comps/fault.c`, sserial / can link components
+- Status:  Fixed
+- Symptom: With en_stop = 0, a lost link coasted although cmd_stop = 1.
+- Cause:   On timeout the link component drops enable in the same cycle
+  as it sets its error, so fault0 saw ENABLED -> DISABLED before the
+  filtered CMD error.
+- Fix:     Enable dropping while fault0.cmd_error is set counts as a link
+  loss (cmd_stop).
+
+## 2026-10-18  vel_int: the first command after a standstill was zeroed
+- Area:    `shared/comps/vel_int.c`
+- Status:  Fixed
+- Symptom: (found through qstop's hold2) vel_int0.error flickered for one
+  rt cycle at the start of every move after a standstill.
+- Cause:   The watchdog test (counter > wd && v != 0) ran before the new
+  command reset the counter. The counter runs on while the same packet
+  repeats at a standstill, so the first moving packet had its velocity
+  zeroed and was flagged.
+- Fix:     A new command is never a timeout (!new_cmd in the test). It shifts
+  timing by a cycle: index_link.test's jump limit is now 5 encoder counts
+  (it was one), and it exposed the next entry.
+
+## 2026-10-18  brdstepper: detent compensation stick-slips with worst-case IPROPI
+- Area:    `shared/comps/stp_ttc.c` (detent), `host/tests/stepper_ipropi_worst*.test`
+- Status:  Open
+- Symptom: At 0.2 rev/s with the DRV8876's worst-case IPROPI errors,
+  switching stp_ttc0.detent on mid-move stick-slips in most phases. The
+  following error sits at ~0.055 rad with ~0.2 A, then jerks: ~10000
+  rad/s^2 of acceleration span, against ~1360 when it doesn't.
+- Cause:   Not found. It is phase-dependent: on the code before the
+  emergency-braking branch, shifting the test's start by 1..7 rt cycles
+  passed 2 of 6. The test passed by luck.
+- Fix:     The check moved to stepper_ipropi_worst_detent.test (@todo). Look
+  at the current loop's dead zone (B's negative offset reads 0) together
+  with the detent compensation at low speed.
+
+## 2026-10-18  Velocity observer lags at high decelerations (quick stop rings)
+- Area:    `shared/comps/vel.c` (vel1), `shared/comps/qstop.c`
+- Status:  Known
+- Symptom: A quick stop near the motor's capability over-brakes and rings
+  (burn-in motor from 188 rad/s at 80 %: down to -117 rad/s). pid's
+  vel_fb ran ~2 ms behind the real velocity.
+- Cause:   vel1 passes its torque feedforward through a 50 Hz high-pass
+  (acc - lowpass(acc)). A sustained deceleration is tracked by its PLL
+  (w = 1000) alone, which lags by about dec / w. LinuxCNC's moves (a few
+  hundred rad/s^2) don't notice.
+- Fix:     qstop brakes at 30 % of capability with a 3 ms S-curve by default
+  (3.1 mm, 0.01 rad of reverse travel). Harder stops would need the
+  observer to keep its torque feedforward during a stop.
+
+## 2026-10-18  A failed encoder drives the motor for 1 ms before the fault
+- Area:    `shared/comps/fault.c` (err_filter on mot_fb_error), fb_switch
+- Status:  Open
+- Symptom: (simulation) after enc_fb0.sim_fail at 188 rad/s, the 5 rt
+  cycles until MOT_FB_ERROR commutated on the frozen angle: uq rose to
+  114 V and the current to ~2 A in the wrong direction, before dbrake
+  took over.
+- Cause:   err_filter needs 5 cycles. Commutation keeps the last angle.
+- Fix:     Idea: start dbrake (or zero the current command) on the raw
+  feedback error, and keep the filter only for the fault code.

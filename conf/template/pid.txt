@@ -14,6 +14,7 @@ load iit
 load pe
 load scope
 load fwup
+load qstop
 link conf
 hv0.rt_prio = 0.9
 adc0.rt_prio = 1
@@ -25,6 +26,7 @@ vel1.rt_prio = 6
 vel2.rt_prio = 6
 io0.rt_prio = 7
 io0.frt_prio = 3
+qstop0.rt_prio = 7.5
 pid0.rt_prio = 8
 fault0.rt_prio = 10
 iit0.rt_prio = 13
@@ -104,9 +106,23 @@ vel2.pos_in = fb_switch0.com_fb
 vel2.en = fault0.en_fb
 vel2.torque = pid0.torque_cmd
 pid0.en = fault0.en_pid
-pid0.pos_ext_cmd = reslimit0.pos_out
-pid0.vel_ext_cmd = vel0.vel
-pid0.acc_ext_cmd = vel0.acc
+# quick stop: between the command and pid
+qstop0.pos_in = reslimit0.pos_out
+qstop0.vel_in = vel0.vel
+qstop0.acc_in = vel0.acc
+qstop0.pos_fb = fb_switch0.pos_fb
+qstop0.vel_fb = vel1.vel
+qstop0.stop = fault0.qstop
+qstop0.hold = fault0.cmd_error
+qstop0.max_torque = conf0.max_force
+qstop0.j = conf0.j
+qstop0.j_sys = conf0.j_sys
+fault0.qstop_done = qstop0.stopped
+fault0.cmd_stop = 1
+fault0.en_stop = 1
+pid0.pos_ext_cmd = qstop0.pos_out
+pid0.vel_ext_cmd = qstop0.vel_out
+pid0.acc_ext_cmd = qstop0.acc_out
 pid0.pos_fb = fb_switch0.pos_fb
 pid0.vel_fb = vel1.vel
 rev0.in_d = vel0.vel

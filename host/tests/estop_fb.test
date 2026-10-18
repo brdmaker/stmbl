@@ -1,0 +1,38 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# The motor encoder fails (enc_fb0.sim_fail: a cut cable): no feedback, no
+# quick stop; fb_stop = 2 (pmsm template) runs the dynamic brake: dbrake0
+# shorts the motor through a virtual resistor in voltage mode, no angle
+# needed (~3 rad, 5 mm). The short current (~2 A, a transient up to ~5 A)
+# stays under max_ac_cur (10 A), so rv stays 0. Then outputs off with mot
+# FB error.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+enc_fb0.sim_fail = 1
+run 0.004
+fault0.stop
+@sample hv0.abs_cur 0.001 0.05
+run 0.25
+hv0.sim_dist
+hv0.sim_vel
+dbrake0.rv
+fault0.fault
+fault0.en_out
+fault0.stop
+@expect fault0.stop[1] == 2
+@expect max|hv0.abs_cur| < 6
+@expect hv0.sim_dist ~ 3.1 0.5
+@expect hv0.sim_vel[2] ~ 0 0.5
+@expect fault0.fault == 2
+@expect fault0.en_out == 0
+@expect fault0.stop[2] == 0

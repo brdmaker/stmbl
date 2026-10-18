@@ -298,8 +298,8 @@ use the same component and pin names as `src/comps/`:
 
 | Stand-in | Simulates |
 |---|---|
-| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply voltage. |
-| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3 |
+| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply voltage. `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). |
+| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3; `sim_fail = 1` breaks it (position frozen, error) |
 | `hw/sserial.c` | smart-serial link to LinuxCNC; process data in `sim_io.h`, with timeout to `CMD error` as on the drive |
 | `hw/adc.c`, `hw/io.c` | pins only |
 | `src/comps/conf.c` | unchanged |

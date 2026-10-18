@@ -1,0 +1,32 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# A quick stop after a lost link, and then the encoder fails too: the quick
+# stop (it needs feedback) turns into the dynamic brake. The ms the fault
+# filter takes run on the frozen encoder, so a little more than either alone.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+lcncstop
+run 0.007
+fault0.stop
+enc_fb0.sim_fail = 1
+run 0.003
+fault0.stop
+run 0.3
+hv0.sim_dist
+hv0.sim_vel
+fault0.en_out
+@expect fault0.stop[1] == 1
+@expect fault0.stop[2] == 2
+@expect hv0.sim_dist < 5
+@expect hv0.sim_vel[2] ~ 0 0.5
+@expect fault0.en_out == 0

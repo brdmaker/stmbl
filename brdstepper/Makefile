@@ -32,7 +32,7 @@ endif
 
 # the board's components, then the shared ones the templates load
 BRD_COMPS    = hv io adc mag
-SHARED_COMPS = reslimit rev fb_switch vel pid fault sim iit pe scope fwup stp_ttc term
+SHARED_COMPS = reslimit rev fb_switch vel pid qstop fault sim iit pe scope fwup stp_ttc term
 COMP_SRCS    = $(addprefix comps/,$(addsuffix .c,$(BRD_COMPS))) \
                $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(SHARED_COMPS))) \
                $(ROOT)/src/comps/conf.c

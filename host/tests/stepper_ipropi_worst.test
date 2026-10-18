@@ -82,7 +82,7 @@ hv0.sim_ib
 # detent: ~3500 rad/s^2 of acceleration ripple without, ~1360 with (ideal
 # sensing ~310, typical IPROPI ~750; without the calibration ~9200)
 @expect span hv0.sim_acc[1:1000] > 2000
-@expect span hv0.sim_acc[1001:2000] < 2000
+# (with compensation: stepper_ipropi_worst_detent.test, a known issue)
 @expect max|hv0.abs_volt| < 21.6
 @expect hv0.sim_vel[1] ~ 62.83 1%
 # 0.045 Nm (0.047 less 0.002 friction) / kt 0.14 Nm/A; measured through

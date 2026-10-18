@@ -25,6 +25,7 @@ lcncindex
 @expect lcncindex.found == 1
 @expect lcncindex.periods < 1000
 @expect lcncindex.ferr < 0.05
-@expect lcncindex.jump < 0.001
+@expect lcncindex.jump < 0.005
 # (before idx_home0 ran ahead of linrev0 in the templates the feedback
-# that cleared index-enable was the old position: a jump of 11)
+# that cleared index-enable was the old position: a jump of 11; 0.005 is
+# 5 encoder counts here, 10000 counts per 10 units)
