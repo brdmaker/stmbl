@@ -82,6 +82,16 @@ HAL_PIN(dbrake_done);  // in: dbrake0.stopped
 HAL_PIN(stop);         // out: 0, 1 or 2
 HAL_PIN(stop_timer);   // out: [s] into the stop
 
+// A holding brake (mot_brake: 1 = released) takes tens of ms to grip. With
+// brake_time > 0, when the drive disables or a stop ends, the brake is told
+// to grip while the outputs still hold the axis for brake_time (the quick
+// stop holding its position, or the dynamic brake still shorting), then
+// they go off: a hanging axis doesn't drop in between. HV faults and a
+// feedback fault without the dynamic brake switch off at once; enabling
+// again ends the hold. 0: off, the outputs go off with the brake command.
+HAL_PIN(brake_time);   // [s] the brake's engage time, with a margin
+HAL_PIN(brake_hold);   // out: holding while the brake grips
+
 //fault strings for fault_t form common.h
 static const char* fault_string[] = {
   "no error",
@@ -115,6 +125,8 @@ struct fault_ctx_t {
   float mot_temp_error;
   int stop;     // 0 none, 1 quick stop, 2 dynamic brake
   int hv_fault; // this cycle's fault came from the HV board: outputs off
+  float hold;   // [s] left of the brake hold
+  int hold_by;  // what holds: 1 the quick stop, 2 the dynamic brake
 };
 
 // the stop for a fault (fault.c's own checks; HV faults coast)
@@ -187,7 +199,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   switch(ctx->state) {
     case DISABLED:
-      if(PIN(en) > 0.0 && ctx->stop == 0) {  // a stop runs to its end
+      if(PIN(en) > 0.0 && ctx->stop == 0) {  // a stop runs to its end (a brake hold doesn't)
         ctx->state = PHASING;
       }
       break;
@@ -286,6 +298,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // leaving ENABLED while moving: stop as the cause says; a running stop
   // ends when the motor stands still, on an HV fault, or after stop_time,
   // and a feedback fault turns a quick stop into a dynamic brake
+  int stop_before = ctx->stop;
   if(ctx->stop == 0) {
     if(before == ENABLED && ctx->state == DISABLED) {
       // a link that times out drops enable with its error: a link loss
@@ -308,6 +321,27 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     if(PIN(stop_timer) > PIN(stop_time) || (ctx->stop == 1 && PIN(qstop_done) > 0.0) ||
        (ctx->stop == 2 && PIN(dbrake_done) > 0.0)) {
       ctx->stop = 0;
+    }
+  }
+
+  // the holding brake grips while the axis is still held (brake_time)
+  int fb_fault = ctx->state == SOFT_FAULT &&
+                 (ctx->fault == MOT_FB_ERROR || ctx->fault == COM_FB_ERROR || ctx->fault == JOINT_FB_ERROR);
+  if(PIN(brake_time) > 0.0 && ctx->stop == 0 && ctx->hold <= 0.0 && !ctx->hv_fault) {
+    if(stop_before) {  // a stop ended: what stopped the motor holds it
+      ctx->hold    = PIN(brake_time);
+      ctx->hold_by = stop_before;
+    } else if(before == ENABLED && ctx->state == DISABLED) {  // disabled, no stop configured
+      ctx->hold    = PIN(brake_time);
+      ctx->hold_by = 1;
+    }
+  }
+  if(ctx->hold > 0.0) {
+    if(ctx->hv_fault || ctx->stop || ctx->state == ENABLED || ctx->state == PHASING ||
+       (ctx->hold_by == 1 && fb_fault)) {
+      ctx->hold = 0.0;  // off at once, or enabled again
+    } else {
+      ctx->hold -= period;
     }
   }
 
@@ -378,6 +412,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(en_out)    = 1.0;
     PIN(en_fb)     = ctx->stop == 1;
     PIN(en_pid)    = ctx->stop == 1;
+  }
+  PIN(brake_hold) = ctx->hold > 0.0;
+  if(ctx->hold > 0.0) {  // the brake grips, the outputs hold
+    PIN(mot_brake) = 0.0;
+    PIN(en_out)    = 1.0;
+    PIN(en_fb)     = ctx->hold_by == 1;
+    PIN(en_pid)    = ctx->hold_by == 1;
+    PIN(qstop)     = ctx->hold_by == 1;  // its stopped plan holds the position
+    PIN(dbrake)    = ctx->hold_by == 2;
   }
 
   PIN(fault) = ctx->fault;

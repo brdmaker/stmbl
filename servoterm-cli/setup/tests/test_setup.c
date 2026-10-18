@@ -169,7 +169,16 @@ static void test_wiring(void) {
   free(t);
   ok(su_wiring_feedback("nope") == NULL, "wiring: unknown column");
   t = su_wiring_power(1, 325);
-  ok(t && strstr(t, "DIO0") && strstr(t, "325 V"), "wiring: brake and bus");
+  ok(t && strstr(t, "brake") && strstr(t, "325 V"), "wiring: bus, brake pointer");
+  free(t);
+  t = su_wiring_brake(1, 1, 0.5);
+  ok(t && strstr(t, "DIO1") && strstr(t, "flyback") && !strstr(t, "relay"), "wiring: a 24 V 0.5 A brake directly");
+  free(t);
+  t = su_wiring_brake(0, 1, 1.5);
+  ok(t && strstr(t, "relay") && strstr(t, "more than the output's 1 A"), "wiring: 1.5 A: through a relay");
+  free(t);
+  t = su_wiring_brake(0, 0, 0.5);
+  ok(t && strstr(t, "isn't 24 V DC"), "wiring: another voltage: through a relay");
   free(t);
 }
 
@@ -187,6 +196,8 @@ static void test_build(void) {
   char v[32];
   ok(su_conf_get(c, "conf0.mot_fb_res", v, sizeof(v)) == 0 && strcmp(v, "10000") == 0, "build: resolution");
   ok(su_conf_get(c, "io0.out0", v, sizeof(v)) == 0 && strcmp(v, "fault0.mot_brake") == 0, "build: holding brake");
+  ok(su_conf_get(c, "fault0.brake_time", v, sizeof(v)) == 0 && strcmp(v, "0.15") == 0,
+     "build: brake_time without data: 0.15 s");
   ok(su_conf_get(c, "conf0.high_dc_volt", v, sizeof(v)) == 0 && strcmp(v, "380") == 0 &&
          su_conf_get(c, "conf0.max_dc_volt", v, sizeof(v)) == 0 && strcmp(v, "395") == 0,
      "build: bus limits above the chopper");
@@ -195,9 +206,19 @@ static void test_build(void) {
   char err[128];
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: every line fits the drive");
   free(c);
-  su_state_parse(s, "id.r = 2.15\nid.pp = 5\nid.psi = 0.0474\nlimits.max_vel = 300\n");
+  su_state_parse(s, "id.r = 2.15\nid.pp = 5\nid.psi = 0.0474\nlimits.max_vel = 300\n"
+                    "brake.output = 2\nbrake.engage_ms = 60\n");
   c = su_build_config(s, 1);
   ok(su_conf_has_link(c, "sserial"), "build: the final config links the command link");
+  ok(su_conf_get(c, "io0.out2", v, sizeof(v)) == 0 && su_conf_get(c, "io0.out0", v, sizeof(v)) < 0,
+     "build: the brake on the chosen output");
+  ok(su_conf_get(c, "fault0.brake_time", v, sizeof(v)) == 0 && strcmp(v, "0.11") == 0,
+     "build: brake_time from the engage time: 60 ms * 1.5 + 20 ms");
+  su_state_parse(s, "brake.time = 0.2\n");
+  free(c);
+  c = su_build_config(s, 1);
+  ok(su_conf_get(c, "fault0.brake_time", v, sizeof(v)) == 0 && strcmp(v, "0.2") == 0,
+     "build: the measured brake_time wins");
   ok(su_conf_get(c, "linrev0.scale", v, sizeof(v)) == 0 && strcmp(v, "5") == 0, "build: units per turn");
   ok(su_conf_get(c, "conf0.max_vel", v, sizeof(v)) == 0 && strcmp(v, "300") == 0, "build: the chosen top speed");
   ok(su_conf_get(c, "conf0.max_force", v, sizeof(v)) == 0, "build: torque limit once psi is known");

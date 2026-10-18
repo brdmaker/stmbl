@@ -60,6 +60,31 @@ char *su_wiring_command(const char *column) {
   return table(command, sizeof(command) / sizeof(command[0]), column, "Command");
 }
 
+char *su_wiring_brake(int out, int volt24, double current) {
+  char *s = malloc(2048);
+  int o   = snprintf(s, 2048,
+                     "Holding brake, on DIO%d (the 6-way socket below the 24 V connector, DIO0 nearest\n"
+                     "the top; each output switches to GND, with a 24 V pin beside it; 24 V, 1 A,\n"
+                     "2 A absolute). The output is on (brake released) while the drive is enabled.\n",
+                     out);
+  if(volt24 && current > 0.0 && current <= 1.0) {
+    snprintf(s + o, 2048 - o,
+             "  - The brake coil between DIO%d and the 24 V pin beside it.\n"
+             "  - A flyback diode across the coil (cathode to +24 V), or the output's\n"
+             "    switching spike reaches the drive's logic supply.\n",
+             out);
+  } else {
+    snprintf(s + o, 2048 - o,
+             "  - The brake %s: switch it with a relay.\n"
+             "    The relay's coil (24 V, under 1 A) between DIO%d and the 24 V pin beside it,\n"
+             "    with a flyback diode across that coil; the relay's contact switches the\n"
+             "    brake's own supply, with a suppressor (diode or varistor) across the brake.\n",
+             !volt24 ? "isn't 24 V DC" : current > 1.0 ? "takes more than the output's 1 A" : "current is unknown",
+             out);
+  }
+  return s;
+}
+
 char *su_wiring_power(int brake, double bus) {
   char *out = malloc(2048);
   int o     = snprintf(out, 2048,
@@ -70,10 +95,7 @@ char *su_wiring_power(int brake, double bus) {
                        "    protective earth. The phase order doesn't matter: the wizard measures it.\n",
                        bus);
   if(brake) {
-    o += snprintf(out + o, 2048 - o,
-                  "  - Holding brake: between DIO0 (nearest the top of the 6-way socket below the\n"
-                  "    24 V connector; it switches to GND) and the 24 V pin beside it. Add a\n"
-                  "    flyback diode across the brake coil. Outputs: 24 V, 1 A (2 A absolute).\n");
+    o += snprintf(out + o, 2048 - o, "  - Holding brake: below.\n");
   }
   snprintf(out + o, 2048 - o,
            "  - Keep the HV and LV sides isolated: USB ties the PC's GND to the LV board;\n"

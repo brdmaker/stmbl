@@ -19,6 +19,7 @@ written as a library, so a GUI can be built on the same functions later.
 - [Running it](#running-it)
 - [The steps](#the-steps)
 - [What it measures, and how](#what-it-measures-and-how)
+- [Holding brake](#holding-brake)
 - [Firmware version check](#firmware-version-check)
 - [Session, resume, answers file](#session-resume-answers-file)
 - [The library (for a GUI)](#the-library-for-a-gui)
@@ -55,19 +56,20 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 2 | `backup` | the drive's config to `stmbl-backup-<time>.txt` (`--load` it to go back) |
 | 3 | `safety` | what will move; e-stop within reach, motor fastened |
 | 4 | `supply` | 230 V / 120 V mains or DC; a brake chopper and its threshold; the braking power the drive may feed back (`conf0.max_hv_power`) |
-| 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed, holding brake; every one may be "unknown" |
+| 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed; every one may be "unknown". A holding brake: its voltage, current, which output (DIO0–2), its engage time. A vertical axis (gravity pulls) |
 | 6 | `feedback` | incremental encoder, sin/cos, resolver (pole count), Tamagawa smartabs, Mitsubishi, Sanyo Denki |
-| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it |
+| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay |
 | 8 | `base` | a first config (no command link), drive reset; checks the HV bus voltage and that there is no fault |
-| 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below) |
+| 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below). A brake is released for it (`fault0.brake_release`); on a vertical axis only once the load is off or supported |
 | 10 | `gate` | before anything moves: motor uncoupled or the axis clear; how far it may turn |
 | 11 | `electrical` | `id_pmsm`: resistance, inductance, pole pairs, phase order, commutation offset, flux; cross-checked against the nameplate |
 | 12 | `mechanical` | `id_mot` twice: inertia, friction, damping |
 | 13 | `tuning` | `id_pid`: position and velocity loop gains |
-| 14 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
-| 15 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
-| 16 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
-| 17 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
+| 14 | `brake` | the holding brake (below): released by the drive, holds with the drive off, no sag at disable |
+| 15 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
+| 16 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
+| 17 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
+| 18 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
 
 The config it writes:
 - `link pid`, `link pmsm`, the feedback's template, and in the end the
@@ -112,6 +114,41 @@ from a quarter turn.
     and the fit puts the misfit into j); the second run gets within
     ~20–30 %.
 - **`id_pid`** tunes the loops on the measured motor.
+
+## Holding brake
+
+**Wiring and config.** The brake goes on DIO0, 1 or 2. Each output
+switches to GND with a 24 V pin beside it; 1 A, 2 A absolute.
+- **Directly** when it is 24 V DC and takes at most 1 A, with a flyback
+  diode across the coil.
+- **Through a relay** otherwise.
+
+The config gets `io0.outN = fault0.mot_brake` (the output on, brake
+released, while the drive is enabled) and `fault0.brake_time`.
+`brake_time` is how long the drive keeps holding the axis after telling
+the brake to grip, at a disable or after a stop, so a vertical axis doesn't
+drop while the brake closes (docs/emergency_stop.md).
+
+**The `brake` step** checks it on the drive:
+1. **Released by the drive:** with the drive off, the drive releases the
+   brake (`fault0.brake_release`), and the shaft must turn freely by hand.
+   Moving the motor with the drive enabled proves nothing: its peak torque
+   is often above the brake's.
+2. **(Vertical axis) The load goes back on.** The measurements before ran
+   without it: gravity would read as friction and offset, and the motor
+   turns several turns.
+3. **Holds with the drive off:** the user tries to turn the shaft. On a
+   vertical axis it is also watched for 2 s.
+4. **No sag at disable:**
+   - The drive holds the axis, is disabled, and the position is watched.
+   - `brake_time` starts at the datasheet's engage time × 1.5 + 20 ms
+     (0.15 s if unknown).
+   - If the axis moves more than 0.01 rad, it is raised (× 1.5 + 30 ms) and
+     the test is repeated.
+   - On a horizontal axis nothing pulls, so the datasheet value stays.
+
+Positions are read from the feedback's own pin (`enc_fb0.pos`, ...):
+`fb_switch0.pos_fb` stands still while the drive is disabled.
 
 ## Firmware version check
 
@@ -204,6 +241,13 @@ make -C host wizard             # every motor in tests/motors.py (35), ~8 min on
 - Exact: the counts, the encoder direction, the phase order and the pole
   pairs.
 - Within a few percent: R, L and psi.
+- With a holding brake on every third motor (1.5× rated torque, 40 ms),
+  and a vertical axis on every sixth (a 30 % hanging load; its datasheet
+  engage time is too short, 10 ms against 60): the brake holds, there is
+  no sag at disable, and on the vertical axes the wizard raised
+  `brake_time` above the brake's real delay.
+- `hv0.sim_brake_delay` gives the simulated brake its delay, and a closed
+  brake stops `hv0.sim_turn`.
 - The commutation offset to the index's electrical angle.
 - j and f within 25 %, and the verify step.
 - Measurement limits it knows about are marked TODO in
@@ -230,6 +274,8 @@ firmware's own tools (DEBUGNOTES):
 - **`idm`:** its inertia floor was 5e-6; a 4e-7 motor got gains 500× too
   high and saturated. Now 1e-7, and the wizard starts the adaptive inertia
   low.
+- **`fault`:** `brake_time` (above), so a vertical axis doesn't drop
+  while the brake closes.
 - **The console:**
   - `getf <pin>` prints a pin in full precision; `%f` printed a micro
     motor's inertia as 0.000000.

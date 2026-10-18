@@ -16,5 +16,10 @@ char *su_wiring_feedback(const char *column);
 // the command connector: "Smart Serial", "Step/Dir", "Quadrature"
 char *su_wiring_command(const char *column);
 
-// HV supply, motor phases, holding brake, logic supply
+// HV supply, motor phases, logic supply (brake: a line pointing to the
+// brake's wiring below)
 char *su_wiring_power(int brake, double bus);
+
+// the holding brake on output out (0..2, DIO0..2): directly when it is
+// 24 V DC and takes at most 1 A, else through a relay
+char *su_wiring_brake(int out, int volt24, double current);

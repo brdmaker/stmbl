@@ -13,7 +13,8 @@
  *   backup      the drive's current config saved to a file
  *   safety      what the wizard will do; e-stop at hand
  *   supply      mains / DC bus, brake chopper, power rating
- *   motor       nameplate: currents, speed, torque, holding brake
+ *   motor       nameplate: currents, speed, torque, holding brake (voltage,
+ *               current, output, engage time), vertical axis
  *   feedback    the motor feedback type
  *   wiring      wiring help, then the user wires it
  *   base        a first config (no command link) written, drive reset, checked
@@ -22,6 +23,8 @@
  *   electrical  idpmsm: r, l, pole pairs, commutation offset, phase order, psi
  *   mechanical  idm: inertia, damping, friction
  *   tuning      ids (id_pid): position / velocity loop gains
+ *   brake       the holding brake: released when enabled, holds when off, no
+ *               sag at disable (fault0.brake_time, raised until there is none)
  *   limits      current, torque and speed limits; the thermal model
  *   link        LinuxCNC smart-serial, CAN, or none; units per revolution
  *   verify      the final config: hold, small steps, no fault, errors small

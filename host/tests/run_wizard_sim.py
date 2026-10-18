@@ -75,8 +75,17 @@ def case(i, motor):
     t_peak = 1.5 * pp * psi * imax
     f = round(0.02 * t_peak, 4)
     d = float("%.3g" % (2.8e-5 * t_peak))
+    rated_torque = nameplate(r, l, psi, pp, j, imax)[2]
+    # every 3rd motor a holding brake (1.5 x rated torque); every 6th a
+    # vertical axis (a hanging load of 30 % rated torque) whose datasheet
+    # engage time is too short (10 ms, really 60 ms): the wizard has to find
+    # brake_time itself
+    brake = i % 3 == 2
+    vertical = i % 6 == 5
     return dict(name=name, r=r, l=l, psi=psi, pp=pp, j=j, imax=imax, f=f, d=d, lines=lines, rev=rev,
-                prev=prev, index=index)
+                prev=prev, index=index, brake=brake, vertical=vertical,
+                brake_torque=1.5 * rated_torque, brake_delay=0.06 if vertical else 0.04,
+                engage_ms=10 if vertical else 40, load=0.3 * rated_torque if vertical else 0.0)
 
 
 def sim_file(c):
@@ -86,7 +95,9 @@ def sim_file(c):
         "hv0.sim_f = %g" % c["f"], "hv0.sim_phase_rev = %d" % c["prev"],
         "hv0.sim_chop_on = 375", "hv0.sim_chop_off = 365",
         "enc_fb0.sim_res = %d" % (4 * c["lines"]), "enc_fb0.sim_rev = %d" % c["rev"],
-        "enc_fb0.sim_index = %g" % c["index"], ""])
+        "enc_fb0.sim_index = %g" % c["index"],
+        "hv0.sim_brake = %g" % (c["brake_torque"] if c["brake"] else 0.0),
+        "hv0.sim_brake_delay = %g" % c["brake_delay"], ""])
 
 
 def answers(c, wait):
@@ -95,7 +106,14 @@ def answers(c, wait):
         "safety.ok = y", "supply.kind = 230", "supply.chopper = y", "supply.chopper_on = 375",
         "supply.max_hv_power = 1000",
         "motor.rated_cur = %.3g" % rated, "motor.peak_cur = %.3g" % peak,
-        "motor.rated_torque = %.3g" % torque, "motor.max_rpm = %g" % rpm, "motor.brake = n",
+        "motor.rated_torque = %.3g" % torque, "motor.max_rpm = %g" % rpm,
+        "motor.brake = %s" % ("y" if c["brake"] else "n"), "axis.vertical = %s" % ("y" if c["vertical"] else "n"),
+        "brake.voltage = 24", "brake.current = 0.5", "brake.output = 0", "brake.engage_ms = %g" % c["engage_ms"],
+        "fbcheck.secured = y",
+        # the load goes on for the brake step (and stays); the hand can't turn a closed brake
+        "brake.loaded = %s" % ("send hv0.sim_load = %.4g; wait 0.2" % -c["load"] if c["vertical"] else "done"),
+        "brake.release_turn = send hv0.sim_turn = 1.5; wait %g" % wait,
+        "brake.hold_turn = send hv0.sim_turn = 1; wait %g" % wait,
         "feedback.type = enc", "wiring.done = done",
         "fbcheck.turn = send hv0.sim_turn = 19; wait %g" % wait,
         "gate.free = y", "gate.turns = 2", "link.kind = sserial", "link.scale = 10", ""])
@@ -179,6 +197,13 @@ def checks(c, rc, out, st):
     f = num(st, "mech.f")
     chk(abs(f - c["f"]) <= max(0.25 * c["f"], 2e-3), "f = %.3g, true %.3g (25 %%)" % (f, c["f"]))
     chk(num(st, "verify.step") < 0.05, "verify: position error after the steps %s rad" % st.get("verify.step"))
+    if c["brake"]:
+        chk(num(st, "brake.hold_drift") < 0.05, "brake holds with the drive off: moved %s rad" %
+            st.get("brake.hold_drift"))
+        chk(num(st, "brake.drop") < 0.01, "no sag at disable: %s rad" % st.get("brake.drop"))
+        if c["vertical"]:
+            chk(num(st, "brake.time") > c["brake_delay"], "brake_time %s s > the brake's %g s (found by the wizard)" %
+                (st.get("brake.time"), c["brake_delay"]))
     return res
 
 
@@ -197,8 +222,9 @@ def main():
     n = failed = 0
     with ThreadPoolExecutor(max_workers=a.j) as ex:
         for c, rc, out, st, d, dt in ex.map(lambda c: run_case(c, a.speed, a.keep), cases):
-            print("# %s: %d lines, rev %d, phases %s, index %.2f (%.0f s)%s" % (
-                c["name"], c["lines"], c["rev"], "swapped" if c["prev"] else "as wired", c["index"], dt,
+            print("# %s: %d lines, rev %d, phases %s, index %.2f%s (%.0f s)%s" % (
+                c["name"], c["lines"], c["rev"], "swapped" if c["prev"] else "as wired", c["index"],
+                ", vertical with brake" if c["vertical"] else ", brake" if c["brake"] else "", dt,
                 "" if rc == 0 and not a.keep else ", in " + d))
             for good, what in checks(c, rc, out, st):
                 n += 1

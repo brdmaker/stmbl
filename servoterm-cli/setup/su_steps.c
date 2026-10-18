@@ -224,6 +224,17 @@ static double bus_of(const su_state_t *st) {
 
 // ---- the config --------------------------------------------------------------
 
+// the outputs hold the axis this long after the brake is told to grip: the
+// measured value (brake step), else the datasheet's engage time + 50 %
+// + 20 ms, else 0.15 s
+static double brake_time_of(const su_state_t *st) {
+  if(su_has(st, "brake.time")) {
+    return su_get_num(st, "brake.time", 0.15);
+  }
+  double ms = su_get_num(st, "brake.engage_ms", -1.0);
+  return ms > 0.0 ? ms * 1.5e-3 + 0.02 : 0.15;
+}
+
 static char *put(char *c, const su_state_t *st, const char *key, const char *pin, const char *tag) {
   const char *v = su_get(st, key);
   if(v && strcmp(v, "unknown") != 0) {
@@ -248,7 +259,10 @@ char *su_build_config(const su_state_t *st, int final) {
     c = su_conf_set(c, "fb_switch0.mot_pos", strchr(fb->extra, '=') + 2, NULL);
   }
   if(su_get_num(st, "motor.brake", 0.0) > 0.0) {
-    c = su_conf_set(c, "io0.out0", "fault0.mot_brake", "holding brake");
+    char out[16];
+    snprintf(out, sizeof(out), "io0.out%d", (int)su_get_num(st, "brake.output", 0.0));
+    c = su_conf_set(c, out, "fault0.mot_brake", "holding brake");
+    c = su_conf_set_num(c, "fault0.brake_time", brake_time_of(st), "brake engage");
   }
 
   // supply
@@ -406,6 +420,25 @@ static su_result_t step_supply(su_wizard_t *w) {
   return SU_OK;
 }
 
+// the holding brake's data (nameplate: "brake 24 V DC 0.5 A" or "... 12 W")
+static int ask_brake(su_wizard_t *w) {
+  static const char *const vids[]   = {"24", "other"};
+  static const char *const vnames[] = {"24 V DC", "another voltage, or AC"};
+  static const char *const oids[]   = {"0", "1", "2"};
+  static const char *const onames[] = {"DIO0 (usual)", "DIO1", "DIO2"};
+  int k, o;
+  double cur, ms;
+  if(ask_choice(w, "brake.voltage", "The brake's voltage", vids, vnames, 2, 0, &k) == SU_ABORT ||
+     ask_num(w, "brake.current", "The brake's current (or its power / 24 V)", "A", NAN, 0.01, 10.0, 1, &cur) ==
+         SU_ABORT ||
+     ask_choice(w, "brake.output", "Which drive output switches it?", oids, onames, 3, 0, &o) == SU_ABORT ||
+     ask_num(w, "brake.engage_ms", "The brake's engage time (datasheet: response / engage time)", "ms", NAN, 1.0,
+             1000.0, 1, &ms) == SU_ABORT) {
+    return SU_ABORT;
+  }
+  return 0;
+}
+
 static su_result_t step_motor(su_wizard_t *w) {
   say(w, SU_MSG_INFO,
       "From the motor's nameplate (or datasheet). Currents are rms, as nameplates give them.\n"
@@ -423,6 +456,19 @@ static su_result_t step_motor(su_wizard_t *w) {
   int brake;
   if(ask_yes(w, "motor.brake", "Does the motor have a holding brake?", &brake) == SU_ABORT) {
     return SU_ABORTED;
+  }
+  if(brake && ask_brake(w) == SU_ABORT) {
+    return SU_ABORTED;
+  }
+  int vertical;
+  if(ask_yes(w, "axis.vertical", "Does gravity pull on the axis (vertical, or a hanging load)?", &vertical) ==
+     SU_ABORT) {
+    return SU_ABORTED;
+  }
+  if(vertical && !brake) {
+    say(w, SU_MSG_WARN,
+        "A vertical axis without a holding brake falls whenever the drive is off (e-stop, power\n"
+        "loss, a fault): add a brake or a counterweight.");
   }
   su_motor_t m;
   su_limits_t lim;
@@ -470,9 +516,17 @@ static su_result_t step_feedback(su_wizard_t *w) {
 
 static su_result_t step_wiring(su_wizard_t *w) {
   const su_fb_type_t *fb = su_fb_find(su_get(w->st, "feedback.type"));
-  char *t                = su_wiring_power(su_get_num(w->st, "motor.brake", 0.0) > 0.0, bus_of(w->st));
+  int brake              = su_get_num(w->st, "motor.brake", 0.0) > 0.0;
+  char *t                = su_wiring_power(brake, bus_of(w->st));
   say(w, SU_MSG_WIRING, "%s", t);
   free(t);
+  if(brake) {
+    const char *v = su_get(w->st, "brake.voltage");
+    t = su_wiring_brake((int)su_get_num(w->st, "brake.output", 0.0), v && strcmp(v, "24") == 0,
+                        su_get_num(w->st, "brake.current", 0.0));
+    say(w, SU_MSG_WIRING, "%s", t);
+    free(t);
+  }
   if(fb && (t = su_wiring_feedback(fb->wiring_col))) {
     say(w, SU_MSG_WIRING, "%s", t);
     free(t);
@@ -509,6 +563,8 @@ static su_result_t step_base(su_wizard_t *w) {
   return SU_OK;
 }
 
+static su_result_t fbcheck(su_wizard_t *w, const su_fb_type_t *fb);
+
 // the hand turn: index counts (incremental), or the position's direction
 static su_result_t step_fbcheck(su_wizard_t *w) {
   const su_fb_type_t *fb = su_fb_find(su_get(w->st, "feedback.type"));
@@ -516,6 +572,23 @@ static su_result_t step_fbcheck(su_wizard_t *w) {
     return SU_FAIL;
   }
   disable(w);
+  if(su_get_num(w->st, "motor.brake", 0.0) > 0.0) {  // released for the hand
+    if(su_get_num(w->st, "axis.vertical", 0.0) > 0.0) {
+      int yes = 0;
+      say(w, SU_MSG_WARN, "The wizard releases the holding brake now: a vertical axis would fall.");
+      if(ask_yes(w, "fbcheck.secured", "Is the load off the motor, or the axis supported?", &yes) == SU_ABORT ||
+         !yes) {
+        return SU_ABORTED;
+      }
+    }
+    set(w, "fault0.brake_release", "1");
+  }
+  su_result_t r = fbcheck(w, fb);
+  set(w, "fault0.brake_release", "0");
+  return r;
+}
+
+static su_result_t fbcheck(su_wizard_t *w, const su_fb_type_t *fb) {
   if(fb->res == SU_FB_RES_MEASURED) {
     set_num(w, "enc_fb0.res", SU_FB_MEASURE_WRAP);
     set(w, "enc_fb0.indexprint", "1");
@@ -592,6 +665,12 @@ static su_result_t step_gate(su_wizard_t *w) {
       "  - tuning (id_pid): short fast moves.\n"
       "Best with the motor uncoupled from the machine. Coupled, the axis must be free to move\n"
       "the travel below, away from its ends, and the identified inertia is the whole axis's.");
+  if(su_get_num(w->st, "axis.vertical", 0.0) > 0.0) {
+    say(w, SU_MSG_WARN,
+        "A vertical axis: measure the motor without its load (uncoupled, or the load taken off or\n"
+        "supported). Gravity would read as friction and offset, and the motor turns several turns.\n"
+        "The brake step puts the load back on and checks that the brake holds it.");
+  }
   int yes = 0;
   if(ask_yes(w, "gate.free", "Is the motor free to turn (uncoupled, or the axis clear)?", &yes) == SU_ABORT) {
     return SU_ABORTED;
@@ -749,6 +828,161 @@ static su_result_t step_tuning(su_wizard_t *w) {
   su_set_num(w->st, "tune.vel_bw", vb);
   su_set_num(w->st, "tune.vel_d", vd);
   say(w, SU_MSG_INFO, "pos_bw = %.4g, vel_bw = %.4g, vel_d = %.4g.", pb, vb, vd);
+  return SU_OK;
+}
+
+// enabled, holding where the motor stands (no command link yet: the
+// command is set by hand); *p0 the position. 0 ok
+static int hold_here(su_wizard_t *w, double *p0) {
+  double st = 0.0;
+  set(w, "fault0.cmd_error", "0");
+  if(get(w, "fb_switch0.pos_fb", p0) < 0) {
+    return -1;
+  }
+  set_num(w, "pid0.pos_ext_cmd", *p0);
+  set(w, "pid0.vel_ext_cmd", "0");
+  set(w, "pid0.acc_ext_cmd", "0");
+  if(enable(w) < 0) {
+    return -1;
+  }
+  double end = now() + 5.0;
+  do {
+    drive_sleep(w, 0.2);
+    if(get(w, "fault0.state", &st) < 0) {
+      return -1;
+    }
+  } while((int)(st + 0.5) != ST_ENABLED && (int)(st + 0.5) != ST_SOFT_FAULT && now() < end);
+  return (int)(st + 0.5) == ST_ENABLED ? 0 : -1;
+}
+
+// the feedback's own position: fb_switch0.pos_fb stands still while the
+// drive is disabled (fault0.en_fb), so it can't show a sagging axis
+static const char *raw_pos(su_wizard_t *w) {
+  const su_fb_type_t *fb = su_fb_find(su_get(w->st, "feedback.type"));
+  return fb ? fb->pos_pin : "enc_fb0.pos";
+}
+
+// the largest |position - p0| over t (drive time), sampled; p0 from raw_pos
+static double drift(su_wizard_t *w, double p0, double t) {
+  double m = 0.0, p;
+  int n    = (int)(t / 0.05) + 1;
+  for(int i = 0; i < n; i++) {
+    if(su_link_get(w->link, raw_pos(w), &p) == 0) {
+      m = fmax(m, fabs(remainder(p - p0, 2.0 * M_PI)));
+    }
+    drive_sleep(w, 0.05);
+  }
+  return m;
+}
+
+// The holding brake (fault0.mot_brake on io0.outN, fault0.brake_time):
+//  1. released by the drive: the shaft turns by hand;
+//  2. (vertical) the load goes back on;
+//  3. it holds with the drive off: the user tries to turn the shaft;
+//  4. at disable the axis doesn't sag: the outputs hold for brake_time
+//     while the brake grips; if it sags, brake_time goes up and again.
+static su_result_t step_brake(su_wizard_t *w) {
+  if(su_get_num(w->st, "motor.brake", 0.0) <= 0.0) {
+    say(w, SU_MSG_INFO, "No holding brake: nothing to do.");
+    return SU_OK;
+  }
+  int vertical = su_get_num(w->st, "axis.vertical", 0.0) > 0.0;
+  if(apply_config(w, 0) < 0) {
+    return SU_FAIL;
+  }
+  double p0, p1;
+  // 1. released: with the drive off and the brake released by the drive
+  // (fault0.brake_release), the shaft turns by hand. (Moving the motor
+  // proves nothing: its peak torque is often above the brake's.)
+  disable(w);
+  set(w, "fault0.brake_release", "1");
+  drive_sleep(w, 0.3);
+  if(get(w, raw_pos(w), &p0) < 0) {
+    return SU_FAIL;
+  }
+  if(w->ui->action(w->ui->user, "brake.release_turn",
+                   "The drive has released the brake (the drive is off): turn the shaft by hand about\n"
+                   "a quarter turn; it should turn freely. Then go on.",
+                   w->link) == SU_ABORT) {
+    set(w, "fault0.brake_release", "0");
+    return SU_ABORTED;
+  }
+  get(w, raw_pos(w), &p1);
+  set(w, "fault0.brake_release", "0");
+  double moved = fabs(remainder(p1 - p0, 2.0 * M_PI));
+  if(moved < 0.2) {
+    say(w, SU_MSG_ERROR,
+        "With the brake released the shaft moved %.3f rad: the brake doesn't release.\n"
+        "Check its wiring (DIO%d, the relay), its voltage, and that the output is the one\n"
+        "configured.",
+        moved, (int)su_get_num(w->st, "brake.output", 0.0));
+    return SU_FAIL;
+  }
+  say(w, SU_MSG_INFO, "Released by the drive: the shaft turned %.2f rad by hand.", moved);
+
+  // 2. the load back on
+  if(vertical && w->ui->action(w->ui->user, "brake.loaded",
+                               "Put the axis's load back on (couple the motor, remove the supports),\n"
+                               "with the drive off the brake now holds it. Then go on.",
+                               w->link) == SU_ABORT) {
+    return SU_ABORTED;
+  }
+
+  // 3. holds with the drive off
+  if(get(w, raw_pos(w), &p0) < 0) {
+    return SU_FAIL;
+  }
+  if(w->ui->action(w->ui->user, "brake.hold_turn",
+                   "The drive is off and the brake closed: try to turn the shaft by hand, both ways\n"
+                   "(it must not turn). Then go on.",
+                   w->link) == SU_ABORT) {
+    return SU_ABORTED;
+  }
+  double d = drift(w, p0, vertical ? 2.0 : 0.2);
+  su_set_num(w->st, "brake.hold_drift", d);
+  if(d > 0.05) {
+    say(w, SU_MSG_ERROR,
+        "With the drive off the shaft moved %.3f rad: the brake doesn't hold. Is it wired the\n"
+        "right way (released while the output is on)? Is the brake too weak for the load?",
+        d);
+    return SU_FAIL;
+  }
+  say(w, SU_MSG_INFO, "Holds with the drive off (moved %.4f rad).", d);
+
+  // 4. no sag at disable
+  double bt = su_get_num(w->st, "brake.time", 0.0) > 0.0 ? su_get_num(w->st, "brake.time", 0.15) : 0.0;
+  if(bt <= 0.0) {
+    double ms = su_get_num(w->st, "brake.engage_ms", -1.0);
+    bt        = ms > 0.0 ? ms * 1.5e-3 + 0.02 : 0.15;
+  }
+  for(int i = 0; i < 6; i++) {
+    set_num(w, "fault0.brake_time", bt);
+    if(hold_here(w, &p0) < 0) {
+      disable(w);
+      say(w, SU_MSG_ERROR, "The drive did not enable.");
+      return SU_FAIL;
+    }
+    drive_sleep(w, 0.5);
+    get(w, raw_pos(w), &p0);
+    disable(w);
+    d = drift(w, p0, bt + 0.5);
+    say(w, SU_MSG_INFO, "brake_time %.3f s: the axis moved %.4f rad at disable.", bt, d);
+    if(d < 0.01) {
+      break;
+    }
+    if(i == 5) {
+      say(w, SU_MSG_ERROR, "The axis still moves at disable with brake_time %.2f s: check the brake.", bt);
+      return SU_FAIL;
+    }
+    bt = bt * 1.5 + 0.03;
+  }
+  su_set_num(w->st, "brake.time", bt);
+  su_set_num(w->st, "brake.drop", d);
+  if(!vertical) {
+    say(w, SU_MSG_INFO, "(No load pulls on the axis, so the disable test can't show the brake's delay:\n"
+                        "brake_time stays at %.3f s from the datasheet.)",
+        bt);
+  }
   return SU_OK;
 }
 
@@ -923,6 +1157,7 @@ const su_step_t su_steps[] = {
     {"electrical", "Measure the motor: electrical", step_electrical},
     {"mechanical", "Measure the motor: mechanical", step_mechanical},
     {"tuning", "Tune the control loops", step_tuning},
+    {"brake", "Holding brake", step_brake},
     {"limits", "Limits", step_limits},
     {"link", "Machine controller link", step_link},
     {"verify", "Check the final config", step_verify},

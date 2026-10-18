@@ -1368,3 +1368,34 @@ Entry format:
   buffers while the wizard waits for the user: it sets send_step = 0. The
   host simulator's sim_board links the simulated motor to conf0, so
   identification tests need a --sim file with fixed values.
+
+## 2026-10-18  A vertical axis drops while the holding brake closes
+- Area:    `shared/comps/fault.c` (mot_brake, en_out)
+- Status:  Fixed
+- Symptom: burn-in axis, a 50 ms brake, 0.5 Nm hanging load: disabled at
+  standstill it fell 18.7 rad (3 turns) before the brake gripped.
+- Cause:   the outputs went off in the same cycle as the brake command;
+  brakes take tens of ms to grip.
+- Fix:     fault0.brake_time: the brake grips while the quick stop (or the
+  dynamic brake) still holds the axis, then the outputs go off. Default 0
+  (old behaviour); the setup wizard sets it and raises it until there is no
+  sag. tests/ebrake/estop_brake_time.test.
+
+## 2026-10-18  fb_switch0.pos_fb stands still while the drive is disabled
+- Area:    `shared/comps/fb_switch.c` (fault0.en_fb)
+- Status:  Known
+- Symptom: the wizard's brake step saw no movement with the drive off
+  although the axis fell 3 rad.
+- Cause:   fb_switch only updates with en_fb.
+- Fix:     read the feedback's own pin (enc_fb0.pos, res0.pos, ...) to watch
+  a disabled axis.
+
+## 2026-10-18  "The motor moves when enabled" doesn't prove the brake releases
+- Area:    setup wizard, brake step
+- Status:  Note
+- Symptom: a brake on the wrong output (never released) passed a 0.3 rad
+  move test.
+- Cause:   the motor's peak torque (3x rated) is above a typical brake's
+  (1.5x rated): it drags the closed brake.
+- Fix:     the release test is by hand with the drive off and
+  fault0.brake_release = 1: the shaft must turn freely.
