@@ -237,9 +237,9 @@ sserialboot                 reset into the smart-serial loader
 
 ## Still to do
 
-- **Real hardware:** whether a word write really fits the rt/frt slack
-  under motion (`hal.flash_late` counts the late periods; the bench updates
-  ran with the drive disabled, as `fwup` requires).
+- **Flash writes under motion: not planned.** Too risky and not needed:
+  `fwup` refuses every command while the drive is enabled, so updates run
+  with the machine off (as on the bench).
 - **brdstepper:** the G431 flash driver (2 kB pages; the same layout ideas).
 - **Speed:** a binary `fwdata`, or a wider console field, would roughly
   halve the in-band time.
