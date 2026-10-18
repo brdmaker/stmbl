@@ -8,6 +8,7 @@
 #include "common.h"
 #include "f3hw.h"
 #include "ringbuf.h"
+#include "vbrake.h"
 
 extern CRC_HandleTypeDef hcrc;
 
@@ -66,12 +67,24 @@ HAL_PIN(dma_pos_cmd);
 HAL_PIN(inc);
 HAL_PIN(window);
 
+// the F4 stopped talking while the drive was enabled, and asked for it
+// (flags.brake_on_loss): brake here, on the HV side, which runs from the DC
+// bus (docs/emergency_stop.md): a virtual resistor (shared/vbrake.h) in
+// voltage mode, frame frozen, until the current has died down
+HAL_PIN(brake);     // out: braking
+HAL_PIN(brake_rv);  // out: [ohm]
+
 struct ls_ctx_t {
   uint32_t timeout;
   uint32_t tx_addr;
   uint8_t send;
   volatile packet_to_hv_t packet_to_hv;
   volatile packet_from_hv_t packet_from_hv;
+  int was_en;       // the last packet enabled the drive ...
+  int brake_flag;   // ... and asked for a brake on loss
+  int braking, brake_done;
+  float brake_t;
+  vbrake_t vb;
 };
 
 //TODO: move to ctx
@@ -194,7 +207,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     if(ctx->packet_to_hv.header.slave_addr == 0 && ctx->packet_to_hv.header.len == (sizeof(packet_to_hv_t) - sizeof(stmbl_talk_header_t)) / 4 && crc == ctx->packet_to_hv.header.crc) {
       //
       uint8_t a = ctx->packet_to_hv.header.conf_addr;
-      a         = CLAMP(a, 0, sizeof(config) / 4);
+      a         = CLAMP(a, 0, sizeof(config) / 4 - 1);  // the last valid word
 
       switch(ctx->packet_to_hv.header.flags.cmd) {
         case NO_CMD:
@@ -237,7 +250,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(max_y)   = config.pins.max_y;
       PIN(max_cur) = config.pins.max_cur;
       PIN(dac)     = config.pins.dac;
-      ctx->timeout = 0;
+      ctx->timeout    = 0;
+      ctx->was_en     = ctx->packet_to_hv.flags.enable;
+      ctx->brake_flag = ctx->packet_to_hv.flags.brake_on_loss;
+      ctx->braking    = 0;
+      ctx->brake_done = 0;
+      PIN(brake)      = 0.0;
       PIN(crc_ok)
       ++;
       if(ctx->send == 0) {
@@ -315,9 +333,41 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     //ctx->send = 0;
   }
 
-  if(ctx->timeout > 5) {  //disable driver
-    PIN(en) = 0.0;
+  if(ctx->timeout > 5) {  // no F4: brake if asked, else disable the driver
     PIN(vel) = 0.0;
+    if(ctx->brake_flag && ctx->was_en && !ctx->brake_done) {
+      if(!ctx->braking) {
+        ctx->braking = 1;
+        ctx->brake_t = 0.0;
+        vbrake_reset(&ctx->vb);
+      }
+      // below curpid's own voltage-mode clamp at max_cur and the stage's
+      // ABS_MAX_CURRENT; rv only rises to hold the current, and backs off
+      // before the bus reaches ABS_MAX_VOLT
+      vbrake_cfg_t c = {.max_cur      = 0.9 * MIN(PIN(max_cur), ABS_MAX_CURRENT),
+                        .pwm_volt     = PIN(pwm_volt),
+                        .dc_volt      = PIN(dc_volt),
+                        .high_dc_volt = 0.9 * ABS_MAX_VOLT,
+                        .kp           = 0.1,
+                        .ki           = 500.0,
+                        .stop_cur     = 0.05 * PIN(max_cur),
+                        .stop_time    = 0.1};
+      float ud, uq;
+      vbrake_step(&ctx->vb, &c, PIN(id_fb), PIN(iq_fb), period, &ud, &uq);
+      ctx->brake_t += period;
+      PIN(en)       = 1.0;
+      PIN(cmd_mode) = VOLT_MODE;
+      PIN(d_cmd)    = ud;
+      PIN(q_cmd)    = uq;
+      PIN(brake)    = 1.0;
+      PIN(brake_rv) = ctx->vb.rv;
+      if(ctx->vb.stopped || ctx->brake_t > 2.0) {
+        ctx->brake_done = 1;
+      }
+    } else {
+      PIN(en)    = 0.0;
+      PIN(brake) = 0.0;
+    }
     PIN(timeout)
     ++;
     fault = 1;

@@ -27,6 +27,10 @@
 //   qstop0.tj                         the deceleration builds up and eases
 //                                     off over tj (3 ms): an S-curve
 //   qstop0.stop_vel                   standstill [rad/s]
+//   qstop0.max_power                  [W] the braking power that goes back
+//                                     into the DC bus, j * a * v, is held
+//                                     to the HV board's rating
+//                                     (conf0.max_hv_power; 0: no limit)
 //
 // The drive's velocity observer (vel1) lags at these decelerations (its
 // torque feedforward is a 50 Hz high-pass), so pid over-brakes and the stop
@@ -56,6 +60,8 @@ HAL_PIN(j);
 HAL_PIN(j_sys);
 HAL_PIN(dec_share);
 HAL_PIN(tj);  // [s]
+HAL_PIN(max_power);  // [W]
+HAL_PIN(power);      // [W] out: j * |a| * |v| of the plan
 HAL_PIN(stop_vel);
 HAL_PIN(max_err);  // [rad]
 HAL_PIN(stopped);
@@ -97,6 +103,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     }
     // an S-curve: |a| rises to dec at jerk dec / tj, and eases off so v
     // and a reach 0 together (from |a|, easing off takes a^2 / 2 jerk of v)
+    float jt = MAX(PIN(j) + PIN(j_sys), 1e-9);
+    if(PIN(max_power) > 0.0 && ABS(ctx->v) > 1e-3) {  // regen at most max_power
+      dec = MIN(dec, PIN(max_power) / (jt * ABS(ctx->v)));
+    }
     float jerk = dec / MAX(PIN(tj), period);
     float dir  = ctx->v > 0.0 ? -1.0 : 1.0;  // the acceleration that brakes
     float aa   = ABS(ctx->a);
@@ -110,9 +120,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       v  = 0.0;
       aa = 0.0;
     }
-    ctx->v    = v;
-    ctx->a    = dir * aa;
-    float acc = ctx->a;
+    ctx->v     = v;
+    ctx->a     = dir * aa;
+    float acc  = ctx->a;
+    PIN(power) = jt * aa * ABS(v);
     ctx->p  = mod(ctx->p + ctx->v * period);
     float e = minus(ctx->p, PIN(pos_fb));
     float m = MAX(PIN(max_err), 0.0);
@@ -135,6 +146,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   ctx->active  = 0;
+  PIN(power)   = 0.0;
   PIN(stopped) = 0.0;
   PIN(active)  = 0.0;
   if(PIN(hold) > 0.0 || PIN(hold2) > 0.0) {

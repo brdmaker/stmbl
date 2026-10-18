@@ -86,6 +86,9 @@ typedef struct {
         PHASE_180_3PH,
       } phase_type : 3;
       uint32_t ignore_fault_pin : 1;
+      // the F3 brakes on its own (shared/vbrake.h) if the packets stop while
+      // enabled; an older F3 ignores it, an older F4 sends 0
+      uint32_t brake_on_loss : 1;
     } flags;
     uint32_t padding;
   };

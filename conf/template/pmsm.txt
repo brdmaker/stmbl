@@ -23,6 +23,8 @@ dbrake0.brake = fault0.dbrake
 fault0.dbrake_done = dbrake0.stopped
 fault0.fb_stop = 2
 fault0.err_stop = 2
+# the F3 brakes if the F4 stops (LV side lost)
+hv0.brake_on_loss = 1
 hv0.d_cmd = dbrake0.d_out
 hv0.q_cmd = dbrake0.q_out
 hv0.cmd_mode = dbrake0.mode_out

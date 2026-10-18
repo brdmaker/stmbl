@@ -1,0 +1,31 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# The F4 stops talking (LV side lost: hv0.sim_f4_dead): the HV side runs
+# from the DC bus, so the F3 brakes on its own (hv0.brake_on_loss, pmsm
+# template): the virtual resistor of shared/vbrake.h in its own frame, as
+# stm32f303/src/comps/ls.c does, until the current has died down (~3.8
+# rad, 6 mm). The current stays under 0.9 * max_ac_cur.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+hv0.sim_f4_dead = 1
+@sample hv0.abs_cur 0.001 0.05
+hv0.sim_f3_brake
+run 0.25
+hv0.sim_dist
+hv0.sim_vel
+hv0.sim_f3_brake
+@expect hv0.sim_f3_brake[1] == 1
+@expect max|hv0.abs_cur| < 9
+@expect hv0.sim_dist ~ 3.8 0.6
+@expect hv0.sim_vel[2] ~ 0 0.5
+@expect hv0.sim_f3_brake[2] == 0

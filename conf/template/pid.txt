@@ -117,6 +117,7 @@ qstop0.hold = fault0.cmd_error
 qstop0.max_torque = conf0.max_force
 qstop0.j = conf0.j
 qstop0.j_sys = conf0.j_sys
+qstop0.max_power = conf0.max_hv_power
 fault0.qstop_done = qstop0.stopped
 fault0.cmd_stop = 1
 fault0.en_stop = 1

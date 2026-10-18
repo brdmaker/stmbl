@@ -48,6 +48,7 @@ HAL_PIN(mot_temp);
 HAL_PIN(core_temp);
 HAL_PIN(fault);  //fault from hv
 HAL_PIN(ignore_fault_pin);
+HAL_PIN(brake_on_loss);  // the F3 brakes if this F4 stops talking (docs/emergency_stop.md)
 HAL_PIN(y);
 HAL_PIN(u_fb);
 HAL_PIN(v_fb);
@@ -375,6 +376,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         ctx->to_hv.packet_to_hv.flags.enable = 0;
       }
       ctx->to_hv.packet_to_hv.flags.ignore_fault_pin = PIN(ignore_fault_pin) > 0.0;
+      ctx->to_hv.packet_to_hv.flags.brake_on_loss    = PIN(brake_on_loss) > 0.0;
       ctx->to_hv.packet_to_hv.flags.cmd_type   = PIN(cmd_mode);
       ctx->to_hv.packet_to_hv.flags.phase_type = PIN(phase_mode);
       ctx->to_hv.packet_to_hv.pos              = pos;

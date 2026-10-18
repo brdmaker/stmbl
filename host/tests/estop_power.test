@@ -1,0 +1,32 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# The HV board's rating (conf0.max_hv_power -> qstop0.max_power): a quick
+# stop feeds the braking power back into the DC bus, j * a * v; it is held
+# to the rating, so at speed the deceleration is lower. Here 30 W (the
+# template's 1000 W is never reached by this small motor: ~140 W at most):
+# ~4.4 rad (7 mm) instead of ~2 rad. The phase current stays under
+# max_ac_cur (10 A) throughout.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+qstop0.max_power = 30
+lcncstop
+@sample qstop0.power 0.001 0.05
+@sample hv0.abs_cur 0.001 0.05
+run 0.25
+hv0.sim_dist
+hv0.sim_vel
+@expect max qstop0.power < 30.5
+@expect max qstop0.power > 25
+@expect max|hv0.abs_cur| < 10
+@expect hv0.sim_dist ~ 4.4 0.6
+@expect hv0.sim_vel[2] ~ 0 0.5

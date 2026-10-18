@@ -4,24 +4,21 @@
 #include "math.h"
 #include "defines.h"
 #include "angle.h"
+#include "vbrake.h"
 
 // Dynamic brake: the motor's own back-EMF stops it, with no position
 // feedback (docs/emergency_stop.md). fault0.dbrake asks for it (a feedback
 // fault, a following error, ...). Between the motor's current command
-// (pmsm_ttc0, fb_switch0) and hv0: in voltage mode, a virtual resistor
-// u = -rv * i, which needs no rotor angle (the same rotation turns u and
-// i), in a frame frozen where braking began. rv = 0 is a short circuit:
-// the energy goes into the windings. rv rises when the current would
-// exceed max_cur; then part of the energy goes into the DC bus, so rv
-// falls again above high_dc_volt. At speed a short is limited by the
-// motor's inductance and brakes weakly; some rv brakes harder (the burn-in
-// motor from 188 rad/s: 5.0 mm shorted, 2.5-3 mm with the current held at
-// 2 A), at the cost of that energy in the bus. stopped: the current stayed
-// below stop_cur for stop_time.
+// (pmsm_ttc0, fb_switch0) and hv0: voltage mode with a virtual resistor
+// (shared/vbrake.h, the same law the F3 runs on its own when the F4 stops
+// talking), in a frame frozen where braking began.
 //
-// The gains are relative to rn = pwm_volt / max_cur, the resistance that
-// would drive max_cur at full voltage: rv = rn * (kp * e + ki * int(e)),
-// e = (i - max_cur) / max_cur.
+// rv = 0 is a short circuit: the energy goes into the windings. At speed a
+// short is held back by the motor's inductance and brakes weakly. rv rises
+// only to hold the current at cur_share (0.9) of max_cur: the power stage
+// is protected by the current; the energy that then goes into the DC bus
+// is reported (power), and rv backs off above high_dc_volt. 0.9: the F3's
+// own voltage-mode clamp at max_cur would otherwise fight it.
 //
 //   dbrake0.d_in / q_in / mode_in / pos_in / vel_in   the normal command
 //   dbrake0.d_out / q_out / mode_out / pos_out / vel_out   to hv0
@@ -48,28 +45,28 @@ HAL_PIN(dc_volt);
 HAL_PIN(high_dc_volt);
 HAL_PIN(pwm_volt);  // [V] the largest voltage the HV board applies
 
-HAL_PIN(max_cur);    // [A]
-HAL_PIN(rv_max);     // [ohm], 0: 2 * rn
-HAL_PIN(ki);         // [1/s], relative
+HAL_PIN(max_cur);    // [A] the motor's (conf0.max_ac_cur)
+HAL_PIN(cur_share);  // the brake current target, share of max_cur
+HAL_PIN(ki);         // [1/s], relative to rn = pwm_volt / max_cur
 HAL_PIN(kp);         // relative
 HAL_PIN(stop_cur);   // [A], 0: 5 % of max_cur
 HAL_PIN(stop_time);  // [s]
 
-HAL_PIN(rv);   // [ohm]
-HAL_PIN(cur);  // [A]
+HAL_PIN(rv);     // [ohm]
+HAL_PIN(cur);    // [A]
+HAL_PIN(power);  // [W] into the DC bus
 HAL_PIN(stopped);
 HAL_PIN(active);
 
 struct dbrake_ctx_t {
   int active;
   float pos;  // the frame, frozen
-  float rvi;  // integral part of rv
-  float low;  // [s] below stop_cur
+  vbrake_t b;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct dbrake_pin_ctx_t *pins = (struct dbrake_pin_ctx_t *)pin_ptr;
-  PIN(rv_max)                   = 0.0;
+  PIN(cur_share)                = 0.9;
   PIN(ki)                       = 500.0;
   PIN(kp)                       = 0.1;
   PIN(stop_time)                = 0.1;
@@ -93,6 +90,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(pos_out)  = PIN(pos_in);
     PIN(vel_out)  = PIN(vel_in);
     PIN(rv)       = 0.0;
+    PIN(power)    = 0.0;
     PIN(stopped)  = 0.0;
     PIN(active)   = 0.0;
     return;
@@ -101,30 +99,28 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(!ctx->active) {
     ctx->active = 1;
     ctx->pos    = PIN(pos_in);
-    ctx->rvi    = 0.0;
-    ctx->low    = 0.0;
+    vbrake_reset(&ctx->b);
   }
-  float max_cur = MAX(PIN(max_cur), 0.01);
-  float rn      = MAX(PIN(pwm_volt), 1.0) / max_cur;
-  float rv_max  = PIN(rv_max) > 0.0 ? PIN(rv_max) : 2.0 * rn;
-  float e       = (i - max_cur) / max_cur;
-  if(PIN(high_dc_volt) > 0.0 && PIN(dc_volt) > PIN(high_dc_volt)) {
-    e = -1.0;  // the bus is full: back towards the short circuit
-  }
-  ctx->rvi = CLAMP(ctx->rvi + rn * PIN(ki) * e * period, 0.0, rv_max);
-  float rv = CLAMP(ctx->rvi + rn * PIN(kp) * MAX(e, 0.0), 0.0, rv_max);
+  vbrake_cfg_t c = {.max_cur      = PIN(max_cur) * PIN(cur_share),
+                    .pwm_volt     = PIN(pwm_volt),
+                    .dc_volt      = PIN(dc_volt),
+                    .high_dc_volt = PIN(high_dc_volt),
+                    .kp           = PIN(kp),
+                    .ki           = PIN(ki),
+                    .stop_cur     = PIN(stop_cur) > 0.0 ? PIN(stop_cur) : 0.05 * PIN(max_cur),
+                    .stop_time    = PIN(stop_time)};
+  float ud, uq;
+  vbrake_step(&ctx->b, &c, id, iq, period, &ud, &uq);
 
-  PIN(d_out)    = -rv * id;
-  PIN(q_out)    = -rv * iq;
+  PIN(d_out)    = ud;
+  PIN(q_out)    = uq;
   PIN(mode_out) = 0.0;  // VOLT_MODE
   PIN(pos_out)  = ctx->pos;
   PIN(vel_out)  = 0.0;  // the F3 must not turn the frame between packets
-  PIN(rv)       = rv;
+  PIN(rv)       = ctx->b.rv;
+  PIN(power)    = ctx->b.power;
   PIN(active)   = 1.0;
-
-  float stop_cur = PIN(stop_cur) > 0.0 ? PIN(stop_cur) : 0.05 * max_cur;
-  ctx->low       = i < stop_cur ? ctx->low + period : 0.0;
-  PIN(stopped)   = ctx->low >= PIN(stop_time);
+  PIN(stopped)  = ctx->b.stopped;
 }
 
 hal_comp_t dbrake_comp_struct = {

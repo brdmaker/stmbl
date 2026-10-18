@@ -1113,3 +1113,52 @@ Entry format:
 - Cause:   err_filter needs 5 cycles. Commutation keeps the last angle.
 - Fix:     Idea: start dbrake (or zero the current command) on the raw
   feedback error, and keep the filter only for the fault code.
+
+## 2026-10-18  F3: the config index allowed one word past the array
+- Area:    `stm32f303/src/comps/ls.c` (WRITE_CONF / READ_CONF)
+- Status:  Fixed (compiles; not run on an F3)
+- Symptom: none seen; found by reading the code.
+- Cause:   `CLAMP(a, 0, sizeof(config) / 4)` lets a == 9 through, one past
+  the 9 floats, so a WRITE_CONF there writes past `config`. Today's F4
+  never sends 9, but an F4 with a longer config (another version) would.
+- Fix:     `sizeof(config) / 4 - 1`. New F3 features must still not add
+  config words without a version check: an older F3 has this bug. That is
+  why brake_on_loss is a spare flag bit.
+
+## 2026-10-18  F3 voltage mode clamps current by lowering the voltage
+- Area:    `shared/comps/curpid.c` (VOLT_MODE), dynamic braking
+- Status:  Note
+- Symptom: (design) for the virtual-resistor brake, the F3's voltage-mode
+  current clamp works backwards.
+- Cause:   Above max_cur, curpid scales the commanded voltage down
+  (kci 500). For u = -rv * i that is less resistance, so more current, and
+  it would fight the brake's own current control. The simulated F3 didn't
+  model the clamp at all.
+- Fix:     The brake holds 0.9 * max_cur (dbrake0.cur_share), below the
+  clamp. host/hw/hv.c now models the clamp.
+
+## 2026-10-18  The F3 brakes when the F4 is lost (LV side gone)
+- Area:    `stm32f303/src/comps/ls.c`, `shared/vbrake.h`, `src/comps/hv.c`, `shared/common.h`
+- Status:  Fixed (simulated; F3 not yet run)
+- Symptom: With the F4 crashed, reset or unpowered while enabled, the F3
+  switched off on its packet timeout and the motor coasted (25 mm in the
+  simulator).
+- Cause:   Only the F4 knew how to stop. The HV side keeps running, though:
+  it is powered from the DC bus (hv_supply.sch: LNK304, ACT4088).
+- Fix:     The packet flag brake_on_loss (a spare bit, compatible both
+  ways), set by the pmsm template. On timeout, if the last packet enabled
+  the drive, the F3 runs the shared/vbrake.h brake itself until the current
+  has died down (6 mm). host: hv0.sim_f4_dead, estop_f4dead*.test.
+
+## 2026-10-18  A power cap on the dynamic brake can't work with a current limit
+- Area:    `shared/vbrake.h`, `conf0.max_hv_power`
+- Status:  Note
+- Symptom: Capping the brake's bus power (1.5 rv i^2) at 20 W let the current
+  reach 4.3 A against a 1.8 A target; applied only below the target, the
+  brake chattered and nothing changed.
+- Cause:   rv rises only to hold the current down, so any cap on the power it
+  puts into the bus lets the current rise.
+- Fix:     The current comes first (overcurrent destroys the stage at once);
+  the bus has high_dc_volt, max_dc_volt and the F3's ABS_MAX_VOLT.
+  conf0.max_hv_power limits the quick stop's regenerated power
+  (qstop0.max_power), where it does work.

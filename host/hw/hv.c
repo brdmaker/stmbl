@@ -20,6 +20,7 @@
 #include "defines.h"
 #include "angle.h"
 #include "bip_loop.h"
+#include "vbrake.h"
 #include <math.h>
 
 HAL_COMP(hv);
@@ -54,6 +55,7 @@ HAL_PIN(mot_temp);
 HAL_PIN(core_temp);
 HAL_PIN(fault);
 HAL_PIN(ignore_fault_pin);
+HAL_PIN(brake_on_loss);  // the F3 brakes if the F4 stops (stm32f303/src/comps/ls.c)
 HAL_PIN(y);
 HAL_PIN(u_fb);
 HAL_PIN(v_fb);
@@ -84,6 +86,8 @@ HAL_PIN(sim_fb_delay);   // extra delay of id/iq/ud/uq_fb [rt cycles], 0..4
 HAL_PIN(sim_cur_noise);  // current measurement noise, uniform +- [A]
 HAL_PIN(sim_motor);      // 0: PMSM on the HV board, 1: two-phase stepper on two H-bridges
 HAL_PIN(sim_fault);      // an HV board fault code (common.h fault_t): reported, and the bridge off
+HAL_PIN(sim_f4_dead);    // 1: the F4 stops talking (LV side lost); the F3 keeps the last packet
+HAL_PIN(sim_f3_brake);   // out: the F3 brakes on its own (brake_on_loss)
 HAL_PIN(sim_detent);     // stepper detent torque amplitude [Nm]
 HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
 HAL_PIN(sim_sense);      // stepper current sensing: 0 ideal, 1 DRV8876 IPROPI (low side only, see bip_sense)
@@ -128,6 +132,12 @@ struct hv_ctx_t {
   bip_cal_t cal;
   int was_en;
   float last_brake[2];  // raw brake-window samples (for the calibration)
+  // the F3 on its own (sim_f4_dead)
+  float last_pos;
+  int last_en, last_flag, braking, brake_done;
+  float brake_t;
+  vbrake_t vb;
+  float vscale;  // curpid's voltage-mode current clamp
 };
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
@@ -287,6 +297,36 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     q_cmd = 0.0;
   }
 
+  // the F4 stopped (sim_f4_dead): the F3 keeps the last packet's frame; if
+  // that packet enabled the drive and asked for it (brake_on_loss), the F3
+  // brakes on its own as stm32f303/src/comps/ls.c does, else it switches off
+  int f3_brake = 0;
+  int volt_cmd = PIN(cmd_mode) == 0.0;
+  if(PIN(sim_f4_dead) <= 0.0) {
+    ctx->last_pos   = pos;
+    ctx->last_en    = en;
+    ctx->last_flag  = PIN(brake_on_loss) > 0.0;
+    ctx->braking    = 0;
+    ctx->brake_done = 0;
+  } else {
+    pos   = ctx->last_pos;
+    vel   = 0.0;
+    d_cmd = 0.0;
+    q_cmd = 0.0;
+    if(ctx->last_flag && ctx->last_en && !ctx->brake_done && PIN(sim_fault) <= 0.0) {
+      if(!ctx->braking) {
+        ctx->braking = 1;
+        ctx->brake_t = 0.0;
+        vbrake_reset(&ctx->vb);
+      }
+      f3_brake = 1;
+      volt_cmd = 1;
+    } else {
+      en = 0;
+    }
+  }
+  PIN(sim_f3_brake) = f3_brake;
+
   float udc = MAX(PIN(sim_udc), 0.0);
   float id = 0.0, iq = 0.0, ud = 0.0, uq = 0.0;
   float max_volt;
@@ -308,7 +348,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   // cmd_mode 1 (CURRENT_MODE): d/q_cmd are currents, clamped to max_cur;
   // cmd_mode 0 (VOLT_MODE, used by idpmsm): voltages, clamped to max_volt
-  int volt_mode = PIN(cmd_mode) == 0.0;
+  int volt_mode = volt_cmd;
   float abscmd  = d_cmd * d_cmd + q_cmd * q_cmd;
   float lim     = volt_mode ? max_volt : max_cur;
   float s       = CLAMP(sqrtf(lim * lim / MAX(abscmd, lim * 0.1)), 0.0, 1.0);
@@ -359,11 +399,33 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     }
     ud += ctx->id_error_sum;
     uq += ctx->iq_error_sum;
+    if(f3_brake) {  // ls.c's brake, on the F3's own current measurement
+      vbrake_cfg_t c = {.max_cur      = 0.9 * MIN(max_cur, 30.0),  // f3hw.h ABS_MAX_CURRENT
+                        .pwm_volt     = max_volt,
+                        .dc_volt      = udc,
+                        .high_dc_volt = 0.9 * 410.0,  // f3hw.h ABS_MAX_VOLT
+                        .kp           = 0.1,
+                        .ki           = 500.0,
+                        .stop_cur     = 0.05 * max_cur,
+                        .stop_time    = 0.1};
+      vbrake_step(&ctx->vb, &c, id, iq, f3_dt, &d_cmd, &q_cmd);
+      float a = sqrtf(d_cmd * d_cmd + q_cmd * q_cmd);
+      if(a > max_volt) {
+        d_cmd *= max_volt / a;
+        q_cmd *= max_volt / a;
+      }
+    }
     if(volt_mode) {
-      ud                = d_cmd;
-      uq                = q_cmd;
+      // shared/comps/curpid.c in voltage mode: the command scaled down while
+      // the current is above max_cur
+      ctx->vscale += (max_cur * max_cur - (id * id + iq * iq)) * 500.0 * f3_dt;
+      ctx->vscale = CLAMP(ctx->vscale, 0.0, 1.0);
+      ud                = d_cmd * ctx->vscale;
+      uq                = q_cmd * ctx->vscale;
       ctx->id_error_sum = 0.0;
       ctx->iq_error_sum = 0.0;
+    } else {
+      ctx->vscale = 1.0;
     }
     if(!en) {
       ud                = 0.0;
@@ -395,6 +457,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
 
       mech_step(pins, 1.5 * pp * mpsi * PIN(sim_iq), mj, mot_dt);
+    }
+  }
+
+  if(f3_brake) {
+    ctx->brake_t += period;
+    if(ctx->vb.stopped || ctx->brake_t > 2.0) {
+      ctx->brake_done = 1;
     }
   }
 
