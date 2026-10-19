@@ -50,18 +50,27 @@ static uint32_t unit(const fwst_t *s) {
   return s->prog_size == 8 ? 8u : 4u;
 }
 
+// the header (fwstage.h): 16 bytes with the state word at 12 for 4-byte
+// units, as every F4 bootloader reads it; 24 with the state at 16 for 8
+static uint32_t hdr_size(const fwst_t *s) {
+  return unit(s) == 8 ? 24u : 16u;
+}
+static uint32_t hdr_state(const fwst_t *s) {
+  return unit(s) == 8 ? 16u : 12u;
+}
+
 int fwst_begin(fwst_t *s, uint32_t size, uint32_t crc32) {
   if(s->state == FWST_RECEIVING && size == s->size && crc32 == s->crc) {
     return 1;  // resume: the sender continues at got
   }
   s->lines = s->bad = 0;
   s->got = s->done = 0;
-  if(size == 0 || size > s->max_size || size > s->stage_size - FWST_HDR_SIZE) {
+  if(size == 0 || size > s->max_size || size > s->stage_size - hdr_size(s)) {
     s->state = FWST_FAILED;
     return -1;
   }
   uint32_t u = unit(s);
-  if(!blank(s, 0, (size + u - 1) & ~(u - 1)) || !blank(s, s->stage_size - FWST_HDR_SIZE, FWST_HDR_SIZE)) {
+  if(!blank(s, 0, (size + u - 1) & ~(u - 1)) || !blank(s, s->stage_size - hdr_size(s), hdr_size(s))) {
     s->state = FWST_FAILED;  // only the bootloader erases (see fwstage.h)
     return -2;
   }
@@ -127,12 +136,12 @@ int fwst_poll(fwst_t *s, int max_units) {
         b[i] = off + i < s->got ? s->q[(off + i) % FWST_QSIZE] : 0xff;
       }
       s->done += u;
-    } else if(s->state == FWST_MARKING && s->hdr_units < FWST_HDR_STATE / u) {
-      // magic, size, crc32 (the state unit at FWST_HDR_STATE stays all ones: pending)
+    } else if(s->state == FWST_MARKING && s->hdr_units < hdr_state(s) / u) {
+      // magic, size, crc32 (the state unit stays all ones: pending)
       uint32_t h[4] = {FWST_MAGIC, s->size, s->crc, 0xffffffffu};
-      off = s->stage_size - FWST_HDR_SIZE + u * s->hdr_units;
+      off = s->stage_size - hdr_size(s) + u * s->hdr_units;
       memcpy(b, (uint8_t *)h + u * s->hdr_units, u);
-      if(++s->hdr_units == FWST_HDR_STATE / u) {
+      if(++s->hdr_units == hdr_state(s) / u) {
         s->state = FWST_MARKED;
       }
     } else {
@@ -173,9 +182,11 @@ int fwst_mark(fwst_t *s) {
 }
 
 int fwst_pending(const fwst_t *s, fwst_hdr_t *h) {
-  memcpy(h, s->read(s->ctx, s->stage_size - FWST_HDR_SIZE), sizeof(*h));
+  const uint8_t *p = s->read(s->ctx, s->stage_size - hdr_size(s));
+  memcpy(h, p, 12);
+  memcpy(&h->state, p + hdr_state(s), 4);
   return h->magic == FWST_MAGIC && h->state == 0xffffffffu && h->size > 0 && h->size <= s->max_size &&
-         h->size <= s->stage_size - FWST_HDR_SIZE;
+         h->size <= s->stage_size - hdr_size(s);
 }
 
 int fwst_boot(fwst_t *s, int (*app_erase)(void *, uint32_t, uint32_t),
@@ -190,7 +201,7 @@ int fwst_boot(fwst_t *s, int (*app_erase)(void *, uint32_t, uint32_t),
     }
     r = a == 0 ? 1 : -1;
     uint8_t zero[8] = {0};
-    s->program(s->ctx, s->stage_size - FWST_HDR_SIZE + FWST_HDR_STATE, zero, unit(s));  // done
+    s->program(s->ctx, s->stage_size - hdr_size(s) + hdr_state(s), zero, unit(s));  // done
   }
   if(!blank(s, 0, s->stage_size)) {
     s->erase(s->ctx, 0, s->stage_size);  // ready for the next fwbegin

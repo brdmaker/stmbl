@@ -1526,3 +1526,19 @@ Entry format:
   (`mod(angle + d * scale)`); float rounding shifted count edges.
 - Fix:     faults kept as an offset to the shaft angle, exact without
   one. Test: `stepper.test`.
+
+## 2026-10-19  In-band update silently not applied (staging header layout)
+- Area:    `shared/fwstage.c/.h` (fwup, bootloader)
+- Status:  Fixed
+- Symptom: on the bench, `make update` of the integration build staged and
+  "applied" (CRC right, `fw ok reset`), the drive reset in ~4 s and ran the
+  old application. Three times. The first update, from v318, had worked.
+- Cause:   the brdstepper branch (G4: 8-byte units) moved the pending
+  header to 24 bytes with the state at 16 for every flash. The drive's
+  bootloader (v312) reads the old 16-byte one, found nothing pending and
+  erased the staging area. Every drive with an older bootloader would have
+  lost in-band updates once it ran this application.
+- Fix:     4-byte units keep the 16-byte layout (state at 12); only 8-byte
+  units use 24. Test: `test_bootloader` "F4 pending mark in the layout of
+  the bootloaders in the field". Recovered the bench drive with
+  `make ssburn` (the loader writes the application directly).

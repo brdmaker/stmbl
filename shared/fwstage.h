@@ -20,12 +20,14 @@
  * programs a word at a time (fwst_poll), where the stall (~16 us typical,
  * 100 us max per word) fits into the period's slack.
  *
- * The pending mark is a header at the end of the staging area (24 bytes):
- * magic, size, CRC32 at 0..11, then a state unit at 16 that stays all ones
- * while the update is pending. The bootloader programs it to 0 when done:
- * bits only go 1 -> 0, no erase. The state has a programming unit of its
- * own because some flash programs each unit once only (the G4's 64-bit
- * double words, with ECC).
+ * The pending mark is a header at the end of the staging area: magic, size,
+ * CRC32, then a state unit that stays all ones while the update is pending.
+ * The bootloader programs it to 0 when done: bits only go 1 -> 0, no erase.
+ * - 4-byte units (F4): 16 bytes, the state word at 12. This is the layout
+ *   of every F4 bootloader in the field: the application writes it for the
+ *   bootloader already on the drive, so it must not change.
+ * - 8-byte units (G4, which programs each unit once only, with ECC): 24
+ *   bytes, magic/size/CRC32/ones at 0..15, the state unit at 16.
  *
  * prog_size is the flash's programming unit: 4 (F4: words) or 8 (G4:
  * double words). Everything programmed is whole, aligned units; a tail is
@@ -37,18 +39,17 @@
 enum { FWST_IDLE, FWST_RECEIVING, FWST_READY, FWST_MARKING, FWST_MARKED, FWST_FAILED };
 
 #define FWST_MAGIC 0x53535550u  // "PUSS": sserial update, pending
-#define FWST_HDR_SIZE 24u  // magic, size, crc32, (ones), state unit at 16
-#define FWST_HDR_STATE 16u
+#define FWST_HDR_MAX 24u  // the largest header (8-byte units)
 #define FWST_QSIZE 512u
 
 typedef struct {
-  uint32_t magic, size, crc, pad;
-  uint32_t state, pad2;  // state: 0xffffffff pending, 0 done
+  uint32_t magic, size, crc;
+  uint32_t state;  // 0xffffffff pending, 0 done (the first word of the state unit)
 } fwst_hdr_t;
 
 typedef struct {
   // configuration
-  uint32_t stage_size;  // bytes, the header's 16 at the end included
+  uint32_t stage_size;  // bytes, the header at the end included
   uint32_t max_size;    // largest image (the application area)
   int (*erase)(void *ctx, uint32_t off, uint32_t len);  // staging offsets (bootloader only)
   uint32_t prog_size;   // programming unit: 4 or 8 (0: 4)

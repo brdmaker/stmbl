@@ -419,6 +419,16 @@ int main(void) {
   int pend1 = fwst_pending(&st, &h);
   ok(m == 0 && !pend0 && st.state == FWST_MARKED && pend1 && h.size == isize && h.crc == crc,
      "fwapply: the pending mark (header at the end of staging) written by the realtime loop", pend1);
+  {
+    // F4: the header every F4 bootloader in the field reads (v0.9.18-312,
+    // before the G4 layout): magic, size, crc32, state at the last 16 bytes.
+    // An application writing another layout is never copied by them.
+    uint32_t w[4];
+    memcpy(w, stage + sizeof(stage) - 16, sizeof(w));
+    ok(w[0] == FWST_MAGIC && w[1] == isize && w[2] == crc && w[3] == 0xffffffffu,
+       "F4 pending mark in the layout of the bootloaders in the field (last 16 bytes: magic, size, crc32, state)",
+       w[0]);
+  }
   // power fails in the middle of the copy: the bootloader copies again
   memset(app, 0x33, 1000);
   int boot1 = fwst_boot(&st, st_erase, st_program, st_read, app);
