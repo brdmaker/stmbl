@@ -16,21 +16,6 @@ Entry format:
 
 ---
 
-## 2026-10-19  fbtest Uno: bootloader loses sync when powered from fb1
-- Area:    `hwtest/fbtest` (Arduino Uno on the drive's fb1 RJ45)
-- Status:  Workaround
-- Symptom: avrdude and a hand-written STK500 uploader both failed. Short
-  optiboot commands worked; 128-byte page writes got no reply, page reads
-  stopped early, stray `00` bytes appeared, and the loader stayed dead until
-  the next reset. Nothing reached flash.
-- Cause:   The Uno had fb1 pin 7 (5.19 V) on its 5V pin as well as USB power.
-  With pin 7 removed it flashed first time. Not pinned down further: two
-  supplies on the 5V net, or a ground/supply loop through the drive.
-- Fix:     Power the fixture from USB only (`hwtest/fbtest/README.md`).
-  `uno_flash.py` also waits 0.25 s after the reset before syncing (a byte
-  sent while optiboot starts makes it reset itself). No automated test: a
-  bench wiring fault.
-
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
 - Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)
@@ -1016,3 +1001,17 @@ Entry format:
   (index depth - 1). Auto mode (2) now re-arms after a dump like normal
   mode. Both are checked in `host/tests/test_scope.py`.
 
+## 2026-10-19  fbtest Uno: bootloader loses sync when powered from fb1
+- Area:    `hwtest/fbtest` (Arduino Uno on the drive's fb1 RJ45)
+- Status:  Workaround
+- Symptom: avrdude and a hand-written STK500 uploader both failed. Short
+  optiboot commands worked; 128-byte page writes got no reply, page reads
+  stopped early, stray `00` bytes appeared, and the loader stayed dead until
+  the next reset. Nothing reached flash.
+- Cause:   The Uno had fb1 pin 7 (5.19 V) on its 5V pin as well as USB power.
+  With pin 7 removed it flashed first time. Not pinned down further: two
+  supplies on the 5V net, or a ground/supply loop through the drive.
+- Fix:     Power the fixture from USB only (`hwtest/fbtest/README.md`).
+  `uno_flash.py` also waits 0.25 s after the reset before syncing (a byte
+  sent while optiboot starts makes it reset itself). No automated test: a
+  bench wiring fault.
