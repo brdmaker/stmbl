@@ -1584,3 +1584,17 @@ Entry format:
   heavy rotors takes longer, at the bench drive's phase_cur (1 A) up to ~4 s.
 - Fix:     phase_cur at 25 % of the motor's current (id_pid too), 3 s,
   `fault0.state[0] == 1` checked. Soak 381/385 (4 known).
+
+## 2026-10-19  Align phasing refused at its dead point (phasing suite)
+- Area:    `shared/comps/fb_switch.c` (phase_mode 0), `hwtest/phasing`
+- Status:  Known
+- Symptom: phasing suite on v0.9.18-345, align at 0.55 mm: fault 17,
+  phase_fail 2, swing 0.003 mm. The same position passed in other runs.
+- Cause:   align pulls the rotor onto the field; started with the field
+  ~180 deg from the rotor's d axis there is no torque, the rotor stays and
+  align takes a 180 deg wrong angle. The check after phasing sees the
+  rotor go the wrong way and refuses: what it is there for. Probe
+  phasing (the default) has no dead point.
+- Fix:     `phasing.py` counts an align refusal with phase_fail 2 and less
+  than `--dead-swing` (0.01 mm) movement as "ok (refused)", like the
+  brake-held cases.

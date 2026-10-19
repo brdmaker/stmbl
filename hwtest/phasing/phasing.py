@@ -151,7 +151,12 @@ class Suite:
                    amp=st.get("fb_switch0.phase_amp"), len_s=st.get("fb_switch0.phase_len"),
                    com_pos=st.get("fb_switch0.current_com_pos"))
         if "error" in r or st.get("fault0.state") != 1:
-            ok = kind == "brake" and st.get("fault0.fault") == 17  # refusing is fine with the brake on
+            # refusing is right with the brake on, and for align started at its
+            # dead point (the field 180 deg off pulls nowhere: no movement,
+            # the check sees the wrong way, phase_fail 2)
+            dead = (kind == "align" and st.get("fb_switch0.phase_fail") == 2 and
+                    r.get("swing") is not None and r["swing"] < a.dead_swing)
+            ok = st.get("fault0.fault") == 17 and (kind == "brake" or dead)
             row.update(result="ok (refused)" if ok else "FAIL",
                        why=r.get("error") or "not enabled: fault %s, phase_fail %s" % (st.get("fault0.fault"), st.get("fb_switch0.phase_fail")))
             self.worker("disable")
@@ -240,6 +245,8 @@ def main():
     p.add_argument("--align", action="store_true", help="also the align method at each position")
     p.add_argument("--no-brake", action="store_true", help="skip the brake-closed cases")
     p.add_argument("--max-swing", type=float, default=0.5, help="mm, probe phasing")
+    p.add_argument("--dead-swing", type=float, default=0.01,
+                   help="mm: align moving less than this and refusing counts as its dead point")
     p.add_argument("--max-error", type=float, default=0.3, help="mm, during the check move")
     p.add_argument("--check-move", type=float, default=5.0, help="mm out and back")
     p.add_argument("--check-vel", type=float, default=20.0, help="mm/s")

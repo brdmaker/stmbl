@@ -38,7 +38,7 @@ position). LinuxCNC and halrun must not be running; the drive is on
 |---|---|---|
 | `probe` | `phase_mode 1` (default), free rotor | swing under `--max-swing`, the check move fine |
 | `brake` | the same, the brake held closed (`io0.out0 = 0`), released for the check move | the check move fine, or `PHASING_ERROR` (17): refusing is right when nothing can move |
-| `align` (`--align`) | `phase_mode 0` | the check move fine (the swing is only recorded) |
+| `align` (`--align`) | `phase_mode 0` | the check move fine (the swing is only recorded), or `PHASING_ERROR` with `phase_fail 2` and less than `--dead-swing` (0.01 mm) of movement: started at its dead point (the field 180° off pulls nowhere), refusing is right |
 
 A reset at the end puts the RAM settings back.
 
