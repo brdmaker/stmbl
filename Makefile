@@ -45,7 +45,7 @@ else
 	#TODO: need backport to v3
 	SRC_COMPS += src/comps/enc_cmd.c
 	SRC_COMPS += src/comps/o_fb.c
-	SRC_COMPS += src/comps/fb1_out.c
+	SRC_COMPS += src/comps/fbtx.c
 	SRC_COMPS += src/comps/sserial.c
 	SRC_COMPS += src/comps/yaskawa.c
 	SRC_COMPS += src/comps/encs.c

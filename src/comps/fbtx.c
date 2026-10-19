@@ -1,4 +1,4 @@
-// fb1_out: drive the fb1 RS-485 transceivers, for testing the port
+// fbtx: drive the fb1 RS-485 transceivers, for testing the port
 // (hwtest/fbtest). Each pair (a: pins 1-2, b: 3-6, z: 5-4) has a
 // SN65176B with DE and /RE tied to one enable pin (1k pull-down, receive
 // by default) and D and R tied to one MCU pin. With en_x > 0 the
@@ -8,7 +8,7 @@
 // div > 0: a and b step through quadrature, one step every div rt periods,
 // direction by the sign of div; z is high in step 0. div = 0: a, b and z
 // are the static levels of the pins.
-#include "fb1_out_comp.h"
+#include "fbtx_comp.h"
 #include "commands.h"
 #include "hal.h"
 #include "math.h"
@@ -17,7 +17,7 @@
 #include "stm32f4xx_conf.h"
 #include "hw/hw.h"
 
-HAL_COMP(fb1_out);
+HAL_COMP(fbtx);
 
 HAL_PIN(en_a);
 HAL_PIN(en_b);
@@ -28,7 +28,7 @@ HAL_PIN(z);
 HAL_PIN(div);
 HAL_PIN(step);  // quadrature step count
 
-struct fb1_out_ctx_t {
+struct fbtx_ctx_t {
   uint32_t en;  // bit 0..2: a, b, z transmitting
   uint32_t ticks;
   int32_t step;
@@ -61,7 +61,7 @@ static void set(int i, int on, int level) {
 }
 
 static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  struct fb1_out_ctx_t *ctx = (struct fb1_out_ctx_t *)ctx_ptr;
+  struct fbtx_ctx_t *ctx = (struct fbtx_ctx_t *)ctx_ptr;
   GPIO_InitTypeDef GPIO_InitStructure;
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE);
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
@@ -82,8 +82,8 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  struct fb1_out_ctx_t *ctx      = (struct fb1_out_ctx_t *)ctx_ptr;
-  struct fb1_out_pin_ctx_t *pins = (struct fb1_out_pin_ctx_t *)pin_ptr;
+  struct fbtx_ctx_t *ctx      = (struct fbtx_ctx_t *)ctx_ptr;
+  struct fbtx_pin_ctx_t *pins = (struct fbtx_pin_ctx_t *)pin_ptr;
 
   int level[3];
   int div = (int)PIN(div);
@@ -123,15 +123,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 }
 
 static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  struct fb1_out_ctx_t *ctx = (struct fb1_out_ctx_t *)ctx_ptr;
+  struct fbtx_ctx_t *ctx = (struct fbtx_ctx_t *)ctx_ptr;
   for(int i = 0; i < 3; i++) {
     set(i, 0, 0);
   }
   ctx->en = 0;
 }
 
-const hal_comp_t fb1_out_comp_struct = {
-    .name      = "fb1_out",
+const hal_comp_t fbtx_comp_struct = {
+    .name      = "fbtx",
     .nrt       = 0,
     .rt        = rt_func,
     .frt       = 0,
@@ -141,6 +141,6 @@ const hal_comp_t fb1_out_comp_struct = {
     .frt_start = 0,
     .rt_stop   = rt_stop,
     .frt_stop  = 0,
-    .ctx_size  = sizeof(struct fb1_out_ctx_t),
-    .pin_count = sizeof(struct fb1_out_pin_ctx_t) / sizeof(struct hal_pin_inst_t),
+    .ctx_size  = sizeof(struct fbtx_ctx_t),
+    .pin_count = sizeof(struct fbtx_pin_ctx_t) / sizeof(struct hal_pin_inst_t),
 };

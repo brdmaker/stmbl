@@ -1015,3 +1015,15 @@ Entry format:
   `uno_flash.py` also waits 0.25 s after the reset before syncing (a byte
   sent while optiboot starts makes it reset itself). No automated test: a
   bench wiring fault.
+
+## 2026-10-19  A digit in a comp name makes its pins unreachable
+- Area:    `shared/hal.c` (console pin parser), `tools/create_hal_tbl.py`
+- Status:  Fixed
+- Symptom: a new comp `fb1_out` loaded and showed in `list`, but every
+  `fb1_out0.<pin>` read or write answered `not found`.
+- Cause:   the console parses `<comp><instance>.<pin>` with
+  `%[a-zA-Z_]%li`: `fb1_out0` is comp `fb`, instance 1. (`hx711` is named
+  `hx` for the same reason.)
+- Fix:     the comp is `fbtx`; `create_hal_tbl.py` now refuses a comp name
+  with anything but letters and `_`. Test: `host/tests/test_comp_names.py`
+  (in `make -C host check`).
