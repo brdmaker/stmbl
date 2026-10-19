@@ -1,13 +1,15 @@
 """ARM-6 screen self-test: with ARM6HMI_TEST=<tap file> in the environment
 the handler loads this and it drives the running screen through its own
 buttons, checking what LinuxCNC and the screen show, then saves a
-screenshot next to the TAP file and closes LinuxCNC.
+screenshot per view next to the TAP file and closes LinuxCNC. With a tool
+changer it also changes tools from the TOOLS view.
 hwtest/arcmate-sim: make test-hmi (Xvfb).
 """
 
 import os
 
 import hal
+import linuxcnc
 from PyQt5 import QtCore
 
 from qtvcp.core import Status
@@ -28,8 +30,16 @@ class SelfTest:
             ("JOG: J1 +10 deg in joint mode", self.s_jog),
             ("MDI move in world mode", self.s_mdi),
             ("TEACH: record a point", self.s_record),
-            ("E-STOP from the screen", self.s_estop),
+            ("JOG PAD: J2 +10 deg, then X -10 mm (the keys switch the frame)", self.s_pad),
         ]
+        if handler.has_changer:
+            self.steps += [
+                ("TOOLS: mount T1 (the torch)", lambda: self.s_tool(1)),
+                ("TOOLS: change to T2 (the gripper)", lambda: self.s_tool(2)),
+                ("TOOLS: put T2 back", lambda: self.s_tool(0)),
+            ]
+        self.steps += [("E-STOP from the screen", self.s_estop)]
+        self.timeouts = {"TOOLS": 120}
         self.i = 0
         self.t = 0.0
         self.state = {}
@@ -57,8 +67,8 @@ class SelfTest:
         except Exception as e:  # noqa: BLE001
             self.ok(False, "%s: %r" % (name, e))
             done = True
-        if done is None and self.t > 20:
-            self.ok(False, name + ": timed out")
+        if done is None and self.t > self.timeouts.get(name.split(":")[0], 20):
+            self.ok(False, name + ": timed out" + (" (%s)" % self.state["diag"] if "diag" in self.state else ""))
             done = True
         if done:
             self.i += 1
@@ -165,6 +175,93 @@ class SelfTest:
         ok = os.path.exists(self.h.teach_file) and open(self.h.teach_file).read().startswith("G1 X")
         self.ok(ok and self.w.lbl_points.text() == "1 points", "a point recorded to %s (%s)" % (os.path.basename(self.h.teach_file), self.w.lbl_points.text()))
         return True
+
+    def s_pad(self):
+        st = self.state
+        rows = {(joint, i): (minus, plus) for joint, i, pos, minus, plus in self.h.pad_rows}
+        if "start" not in st:
+            self.w.btn_view_jog.click()
+            self.w.btn_jinc_2.click()  # 10
+            st["start"] = 1
+            return None
+        if "j" not in st and self.t > 1.0:
+            st["j0"] = STATUS.stat.joint[1]["input"]
+            rows[(True, 1)][1].pressed.emit()
+            rows[(True, 1)][1].released.emit()
+            st["j"] = self.t
+            return None
+        if "j" in st and "x" not in st:
+            moved = STATUS.stat.joint[1]["input"] - st["j0"]
+            if abs(moved - 10) < 0.05 and abs(STATUS.stat.joint[1]["velocity"]) < 1e-3:
+                st.setdefault("jdone", self.t)
+            if "jdone" in st and self.t - st["jdone"] >= 0.6:  # settled
+                self.ok(STATUS.stat.motion_mode == linuxcnc.TRAJ_MODE_FREE, "the J2 key put LinuxCNC in joint mode")
+                self.ok(True, "J2 jogged %.3f deg from the pad (10 asked)" % moved)
+                # the world jog on the commanded position: the arm's feedback
+                # still settles from the J2 move by a few 0.01 mm
+                st["x0"] = STATUS.stat.position[0]
+                rows[(False, 0)][0].pressed.emit()  # X -
+                rows[(False, 0)][0].released.emit()
+                st["x"] = self.t
+            return None
+        if "x" in st:
+            dx = STATUS.stat.position[0] - st["x0"]
+            st["diag"] = "X moved %.3f, J1 at %.3f, motion mode %d, events: %s" % (
+                dx, STATUS.stat.joint[0]["input"], STATUS.stat.motion_mode, self.w.lbl_events.text())
+            if abs(dx + 10) < 0.001 and STATUS.stat.current_vel < 1e-3:
+                st.setdefault("xdone", self.t)
+            if "xdone" in st and self.t - st["xdone"] >= 0.6:
+                self.ok(STATUS.stat.motion_mode == linuxcnc.TRAJ_MODE_TELEOP, "the X key put LinuxCNC in world mode")
+                self.ok(True, "X jogged %.3f mm from the pad (-10 asked)" % dx)
+                pos = [p for joint, i, p, m, pl in self.h.pad_rows if not joint and i == 0][0].text()
+                self.ok(abs(float(pos) - STATUS.stat.actual_position[0]) < 0.05, "the pad shows X %s" % pos)
+                self.shot("jog")
+                self.w.btn_view_main.click()
+                return True
+
+    def s_tool(self, tid):
+        st = self.state
+        if "clicked" not in st:
+            self.w.btn_view_tools.click()
+            st["from"] = hal.get_value("armtool.0.mounted")
+            if tid:
+                self.h.tool_rows[tid][1].click()
+            else:
+                self.w.btn_tool_putback.click()
+            st["clicked"] = self.t
+            return None
+        if self.h.tool_change is not None or self.t < 1.0:
+            if tid == 2 and "mid" not in st and self.h.tool_change and self.h.tool_change["stage"] == "change" \
+                    and hal.get_value("stmbl-arm.0.changer.unlocked"):
+                st["mid"] = 1  # T1 just released in its dock
+                self.shot("tools_change")
+            return None
+        mounted = hal.get_value("armtool.0.mounted")
+        name = self.h._tool_name(tid)
+        self.ok(mounted == tid and STATUS.stat.tool_in_spindle == tid and hal.get_value("armkins.tool") == tid,
+                "%s on the flange: armtool, LinuxCNC and the kinematics agree (%s)" % (name, self.w.lbl_chg_progress.text()))
+        self.ok(self.w.lbl_tool_mounted.text() == name and self.w.lbl_chg_state.text() == "READY",
+                "the TOOLS view shows %s, the changer READY" % self.w.lbl_tool_mounted.text())
+        rows_ok = all(state.text() == ("ON FLANGE" if t == tid else "IN DOCK") for t, (state, b) in self.h.tool_rows.items())
+        self.ok(rows_ok, "the tool rows: %s" % ", ".join("T%d %s" % (t, s.text()) for t, (s, b) in sorted(self.h.tool_rows.items())))
+        v = self.h.view.v
+        pin = hal.get_value("arm6.vis3d.tool")
+        f6, R6 = v.frame(6)
+        tp, _ = v.frame(-1)
+        tcp = [t["tcp"] for t in self.h.tools if t["id"] == tid]
+        want = sum(x * x for x in tcp[0]) ** 0.5 / 1000 if tcp else 0.0
+        got = sum((a - b) ** 2 for a, b in zip(tp, f6)) ** 0.5
+        self.ok(pin == tid and abs(got - want) < 1e-4, "the 3D view: tool pin %d, tool point %.0f mm off the flange" % (pin, got * 1000))
+        if tid == 2:
+            self.shot("tools")
+        if tid == 0:
+            self.w.btn_view_main.click()
+        return True
+
+    def shot(self, view):
+        path = os.path.splitext(self.tap)[0] + ("_%s.png" % view)
+        img = self.w.centralwidget.window().grab()
+        self.ok(img.save(path), "screenshot %s (%dx%d)" % (os.path.basename(path), img.width(), img.height()))
 
     def s_estop(self):
         if "shot" not in self.state:  # the screenshot while running, guard and all

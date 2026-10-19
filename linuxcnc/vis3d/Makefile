@@ -39,6 +39,7 @@ shots: vis3d_render
 	./vis3d_render models/arm6.vis -o shots/arm6_home.png -q 0,0,0,0,-90,0
 	./vis3d_render models/arm6.vis -o shots/arm6_pick.png -q -25,30,-10,0,-60,20 --path 55,20,15,30,-75,-40 --guard 1,0.18,1
 	./vis3d_render models/arm6.vis -o shots/arm6_stop.png -q -10,45,10,0,-55,0 --guard 3,0.15,0 --cam 20,15,3.0 --tint 3,1,0.36,0.33,0.8
+	./vis3d_render models/arm6_changer.vis --cell ../../hwtest/arcmate-sim/cell_changer.txt --tool 1 -o shots/arm6_changer.png -q 10,-80,0,0,-90,180
 
 qt-check: libvis3d.so
 	./tests/qt_smoke.sh

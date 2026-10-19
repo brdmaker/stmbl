@@ -1096,3 +1096,39 @@ Entry format:
   - `apt-get install xvfb libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0`
 
   Idea: add both to the restore script.
+
+## 2026-10-19  A HAL pin sits on one signal: postgui nets join the existing one
+- Area:    `linuxcnc/arm6hmi/arm6_changer_postgui.hal`, `hwtest/arcmate-sim/changer.hal`
+- Status:  Fixed
+- Symptom: with the tool changer config LinuxCNC quit while starting the
+  screen, showing only its error dialog (show_errors.tcl). `test-hmi` hung
+  until its timeout with an empty log.
+- Cause:   `net arm6-tool armtool.0.mounted => arm6.vis3d.tool` in the postgui
+  file: `changer.hal` already has `armtool.0.mounted` on the signal
+  `tool-mounted` ("Pin ... was already linked"). The message is only in
+  /tmp/linuxcnc.debug.*, which is deleted when the dialog closes.
+- Fix:     `net tool-mounted => arm6.vis3d.tool`. To read such errors, cat
+  /tmp/linuxcnc.print.* and /tmp/linuxcnc.debug.* while the dialog is up.
+
+## 2026-10-19  Checking a world jog right after a joint jog: use the commanded position
+- Area:    `linuxcnc/arm6hmi/arm6_selftest.py` (jog pad)
+- Status:  Fixed
+- Symptom: X -10 mm from the jog pad measured -9.905 mm, now and then (the
+  step timed out).
+- Cause:   the start X came from `actual_position` right after a J2 +10 deg
+  jog. The simulated arm's feedback was still settling, and a J2 move
+  changes X a lot. The jog itself was exact.
+- Fix:     wait 0.6 s after the joint jog, then check the world jog on
+  `stat.position` (commanded): -10.000 mm.
+
+## 2026-10-19  Long status labels set the window's minimum width
+- Area:    `linuxcnc/arm6hmi` (subtitle, events, footer)
+- Status:  Fixed
+- Symptom: the screen grew to 1836 px, then 2490 px wide (wider than the
+  1600 px Xvfb screen). The subtitle showed armkins' whole
+  `model=... tools=...` line.
+- Cause:   a QLabel's minimum width is its text's width.
+- Fix:     `setMinimumWidth(40)` on the status labels, so they are clipped
+  rather than widening the window. The subtitle shows only the kinematics
+  module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
+  stretch.) Now 1448 px.

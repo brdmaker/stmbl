@@ -147,6 +147,66 @@ static void test_joints_theta(void) {
   vis3d_free(b);
 }
 
+// the tool changer: the cell's tool table, a tool on the flange or in its dock
+static void test_tools(void) {
+  char err[300];
+  vis3d_t *v = vis3d_load("models/arm6_changer.vis", err, sizeof(err));
+  ok(v != NULL, "tools: arm6_changer.vis loads");
+  if(!v) {
+    printf("# %s\n", err);
+    return;
+  }
+  ok(vis3d_obstacles(v) == 0 && vis3d_tools(v) == 2, "tools: the model has the tools' looks, no obstacles or docks yet");
+  int r = vis3d_load_cell(v, "../../hwtest/arcmate-sim/cell_changer.txt", err, sizeof(err));
+  if(r < 0) {
+    printf("# %s\n", err);
+  }
+  int id1 = 0, id2 = 0;
+  const char *n1 = vis3d_tool(v, 0, &id1), *n2 = vis3d_tool(v, 1, &id2);
+  ok(r == 0 && vis3d_tools(v) == 2 && id1 == 1 && id2 == 2 && !strcmp(n1, "torch") && !strcmp(n2, "gripper"),
+     "tools: the cell's tool table (1 torch, 2 gripper)");
+  ok(vis3d_obstacles(v) == 1 && !strcmp(vis3d_obstacle_name(v, 0), "fixture"), "tools: the cell's obstacle (fixture), not its arm bodies");
+  ok(v->geom_dirty, "tools: geometry added after loading is uploaded again");
+
+  double q[6] = {30, -90, 0, 0, -90, 180}, p0[3], p1[3], f6[3], R[9], R6[9];
+  vis3d_set_joints(v, q, 6);
+  vis3d_frame(v, 6, f6, R6);
+  vis3d_set_tool(v, 0);
+  vis3d_frame(v, -1, p0, R);
+  ok(fabs(p0[0] - f6[0]) < 1e-9 && fabs(p0[1] - f6[1]) < 1e-9 && fabs(p0[2] - f6[2]) < 1e-9, "tools: no tool: the tool point is the flange");
+  vis3d_set_tool(v, 1);
+  vis3d_frame(v, -1, p1, R);
+  double t[3] = {0, 0.040, 0.290}, e = 0;  // the torch's tip in the flange frame
+  for(int i = 0; i < 3; i++) {
+    double w = f6[i] + R6[i * 3] * t[0] + R6[i * 3 + 1] * t[1] + R6[i * 3 + 2] * t[2];
+    e += (w - p1[i]) * (w - p1[i]);
+  }
+  ok(sqrt(e) < 1e-6, "tools: T1 mounted: the tool point is the torch tip (tools.txt tcp, mm)");
+
+  int on_flange = 0, docked = 0, hidden = 0, bodies = 0;
+  for(int i = 0; i < v->npart; i++) {
+    const v3_part *pt = &v->part[i];
+    if(!pt->tool) {
+      continue;
+    }
+    bodies += pt->tool_body;
+    const mat4 *F = v3_part_frame(v, pt);
+    if(!F) {
+      hidden++;
+    } else if(F == &v->link[6]) {
+      on_flange += pt->tool == 1;
+    } else {
+      docked += pt->tool == 2;
+    }
+  }
+  ok(on_flange == 5 && docked == 4, "tools: T1 on the flange (5 parts), T2 in its dock (4 parts)");
+  ok(bodies == 2 && hidden == 2, "tools: the tools' collision bodies aren't drawn (they have parts)");
+  const v3_tool *t2 = &v->tool[1];
+  ok(t2->has_dock && fabs(t2->dock.m[12] - 1.0) < 1e-6 && fabs(t2->dock.m[13] - 0.55) < 1e-6 && fabs(t2->dock.m[14] - 1.0) < 1e-6,
+     "tools: T2's dock at 1000 550 1000 mm");
+  vis3d_free(v);
+}
+
 static void test_units_and_shapes(void) {
   char err[300];
   write("mm.vis",
@@ -269,6 +329,7 @@ int main(void) {
   }
   test_arm6();
   test_joints_theta();
+  test_tools();
   test_units_and_shapes();
   test_stl();
   test_errors();

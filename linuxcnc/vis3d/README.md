@@ -9,6 +9,7 @@ unlike Vismach, which makes thousands of PyOpenGL calls.
 
 ![ARM-6 picking, guard OK](shots/arm6_pick.png)
 ![a protective stop: the conveyor too close, joint 3 in fault](shots/arm6_stop.png)
+![the tool changer: the torch on the flange, the gripper in its dock](shots/arm6_changer.png)
 
 ## Contents
 
@@ -32,7 +33,10 @@ unlike Vismach, which makes thousands of PyOpenGL calls.
 | `vis3d.py` | ctypes binding (`Vis3d`) |
 | `qtvcp/vis3d_widget.py` | `Vis3dView`, a `QOpenGLWidget` for QtVCP: HAL pins in, mouse orbit / pan / zoom |
 | `vis3d_render.c` | offscreen renderer (EGL, no X): PNG screenshots and `--bench` frame rates |
-| `models/arm6.vis` | the ARM-6 cell: includes arm_sim's `arcmate_base.arm`, adds the look and the obstacles |
+| `models/arm6_arm.vis` | the ARM-6 arm without a tool: includes arm_sim's `arcmate_base.arm`, adds the look |
+| `models/arm6.vis` | the arm with a gripper and a demo cell (the screenshots, the tests) |
+| `models/arm6_lcnc.vis` | as LinuxCNC sees it (`joints theta`), the electric gripper on the flange |
+| `models/arm6_changer.vis` | as LinuxCNC sees it, with the tool changer's master plate and the tools' looks (torch, gripper) |
 
 The library links no GL library and never opens a window. The host makes
 its context current and passes its `getproc`; Qt's
@@ -85,7 +89,22 @@ body L capsule|sphere ...      arm_sim's collision bodies (geom.h), drawn as "bo
 obstacle NAME box|capsule|sphere ...   world obstacles, as geom.h (planes skipped)
 camera YAW PITCH DIST [target X Y Z]
 include FILE
+
+tool T [NAME]                  the tool changer's tool table (shared/robot/tool.h, mm):
+tcp X Y Z [A B C]              after a tool line: its tool point in the flange frame
+dock X Y Z A B C ...           the flange's pose with T in its dock (base frame)
+part ... tool T                a part of tool T (on the flange, link n)
+body ... tool T                tool T's collision body (drawn if T has no parts)
 ```
+
+A tool's parts are drawn on the flange while it is mounted
+(`vis3d_set_tool`, the widget's `tool` pin), else in its dock with a stand
+under it. The tool point moves to the mounted tool's TCP.
+
+**A cell file** (armguard's, arm_sim's) can be added to a loaded model
+with `vis3d_load_cell` (the widget's `cell` property). It keeps only the
+cell's obstacles and the tool table it includes. The arm's bodies come
+from the model, so the screen draws exactly what the guard checks.
 
 `L` is the link a part is fixed to: 0 for the base, J for the link after
 joint J. Lines the loader doesn't know are skipped, so an arm_sim model can
@@ -104,6 +123,7 @@ Default materials: `body`, `dark`, `metal`, `accent`, `warn`, `obstacle`.
 net j0 joint.0.pos-fb => arm6.vis3d.joint-0                 # ... joint-5
 net guard armguard.0.state     => arm6.vis3d.guard-state
 net clear armguard.0.clearance => arm6.vis3d.clearance      # mm
+net tool-mounted => arm6.vis3d.tool                         # armtool.0.mounted
 ```
 
 Set `guard_limit_mm` to the cell's `prevent` limit. The widget shows:
@@ -133,6 +153,8 @@ v.gl_init()                       # in the host's GL context
 v.resize(1280, 720)
 v.set_joints([0, 20, -10, 0, -70, 0])
 v.set_guard(2, 0.15, 0)           # slowing, 0.15 m, the conveyor nearest
+v.load_cell("cell_changer.txt")   # obstacles and the tool table (before or after gl_init)
+v.set_tool(2)                     # the gripper on the flange, the torch in its dock
 v.draw(t)
 p, R = v.frame(-1)                # the tool point, for a DRO
 x, y = v.project(p)               # where to put a Qt label next to it
@@ -162,7 +184,7 @@ shaders use no derivatives and no textures, so ES 2.0 needs no extensions.
 ## Tests
 
 ```
-make check       # 31 loader / kinematics checks, 14 drawing checks
+make check       # 41 loader / kinematics / tool checks, 15 drawing checks
 make qt-check    # the widget in PyQt5 on Xvfb (PYTHON=python3.13 here)
 make shots       # the screenshots above
 ```
@@ -173,7 +195,11 @@ make shots       # the screenshots above
   header starts with `solid`), and error messages with file and line.
 - **Drawing:** `tests/render_tests.py` draws offscreen in GLES 3, GLES 2,
   GL 3.3 core, GL 3.1 and GL 2.1. It checks the five images agree, the accent
-  shows, a protective stop turns things red, and a move leaves a trail.
+  shows, a protective stop turns things red, a move leaves a trail, and a
+  tool change moves the tool from its dock to the flange.
+- **The tool changer:** `arm6_changer.vis` with arcmate-sim's
+  `cell_changer.txt`: the tool table, the fixture, the tool point on the
+  torch tip, which parts are on the flange, in a dock or hidden.
 - **Where it ran:** on Mesa's software renderer (llvmpipe), about 60–70 fps
   at 720p on this machine's CPU. That says nothing about a Pi's GPU; use
   `--bench` there.

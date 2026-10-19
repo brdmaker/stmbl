@@ -3,21 +3,36 @@
 The layout is docs/hmi/operator.dc.html made real: the joints and the stmbl
 drives on the left, the arm in 3D (linuxcnc/vis3d's Vis3dView) with the
 Cartesian pose and the program in the middle, jog / gripper / power quota
-/ safety on the right, events at the bottom. Repeated rows (joints, jog)
-are built here, the rest is arm6.ui (Designer) and arm6.qss.
+/ safety on the right, events at the bottom. Three views share the 3D view
+in the middle (the header's OVERVIEW / JOG PAD / TOOLS):
+    OVERVIEW  as above
+    JOG PAD   big jog keys: joints on the left, the world (X..C) on the
+              right; a key switches LinuxCNC to its frame
+    TOOLS     the tool changer: the tool on the flange, the tools in their
+              docks (Mount: T<n> M6), the changer's lock, sensors and faults
+Repeated rows (joints, jog keys, tools) are built here, the rest is
+arm6.ui (Designer) and arm6.qss.
 
 INI [ARM6HMI] (all optional):
     VIS3D       linuxcnc/vis3d (libvis3d.so, vis3d.py, qtvcp/vis3d_widget.py)
-    MODEL       the vis3d model (default: VIS3D/models/arm6_lcnc.vis)
+    MODEL       the vis3d model (default: VIS3D/models/arm6_changer.vis with
+                the tool changer (armtool), else arm6_lcnc.vis)
     DRIVE_PINS  the drives' pin prefix, {j} = joint (default stmbl-arm.0.{j})
     GRIP_OPEN   MDI that opens the gripper (default M65 P0)
     GRIP_CLOSE  MDI that closes it (default M64 P0)
     QUOTA_MAX   full scale of the power bar [W] (default 2000)
+    GRIP_TOOL   with a tool changer, the gripper's tool id: its buttons work
+                while it is mounted (default: the tool named "gripper")
     TEACH_FILE  where Record point appends (default teach.ngc in the config dir)
     PREVENT_MM  armguard's clearance limit [mm] (default: `prevent` in
                 [ARMGUARD] CELL and its includes)
+    TOOL_READY  MDI to a pose a tool change starts from (default none: M6
+                right where the arm is)
+The 3D view draws armguard's cell ([ARMGUARD] CELL): its obstacles and,
+with a tool changer, the tool table it includes (the tools in their docks).
 HAL: the 3D view's pins (<screen>.vis3d.joint-N, .guard-state,
-.clearance) are netted in arm6_postgui.hal ([HAL] POSTGUI_HALFILE).
+.clearance) are netted in arm6_postgui.hal, .tool (the mounted tool) in
+arm6_changer_postgui.hal ([HAL] POSTGUI_HALFILE).
 """
 
 import os
@@ -42,6 +57,33 @@ GUARD_REASON = {1: "collision", 2: "protective stop"}  # armguard.0.reason (shar
 
 # armgrip.0.state (shared/robot/gripper.h)
 GRIP_STATES = {0: "OPEN", 1: "CLOSING", 2: "GRIPPED", 3: "WRONG PART", 4: "EMPTY", 5: "OPENING", 6: "LOST"}
+# armtool.0.reason (shared/robot/tool.h)
+CHANGER_REASON = {1: "lock sensors timeout", 2: "wrong tool", 3: "tool lost", 4: "unlock away from the dock",
+                  5: "moving on another tool's TCP"}
+VIEWS = {"main": (0, 0), "jog": (1, 1), "tools": (2, 0)}  # view: (left page, right page)
+
+
+def read_tool_table(path, depth=0):
+    """the tools of a tool table (shared/robot/tool.h): [{id, name, tcp (mm), dock}]"""
+    tools, cur = [], None
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return tools
+    for line in lines:
+        t = line.split("#")[0].split()
+        if not t:
+            continue
+        if t[0] == "tool" and len(t) >= 2:
+            cur = {"id": int(t[1]), "name": t[2] if len(t) > 2 else "T" + t[1], "tcp": (0.0, 0.0, 0.0), "dock": False}
+            tools.append(cur)
+        elif t[0] == "tcp" and cur and len(t) >= 4:
+            cur["tcp"] = tuple(float(x) for x in t[1:4])
+        elif t[0] == "dock" and cur:
+            cur["dock"] = True
+        elif t[0] == "include" and len(t) >= 2 and depth < 8:
+            tools += read_tool_table(os.path.join(os.path.dirname(path), t[1]), depth + 1)
+    return tools
 
 
 def cell_prevent_mm(path, depth=0):
@@ -84,6 +126,11 @@ class HandlerClass:
         self.view = None
         self.joint_rows = []
         self.jog_buttons = []
+        self.pad_rows = []      # the jog pad: (joint?, index, position label)
+        self.pending_jog = None
+        self.tool_rows = {}     # tool id: (state label, mount button)
+        self.tool_change = None
+        self.view_name = "main"
         self.events = []
         self.cycle_start = None
         self.cycle_time = 0.0
@@ -102,10 +149,18 @@ class HandlerClass:
         cell = self.ini.find("ARMGUARD", "CELL") or ""
         if cell and not os.path.isabs(cell):
             cell = os.path.join(self.config_dir, cell)
+        self.cell = cell
         self.prevent_mm = float(self._ini("PREVENT_MM", 0) or 0) or cell_prevent_mm(cell)
+        self.has_changer = hal_value("armtool.0.mounted") is not None
+        tt = self.ini.find("STMBL_ARM", "TOOLS") or ""
+        if tt and not os.path.isabs(tt):
+            tt = os.path.join(self.config_dir, tt)
+        self.tools = read_tool_table(tt) if self.has_changer and tt else []
         self._build_view()
         self._build_joint_rows()
         self._build_jog_rows()
+        self._build_jog_pad()
+        self._build_tool_rows()
         self._build_drive_table()
         self._connect()
         self._setup_panels()
@@ -120,7 +175,8 @@ class HandlerClass:
 
     def _build_view(self):
         vdir = self._ini("VIS3D", os.path.join(self.config_dir, "vis3d"))
-        model = self._ini("MODEL", os.path.join(vdir, "models", "arm6_lcnc.vis"))
+        default = "arm6_changer.vis" if self.has_changer else "arm6_lcnc.vis"
+        model = self._ini("MODEL", os.path.join(vdir, "models", default))
         sys.path.insert(0, os.path.join(vdir, "qtvcp"))
         try:
             from vis3d_widget import Vis3dView
@@ -128,6 +184,8 @@ class HandlerClass:
             self._event("3D view unavailable: %s" % e)
             return
         self.view = Vis3dView(model=model, fps=30)
+        if self.cell:
+            self.view.cell = self.cell  # the guard's obstacles, the tool table and its docks
         self.view.guard_limit_mm = self.prevent_mm
         self.view.setObjectName("vis3d")
         self.w.view_holder.layout().addWidget(self.view)
@@ -191,6 +249,53 @@ class HandlerClass:
             self.jog_buttons.append((minus, plus, label, pos))
         self.w.jog_rows.layout().addLayout(grid)
 
+    def _build_jog_pad(self):
+        """the JOG PAD view: a row of big keys per joint (left) and per axis (right)"""
+        for joint, holder, names in ((True, self.w.jogj_rows, ["J%d" % (j + 1) for j in range(self.njoints)]),
+                                     (False, self.w.jogw_rows, list(AXES[:self.njoints]))):
+            grid = QtWidgets.QGridLayout()
+            grid.setSpacing(10)
+            grid.setContentsMargins(0, 0, 0, 0)
+            for i, name in enumerate(names):
+                minus, plus = QtWidgets.QPushButton("−"), QtWidgets.QPushButton("+")
+                label, pos = QtWidgets.QLabel(name), QtWidgets.QLabel("-")
+                for b in (minus, plus):
+                    b.setProperty("role", "padkey")
+                    b.setAutoRepeat(False)
+                label.setProperty("role", "padname")
+                pos.setProperty("role", "padpos")
+                pos.setAlignment(QtCore.Qt.AlignCenter)
+                minus.pressed.connect(lambda joint=joint, i=i: self._pad_jog(joint, i, -1))
+                plus.pressed.connect(lambda joint=joint, i=i: self._pad_jog(joint, i, 1))
+                minus.released.connect(lambda joint=joint, i=i: self._pad_release(joint, i))
+                plus.released.connect(lambda joint=joint, i=i: self._pad_release(joint, i))
+                for c, wd in enumerate((label, minus, pos, plus)):
+                    grid.addWidget(wd, i, c)
+                self.pad_rows.append((joint, i, pos, minus, plus))
+            grid.setColumnStretch(2, 1)
+            holder.layout().addLayout(grid)
+
+    def _build_tool_rows(self):
+        """the TOOLS view: a row per tool of the tool table"""
+        grid = QtWidgets.QGridLayout()
+        grid.setSpacing(8)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for r, t in enumerate(self.tools):
+            name = QtWidgets.QLabel("T%d %s" % (t["id"], t["name"]))
+            tcp = QtWidgets.QLabel("TCP %g %g %g" % t["tcp"])
+            state = QtWidgets.QLabel("-")
+            mount = QtWidgets.QPushButton("Mount")
+            name.setProperty("role", "jname")
+            tcp.setProperty("role", "jsmall")
+            state.setProperty("role", "toolstate")
+            mount.setProperty("role", "small")
+            mount.clicked.connect(lambda _=False, tid=t["id"]: self._change_tool(tid))
+            for c, wd in enumerate((name, tcp, state, mount)):
+                grid.addWidget(wd, r, c)
+            self.tool_rows[t["id"]] = (state, mount)
+        grid.setColumnStretch(1, 1)
+        self.w.tool_rows.layout().addLayout(grid)
+
     def _build_drive_table(self):
         t = self.w.table_drives
         cols = ["Drive", "I [A]", "P [W]", "State"]
@@ -227,9 +332,19 @@ class HandlerClass:
         for i, inc in enumerate((0.1, 1.0, 10.0, 45.0)):
             getattr(w, "btn_inc_%d" % i).clicked.connect(lambda _=False, inc=inc, i=i: self._set_increment(inc, i))
         w.btn_inc_cont.clicked.connect(lambda: self._set_increment(0.0, -1))
+        for i, inc in enumerate((0.1, 1.0, 10.0, 45.0)):
+            getattr(w, "btn_jinc_%d" % i).clicked.connect(lambda _=False, inc=inc, i=i: self._set_increment(inc, i))
+        w.btn_jinc_cont.clicked.connect(lambda: self._set_increment(0.0, -1))
         w.slider_jog.valueChanged.connect(self._set_jog_rate)
+        w.slider_jog2.valueChanged.connect(self._set_jog_rate)
         w.btn_home.clicked.connect(self._home_all)
+        w.btn_jhome.clicked.connect(self._home_all)
         w.btn_record.clicked.connect(self._record_point)
+        w.btn_jrecord.clicked.connect(self._record_point)
+        w.btn_view_main.clicked.connect(lambda: self._set_view("main"))
+        w.btn_view_jog.clicked.connect(lambda: self._set_view("jog"))
+        w.btn_view_tools.clicked.connect(lambda: self._set_view("tools"))
+        w.btn_tool_putback.clicked.connect(lambda: self._change_tool(0))
         w.btn_open.clicked.connect(self._open_program)
         w.btn_run.clicked.connect(lambda: ACTION.RUN(0))
         w.btn_step.clicked.connect(lambda: ACTION.STEP())
@@ -239,6 +354,8 @@ class HandlerClass:
         w.edit_mdi.returnPressed.connect(self._send_mdi)
         w.btn_grip_open.clicked.connect(lambda: self._mdi(self._ini("GRIP_OPEN", "M65 P0")))
         w.btn_grip_close.clicked.connect(lambda: self._mdi(self._ini("GRIP_CLOSE", "M64 P0")))
+        w.btn_jgrip_open.clicked.connect(lambda: self._mdi(self._ini("GRIP_OPEN", "M65 P0")))
+        w.btn_jgrip_close.clicked.connect(lambda: self._mdi(self._ini("GRIP_CLOSE", "M64 P0")))
 
         STATUS.connect("state-estop", lambda w: self._machine_state())
         STATUS.connect("state-estop-reset", lambda w: self._machine_state())
@@ -257,6 +374,14 @@ class HandlerClass:
     def _setup_panels(self):
         self.has_grip = hal_value("armgrip.0.state") is not None
         self.w.panel_grip.setVisible(self.has_grip)
+        self.w.btn_jgrip_open.setVisible(self.has_grip)
+        self.w.btn_jgrip_close.setVisible(self.has_grip)
+        self.w.btn_view_tools.setVisible(self.has_changer)
+        # with a tool changer the gripper works while it is on the flange
+        grip = [t["id"] for t in self.tools if t["name"] == "gripper"]
+        self.grip_tool = int(self._ini("GRIP_TOOL", grip[0] if grip else 0))
+        if self.has_changer and not self.tools:
+            self._event("tool changer without a tool table ([STMBL_ARM] TOOLS)")
         self.has_quota = hal_value("powerquota.0.total-power") is not None
         self.w.panel_quota.setVisible(self.has_quota)
         self.quota_max = float(self._ini("QUOTA_MAX", 2000))
@@ -265,11 +390,25 @@ class HandlerClass:
         self._set_jog_rate(self.w.slider_jog.value())
         self.w.btn_frame_world.setChecked(True)
         self.teach_file = self._ini("TEACH_FILE", os.path.join(self.config_dir, "teach.ngc"))
-        self.w.lbl_subtitle.setText("LinuxCNC · %s · %d joints" % (self.ini.find("KINS", "KINEMATICS") or "", self.njoints))
+        kins = (self.ini.find("KINS", "KINEMATICS") or "").split()
+        self.w.lbl_subtitle.setText("%s · %d joints" % (kins[0] if kins else "LinuxCNC", self.njoints))
+        # status text never widens the window (they elide at the panel's edge)
+        for lbl in (self.w.lbl_subtitle, self.w.lbl_events, self.w.lbl_rt, self.w.lbl_chg_progress, self.w.lbl_program):
+            lbl.setMinimumWidth(40)  # below their text's width: clipped, not wider
         self._machine_state()
         self._mode_buttons()
+        self._set_view("main")
 
     # -------------------------------------------------------------- actions
+    def _set_view(self, name):
+        left, right = VIEWS[name]
+        self.view_name = name
+        self.w.stack_left.setCurrentIndex(left)
+        self.w.stack_right.setCurrentIndex(right)
+        self.w.panel_program.setVisible(name != "jog")  # the jog pad: the 3D view takes the height
+        for n in VIEWS:
+            getattr(self.w, "btn_view_" + n).setChecked(n == name)
+
     def _toggle_estop(self):
         ACTION.SET_ESTOP_STATE(STATUS.estop_is_clear())  # clear -> estop, estop -> reset
 
@@ -282,7 +421,9 @@ class HandlerClass:
     def _set_increment(self, inc, idx):
         for i in range(4):
             getattr(self.w, "btn_inc_%d" % i).setChecked(i == idx)
+            getattr(self.w, "btn_jinc_%d" % i).setChecked(i == idx)
         self.w.btn_inc_cont.setChecked(idx < 0)
+        self.w.btn_jinc_cont.setChecked(idx < 0)
         text = "%g" % inc if inc else "Continuous"
         ACTION.SET_JOG_INCR(inc, text)
         ACTION.SET_JOG_INCR_ANGULAR(inc, text)
@@ -292,7 +433,12 @@ class HandlerClass:
         ang = float(self.ini.find("DISPLAY", "MAX_ANGULAR_VELOCITY") or 90) * 60
         ACTION.SET_JOG_RATE(lin * pct / 100.0)
         ACTION.SET_JOG_RATE_ANGULAR(ang * pct / 100.0)
-        self.w.lbl_jog_speed.setText("%d%%" % pct)
+        for slider, label in ((self.w.slider_jog, self.w.lbl_jog_speed), (self.w.slider_jog2, self.w.lbl_jog_speed2)):
+            if slider.value() != pct:  # keep both views' sliders together
+                slider.blockSignals(True)
+                slider.setValue(pct)
+                slider.blockSignals(False)
+            label.setText("%d%%" % pct)
 
     def _jog(self, j, direction):
         if not STATUS.machine_is_on():
@@ -310,6 +456,72 @@ class HandlerClass:
         if STATUS.get_jog_increment() == 0:
             self._jog(j, 0)
 
+    # the jog pad: a key jogs in its own frame, switching LinuxCNC to it
+    # first (joint mode for J1..J6, teleop for X..C; teleop needs the joints
+    # homed). The switch takes effect in motion a little later: the jog
+    # waits for it (up to 1 s), and a key let go before then cancels it.
+    def _pad_jog(self, joint, i, direction):
+        if not STATUS.machine_is_on():
+            self._event("machine is off")
+            return
+        if not STATUS.is_man_mode():
+            ACTION.SET_MANUAL_MODE()
+        if STATUS.is_joint_mode() != joint:
+            ACTION.SET_MOTION_TELEOP(0 if joint else 1)
+        self.pending_jog = (joint, i, direction, time.monotonic() + 1.0)
+        self._pending_tick()
+
+    def _pending_tick(self):
+        if not self.pending_jog:
+            return
+        joint, i, direction, deadline = self.pending_jog
+        LOG.debug("pad jog %s %d: motion_mode %s" % ("joint" if joint else "world", i, STATUS.stat.motion_mode))
+        if STATUS.is_joint_mode() == joint:
+            self.pending_jog = None
+            ACTION.DO_JOG(i if joint else AXES[i], direction)
+        elif time.monotonic() > deadline:
+            self.pending_jog = None
+            self._event("cannot jog %s: no %s mode%s" % ("J%d" % (i + 1) if joint else AXES[i], "joint" if joint else "world",
+                                                          "" if joint or STATUS.is_all_homed() else " (home first)"))
+        else:
+            QtCore.QTimer.singleShot(50, self._pending_tick)
+
+    def _pad_release(self, joint, i):
+        continuous = STATUS.get_jog_increment() == 0
+        if self.pending_jog and self.pending_jog[:2] == (joint, i):
+            if continuous:
+                self.pending_jog = None  # let go before it started
+            return
+        if continuous and STATUS.is_joint_mode() == joint:
+            ACTION.DO_JOG(i if joint else AXES[i], 0)
+
+    # the tool changer: M6 (toolchange.ngc) puts the tool on the flange back
+    # into its dock and picks the new one; the TOOLS view follows armtool
+    def _change_tool(self, tid):
+        mounted = hal_value("armtool.0.mounted", 0)
+        if tid == mounted:
+            return
+        if not STATUS.is_all_homed():
+            self._event("tool change: home first")
+            return
+        if self.tool_change or STATUS.stat.interp_state != linuxcnc.INTERP_IDLE:
+            self._event("tool change: busy")
+            return
+        if not STATUS.machine_is_on():
+            self._event("machine is off: no tool change")
+            return
+        ready = self._ini("TOOL_READY")
+        self.tool_change = {"from": mounted, "to": tid, "t0": time.monotonic(), "seen_run": False,
+                            "stage": "ready" if ready else "change"}
+        self._event("tool change T%d -> T%d" % (mounted, tid))
+        self._mdi(ready or "T%d M6" % tid)
+
+    def _tool_name(self, tid):
+        for t in self.tools:
+            if t["id"] == tid:
+                return "T%d %s" % (tid, t["name"])
+        return "T%d" % tid if tid else "no tool"
+
     def _home_all(self):
         ACTION.SET_MACHINE_HOMING(-1)
 
@@ -322,6 +534,7 @@ class HandlerClass:
                 f.write(line)
             self.teach_points += 1
             self.w.lbl_points.setText("%d points" % self.teach_points)
+            self.w.lbl_jpoints.setText("%d points" % self.teach_points)
             self._event("recorded %s" % line.strip())
         except OSError as e:
             self._event("cannot write %s: %s" % (self.teach_file, e))
@@ -367,6 +580,7 @@ class HandlerClass:
         self.w.btn_mode_jog.setChecked(man and not teach)
         self.w.btn_mode_teach.setChecked(man and teach)
         self.w.btn_record.setEnabled(man and teach)
+        self.w.btn_jrecord.setEnabled(man)
 
     def _frame_buttons(self):
         joint = STATUS.is_joint_mode()
@@ -434,11 +648,17 @@ class HandlerClass:
             else:
                 label.setText(AXES[j])
                 jpos.setText("%.1f" % s.actual_position[j])
+        # the jog pad
+        for joint, i, pos, minus, plus in self.pad_rows:
+            pos.setText("%.2f°" % s.joint[i]["input"] if joint else
+                        "%.3f" % s.actual_position[i] if i < 3 else "%.2f°" % s.actual_position[i])
         # pose
         for i, a in enumerate(AXES):
             getattr(self.w, "lbl_" + a.lower()).setText("%.3f" % s.actual_position[i] if i < 3 else "%.2f" % s.actual_position[i])
         self.w.lbl_tcp_speed.setText("TCP %.0f mm/s" % (s.current_vel))
-        self.w.lbl_tool.setText("tool T%d" % s.tool_in_spindle)
+        self.w.lbl_tool.setText("tool " + self._tool_name(hal_value("armtool.0.mounted", s.tool_in_spindle)))
+        if self.has_changer:
+            self._update_tools()
         # cycle
         t = time.monotonic() - self.cycle_start if self.cycle_start is not None else self.cycle_time
         self.w.lbl_cycle.setText(time.strftime("%H:%M:%S", time.gmtime(t)))
@@ -486,6 +706,11 @@ class HandlerClass:
             self.w.lbl_grip_current.setText("-" if cur is None else "%.2f A" % abs(cur))
             m = hal_value("armgrip.0.payload-mass")
             self.w.lbl_grip_payload.setText("-" if m is None else "%.2f kg" % m)
+            usable = not self.has_changer or not self.grip_tool or hal_value("armtool.0.mounted", 0) == self.grip_tool
+            for b in (self.w.btn_grip_open, self.w.btn_grip_close, self.w.btn_jgrip_open, self.w.btn_jgrip_close):
+                b.setEnabled(usable)
+            if not usable:
+                self.w.lbl_grip_state.setText("IN ITS DOCK")
             closed = bool(hal_value("armgrip.0.close", False))
             self.w.btn_grip_close.setChecked(closed)
             self.w.btn_grip_open.setChecked(not closed)
@@ -501,6 +726,55 @@ class HandlerClass:
         # footer
         info = self.view.info if self.view is not None and getattr(self.view, "info", None) else (self.view.error if self.view else "no 3D view")
         self.w.lbl_rt.setText("%d joints · %s" % (self.njoints, info))
+
+    def _update_tools(self):
+        mounted = hal_value("armtool.0.mounted", 0)
+        fault, reason = hal_value("armtool.0.fault", False), hal_value("armtool.0.reason", 0)
+        locked, unlocked = hal_value("stmbl-arm.0.changer.locked"), hal_value("stmbl-arm.0.changer.unlocked")
+        present, kins = hal_value("stmbl-arm.0.changer.present"), hal_value("armkins.tool")
+        idle = STATUS.stat.interp_state == linuxcnc.INTERP_IDLE
+        tc = self.tool_change
+        if tc:  # done once the program ran and stopped with the tool and its TCP on
+            tc["seen_run"] = tc["seen_run"] or not idle
+            dt = time.monotonic() - tc["t0"]
+            if tc["seen_run"] and idle and tc["stage"] == "ready":  # at the ready pose: now M6
+                tc["stage"], tc["seen_run"] = "change", False
+                self._mdi("T%d M6" % tc["to"])
+            elif tc["seen_run"] and idle:
+                ok = mounted == tc["to"] and (kins is None or kins == tc["to"])
+                self.w.lbl_chg_progress.setText("%s in %.1f s" % ("changed" if ok else "change FAILED", dt))
+                self._event("tool change %s: %s on the flange (%.1f s)" % ("done" if ok else "failed", self._tool_name(mounted), dt))
+                self.tool_change = tc = None
+            else:
+                step = ("to the ready pose" if tc["stage"] == "ready" else
+                        "lock open" if unlocked else "locked" if locked else "lock moving")
+                self.w.lbl_chg_progress.setText("T%d -> T%d · %.0f s · %s" % (tc["from"], tc["to"], dt, step))
+        key, text = ("stop", "FAULT") if fault else ("slow", "CHANGING") if tc else ("ok", "READY")
+        self.w.lbl_chg_state.setText(text)
+        if self.w.lbl_chg_state.property("state") != key:
+            restyle(self.w.lbl_chg_state, state=key)
+        self.w.lbl_tool_mounted.setText(self._tool_name(mounted))
+        tcp = [t["tcp"] for t in self.tools if t["id"] == mounted]
+        self.w.lbl_tool_tcp.setText("TCP %g %g %g mm" % tcp[0] if tcp else "TCP on the flange")
+        can = STATUS.machine_is_on() and idle and not tc and not fault
+        for tid, (state, mount) in self.tool_rows.items():
+            on = tid == mounted
+            st, txt = ("on", "ON FLANGE") if on else ("dock", "IN DOCK")
+            if state.text() != txt:
+                state.setText(txt)
+                restyle(state, state=st)
+            mount.setText("Mounted" if on else "Mount")
+            mount.setEnabled(can and not on)
+        self.w.btn_tool_putback.setEnabled(can and mounted != 0)
+        self.w.lbl_chg_valve.setText("lock" if hal_value("armtool.0.valve") else "release")
+        if locked is None:
+            sensors = "-"
+        else:
+            sensors = ("locked" if locked else "unlocked" if unlocked else "between") + (", tool present" if present else ", no tool")
+        self.w.lbl_chg_sensors.setText(sensors)
+        self.w.lbl_chg_id.setText(str(hal_value("stmbl-arm.0.changer.id", "-")))
+        self.w.lbl_chg_kins.setText("-" if kins is None else "T%d TCP" % kins if kins else "the flange")
+        self.w.lbl_chg_fault.setText(CHANGER_REASON.get(reason, str(reason)) if fault else "none")
 
     def _cell(self, r, c, text):
         it = self.w.table_drives.item(r, c)

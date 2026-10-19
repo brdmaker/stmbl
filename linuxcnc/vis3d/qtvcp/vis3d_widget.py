@@ -11,8 +11,13 @@ and set guard_limit_mm (the cell's `prevent MM`) from the handler. The
 widget then shows the guard as armguard acts: stop while armguard holds the
 arm (state != 0), near below twice the limit, armed otherwise; the shell
 around the tool point has the limit's radius. guard-nearest (an obstacle's
-index in the model, -1 none) is optional. Outside QtVCP (plain PyQt5, no
-HAL) it runs too: set_joints() feeds it.
+index in the model, -1 none) is optional.
+
+The `cell` property adds armguard's cell file: its obstacles, and with a
+tool changer the tool table it includes (the tools drawn in their docks).
+The `tool` pin (armtool.0.mounted) says which tool is on the flange.
+Outside QtVCP (plain PyQt5, no HAL) it runs too: set_joints() and
+set_tool() feed it.
 
 Mouse: left drag orbits, right / middle drag pans, wheel zooms; double click
 clears the trail.
@@ -54,6 +59,8 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
     def __init__(self, parent=None, model=None, fps=30):
         super(Vis3dView, self).__init__(parent)
         self._model_path = model or ""
+        self._cell_path = ""
+        self._tool = 0
         self._fps = fps
         self.v = None
         self.error = ""
@@ -94,6 +101,16 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
 
     model = pyqtProperty(str, _get_model, _set_model)
 
+    def _get_cell(self):
+        return self._cell_path
+
+    def _set_cell(self, path):  # armguard's cell file: obstacles, tool table
+        self._cell_path = path
+        if self.v:
+            self._set_model(self._model_path)
+
+    cell = pyqtProperty(str, _get_cell, _set_cell)
+
     def _get_fps(self):
         return self._fps
 
@@ -113,10 +130,14 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
         self._pins["clearance"] = self.HAL_GCOMP_.newpin(name + ".clearance", hal.HAL_FLOAT, hal.HAL_IN)
         self._pins["guard-nearest"] = self.HAL_GCOMP_.newpin(name + ".guard-nearest", hal.HAL_S32, hal.HAL_IN)
         self._pins["trail-clear"] = self.HAL_GCOMP_.newpin(name + ".trail-clear", hal.HAL_BIT, hal.HAL_IN)
+        self._pins["tool"] = self.HAL_GCOMP_.newpin(name + ".tool", hal.HAL_S32, hal.HAL_IN)
 
     # -- without HAL
     def set_joints(self, q):
         self._joints = list(q)
+
+    def set_tool(self, tool_id):
+        self._tool = tool_id
 
     # -- GL
     def _load(self):
@@ -125,6 +146,8 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
             return
         try:
             self.v = Vis3d(self._model_path)
+            if self._cell_path:
+                self.v.load_cell(self._cell_path)
             ctx = self.context()
 
             def getproc(name):
@@ -156,8 +179,10 @@ class Vis3dView(QOpenGLWidget, _HalWidgetBase):
             self.v.set_guard(st, lim / 1000.0 / self._unit_m, self._pins["guard-nearest"].get())
             if self._pins["trail-clear"].get():
                 self.v.trail(True, True)
+            tool = self._pins["tool"].get()
         else:
-            q = self._joints
+            q, tool = self._joints, self._tool
+        self.v.set_tool(tool)
         if q:
             self.v.set_joints(q)
         self.v.draw(time.monotonic() - self._t0)

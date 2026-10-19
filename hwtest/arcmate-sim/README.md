@@ -37,7 +37,7 @@ make test-grip   # the same with the electric gripper (lcnc_grip_test.py)
 make test-tool   # the pneumatic tool changer (lcnc_tool_test.py)
 make test-quota  # power quotas: two drives per phase (lcnc_quota_test.py)
 make run         # with AXIS
-make hmi         # with the ARM-6 QtVCP screen (linuxcnc/arm6hmi), gripper and quotas
+make hmi         # with the ARM-6 QtVCP screen (linuxcnc/arm6hmi): tool changer, gripper, quotas
 make test-hmi    # the screen's self-test on Xvfb (TAP + screenshot)
 ```
 
@@ -192,12 +192,17 @@ to a 0.17 A breaker that the test's sweeps overload about 3x.
 
 `linuxcnc/arm6hmi` is a QtVCP screen with `linuxcnc/vis3d` as the 3D view.
 The setup:
-- `make hmi` copies the config with the gripper and the power quotas;
+- `make hmi` copies the tool changer config of `make test-tool` (armkins,
+  `changer.hal`, M6 = `toolchange.ngc`; the gripper is tool 2) and adds the
+  power quotas;
 - the screen goes into `qtvcp/screens/arm6`;
-- `arm6_postgui.hal` nets the view's pins.
+- `arm6_postgui.hal` and `arm6_changer_postgui.hal` net the view's pins;
+- `[ARM6HMI] TOOL_READY` is the pose `lcnc_tool_test.py` changes tools from.
 
 `make test-hmi` runs it on Xvfb with `ARM6HMI_TEST` set, and the screen tests
-itself through its own buttons (16 checks, see `linuxcnc/arm6hmi/README.md`).
+itself through its own buttons: jogs, MDI, teach, the jog pad, three tool
+changes from the TOOLS view (36 checks, see `linuxcnc/arm6hmi/README.md`).
+It takes about 3 minutes.
 It needs `Xvfb` and PyQt5, QScintilla and PyOpenGL for LinuxCNC's Python.
 
 ## In a cloud session

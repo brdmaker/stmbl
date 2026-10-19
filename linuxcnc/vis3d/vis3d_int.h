@@ -12,6 +12,7 @@
 #define V3_MAXPART 256
 #define V3_MAXOBS 32
 #define V3_TRAIL 512
+#define V3_MAXTOOL 16
 
 typedef struct {
   char name[32];
@@ -24,7 +25,20 @@ typedef struct {
 typedef struct {
   int link, material;
   int first, count;  // vertices in vis3d.vert
+  int tool;          // a tool's (its id), drawn on the flange or in its dock; 0 the arm's
+  int tool_body;     // the tool's collision body: only drawn if the tool has no parts
 } v3_part;
+
+// a tool of the tool changer (shared/robot/tool.h's tool table)
+typedef struct {
+  int id;
+  char name[32];
+  float tcp[3];     // its tool point in the flange frame [m]
+  int has_tcp;
+  int has_dock;
+  mat4 dock;        // the flange's pose with the tool in its dock (base frame)
+  int has_parts;    // dressed with parts: its collision bodies aren't drawn
+} v3_tool;
 
 typedef struct {
   char name[32];
@@ -45,6 +59,9 @@ struct vis3d {
   double tcp[3];              // tool point in the last link's frame [m]
   double unit;                // file unit in metres (1 or 0.001)
   int q_theta;                // joint values are DH theta (theta0 included), as genserkins' joints
+  v3_tool tool[V3_MAXTOOL];
+  int ntool;
+  int mounted;                // the tool on the flange (id, 0 none)
 
   double q[VIS3D_MAXJ];         // joints as set [deg / unit]
   mat4 link[VIS3D_MAXJ + 1];    // link frames in the base frame
@@ -62,6 +79,7 @@ struct vis3d {
   v3_obstacle obs[V3_MAXOBS];
   int nobs;
   float lo[3], hi[3];  // model bounds at zero pose, for the default camera
+  int geom_dirty;      // geometry added after gl_init (a cell): upload again
 
   // overlays
   int guard, nearest;
@@ -81,6 +99,8 @@ struct vis3d {
 };
 
 void v3_update_frames(vis3d_t *v);
+// the frame part pt is drawn in, NULL: not drawn (a tool neither mounted nor docked)
+const mat4 *v3_part_frame(const vis3d_t *v, const v3_part *pt);
 mat4 v3_view(const vis3d_t *v);
 mat4 v3_proj(const vis3d_t *v);
 const char *v3_glsl_for(const char *gl_version);

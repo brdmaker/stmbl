@@ -83,6 +83,30 @@ QPushButton[role="estop"] {
 QPushButton[role="estop"][state="estop"] { background: #B3261E; border-color: #FF6B6B; }
 QPushButton[role="power"]:checked { background: #1E3A15; border-color: #8BEB5A; color: #C8F5B0; }
 
+/* the view tabs in the header (OVERVIEW / JOG PAD / TOOLS) */
+QPushButton[role="view"] {
+  background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  color: #7D8C9B; min-height: 36px; padding: 0 10px; font-size: 12px; letter-spacing: 2px;
+}
+QPushButton[role="view"]:hover { color: #DCE6EF; }
+QPushButton[role="view"]:checked { background: transparent; color: #7FE6DE; border-bottom-color: #2BD4C9; }
+
+/* the jog pad: keys for a gloved finger */
+QPushButton[role="padkey"] {
+  min-width: 72px; min-height: 64px; padding: 0; border-radius: 8px;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 26px;
+}
+QPushButton[role="padkey"]:pressed { background: #13302F; border-color: #2BD4C9; color: #7FE6DE; }
+QLabel[role="padname"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; color: #7FE6DE; font-size: 18px; font-weight: 600; min-width: 34px; }
+QLabel[role="padpos"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 20px; font-weight: 600; }
+
+/* the tool changer */
+QLabel[role="toolstate"] {
+  font-size: 11px; font-weight: 600; letter-spacing: 1px; padding: 4px 8px;
+  border: 1px solid #1C2733; border-radius: 4px; color: #8FA0B0;
+}
+QLabel[role="toolstate"][state="on"] { color: #7FE6DE; border-color: #2BD4C9; }
+
 /* program, MDI, tables */
 QListWidget, QLineEdit, QTableWidget {
   background: #0A1016; border: 1px solid #16202A; border-radius: 4px;

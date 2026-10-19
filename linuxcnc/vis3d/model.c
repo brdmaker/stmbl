@@ -20,7 +20,17 @@
  *   part L capsule X1 Y1 Z1 X2 Y2 Z2 R [material M]
  *   part L mesh FILE.stl [scale S] [at ..] [rpy ..] [material M]
  *   body L capsule|sphere ... [tool T] arm_sim's collision bodies (shared/robot/geom.h):
- *                                     drawn with material "body"; tool bodies skipped
+ *                                     drawn with material "body" ("tool" for tool T's)
+ *   part ... tool T                   a part of tool T (on the flange, link n)
+ *
+ * The tool changer's tools, as shared/robot/tool.h's tool table (mm, deg):
+ *   tool T [NAME]                     the following tcp / dock lines are tool T's
+ *   tcp X Y Z [A B C]                 its tool point in the flange frame [mm]
+ *   dock X Y Z A B C ...              the flange's pose with T in its dock [mm, deg,
+ *                                     base frame]: T is drawn there (with a stand)
+ *                                     while it isn't on the flange
+ * A tool's parts (or, without parts, its bodies) are drawn on the flange
+ * while it is mounted (vis3d_set_tool), else in its dock.
  *   obstacle NAME box CX CY CZ HX HY HZ [A B C] | capsule .. | sphere X Y Z R
  *                                     world obstacles, as geom.h (planes are skipped)
  *   camera YAW PITCH DIST [target X Y Z]
@@ -47,6 +57,8 @@ typedef struct {
   char *err;
   int errlen;
   int depth;
+  int cell;      // a cell file (vis3d_load_cell): obstacles and the tool table only
+  int cur_tool;  // the tool the tcp / dock lines belong to (index, -1 none)
 } parse_t;
 
 static int fail(parse_t *p, const char *file, int line, const char *fmt, ...) {
@@ -274,6 +286,8 @@ static void default_materials(vis3d_t *v) {
       {"accent", 0, 0, 0, 0.2f, 0.3f, 0.9f, 1, 1},           // rings, glowing lines
       {"warn", 0.94f, 0.68f, 0.25f, 0.1f, 0.5f, 0.15f, 1, 0},
       {"obstacle", 0.75f, 0.55f, 0.22f, 0.0f, 0.8f, 0, 0.35f, 0},
+      {"tool", 0.30f, 0.33f, 0.37f, 0.7f, 0.3f, 0, 1, 0},     // a tool's collision body
+      {"stand", 0.16f, 0.19f, 0.23f, 0.5f, 0.4f, 0, 1, 0},    // a tool's dock
   };
   for(size_t i = 0; i < sizeof(d) / sizeof(d[0]); i++) {
     v3_material *m = new_mat(v, d[i].n);
@@ -281,6 +295,22 @@ static void default_materials(vis3d_t *v) {
     m->metal = d[i].metal, m->rough = d[i].rough, m->emissive = d[i].em, m->alpha = d[i].alpha;
     m->accent = d[i].accent;
   }
+}
+
+static v3_tool *tool_of(vis3d_t *v, int id) {
+  for(int i = 0; i < v->ntool; i++) {
+    if(v->tool[i].id == id) {
+      return &v->tool[i];
+    }
+  }
+  if(v->ntool == V3_MAXTOOL) {
+    return NULL;
+  }
+  v3_tool *t = &v->tool[v->ntool++];
+  memset(t, 0, sizeof(*t));
+  t->id = id;
+  snprintf(t->name, sizeof(t->name), "T%d", id);
+  return t;
 }
 
 // the options after a part's shape: at, rpy, axis, material, scale, tool
@@ -310,7 +340,7 @@ static int parse_opts(parse_t *p, char **tok, int ntok, opts_t *o, const char *f
     } else if(!strcmp(tok[i], "scale") && i + 1 < ntok) {
       o->scale = atof(tok[++i]);
     } else if(!strcmp(tok[i], "tool") && i + 1 < ntok) {
-      o->tool = 1, i++;
+      o->tool = atoi(tok[++i]);
     } else {
       return fail(p, file, line, "unexpected \"%s\"", tok[i]);
     }
@@ -334,6 +364,7 @@ static int begin_part(vis3d_t *v, int link, int mat) {
   }
   v3_part *pt = &v->part[v->npart];
   pt->link = link, pt->material = mat, pt->first = v->nvert, pt->count = 0;
+  pt->tool = pt->tool_body = 0;
   return 0;
 }
 
@@ -367,6 +398,10 @@ static int parse_line(parse_t *p, const char *file, int line, char **tok, int nt
     return fail(p, file, line, "joint %s out of 1..%d", tok[i], VIS3D_MAXJ); \
   }
 
+  if(p->cell && strcmp(k, "obstacle") && strcmp(k, "include") && strcmp(k, "tool") && strcmp(k, "tcp")
+     && strcmp(k, "dock") && strcmp(k, "body")) {
+    return 0;  // a cell: its obstacles and tools only
+  }
   if(!strcmp(k, "units")) {
     NEED(2);
     if(!strcmp(tok[1], "mm")) {
@@ -402,11 +437,53 @@ static int parse_line(parse_t *p, const char *file, int line, char **tok, int nt
     NEED(4);
     JOINT(1);
     v->lim[j][0] = atof(tok[2]), v->lim[j][1] = atof(tok[3]);
+  } else if(!strcmp(k, "tool")) {
+    NEED(2);
+    v3_tool *t = tool_of(v, atoi(tok[1]));
+    if(!t || t->id <= 0) {
+      return fail(p, file, line, t ? "tool ids from 1" : "too many tools (%d)", V3_MAXTOOL);
+    }
+    if(ntok > 2) {
+      snprintf(t->name, sizeof(t->name), "%s", tok[2]);
+    }
+    p->cur_tool = (int)(t - v->tool);
+  } else if(!strcmp(k, "tcp") && p->cur_tool >= 0) {  // a tool's: mm, as tool.h
+    NEED(4);
+    v3_tool *t = &v->tool[p->cur_tool];
+    for(int i = 0; i < 3; i++) {
+      t->tcp[i] = atof(tok[1 + i]) * 0.001;
+    }
+    t->has_tcp = 1;
   } else if(!strcmp(k, "tcp")) {
+    if(p->cell) {
+      return 0;
+    }
     NEED(4);
     for(int i = 0; i < 3; i++) {
       v->tcp[i] = num(tok, 1 + i, u);
     }
+  } else if(!strcmp(k, "dock")) {
+    NEED(7);
+    if(p->cur_tool < 0) {
+      return fail(p, file, line, "dock before a tool line");
+    }
+    v3_tool *t = &v->tool[p->cur_tool];
+    t->dock    = m4_mul(m4_translate(atof(tok[1]) * 0.001, atof(tok[2]) * 0.001, atof(tok[3]) * 0.001),
+                        m4_rpy(atof(tok[4]) * DEG, atof(tok[5]) * DEG, atof(tok[6]) * DEG));
+    t->has_dock = 1;
+    // its stand: a fork plate under the tool, a post down to the floor
+    float in[3] = {0, 0, 0.09f}, at[3];
+    m4_point(t->dock, in, at);
+    float top = at[2] - 0.05f;
+    int sm    = find_mat(v, "stand");
+    if(begin_part(v, 0, sm) < 0) {
+      return fail(p, file, line, "too many parts (%d)", V3_MAXPART);
+    }
+    gen_box(v, m4_translate(at[0], at[1], top - 0.006f), 0.11f, 0.11f, 0.012f);
+    if(top > 0.02f) {
+      gen_tube(v, m4_translate(at[0], at[1], (top - 0.012f) / 2), 0.025f, 0, top - 0.012f);
+    }
+    end_part(v);
   } else if(!strcmp(k, "material")) {
     NEED(2);
     v3_material *m = new_mat(v, tok[1]);
@@ -446,16 +523,29 @@ static int parse_line(parse_t *p, const char *file, int line, char **tok, int nt
       return fail(p, file, line, "unknown shape %s", shape);
     }
     NEED(3 + nargs);
-    opts_t o = {{0, 0, 0}, {0, 0, 0}, 1.0f, 'z', find_mat(v, k[0] == 'b' ? "body" : "body"), 0};
+    int is_body = k[0] == 'b';
+    opts_t o    = {{0, 0, 0}, {0, 0, 0}, 1.0f, 'z', find_mat(v, "body"), 0};
     if(parse_opts(p, tok + 3 + nargs, ntok - 3 - nargs, &o, file, line) < 0) {
       return -1;
     }
+    if(p->cell && !o.tool) {
+      return 0;  // the arm's bodies: the model has them
+    }
+    v3_tool *t = NULL;
     if(o.tool) {
-      return 0;  // a tool's collision body: the tool's own parts draw it
+      if(!(t = tool_of(v, o.tool))) {
+        return fail(p, file, line, "too many tools (%d)", V3_MAXTOOL);
+      }
+      if(is_body) {
+        o.mat = find_mat(v, "tool");
+      } else {
+        t->has_parts = 1;
+      }
     }
     if(begin_part(v, link, o.mat) < 0) {
       return fail(p, file, line, "too many parts (%d)", V3_MAXPART);
     }
+    v->part[v->npart].tool = o.tool, v->part[v->npart].tool_body = is_body && o.tool;
     char **a = tok + 3;
     if(!strcmp(shape, "box")) {
       gen_box(v, place(&o), num(a, 0, u), num(a, 1, u), num(a, 2, u));
@@ -553,9 +643,12 @@ static int parse_line(parse_t *p, const char *file, int line, char **tok, int nt
     char path[512];
     snprintf(path, sizeof(path), "%s%s", tok[1][0] == '/' ? "" : dir, tok[1]);
     double keep = v->unit;  // an included file starts in metres, as arm_sim's
+    int keep_tool = p->cur_tool;
     v->unit     = 1.0;
+    p->cur_tool = -1;
     int r       = parse_file(p, path);
     v->unit     = keep;
+    p->cur_tool = keep_tool;
     if(r < 0) {
       return fail(p, file, line, "in %s", tok[1]);
     }
@@ -621,7 +714,7 @@ vis3d_t *vis3d_load(const char *path, char *err, int errlen) {
   if(err && errlen) {
     err[0] = 0;
   }
-  parse_t p = {v, err, errlen, 0};
+  parse_t p = {v, err, errlen, 0, 0, -1};
   if(parse_file(&p, path) < 0) {
     vis3d_free(v);
     return NULL;
@@ -640,7 +733,7 @@ vis3d_t *vis3d_load(const char *path, char *err, int errlen) {
   }
   for(int i = 0; i < v->npart; i++) {
     const v3_part *pt = &v->part[i];
-    if(pt->link < 0) {
+    if(pt->link < 0 || pt->tool) {
       continue;
     }
     for(int k = pt->first; k < pt->first + pt->count; k++) {
@@ -663,6 +756,57 @@ vis3d_t *vis3d_load(const char *path, char *err, int errlen) {
   }
   v->trail_n = 0;
   return v;
+}
+
+int vis3d_load_cell(vis3d_t *v, const char *path, char *err, int errlen) {
+  if(err && errlen) {
+    err[0] = 0;
+  }
+  parse_t p   = {v, err, errlen, 0, 1, -1};
+  double keep = v->unit;
+  v->unit     = 1.0;  // cells are in metres
+  int r       = parse_file(&p, path);
+  v->unit     = keep;
+  v->geom_dirty = 1;
+  v3_update_frames(v);
+  return r;
+}
+
+int vis3d_tools(const vis3d_t *v) {
+  return v->ntool;
+}
+const char *vis3d_tool(const vis3d_t *v, int i, int *id) {
+  if(i < 0 || i >= v->ntool) {
+    return "";
+  }
+  if(id) {
+    *id = v->tool[i].id;
+  }
+  return v->tool[i].name;
+}
+
+void vis3d_set_tool(vis3d_t *v, int id) {
+  v->mounted = id;
+  v3_update_frames(v);
+}
+
+const mat4 *v3_part_frame(const vis3d_t *v, const v3_part *pt) {
+  if(!pt->tool) {
+    return &v->link[pt->link];
+  }
+  const v3_tool *t = NULL;
+  for(int i = 0; i < v->ntool; i++) {
+    if(v->tool[i].id == pt->tool) {
+      t = &v->tool[i];
+    }
+  }
+  if(!t || (pt->tool_body && t->has_parts)) {
+    return NULL;
+  }
+  if(v->mounted == pt->tool) {
+    return &v->link[pt->link];
+  }
+  return t->has_dock && pt->link == v->n ? &t->dock : NULL;
 }
 
 int vis3d_joints(const vis3d_t *v) {
@@ -697,6 +841,11 @@ void v3_update_frames(vis3d_t *v) {
     v->link[j + 1] = T;
   }
   float t[3] = {v->tcp[0], v->tcp[1], v->tcp[2]};
+  for(int i = 0; i < v->ntool; i++) {  // the mounted tool's tool point
+    if(v->mounted && v->tool[i].id == v->mounted && v->tool[i].has_tcp) {
+      memcpy(t, v->tool[i].tcp, sizeof(t));
+    }
+  }
   m4_point(T, t, v->tcp_world);
 }
 

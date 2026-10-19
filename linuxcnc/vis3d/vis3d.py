@@ -40,6 +40,10 @@ def _lib(path=None):
         "vis3d_joint_limits": (None, [P, I, DP, DP]),
         "vis3d_obstacles": (I, [P]),
         "vis3d_obstacle_name": (ctypes.c_char_p, [P, I]),
+        "vis3d_load_cell": (I, [P, ctypes.c_char_p, ctypes.c_char_p, I]),
+        "vis3d_tools": (I, [P]),
+        "vis3d_tool": (ctypes.c_char_p, [P, I, ctypes.POINTER(I)]),
+        "vis3d_set_tool": (None, [P, I]),
         "vis3d_set_joints": (None, [P, DP, I]),
         "vis3d_frame": (None, [P, I, DP, DP]),
         "vis3d_set_guard": (None, [P, I, D, I]),
@@ -87,6 +91,25 @@ class Vis3d:
 
     def obstacles(self):
         return [self._lib.vis3d_obstacle_name(self._v, i).decode() for i in range(self._lib.vis3d_obstacles(self._v))]
+
+    def load_cell(self, path):
+        """add a cell file's obstacles and tool table (armguard's cell, metres)"""
+        err = ctypes.create_string_buffer(512)
+        if self._lib.vis3d_load_cell(self._v, path.encode(), err, len(err)) < 0:
+            raise ValueError(err.value.decode())
+
+    def tools(self):
+        """the tool changer's tools: [(id, name)]"""
+        out = []
+        for i in range(self._lib.vis3d_tools(self._v)):
+            tid = ctypes.c_int()
+            name = self._lib.vis3d_tool(self._v, i, ctypes.byref(tid)).decode()
+            out.append((tid.value, name))
+        return out
+
+    def set_tool(self, tool_id):
+        """the tool on the flange (0 none); the others sit in their docks"""
+        self._lib.vis3d_set_tool(self._v, int(tool_id))
 
     def set_joints(self, q):
         for j in range(min(self.n, len(q))):

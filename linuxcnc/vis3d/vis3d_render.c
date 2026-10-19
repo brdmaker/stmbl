@@ -128,7 +128,8 @@ static double now(void) {
 }
 
 int main(int argc, char **argv) {
-  const char *model = NULL, *out = NULL, *api = "gles3";
+  const char *model = NULL, *out = NULL, *api = "gles3", *cell = NULL;
+  int tool = 0;
   int w = 1280, h = 720, ssaa = 2, bench = 0, nq = 0, npath = 0, nguard = 0, ntint = 0, ncam = 0;
   double q[VIS3D_MAXJ] = {0}, path[VIS3D_MAXJ] = {0}, guard[3] = {0}, tint[5] = {0}, cam[3] = {0};
   for(int i = 1; i < argc; i++) {
@@ -151,13 +152,18 @@ int main(int argc, char **argv) {
       ncam = parse_list(argv[++i], cam, 3);
     } else if(!strcmp(a, "--ssaa") && n) {
       ssaa = atoi(argv[++i]);
+    } else if(!strcmp(a, "--cell") && n) {
+      cell = argv[++i];
+    } else if(!strcmp(a, "--tool") && n) {
+      tool = atoi(argv[++i]);
     } else if(!strcmp(a, "--bench") && n) {
       bench = atoi(argv[++i]);
     } else if(a[0] != '-') {
       model = a;
     } else {
       fprintf(stderr, "usage: vis3d_render MODEL [-o out.png] [-s WxH] [--api gles3|gles2|gl33|gl21] [-q ..]\n"
-                      "       [--path ..] [--cam yaw,pitch,dist] [--guard s,r,n] [--tint l,r,g,b,a] [--ssaa N] [--bench N]\n");
+                      "       [--path ..] [--cam yaw,pitch,dist] [--guard s,r,n] [--tint l,r,g,b,a] [--ssaa N] [--bench N]\n"
+                      "       [--cell CELL] [--tool ID]\n");
       return 2;
     }
   }
@@ -172,6 +178,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "vis3d_render: %s\n", err);
     return 1;
   }
+  if(cell && vis3d_load_cell(v, cell, err, sizeof(err)) < 0) {
+    fprintf(stderr, "vis3d_render: %s\n", err);
+    return 1;
+  }
+  vis3d_set_tool(v, tool);
 
   // a headless context
   PFNEGLGETPLATFORMDISPLAYEXTPROC gpd = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");

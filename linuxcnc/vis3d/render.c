@@ -212,6 +212,22 @@ static const char *dialect(struct gl_state *g, char *name, int len) {
   return !strcmp(d, "300 es") ? HDR_ES3 : !strcmp(d, "100") ? HDR_ES2 : !strcmp(d, "330") ? HDR_GL33 : HDR_GL21;
 }
 
+// the parts and the obstacle edges (xyz + alpha); again when a cell adds some
+static void upload_geometry(vis3d_t *v, struct gl_state *g) {
+  g->BindBuffer(GL_ARRAY_BUFFER, g->vbo);
+  g->BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v->nvert * 6 * sizeof(float), v->vert, GL_STATIC_DRAW);
+  int nl     = v->nline;
+  float *lin = malloc((nl ? nl : 1) * 4 * sizeof(float));
+  for(int i = 0; i < nl; i++) {
+    memcpy(lin + i * 4, v->line + i * 3, 3 * sizeof(float));
+    lin[i * 4 + 3] = 1.0f;
+  }
+  g->BindBuffer(GL_ARRAY_BUFFER, g->vbo_line);
+  g->BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(nl ? nl : 1) * 4 * sizeof(float), lin, GL_STATIC_DRAW);
+  free(lin);
+  v->geom_dirty = 0;
+}
+
 static void push_sphere(float *o, int *n, float th, float ph) {
   float x = sinf(th) * cosf(ph), y = sinf(th) * sinf(ph), z = cosf(th);
   o[(*n) * 6 + 0] = x, o[(*n) * 6 + 1] = y, o[(*n) * 6 + 2] = z;
@@ -250,20 +266,8 @@ int vis3d_gl_init(vis3d_t *v, vis3d_getproc_t getproc, char *err, int errlen) {
   }
 
   g->GenBuffers(1, &g->vbo);
-  g->BindBuffer(GL_ARRAY_BUFFER, g->vbo);
-  g->BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v->nvert * 6 * sizeof(float), v->vert, GL_STATIC_DRAW);
-
-  // obstacle edges: xyz + alpha
-  int nl     = v->nline;
-  float *lin = malloc((nl ? nl : 1) * 4 * sizeof(float));
-  for(int i = 0; i < nl; i++) {
-    memcpy(lin + i * 4, v->line + i * 3, 3 * sizeof(float));
-    lin[i * 4 + 3] = 1.0f;
-  }
   g->GenBuffers(1, &g->vbo_line);
-  g->BindBuffer(GL_ARRAY_BUFFER, g->vbo_line);
-  g->BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(nl ? nl : 1) * 4 * sizeof(float), lin, GL_STATIC_DRAW);
-  free(lin);
+  upload_geometry(v, g);
 
   g->GenBuffers(1, &g->vbo_trail);
   g->BindBuffer(GL_ARRAY_BUFFER, g->vbo_trail);
@@ -391,6 +395,9 @@ void vis3d_draw(vis3d_t *v, double t) {
   if(g->vao) {
     g->BindVertexArray(g->vao);
   }
+  if(v->geom_dirty) {
+    upload_geometry(v, g);
+  }
   g->Viewport(0, 0, v->w, v->h);
   g->ClearColor(FOG[0], FOG[1], FOG[2], 1);
   g->Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -445,11 +452,13 @@ void vis3d_draw(vis3d_t *v, double t) {
   for(int i = 0; i < v->npart; i++) {
     const v3_part *pt     = &v->part[i];
     const v3_material *m = &v->mat[pt->material];
-    if(pt->link < 0 || m->alpha < 1.0f) {
+    const mat4 *F         = pt->link < 0 ? NULL : v3_part_frame(v, pt);
+    if(!F || m->alpha < 1.0f) {
       continue;
     }
-    g->UniformMatrix4fv(U(g, P_MESH, "uModel"), 1, GL_FALSE, v->link[pt->link].m);
-    set_material(v, g, m, v->tint[pt->link][3] > 0 ? v->tint[pt->link] : NULL, 0.55f);
+    int on_arm = F == &v->link[pt->link];  // a docked tool takes no link tint
+    g->UniformMatrix4fv(U(g, P_MESH, "uModel"), 1, GL_FALSE, F->m);
+    set_material(v, g, m, on_arm && v->tint[pt->link][3] > 0 ? v->tint[pt->link] : NULL, 0.55f);
     g->DrawArrays(GL_TRIANGLES, pt->first, pt->count);
   }
 
@@ -465,10 +474,11 @@ void vis3d_draw(vis3d_t *v, double t) {
     if(ob >= 0 && !v->show_obs) {
       continue;
     }
-    if(ob < 0 && m->alpha >= 1.0f) {
+    const mat4 *F        = ob >= 0 ? &I : v3_part_frame(v, pt);
+    if(!F || (ob < 0 && m->alpha >= 1.0f)) {
       continue;
     }
-    g->UniformMatrix4fv(U(g, P_MESH, "uModel"), 1, GL_FALSE, ob >= 0 ? I.m : v->link[pt->link].m);
+    g->UniformMatrix4fv(U(g, P_MESH, "uModel"), 1, GL_FALSE, F->m);
     float tint[4] = {0, 0, 0, 0};
     if(ob >= 0 && ob == v->nearest && v->guard > VIS3D_GUARD_OFF) {
       memcpy(tint, GUARD_COL[v->guard], sizeof(GUARD_COL[0]));

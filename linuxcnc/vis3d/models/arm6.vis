@@ -1,60 +1,14 @@
-# vis3d model: ARM-6, the six-axis cell of the robot branch.
-# The chain, joint limits and the arm's collision capsules come from
-# arm_sim's model (the same DH as armkins / genserkins), so the view and
-# the kinematics can't disagree; this file only dresses it up.
-include ../../../host/arm/arcmate/arcmate_base.arm
-
-units m
-
-# joint positions from LinuxCNC [deg]
-pin 1 joint.0.pos-fb
-pin 2 joint.1.pos-fb
-pin 3 joint.2.pos-fb
-pin 4 joint.3.pos-fb
-pin 5 joint.4.pos-fb
-pin 6 joint.5.pos-fb
+# vis3d model: ARM-6, the six-axis cell of the robot branch: the arm
+# (arm6_arm.vis) with a two-finger gripper and a demo cell. The chain, joint
+# limits and the arm's collision capsules come from arm_sim's model (the
+# same DH as armkins / genserkins), so the view and the kinematics can't
+# disagree; these files only dress it up.
+include arm6_arm.vis
 
 # the tool point: the gripper's fingertips, in the flange frame
 tcp 0 0 0.13
 
-# the look: a pale industrial arm, graphite motors, glowing joint rings
-material body   color 0.74 0.77 0.80 metal 0.2 rough 0.36
-material dark   color 0.09 0.11 0.13 metal 0.55 rough 0.30
-material metal  color 0.62 0.65 0.69 metal 0.95 rough 0.22
-material accent emissive 1.0 accent
-material grip   color 0.95 0.66 0.22 metal 0.1 rough 0.45 emissive 0.08
-
-# base: a plate on the floor (the pedestal capsule is arcmate_base.arm's)
-part 0 cylinder 0.26 0.05 at 0 0 0.025 material dark
-part 0 ring 0.262 0.012 0.012 at 0 0 0.056 material accent
-part 0 cylinder 0.19 0.06 at 0 0 0.37 material dark
-
-# link 1: the turret (frame at the J1 bearing, z up); J2 axis along +y at x = 0.15
-part 1 ring 0.175 0.014 0.024 at 0 0 -0.062 material accent
-part 1 cylinder 0.085 0.15 axis y at 0.15 -0.19 0 material dark
-part 1 ring 0.11 0.012 0.03 axis y at 0.15 0.125 0 material accent
-
-# link 2: the upper arm (x along the arm, z the J2 axis)
-part 2 ring 0.10 0.012 0.03 at 0 0 0.085 material accent
-part 2 box 0.46 0.11 0.13 at 0.30 0 0 material body
-part 2 ring 0.085 0.012 0.03 at 0.60 0 0.08 material accent
-part 2 cylinder 0.065 0.13 at 0.60 0 -0.15 material dark
-
-# link 3: the elbow; the forearm runs along +y to the wrist at (0.12, 0.65, 0)
-part 3 cylinder 0.07 0.16 axis y at 0.12 -0.10 0 material dark
-part 3 ring 0.09 0.012 0.025 axis y at 0.12 0.06 0 material accent
-part 3 cylinder 0.062 0.42 axis y at 0.12 0.33 0 material body
-
-# link 4: J4 rolls the forearm's front part (z along the forearm)
-part 4 ring 0.07 0.01 0.02 at 0 0 -0.11 material accent
-
-# link 5: the wrist
-part 5 ring 0.066 0.01 0.03 material accent
-part 5 cylinder 0.045 0.10 at 0 0 0 material dark
-
-# link 6: flange and a two-finger gripper (frame at the flange)
-part 6 cylinder 0.05 0.02 at 0 0 -0.01 material metal
-part 6 ring 0.052 0.006 0.006 at 0 0 0.002 material accent
+# a two-finger gripper on the flange
 part 6 box 0.09 0.05 0.05 at 0 0 0.03 material dark
 part 6 box 0.014 0.03 0.08 at 0.025 0 0.09 material grip
 part 6 box 0.014 0.03 0.08 at -0.025 0 0.09 material grip
@@ -63,5 +17,3 @@ part 6 box 0.014 0.03 0.08 at -0.025 0 0.09 material grip
 obstacle conveyor box 1.05 -0.15 0.38 0.22 0.70 0.38
 obstacle pallet box -0.15 0.95 0.08 0.40 0.30 0.08
 obstacle post capsule -0.85 -0.85 0 -0.85 -0.85 1.6 0.05
-
-camera 40 22 3.8 target 0.1 0.15 0.75

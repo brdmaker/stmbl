@@ -5,7 +5,7 @@
     <property name="geometry"><rect><x>0</x><y>0</y><width>1440</width><height>960</height></rect></property>
     <property name="windowTitle"><string>ARM-6</string></property>
     <widget class="QWidget" name="centralwidget">
-      <layout class="QVBoxLayout" name="layout_45">
+      <layout class="QVBoxLayout" name="layout_64">
         <property name="spacing"><number>12</number></property>
         <property name="leftMargin"><number>12</number></property>
         <property name="topMargin"><number>12</number></property>
@@ -44,6 +44,38 @@
               </item>
               <item>
                 <widget class="QWidget" name="w_1">
+                  <layout class="QHBoxLayout" name="layout_views">
+                    <property name="spacing"><number>4</number></property>
+                    <property name="leftMargin"><number>0</number></property>
+                    <property name="topMargin"><number>0</number></property>
+                    <property name="rightMargin"><number>0</number></property>
+                    <property name="bottomMargin"><number>0</number></property>
+                    <item>
+                      <widget class="QPushButton" name="btn_view_main">
+                        <property name="text"><string>OVERVIEW</string></property>
+                        <property name="checkable"><bool>true</bool></property>
+                        <property name="role" stdset="0"><string>view</string></property>
+                      </widget>
+                    </item>
+                    <item>
+                      <widget class="QPushButton" name="btn_view_jog">
+                        <property name="text"><string>JOG PAD</string></property>
+                        <property name="checkable"><bool>true</bool></property>
+                        <property name="role" stdset="0"><string>view</string></property>
+                      </widget>
+                    </item>
+                    <item>
+                      <widget class="QPushButton" name="btn_view_tools">
+                        <property name="text"><string>TOOLS</string></property>
+                        <property name="checkable"><bool>true</bool></property>
+                        <property name="role" stdset="0"><string>view</string></property>
+                      </widget>
+                    </item>
+                  </layout>
+                </widget>
+              </item>
+              <item>
+                <widget class="QWidget" name="w_2">
                   <layout class="QHBoxLayout" name="layout_modes">
                     <property name="spacing"><number>6</number></property>
                     <property name="leftMargin"><number>0</number></property>
@@ -82,7 +114,7 @@
                 </widget>
               </item>
               <item>
-                <spacer name="spacer_24">
+                <spacer name="spacer_38">
                   <property name="orientation"><enum>Qt::Horizontal</enum></property>
                   <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
                 </spacer>
@@ -152,8 +184,8 @@
           </widget>
         </item>
         <item>
-          <widget class="QWidget" name="w_23">
-            <layout class="QHBoxLayout" name="layout_43">
+          <widget class="QWidget" name="w_37">
+            <layout class="QHBoxLayout" name="layout_62">
               <property name="spacing"><number>12</number></property>
               <property name="leftMargin"><number>0</number></property>
               <property name="topMargin"><number>0</number></property>
@@ -161,88 +193,428 @@
               <property name="bottomMargin"><number>0</number></property>
               <property name="stretch" stdset="0"><string>3,5,3</string></property>
               <item>
-                <widget class="QWidget" name="w_20">
-                  <layout class="QVBoxLayout" name="layout_40">
-                    <property name="spacing"><number>12</number></property>
-                    <property name="leftMargin"><number>0</number></property>
-                    <property name="topMargin"><number>0</number></property>
-                    <property name="rightMargin"><number>0</number></property>
-                    <property name="bottomMargin"><number>0</number></property>
-                    <item>
-                      <widget class="QFrame" name="panel_joints">
-                        <property name="role" stdset="0"><string>panel</string></property>
-                        <layout class="QVBoxLayout" name="layout_5">
-                          <property name="spacing"><number>10</number></property>
-                          <property name="leftMargin"><number>14</number></property>
-                          <property name="topMargin"><number>14</number></property>
-                          <property name="rightMargin"><number>14</number></property>
-                          <property name="bottomMargin"><number>14</number></property>
-                          <item>
-                            <widget class="QWidget" name="w_2">
-                              <layout class="QHBoxLayout" name="layout_3">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_joints">
-                                    <property name="text"><string>JOINTS</string></property>
-                                    <property name="role" stdset="0"><string>caption</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_25">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="cap_joints_u">
-                                    <property name="text"><string>deg · deg/s · f-error</string></property>
-                                    <property name="role" stdset="0"><string>caption dim</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="joint_rows">
-                              <layout class="QVBoxLayout" name="layout_4">
-                                <property name="spacing"><number>0</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QLabel" name="cap_drives">
-                              <property name="text"><string>DRIVES (stmbl)</string></property>
-                              <property name="role" stdset="0"><string>caption</string></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QTableWidget" name="table_drives">
-                              <property name="minimumSize"><size><width>0</width><height>200</height></size></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <spacer name="spacer_26">
-                              <property name="orientation"><enum>Qt::Vertical</enum></property>
-                              <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                            </spacer>
-                          </item>
-                        </layout>
-                      </widget>
-                    </item>
-                  </layout>
+                <widget class="QStackedWidget" name="stack_left">
+                  <widget class="QWidget" name="page_joints">
+                    <layout class="QVBoxLayout" name="layout_65">
+                      <property name="spacing"><number>0</number></property>
+                      <property name="leftMargin"><number>0</number></property>
+                      <property name="topMargin"><number>0</number></property>
+                      <property name="rightMargin"><number>0</number></property>
+                      <property name="bottomMargin"><number>0</number></property>
+                      <item>
+                        <widget class="QFrame" name="panel_joints">
+                          <property name="role" stdset="0"><string>panel</string></property>
+                          <layout class="QVBoxLayout" name="layout_5">
+                            <property name="spacing"><number>10</number></property>
+                            <property name="leftMargin"><number>14</number></property>
+                            <property name="topMargin"><number>14</number></property>
+                            <property name="rightMargin"><number>14</number></property>
+                            <property name="bottomMargin"><number>14</number></property>
+                            <item>
+                              <widget class="QWidget" name="w_3">
+                                <layout class="QHBoxLayout" name="layout_3">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_joints">
+                                      <property name="text"><string>JOINTS</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_39">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="cap_joints_u">
+                                      <property name="text"><string>deg · deg/s · f-error</string></property>
+                                      <property name="role" stdset="0"><string>caption dim</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="joint_rows">
+                                <layout class="QVBoxLayout" name="layout_4">
+                                  <property name="spacing"><number>0</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="cap_drives">
+                                <property name="text"><string>DRIVES (stmbl)</string></property>
+                                <property name="role" stdset="0"><string>caption</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QTableWidget" name="table_drives">
+                                <property name="minimumSize"><size><width>0</width><height>200</height></size></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <spacer name="spacer_40">
+                                <property name="orientation"><enum>Qt::Vertical</enum></property>
+                                <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                              </spacer>
+                            </item>
+                          </layout>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
+                  <widget class="QWidget" name="page_jogj">
+                    <layout class="QVBoxLayout" name="layout_66">
+                      <property name="spacing"><number>0</number></property>
+                      <property name="leftMargin"><number>0</number></property>
+                      <property name="topMargin"><number>0</number></property>
+                      <property name="rightMargin"><number>0</number></property>
+                      <property name="bottomMargin"><number>0</number></property>
+                      <item>
+                        <widget class="QFrame" name="panel_jogj">
+                          <property name="role" stdset="0"><string>panel</string></property>
+                          <layout class="QVBoxLayout" name="layout_42">
+                            <property name="spacing"><number>12</number></property>
+                            <property name="leftMargin"><number>14</number></property>
+                            <property name="topMargin"><number>14</number></property>
+                            <property name="rightMargin"><number>14</number></property>
+                            <property name="bottomMargin"><number>14</number></property>
+                            <item>
+                              <widget class="QWidget" name="w_21">
+                                <layout class="QHBoxLayout" name="layout_40">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jogj">
+                                      <property name="text"><string>JOINT JOG</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_41">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jogj_u">
+                                      <property name="text"><string>deg · a key jogs in joint mode</string></property>
+                                      <property name="role" stdset="0"><string>caption dim</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="jogj_rows">
+                                <layout class="QVBoxLayout" name="layout_41">
+                                  <property name="spacing"><number>0</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <spacer name="spacer_42">
+                                <property name="orientation"><enum>Qt::Vertical</enum></property>
+                                <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                              </spacer>
+                            </item>
+                          </layout>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
+                  <widget class="QWidget" name="page_tools">
+                    <layout class="QVBoxLayout" name="layout_67">
+                      <property name="spacing"><number>0</number></property>
+                      <property name="leftMargin"><number>0</number></property>
+                      <property name="topMargin"><number>0</number></property>
+                      <property name="rightMargin"><number>0</number></property>
+                      <property name="bottomMargin"><number>0</number></property>
+                      <item>
+                        <widget class="QFrame" name="panel_tools">
+                          <property name="role" stdset="0"><string>panel</string></property>
+                          <layout class="QVBoxLayout" name="layout_59">
+                            <property name="spacing"><number>8</number></property>
+                            <property name="leftMargin"><number>14</number></property>
+                            <property name="topMargin"><number>14</number></property>
+                            <property name="rightMargin"><number>14</number></property>
+                            <property name="bottomMargin"><number>14</number></property>
+                            <item>
+                              <widget class="QWidget" name="w_28">
+                                <layout class="QHBoxLayout" name="layout_51">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_tools">
+                                      <property name="text"><string>TOOL CHANGER</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_43">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_state">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>guard</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="cap_mounted">
+                                <property name="text"><string>ON THE FLANGE</string></property>
+                                <property name="role" stdset="0"><string>caption dim</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="lbl_tool_mounted">
+                                <property name="text"><string>-</string></property>
+                                <property name="role" stdset="0"><string>pose</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="lbl_tool_tcp">
+                                <property name="text"><string>-</string></property>
+                                <property name="role" stdset="0"><string>mono dim</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="cap_toollist">
+                                <property name="text"><string>TOOLS</string></property>
+                                <property name="role" stdset="0"><string>caption</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="tool_rows">
+                                <layout class="QVBoxLayout" name="layout_52">
+                                  <property name="spacing"><number>0</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_29">
+                                <layout class="QHBoxLayout" name="layout_53">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_tool_putback">
+                                      <property name="text"><string>Put the tool back (T0 M6)</string></property>
+                                      <property name="role" stdset="0"><string>small</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_44">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="lbl_chg_progress">
+                                <property name="text"><string>-</string></property>
+                                <property name="role" stdset="0"><string>mono</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QLabel" name="cap_changer">
+                                <property name="text"><string>CHANGER</string></property>
+                                <property name="role" stdset="0"><string>caption</string></property>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_30">
+                                <layout class="QHBoxLayout" name="layout_54">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_c1">
+                                      <property name="text"><string>Lock valve</string></property>
+                                      <property name="role" stdset="0"><string>muted</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_45">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_valve">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_31">
+                                <layout class="QHBoxLayout" name="layout_55">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_c2">
+                                      <property name="text"><string>Sensors</string></property>
+                                      <property name="role" stdset="0"><string>muted</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_46">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_sensors">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_32">
+                                <layout class="QHBoxLayout" name="layout_56">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_c3">
+                                      <property name="text"><string>Coded tool ID</string></property>
+                                      <property name="role" stdset="0"><string>muted</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_47">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_id">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_33">
+                                <layout class="QHBoxLayout" name="layout_57">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_c4">
+                                      <property name="text"><string>Kinematics on</string></property>
+                                      <property name="role" stdset="0"><string>muted</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_48">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_kins">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_34">
+                                <layout class="QHBoxLayout" name="layout_58">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_c5">
+                                      <property name="text"><string>Fault</string></property>
+                                      <property name="role" stdset="0"><string>muted</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_49">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_chg_fault">
+                                      <property name="text"><string>-</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <spacer name="spacer_50">
+                                <property name="orientation"><enum>Qt::Vertical</enum></property>
+                                <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                              </spacer>
+                            </item>
+                          </layout>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
                 </widget>
               </item>
               <item>
-                <widget class="QWidget" name="w_21">
-                  <layout class="QVBoxLayout" name="layout_41">
+                <widget class="QWidget" name="w_36">
+                  <layout class="QVBoxLayout" name="layout_61">
                     <property name="spacing"><number>12</number></property>
                     <property name="leftMargin"><number>0</number></property>
                     <property name="topMargin"><number>0</number></property>
@@ -259,7 +631,7 @@
                           <property name="rightMargin"><number>14</number></property>
                           <property name="bottomMargin"><number>14</number></property>
                           <item>
-                            <widget class="QWidget" name="w_4">
+                            <widget class="QWidget" name="w_5">
                               <layout class="QHBoxLayout" name="layout_13">
                                 <property name="spacing"><number>14</number></property>
                                 <property name="leftMargin"><number>0</number></property>
@@ -273,7 +645,7 @@
                                   </widget>
                                 </item>
                                 <item>
-                                  <spacer name="spacer_27">
+                                  <spacer name="spacer_51">
                                     <property name="orientation"><enum>Qt::Horizontal</enum></property>
                                     <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
                                   </spacer>
@@ -307,7 +679,7 @@
                             </widget>
                           </item>
                           <item>
-                            <widget class="QWidget" name="w_3">
+                            <widget class="QWidget" name="w_4">
                               <layout class="QGridLayout" name="layout_12">
                                 <property name="spacing"><number>8</number></property>
                                 <property name="leftMargin"><number>0</number></property>
@@ -444,7 +816,7 @@
                             </widget>
                           </item>
                           <item>
-                            <widget class="QWidget" name="w_5">
+                            <widget class="QWidget" name="w_6">
                               <layout class="QHBoxLayout" name="layout_15">
                                 <property name="spacing"><number>20</number></property>
                                 <property name="leftMargin"><number>0</number></property>
@@ -470,7 +842,7 @@
                                   </widget>
                                 </item>
                                 <item>
-                                  <spacer name="spacer_28">
+                                  <spacer name="spacer_52">
                                     <property name="orientation"><enum>Qt::Horizontal</enum></property>
                                     <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
                                   </spacer>
@@ -491,7 +863,7 @@
                           <property name="rightMargin"><number>14</number></property>
                           <property name="bottomMargin"><number>14</number></property>
                           <item>
-                            <widget class="QWidget" name="w_6">
+                            <widget class="QWidget" name="w_7">
                               <layout class="QHBoxLayout" name="layout_17">
                                 <property name="spacing"><number>6</number></property>
                                 <property name="leftMargin"><number>0</number></property>
@@ -505,7 +877,7 @@
                                   </widget>
                                 </item>
                                 <item>
-                                  <spacer name="spacer_29">
+                                  <spacer name="spacer_53">
                                     <property name="orientation"><enum>Qt::Horizontal</enum></property>
                                     <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
                                   </spacer>
@@ -549,7 +921,7 @@
                             </widget>
                           </item>
                           <item>
-                            <widget class="QWidget" name="w_7">
+                            <widget class="QWidget" name="w_8">
                               <layout class="QHBoxLayout" name="layout_18">
                                 <property name="spacing"><number>6</number></property>
                                 <property name="leftMargin"><number>0</number></property>
@@ -577,521 +949,747 @@
                 </widget>
               </item>
               <item>
-                <widget class="QWidget" name="w_22">
-                  <layout class="QVBoxLayout" name="layout_42">
-                    <property name="spacing"><number>12</number></property>
-                    <property name="leftMargin"><number>0</number></property>
-                    <property name="topMargin"><number>0</number></property>
-                    <property name="rightMargin"><number>0</number></property>
-                    <property name="bottomMargin"><number>0</number></property>
-                    <item>
-                      <widget class="QFrame" name="panel_jog">
-                        <property name="role" stdset="0"><string>panel</string></property>
-                        <layout class="QVBoxLayout" name="layout_25">
-                          <property name="spacing"><number>10</number></property>
-                          <property name="leftMargin"><number>14</number></property>
-                          <property name="topMargin"><number>14</number></property>
-                          <property name="rightMargin"><number>14</number></property>
-                          <property name="bottomMargin"><number>14</number></property>
-                          <item>
-                            <widget class="QLabel" name="cap_jog">
-                              <property name="text"><string>JOG</string></property>
-                              <property name="role" stdset="0"><string>caption</string></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_8">
-                              <layout class="QHBoxLayout" name="layout_20">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QPushButton" name="btn_frame_joint">
-                                    <property name="text"><string>JOINT</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_frame_world">
-                                    <property name="text"><string>WORLD</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_frame_tool">
-                                    <property name="text"><string>TOOL</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_9">
-                              <layout class="QHBoxLayout" name="layout_21">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QPushButton" name="btn_inc_0">
-                                    <property name="text"><string>0.1</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_inc_1">
-                                    <property name="text"><string>1</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_inc_2">
-                                    <property name="text"><string>10</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_inc_3">
-                                    <property name="text"><string>45</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_inc_cont">
-                                    <property name="text"><string>CONT</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg small</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="jog_rows">
-                              <layout class="QVBoxLayout" name="layout_22">
-                                <property name="spacing"><number>0</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_10">
-                              <layout class="QHBoxLayout" name="layout_23">
-                                <property name="spacing"><number>8</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_jogspeed">
-                                    <property name="text"><string>JOG SPEED</string></property>
-                                    <property name="role" stdset="0"><string>caption</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QSlider" name="slider_jog">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="minimum"><number>1</number></property>
-                                    <property name="maximum"><number>100</number></property>
-                                    <property name="value"><number>35</number></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_jog_speed">
-                                    <property name="text"><string>35%</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_11">
-                              <layout class="QHBoxLayout" name="layout_24">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QPushButton" name="btn_record">
-                                    <property name="text"><string>Record point</string></property>
-                                    <property name="role" stdset="0"><string>small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_home">
-                                    <property name="text"><string>Home all</string></property>
-                                    <property name="role" stdset="0"><string>small</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_30">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_points">
-                                    <property name="text"><string>0 points</string></property>
-                                    <property name="role" stdset="0"><string>mono dim</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                        </layout>
-                      </widget>
-                    </item>
-                    <item>
-                      <widget class="QFrame" name="panel_grip">
-                        <property name="role" stdset="0"><string>panel</string></property>
-                        <layout class="QVBoxLayout" name="layout_32">
-                          <property name="spacing"><number>10</number></property>
-                          <property name="leftMargin"><number>14</number></property>
-                          <property name="topMargin"><number>14</number></property>
-                          <property name="rightMargin"><number>14</number></property>
-                          <property name="bottomMargin"><number>14</number></property>
-                          <item>
-                            <widget class="QWidget" name="w_12">
-                              <layout class="QHBoxLayout" name="layout_26">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_grip">
-                                    <property name="text"><string>GRIPPER</string></property>
-                                    <property name="role" stdset="0"><string>caption</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_31">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_grip_state">
-                                    <property name="text"><string>-</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_13">
-                              <layout class="QHBoxLayout" name="layout_27">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QPushButton" name="btn_grip_open">
-                                    <property name="text"><string>Open</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <widget class="QPushButton" name="btn_grip_close">
-                                    <property name="text"><string>Close</string></property>
-                                    <property name="checkable"><bool>true</bool></property>
-                                    <property name="role" stdset="0"><string>seg</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_14">
-                              <layout class="QGridLayout" name="layout_31">
-                                <property name="spacing"><number>8</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item row="0" column="0">
-                                  <layout class="QVBoxLayout" name="layout_28">
-                                    <property name="spacing"><number>2</number></property>
-                                    <property name="leftMargin"><number>0</number></property>
-                                    <property name="topMargin"><number>0</number></property>
-                                    <property name="rightMargin"><number>0</number></property>
-                                    <property name="bottomMargin"><number>0</number></property>
-                                    <item>
-                                      <widget class="QLabel" name="cap_gw">
-                                        <property name="text"><string>WIDTH</string></property>
-                                        <property name="role" stdset="0"><string>caption dim</string></property>
-                                      </widget>
-                                    </item>
-                                    <item>
-                                      <widget class="QLabel" name="lbl_grip_width">
-                                        <property name="text"><string>- mm</string></property>
-                                        <property name="role" stdset="0"><string>mono big</string></property>
-                                      </widget>
-                                    </item>
-                                  </layout>
-                                </item>
-                                <item row="0" column="1">
-                                  <layout class="QVBoxLayout" name="layout_29">
-                                    <property name="spacing"><number>2</number></property>
-                                    <property name="leftMargin"><number>0</number></property>
-                                    <property name="topMargin"><number>0</number></property>
-                                    <property name="rightMargin"><number>0</number></property>
-                                    <property name="bottomMargin"><number>0</number></property>
-                                    <item>
-                                      <widget class="QLabel" name="cap_gc">
-                                        <property name="text"><string>CURRENT</string></property>
-                                        <property name="role" stdset="0"><string>caption dim</string></property>
-                                      </widget>
-                                    </item>
-                                    <item>
-                                      <widget class="QLabel" name="lbl_grip_current">
-                                        <property name="text"><string>- A</string></property>
-                                        <property name="role" stdset="0"><string>mono big</string></property>
-                                      </widget>
-                                    </item>
-                                  </layout>
-                                </item>
-                                <item row="0" column="2">
-                                  <layout class="QVBoxLayout" name="layout_30">
-                                    <property name="spacing"><number>2</number></property>
-                                    <property name="leftMargin"><number>0</number></property>
-                                    <property name="topMargin"><number>0</number></property>
-                                    <property name="rightMargin"><number>0</number></property>
-                                    <property name="bottomMargin"><number>0</number></property>
-                                    <item>
-                                      <widget class="QLabel" name="cap_gp">
-                                        <property name="text"><string>PAYLOAD</string></property>
-                                        <property name="role" stdset="0"><string>caption dim</string></property>
-                                      </widget>
-                                    </item>
-                                    <item>
-                                      <widget class="QLabel" name="lbl_grip_payload">
-                                        <property name="text"><string>- kg</string></property>
-                                        <property name="role" stdset="0"><string>mono big</string></property>
-                                      </widget>
-                                    </item>
-                                  </layout>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                        </layout>
-                      </widget>
-                    </item>
-                    <item>
-                      <widget class="QFrame" name="panel_quota">
-                        <property name="role" stdset="0"><string>panel</string></property>
-                        <layout class="QVBoxLayout" name="layout_34">
-                          <property name="spacing"><number>8</number></property>
-                          <property name="leftMargin"><number>14</number></property>
-                          <property name="topMargin"><number>14</number></property>
-                          <property name="rightMargin"><number>14</number></property>
-                          <property name="bottomMargin"><number>14</number></property>
-                          <item>
-                            <widget class="QLabel" name="cap_quota">
-                              <property name="text"><string>POWER QUOTA</string></property>
-                              <property name="role" stdset="0"><string>caption</string></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QProgressBar" name="bar_quota">
-                              <property name="maximum"><number>1000</number></property>
-                              <property name="value"><number>0</number></property>
-                              <property name="textVisible"><bool>false</bool></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_15">
-                              <layout class="QHBoxLayout" name="layout_33">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="lbl_quota_power">
-                                    <property name="text"><string>- W</string></property>
-                                    <property name="role" stdset="0"><string>mono dim</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_32">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_quota_feed">
-                                    <property name="text"><string>feed - %</string></property>
-                                    <property name="role" stdset="0"><string>mono dim</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                        </layout>
-                      </widget>
-                    </item>
-                    <item>
-                      <widget class="QFrame" name="panel_safety">
-                        <property name="role" stdset="0"><string>panel</string></property>
-                        <layout class="QVBoxLayout" name="layout_39">
-                          <property name="spacing"><number>6</number></property>
-                          <property name="leftMargin"><number>14</number></property>
-                          <property name="topMargin"><number>14</number></property>
-                          <property name="rightMargin"><number>14</number></property>
-                          <property name="bottomMargin"><number>14</number></property>
-                          <item>
-                            <widget class="QLabel" name="cap_safety">
-                              <property name="text"><string>SAFETY</string></property>
-                              <property name="role" stdset="0"><string>caption</string></property>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_16">
-                              <layout class="QHBoxLayout" name="layout_35">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_s1">
-                                    <property name="text"><string>Collision guard</string></property>
-                                    <property name="role" stdset="0"><string>muted</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_33">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_safe_guard">
-                                    <property name="text"><string>-</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_17">
-                              <layout class="QHBoxLayout" name="layout_36">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_s2">
-                                    <property name="text"><string>Protective stop at</string></property>
-                                    <property name="role" stdset="0"><string>muted</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_34">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_safe_stop">
-                                    <property name="text"><string>-</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_18">
-                              <layout class="QHBoxLayout" name="layout_37">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_s3">
-                                    <property name="text"><string>Collision detector</string></property>
-                                    <property name="role" stdset="0"><string>muted</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_35">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_safe_collide">
-                                    <property name="text"><string>-</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                          <item>
-                            <widget class="QWidget" name="w_19">
-                              <layout class="QHBoxLayout" name="layout_38">
-                                <property name="spacing"><number>6</number></property>
-                                <property name="leftMargin"><number>0</number></property>
-                                <property name="topMargin"><number>0</number></property>
-                                <property name="rightMargin"><number>0</number></property>
-                                <property name="bottomMargin"><number>0</number></property>
-                                <item>
-                                  <widget class="QLabel" name="cap_s4">
-                                    <property name="text"><string>Drive faults</string></property>
-                                    <property name="role" stdset="0"><string>muted</string></property>
-                                  </widget>
-                                </item>
-                                <item>
-                                  <spacer name="spacer_36">
-                                    <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                                    <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                                  </spacer>
-                                </item>
-                                <item>
-                                  <widget class="QLabel" name="lbl_safe_drives">
-                                    <property name="text"><string>-</string></property>
-                                    <property name="role" stdset="0"><string>mono</string></property>
-                                  </widget>
-                                </item>
-                              </layout>
-                            </widget>
-                          </item>
-                        </layout>
-                      </widget>
-                    </item>
-                    <item>
-                      <spacer name="spacer_37">
-                        <property name="orientation"><enum>Qt::Vertical</enum></property>
-                        <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
-                      </spacer>
-                    </item>
-                  </layout>
+                <widget class="QStackedWidget" name="stack_right">
+                  <widget class="QWidget" name="page_right">
+                    <layout class="QVBoxLayout" name="layout_68">
+                      <property name="spacing"><number>0</number></property>
+                      <property name="leftMargin"><number>0</number></property>
+                      <property name="topMargin"><number>0</number></property>
+                      <property name="rightMargin"><number>0</number></property>
+                      <property name="bottomMargin"><number>0</number></property>
+                      <item>
+                        <widget class="QWidget" name="w_35">
+                          <layout class="QVBoxLayout" name="layout_60">
+                            <property name="spacing"><number>12</number></property>
+                            <property name="leftMargin"><number>0</number></property>
+                            <property name="topMargin"><number>0</number></property>
+                            <property name="rightMargin"><number>0</number></property>
+                            <property name="bottomMargin"><number>0</number></property>
+                            <item>
+                              <widget class="QFrame" name="panel_jog">
+                                <property name="role" stdset="0"><string>panel</string></property>
+                                <layout class="QVBoxLayout" name="layout_25">
+                                  <property name="spacing"><number>10</number></property>
+                                  <property name="leftMargin"><number>14</number></property>
+                                  <property name="topMargin"><number>14</number></property>
+                                  <property name="rightMargin"><number>14</number></property>
+                                  <property name="bottomMargin"><number>14</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jog">
+                                      <property name="text"><string>JOG</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_9">
+                                      <layout class="QHBoxLayout" name="layout_20">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_frame_joint">
+                                            <property name="text"><string>JOINT</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_frame_world">
+                                            <property name="text"><string>WORLD</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_frame_tool">
+                                            <property name="text"><string>TOOL</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_10">
+                                      <layout class="QHBoxLayout" name="layout_21">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_inc_0">
+                                            <property name="text"><string>0.1</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_inc_1">
+                                            <property name="text"><string>1</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_inc_2">
+                                            <property name="text"><string>10</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_inc_3">
+                                            <property name="text"><string>45</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_inc_cont">
+                                            <property name="text"><string>CONT</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg small</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="jog_rows">
+                                      <layout class="QVBoxLayout" name="layout_22">
+                                        <property name="spacing"><number>0</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_11">
+                                      <layout class="QHBoxLayout" name="layout_23">
+                                        <property name="spacing"><number>8</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_jogspeed">
+                                            <property name="text"><string>JOG SPEED</string></property>
+                                            <property name="role" stdset="0"><string>caption</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QSlider" name="slider_jog">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="minimum"><number>1</number></property>
+                                            <property name="maximum"><number>100</number></property>
+                                            <property name="value"><number>35</number></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_jog_speed">
+                                            <property name="text"><string>35%</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_12">
+                                      <layout class="QHBoxLayout" name="layout_24">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_record">
+                                            <property name="text"><string>Record point</string></property>
+                                            <property name="role" stdset="0"><string>small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_home">
+                                            <property name="text"><string>Home all</string></property>
+                                            <property name="role" stdset="0"><string>small</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_54">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_points">
+                                            <property name="text"><string>0 points</string></property>
+                                            <property name="role" stdset="0"><string>mono dim</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QFrame" name="panel_grip">
+                                <property name="role" stdset="0"><string>panel</string></property>
+                                <layout class="QVBoxLayout" name="layout_32">
+                                  <property name="spacing"><number>10</number></property>
+                                  <property name="leftMargin"><number>14</number></property>
+                                  <property name="topMargin"><number>14</number></property>
+                                  <property name="rightMargin"><number>14</number></property>
+                                  <property name="bottomMargin"><number>14</number></property>
+                                  <item>
+                                    <widget class="QWidget" name="w_13">
+                                      <layout class="QHBoxLayout" name="layout_26">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_grip">
+                                            <property name="text"><string>GRIPPER</string></property>
+                                            <property name="role" stdset="0"><string>caption</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_55">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_grip_state">
+                                            <property name="text"><string>-</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_14">
+                                      <layout class="QHBoxLayout" name="layout_27">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_grip_open">
+                                            <property name="text"><string>Open</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <widget class="QPushButton" name="btn_grip_close">
+                                            <property name="text"><string>Close</string></property>
+                                            <property name="checkable"><bool>true</bool></property>
+                                            <property name="role" stdset="0"><string>seg</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_15">
+                                      <layout class="QGridLayout" name="layout_31">
+                                        <property name="spacing"><number>8</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item row="0" column="0">
+                                          <layout class="QVBoxLayout" name="layout_28">
+                                            <property name="spacing"><number>2</number></property>
+                                            <property name="leftMargin"><number>0</number></property>
+                                            <property name="topMargin"><number>0</number></property>
+                                            <property name="rightMargin"><number>0</number></property>
+                                            <property name="bottomMargin"><number>0</number></property>
+                                            <item>
+                                              <widget class="QLabel" name="cap_gw">
+                                                <property name="text"><string>WIDTH</string></property>
+                                                <property name="role" stdset="0"><string>caption dim</string></property>
+                                              </widget>
+                                            </item>
+                                            <item>
+                                              <widget class="QLabel" name="lbl_grip_width">
+                                                <property name="text"><string>- mm</string></property>
+                                                <property name="role" stdset="0"><string>mono big</string></property>
+                                              </widget>
+                                            </item>
+                                          </layout>
+                                        </item>
+                                        <item row="0" column="1">
+                                          <layout class="QVBoxLayout" name="layout_29">
+                                            <property name="spacing"><number>2</number></property>
+                                            <property name="leftMargin"><number>0</number></property>
+                                            <property name="topMargin"><number>0</number></property>
+                                            <property name="rightMargin"><number>0</number></property>
+                                            <property name="bottomMargin"><number>0</number></property>
+                                            <item>
+                                              <widget class="QLabel" name="cap_gc">
+                                                <property name="text"><string>CURRENT</string></property>
+                                                <property name="role" stdset="0"><string>caption dim</string></property>
+                                              </widget>
+                                            </item>
+                                            <item>
+                                              <widget class="QLabel" name="lbl_grip_current">
+                                                <property name="text"><string>- A</string></property>
+                                                <property name="role" stdset="0"><string>mono big</string></property>
+                                              </widget>
+                                            </item>
+                                          </layout>
+                                        </item>
+                                        <item row="0" column="2">
+                                          <layout class="QVBoxLayout" name="layout_30">
+                                            <property name="spacing"><number>2</number></property>
+                                            <property name="leftMargin"><number>0</number></property>
+                                            <property name="topMargin"><number>0</number></property>
+                                            <property name="rightMargin"><number>0</number></property>
+                                            <property name="bottomMargin"><number>0</number></property>
+                                            <item>
+                                              <widget class="QLabel" name="cap_gp">
+                                                <property name="text"><string>PAYLOAD</string></property>
+                                                <property name="role" stdset="0"><string>caption dim</string></property>
+                                              </widget>
+                                            </item>
+                                            <item>
+                                              <widget class="QLabel" name="lbl_grip_payload">
+                                                <property name="text"><string>- kg</string></property>
+                                                <property name="role" stdset="0"><string>mono big</string></property>
+                                              </widget>
+                                            </item>
+                                          </layout>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QFrame" name="panel_quota">
+                                <property name="role" stdset="0"><string>panel</string></property>
+                                <layout class="QVBoxLayout" name="layout_34">
+                                  <property name="spacing"><number>8</number></property>
+                                  <property name="leftMargin"><number>14</number></property>
+                                  <property name="topMargin"><number>14</number></property>
+                                  <property name="rightMargin"><number>14</number></property>
+                                  <property name="bottomMargin"><number>14</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_quota">
+                                      <property name="text"><string>POWER QUOTA</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QProgressBar" name="bar_quota">
+                                      <property name="maximum"><number>1000</number></property>
+                                      <property name="value"><number>0</number></property>
+                                      <property name="textVisible"><bool>false</bool></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_16">
+                                      <layout class="QHBoxLayout" name="layout_33">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_quota_power">
+                                            <property name="text"><string>- W</string></property>
+                                            <property name="role" stdset="0"><string>mono dim</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_56">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_quota_feed">
+                                            <property name="text"><string>feed - %</string></property>
+                                            <property name="role" stdset="0"><string>mono dim</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QFrame" name="panel_safety">
+                                <property name="role" stdset="0"><string>panel</string></property>
+                                <layout class="QVBoxLayout" name="layout_39">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>14</number></property>
+                                  <property name="topMargin"><number>14</number></property>
+                                  <property name="rightMargin"><number>14</number></property>
+                                  <property name="bottomMargin"><number>14</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_safety">
+                                      <property name="text"><string>SAFETY</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_17">
+                                      <layout class="QHBoxLayout" name="layout_35">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_s1">
+                                            <property name="text"><string>Collision guard</string></property>
+                                            <property name="role" stdset="0"><string>muted</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_57">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_safe_guard">
+                                            <property name="text"><string>-</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_18">
+                                      <layout class="QHBoxLayout" name="layout_36">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_s2">
+                                            <property name="text"><string>Protective stop at</string></property>
+                                            <property name="role" stdset="0"><string>muted</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_58">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_safe_stop">
+                                            <property name="text"><string>-</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_19">
+                                      <layout class="QHBoxLayout" name="layout_37">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_s3">
+                                            <property name="text"><string>Collision detector</string></property>
+                                            <property name="role" stdset="0"><string>muted</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_59">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_safe_collide">
+                                            <property name="text"><string>-</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QWidget" name="w_20">
+                                      <layout class="QHBoxLayout" name="layout_38">
+                                        <property name="spacing"><number>6</number></property>
+                                        <property name="leftMargin"><number>0</number></property>
+                                        <property name="topMargin"><number>0</number></property>
+                                        <property name="rightMargin"><number>0</number></property>
+                                        <property name="bottomMargin"><number>0</number></property>
+                                        <item>
+                                          <widget class="QLabel" name="cap_s4">
+                                            <property name="text"><string>Drive faults</string></property>
+                                            <property name="role" stdset="0"><string>muted</string></property>
+                                          </widget>
+                                        </item>
+                                        <item>
+                                          <spacer name="spacer_60">
+                                            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                            <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                          </spacer>
+                                        </item>
+                                        <item>
+                                          <widget class="QLabel" name="lbl_safe_drives">
+                                            <property name="text"><string>-</string></property>
+                                            <property name="role" stdset="0"><string>mono</string></property>
+                                          </widget>
+                                        </item>
+                                      </layout>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <spacer name="spacer_61">
+                                <property name="orientation"><enum>Qt::Vertical</enum></property>
+                                <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                              </spacer>
+                            </item>
+                          </layout>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
+                  <widget class="QWidget" name="page_jogw">
+                    <layout class="QVBoxLayout" name="layout_69">
+                      <property name="spacing"><number>0</number></property>
+                      <property name="leftMargin"><number>0</number></property>
+                      <property name="topMargin"><number>0</number></property>
+                      <property name="rightMargin"><number>0</number></property>
+                      <property name="bottomMargin"><number>0</number></property>
+                      <item>
+                        <widget class="QFrame" name="panel_jogw">
+                          <property name="role" stdset="0"><string>panel</string></property>
+                          <layout class="QVBoxLayout" name="layout_50">
+                            <property name="spacing"><number>12</number></property>
+                            <property name="leftMargin"><number>14</number></property>
+                            <property name="topMargin"><number>14</number></property>
+                            <property name="rightMargin"><number>14</number></property>
+                            <property name="bottomMargin"><number>14</number></property>
+                            <item>
+                              <widget class="QWidget" name="w_22">
+                                <layout class="QHBoxLayout" name="layout_43">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jogw">
+                                      <property name="text"><string>WORLD JOG</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <spacer name="spacer_62">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jogw_u">
+                                      <property name="text"><string>mm · deg · on the tool point</string></property>
+                                      <property name="role" stdset="0"><string>caption dim</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_23">
+                                <layout class="QHBoxLayout" name="layout_44">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jinc_0">
+                                      <property name="text"><string>0.1</string></property>
+                                      <property name="checkable"><bool>true</bool></property>
+                                      <property name="role" stdset="0"><string>seg small</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jinc_1">
+                                      <property name="text"><string>1</string></property>
+                                      <property name="checkable"><bool>true</bool></property>
+                                      <property name="role" stdset="0"><string>seg small</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jinc_2">
+                                      <property name="text"><string>10</string></property>
+                                      <property name="checkable"><bool>true</bool></property>
+                                      <property name="role" stdset="0"><string>seg small</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jinc_3">
+                                      <property name="text"><string>45</string></property>
+                                      <property name="checkable"><bool>true</bool></property>
+                                      <property name="role" stdset="0"><string>seg small</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jinc_cont">
+                                      <property name="text"><string>CONT</string></property>
+                                      <property name="checkable"><bool>true</bool></property>
+                                      <property name="role" stdset="0"><string>seg small</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="jogw_rows">
+                                <layout class="QVBoxLayout" name="layout_45">
+                                  <property name="spacing"><number>0</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_24">
+                                <layout class="QHBoxLayout" name="layout_46">
+                                  <property name="spacing"><number>8</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QLabel" name="cap_jogspeed2">
+                                      <property name="text"><string>JOG SPEED</string></property>
+                                      <property name="role" stdset="0"><string>caption</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QSlider" name="slider_jog2">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="minimum"><number>1</number></property>
+                                      <property name="maximum"><number>100</number></property>
+                                      <property name="value"><number>35</number></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_jog_speed2">
+                                      <property name="text"><string>35%</string></property>
+                                      <property name="role" stdset="0"><string>mono</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_25">
+                                <layout class="QHBoxLayout" name="layout_47">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jrecord">
+                                      <property name="text"><string>Record point</string></property>
+                                      <property name="role" stdset="0"><string>btn</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jhome">
+                                      <property name="text"><string>Home all</string></property>
+                                      <property name="role" stdset="0"><string>btn</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_26">
+                                <layout class="QHBoxLayout" name="layout_48">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jgrip_open">
+                                      <property name="text"><string>Grip open</string></property>
+                                      <property name="role" stdset="0"><string>btn</string></property>
+                                    </widget>
+                                  </item>
+                                  <item>
+                                    <widget class="QPushButton" name="btn_jgrip_close">
+                                      <property name="text"><string>Grip close</string></property>
+                                      <property name="role" stdset="0"><string>btn</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <widget class="QWidget" name="w_27">
+                                <layout class="QHBoxLayout" name="layout_49">
+                                  <property name="spacing"><number>6</number></property>
+                                  <property name="leftMargin"><number>0</number></property>
+                                  <property name="topMargin"><number>0</number></property>
+                                  <property name="rightMargin"><number>0</number></property>
+                                  <property name="bottomMargin"><number>0</number></property>
+                                  <item>
+                                    <spacer name="spacer_63">
+                                      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                                      <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                                    </spacer>
+                                  </item>
+                                  <item>
+                                    <widget class="QLabel" name="lbl_jpoints">
+                                      <property name="text"><string>0 points</string></property>
+                                      <property name="role" stdset="0"><string>mono dim</string></property>
+                                    </widget>
+                                  </item>
+                                </layout>
+                              </widget>
+                            </item>
+                            <item>
+                              <spacer name="spacer_64">
+                                <property name="orientation"><enum>Qt::Vertical</enum></property>
+                                <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
+                              </spacer>
+                            </item>
+                          </layout>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
                 </widget>
               </item>
             </layout>
@@ -1100,7 +1698,7 @@
         <item>
           <widget class="QFrame" name="footer">
             <property name="role" stdset="0"><string>panel</string></property>
-            <layout class="QHBoxLayout" name="layout_44">
+            <layout class="QHBoxLayout" name="layout_63">
               <property name="spacing"><number>18</number></property>
               <property name="leftMargin"><number>16</number></property>
               <property name="topMargin"><number>8</number></property>
@@ -1119,7 +1717,7 @@
                 </widget>
               </item>
               <item>
-                <spacer name="spacer_38">
+                <spacer name="spacer_65">
                   <property name="orientation"><enum>Qt::Horizontal</enum></property>
                   <property name="sizeHint"><size><width>0</width><height>0</height></size></property>
                 </spacer>

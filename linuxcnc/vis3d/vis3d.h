@@ -40,6 +40,17 @@ void vis3d_joint_limits(const vis3d_t *v, int j, double *min, double *max);
 int vis3d_obstacles(const vis3d_t *v);
 const char *vis3d_obstacle_name(const vis3d_t *v, int i);
 
+// add a cell file (armguard's / arm_sim's, metres): its obstacles and the
+// tool table it includes (tool, tcp, dock and `body ... tool N` lines);
+// everything else in it is skipped. Before or after vis3d_gl_init.
+int vis3d_load_cell(vis3d_t *v, const char *path, char *err, int errlen);
+// the tool changer's tools: count, and tool i's id and name
+int vis3d_tools(const vis3d_t *v);
+const char *vis3d_tool(const vis3d_t *v, int i, int *id);
+// the tool on the flange (its id, 0 none): drawn there with its tool point;
+// the other tools sit in their docks
+void vis3d_set_tool(vis3d_t *v, int id);
+
 // joint positions [deg, or model units for a prismatic joint]
 void vis3d_set_joints(vis3d_t *v, const double *q, int n);
 // the frame of link k (0 = base, k = after joint k) or of the tool point

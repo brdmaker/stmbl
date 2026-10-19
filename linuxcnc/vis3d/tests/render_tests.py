@@ -2,7 +2,8 @@
 """vis3d drawing, offscreen (vis3d_render, EGL): the ARM-6 model in every GL
 flavour the library supports (GLES 3 as on a Pi 4, GLES 2, GL 3.3 core,
 GL 3.1 and 2.1 as a Pi 4's desktop GL gives QtVCP on X11), checked on the image:
-the scene is there, the flavours agree, the overlays show. TAP output.
+the scene is there, the flavours agree, the overlays show, a tool change
+moves the tool. TAP output.
 Also prints the frame rate (here: Mesa's software renderer, not a GPU).
 """
 import os
@@ -48,9 +49,9 @@ def px(rows, x, y):
     return r[3 * x], r[3 * x + 1], r[3 * x + 2]
 
 
-def render(name, *args):
+def render(name, *args, model=MODEL):
     out = os.path.join(OUT, name + ".png")
-    p = subprocess.run([RENDER, MODEL, "-o", out, "-s", "%dx%d" % (W, H)] + list(args),
+    p = subprocess.run([RENDER, model, "-o", out, "-s", "%dx%d" % (W, H)] + list(args),
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return p.returncode, p.stdout, out
 
@@ -104,6 +105,21 @@ if base:
         trail = sum(1 for y in range(H) for x in range(W)
                     if px(a, x, y) != px(b, x, y) and px(a, x, y)[0] > px(a, x, y)[2] + 40)
     ok(trail > 60, "the trail of a move shows (%d warm pixels)" % trail)
+
+# the tool changer: tool 2 on the flange instead of in its dock moves its
+# pixels; the cell's tool table and fixture load
+CHANGER = os.path.join(HERE, "models", "arm6_changer.vis")
+CELL = os.path.join(HERE, "..", "..", "hwtest", "arcmate-sim", "cell_changer.txt")
+tq = ["-q", "30,-90,0,0,-90,180", "--cam", "10,20,2.6", "--cell", CELL]
+rc1, o1, p1 = render("changer_t0", *tq, "--tool", "0", model=CHANGER)
+rc2, o2, p2 = render("changer_t2", *tq, "--tool", "2", model=CHANGER)
+moved = 0
+if rc1 == 0 and rc2 == 0:
+    a, b = read_png(p1)[2], read_png(p2)[2]
+    moved = sum(1 for y in range(H) for x in range(W) if sum(abs(i - j) for i, j in zip(px(a, x, y), px(b, x, y))) > 60)
+else:
+    print("# " + (o1 + o2).replace("\n", "\n# "))
+ok(moved > 300, "a tool change shows: tool 2 leaves its dock for the flange (%d pixels changed)" % moved)
 
 rc, out, _ = render("bench", "--api", "gles3", "-s", "1280x720", "--bench", "60")
 fps = [l for l in out.splitlines() if "fps" in l]

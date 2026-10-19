@@ -1,4 +1,11 @@
 # ARM-6 as LinuxCNC sees it (hwtest/arcmate-sim, genserkins): the joint
-# positions are the DH theta, theta0 included (J2 is -90 at home)
-include arm6.vis
+# positions are the DH theta, theta0 included (J2 is -90 at home). The
+# electric gripper fixed on the flange (arcmate_gripper.arm: jaws 150 mm
+# out). The cell comes from armguard's cell file (the screen loads it).
+include arm6_arm.vis
 joints theta
+
+tcp 0 0 0.15
+part 6 box 0.09 0.05 0.07 at 0 0 0.045 material dark
+part 6 box 0.014 0.03 0.07 at 0.025 0 0.115 material grip
+part 6 box 0.014 0.03 0.07 at -0.025 0 0.115 material grip
