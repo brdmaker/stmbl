@@ -18,6 +18,12 @@ Tests, each against the v4.0 schematic (hw/kicad/v4.0, sheet fb.sch):
   pairs       each pair driven differentially both ways: the termination
               (the share of Vcc across it), the receiver (a/b/z), and the
               sin/cos front end (it clips at about +1.08 / -1.22 V)
+  transmit    the drive's transceivers (comp fbtx, loaded into RAM with
+              conf/template/fbtest_fb1.txt; the drive is reset afterwards,
+              its flash config is not touched): each pair both ways into
+              the 120 R termination (differential and offset voltage, the
+              other pairs undisturbed), then quadrature at 1 ms a step,
+              edges counted by the Uno
 
 Results go to runs/<date>-<time>/ (summary.md, results.json, fbtest.log).
 """
@@ -51,11 +57,16 @@ TERM_SHARE = (0.62, 0.80)  # V across the pair / Vcc: 120 R with ~25 R each side
 CLIP_POS = (0.95, 1.2)     # V, sin/cos with the pair driven
 CLIP_NEG = (-1.35, -1.0)
 CROSS = 0.05               # V on the other analog channel
+VOD = (2.0, 4.5)           # V, driver differential into 120 R (RS-422: >= 2)
+VOC = (1.0, 3.0)           # V, driver offset (common mode)
+UNDISTURBED = 0.03         # V, the pairs not transmitting stay at idle
+QUAD_DIV = 5               # rt periods a quadrature step (rt 5 kHz: 1 ms)
+QUAD_EDGES = (490, 510)    # edges on a and b in 1 s: one every 2 steps
 
 
 class Uno:
     def __init__(self, port, log):
-        self.s = serial.Serial(port, 115200, timeout=2)
+        self.s = serial.Serial(port, 115200, timeout=3)
         self.log = log
         time.sleep(2.0)  # opening the port resets the Uno
         self.s.reset_input_buffer()
@@ -94,13 +105,17 @@ class Drive:
     def __init__(self, dev, port, log):
         self.dev, self.port, self.log = dev, port, log
 
-    def get(self, *names):
+    def run(self, *cmds):
         args = [CLI, '-d', self.dev, '-t', '0.3']
-        for n in names:
+        for n in cmds:
             args += ['-c', n]
         out = subprocess.run(args, capture_output=True, text=True,
                              timeout=30).stdout
-        self.log('drive %s -> %s' % (' '.join(names), out.strip().replace('\n', ' | ')))
+        self.log('drive %s -> %s' % (' | '.join(cmds), out.strip().replace('\n', ' | ')))
+        return out
+
+    def get(self, *names):
+        out = self.run(*names)
         vals = {}
         for line in out.splitlines():
             if '=' in line:
@@ -139,6 +154,59 @@ class Run:
         return ok
 
 
+loaded = [False]
+TEMPLATE = os.path.join(HERE, '..', '..', 'conf', 'template', 'fbtest_fb1.txt')
+
+
+def reset_drive(drv, dev):
+    print('reset the drive (drops the RAM-only fbtx)')
+    drv.run('reset')
+    for _ in range(100):  # the USB console goes away and comes back
+        time.sleep(0.2)
+        if not os.path.exists(dev):
+            break
+    for _ in range(100):
+        if os.path.exists(dev):
+            break
+        time.sleep(0.2)
+    time.sleep(2)
+
+
+def transmit(run, uno, drv, idle, a):
+    print('transmit (the drive transceivers, fbtx in RAM)')
+    if 'fbtx0.rt_prio' not in drv.get('fbtx0.rt_prio'):
+        conf = [l.strip() for l in open(TEMPLATE) if l.strip() and not l.startswith('#')]
+        out = drv.run('stop', *conf, 'start')
+        loaded[0] = True
+        if 'not found' in out or 'fbtx0.rt_prio' not in drv.get('fbtx0.rt_prio'):
+            run.equal('transmit', 'fbtx loaded', 'no', 'yes')
+            return
+    uno.release()
+    for (pp, pn), r, _, _ in PAIRS:
+        for level in (1, 0):
+            hi, lo = (pp, pn) if level else (pn, pp)
+            tag = 'tx %s=%d' % (r, level)
+            drv.run('fbtx0.%s = %d' % (r, level), 'fbtx0.en_%s = 1' % r)
+            v, vcc = uno.pins(32)
+            drv.run('fbtx0.en_%s = 0' % r)
+            run.check('transmit', tag + ' pin %d-%d' % (hi, lo), v[hi] - v[lo], *VOD, unit='V')
+            run.check('transmit', tag + ' offset', (v[hi] + v[lo]) / 2, *VOC, unit='V')
+            others = [x for x in range(1, 7) if x not in (pp, pn)]
+            run.check('transmit', tag + ' other pairs', max(abs(v[x] - idle[x]) for x in others),
+                      0, UNDISTURBED, unit='V')
+    drv.run('fbtx0.div = %d' % QUAD_DIV, 'fbtx0.en_a = 1', 'fbtx0.en_b = 1')
+    time.sleep(0.1)
+    for pin, r in ((1, 'a'), (3, 'b')):
+        c = uno.cmd('c %d 1000' % (pin - 1)).split()
+        run.check('transmit', 'quadrature edges on pin %d (%s)' % (pin, r),
+                  int(c[1]) if len(c) == 2 and c[0] == 'c' else -1, *QUAD_EDGES)
+    drv.run('fbtx0.en_a = 0', 'fbtx0.en_b = 0', 'fbtx0.div = 0')
+    time.sleep(0.1)
+    v, vcc = uno.pins()
+    run.check('transmit', 'all released: max change from idle',
+              max(abs(v[x] - idle[x]) for x in range(1, 7)), 0, UNDISTURBED, unit='V')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -146,6 +214,10 @@ def main():
     ap.add_argument('--dev', default='/dev/ttyACM0', help='the drive console')
     ap.add_argument('--port', default='fb1', choices=['fb1'],
                     help='the drive port the fixture is on')
+    ap.add_argument('--no-transmit', action='store_true',
+                    help='skip the transmit test (no fbtx, no reset)')
+    ap.add_argument('--no-reset', action='store_true',
+                    help='leave fbtx loaded in RAM after the transmit test')
     a = ap.parse_args()
 
     out = os.path.join(HERE, 'runs', datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
@@ -204,8 +276,13 @@ def main():
                     run.check('pairs', tag + ' ' + an[ach], d[an[ach]], *clip, unit='V')
                     run.check('pairs', tag + ' ' + an[other], d[an[other]], -CROSS, CROSS, unit='V')
                 time.sleep(0.2)
+
+        if not a.no_transmit:
+            transmit(run, uno, drv, idle, a)
     finally:
         uno.release()
+        if loaded[0] and not a.no_reset:
+            reset_drive(drv, a.dev)
 
     bad = [x for x in run.results if not x['pass']]
     verdict = 'PASS' if not bad else 'FAIL'

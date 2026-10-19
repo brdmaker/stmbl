@@ -8,7 +8,10 @@ termination, line receivers, the analog front end, the 5 V supply.
 ./fbtest.py                 # Uno on /dev/ttyUSB0, drive on /dev/ttyACM0, fb1
 ```
 
-The drive must be disabled; no drive pin is changed. About 1 minute;
+The drive must be disabled. The transmit test loads the `fbtx` comp into
+RAM (`stop`, `conf/template/fbtest_fb1.txt`, `start`) and resets the drive
+afterwards; the flash config is never written (`--no-transmit` skips it).
+Needs firmware v0.9.18-318 or later. About 2 minutes;
 results in `runs/<date>-<time>/` (`summary.md`, `results.json`,
 `fbtest.log`).
 
@@ -18,10 +21,19 @@ results in `runs/<date>-<time>/` (`summary.md`, `results.json`,
 | idle | each line with the Uno hi-Z and the transceivers disabled (1k pull-downs on DE/RE): pins 1,2,3,6 ~1.05 V (SN65176B receiver ‖ 25k to the 1.83 V op-amp reference), pins 4,5 ~0.2 V (receiver only); the lines of a pair within 30 mV |
 | shunt | one line driven high: the drop across the 120 R termination gives the partner's resistance to its bias, ~13k (pins 1,2,3,6) or ~27k (4,5) |
 | pairs | each pair driven both ways: the share of Vcc across the termination (120 R against ~25 R per AVR output, 0.71), the receiver (`fb1a/b/z`, pins 1, 3, 5 positive), sin/cos at its clip level (+1.08 / −1.22 V) and the other channel near 0 |
+| transmit | `fbtx` drives each pair both ways into the 120 R termination: differential 2.0–4.5 V, offset 1–3 V, the other pairs within 30 mV of idle; then quadrature at 1 ms a step (`fbtx0.div = 5`), 500 edges/s on pins 1 and 3 counted by the Uno |
 
 Not covered yet: the sin/cos gain (the Uno's lines are only 0 / 5 V, past
-the ±1 V input range; needs a resistor divider on the fixture), the
-transceivers as drivers, encoder counting.
+the ±1 V input range; needs an analog source on the fixture), encoder
+counting of the Uno's quadrature.
+
+## fbtx
+
+`fbtx` (`src/comps/fbtx.c`) switches the fb1 transceivers to transmit:
+`en_a/en_b/en_z > 0` transmits `a/b/z` on pins 1-2, 3-6, 5-4; `div != 0`
+steps a/b in quadrature every `div` rt periods (z high in step 0). For a
+console session: `stop`, `load fbtx`, `fbtx0.rt_prio = 15`, `start`; a
+`reset` removes it.
 
 Wiring: A0..A5 to RJ45 pins 1..6. Power the Uno **from its USB only**;
 leave RJ45 pin 7 (the port's 5 V) off the Uno's 5V pin, with GND on pin 8
