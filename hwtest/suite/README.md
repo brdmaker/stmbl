@@ -95,4 +95,5 @@ answer (and the other way round). The tests keep to that.
 | `diag.txt` | drive state at a failure |
 | `*.conf`, `*.csv` | dumps and captures |
 
-For hours of motion use `hwtest/soak`.
+For hours of motion use `hwtest/soak`; for a board-level test of a
+feedback port (no motor) `hwtest/fbtest`.

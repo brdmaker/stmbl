@@ -22,8 +22,8 @@ and passes with it, committed together with the fix.
   1. host unit test (`host/tests/test_*.c`) or `host/tests/*.test` with
      `@expect`, run by `make -C host check`;
   2. LinuxCNC on the simulated drive (`hwtest/burnin-sim`, `make test-*`);
-  3. real hardware: `hwtest/suite` (`run_hwtest.sh hw`), or `hwtest/soak` for
-     faults that need hours.
+  3. real hardware: `hwtest/suite` (`run_hwtest.sh hw`), `hwtest/soak` for
+     faults that need hours, or `hwtest/fbtest` for feedback-port hardware.
 - Where practical, show the test failing first: run it before the fix, or
   against the drive or build that still has the bug.
 - Name the test in the bug's `DEBUGNOTES.md` entry (`Fix:` line). If no
