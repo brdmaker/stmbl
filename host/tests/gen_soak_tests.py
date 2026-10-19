@@ -26,6 +26,11 @@ conf0.pos_bw / vel_bw / vel_d, as on a real machine. --no-tune keeps the
 bench motor's gains. A motor whose tuning does not finish gets a test that
 fails with @fail.
 
+The encoder monitor (conf/template/encmon.txt) runs in every test, so the
+soak is also its false-trip test: the longest time its residual ratio
+stays above the trip threshold (0.3) must be under half its trip_time
+(20 ms). Its largest ratio is printed at each rest checkpoint too.
+
 conf0.cur_ind = 1 (back-EMF / cross-coupling feedforward in the current
 loop): with the default 0 the drive loses current control once the
 electrical speed's w * l exceeds the loop's cur_bw * l, e.g. the bench
@@ -103,6 +108,8 @@ class Profile:
         self.ramp_to(0.0, 1e9)
         self.hold(settle)
         self.lines.append("fault0.pos_error")
+        self.lines.append("encmon0.max_ratio")
+        self.lines.append("encmon0.max_timer")
 
     def move(self, dist, v, a):
         """Point-to-point move (trapezoid or triangle), ending at rest."""
@@ -251,7 +258,11 @@ conf0.max_ac_cur = {imax}
 conf0.max_force = {t_peak:.4g}
 conf0.max_vel = {max_vel:.1f}
 conf0.cur_ind = 1
-{gains}debug_level 0
+{gains}debug_level 1
+link encmon
+relink
+start
+debug_level 0
 lcnc 0 0
 run 0.5
 lcnc 1 0
@@ -267,6 +278,7 @@ iit0.temp
 @expect max|fault0.pos_error| < {ferror_rest:.4f}
 @expect max|hv0.sim_vel| < {vlim:.1f}
 @expect max|hv0.iq_fb| < {ilim:.3g}
+@expect max encmon0.max_timer < 0.01
 @reject ^ERROR
 """
 

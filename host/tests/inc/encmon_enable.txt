@@ -1,0 +1,13 @@
+# Bench motor (booted from the bench config) with the encoder monitor
+# (conf/template/encmon.txt), enabled through the simulated LinuxCNC link.
+# The including test sets its speed, then injects an encoder fault.
+conf0.cur_ind = 1
+debug_level 1
+link encmon
+relink
+start
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5

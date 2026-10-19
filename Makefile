@@ -118,6 +118,7 @@ SHARED_COMPS += shared/comps/sensorless.c
 SHARED_COMPS += shared/comps/field.c
 SHARED_COMPS += shared/comps/gain.c
 SHARED_COMPS += shared/comps/rlpsij.c
+SHARED_COMPS += shared/comps/encmon.c
 SHARED_COMPS += shared/comps/veltime.c
 SHARED_COMPS += shared/comps/mpid.c
 SHARED_COMPS += shared/comps/fmove.c

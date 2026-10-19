@@ -1475,3 +1475,54 @@ Entry format:
   current for their motor (ebrake: 25 % of max_ac_cur, syn_servo_2kw 4 A),
   wait 3 s and check `fault0.state == 1` before the ramp. Idea: a phasing
   suite over all motors and phasing currents.
+
+## 2026-10-14  Encoder monitor (encmon) prototype
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`, fault code
+           17 `FB_MON_ERROR` (`shared/common.h`, `fault.c` input
+           `fb_mon_error`), sim fault injection in `host/hw/enc_fb.c`
+           (`sim_freeze`, `sim_scale`, `sim_offset`); branch
+           `claude/encoder-monitor`
+- Status:  Note (prototype, sim only)
+- Symptom: (design) An encoder that loses/gains counts or slips its
+  coupling keeps the drive running with wrong position/commutation; the
+  position loop cannot see it.
+- Cause:   N/A.
+- Fix:     encmon checks the dq voltage equation with the encoder's angle
+  and speed. Lessons: use w differentiated from the encoder angle, not
+  vel2.vel (the observer lags ~55 rad/s el in a 3000 rad/s^2 ramp: healthy
+  ratio 0.30 -> 0.02), and rotate the back-EMF by delta = com_fb - hv0.pos
+  (the current loop's frame). Bench motor at 100 rad/s: 2% counts lost ->
+  trips in ~50 ms, 0.1 rad angle step in ~22 ms; frozen encoder: position
+  error trips first. Floor: ~17 deg el angle error. Blind below min_bemf
+  (5 V; bench motor ~21 rad/s). Model errors (r +40%, psi +-10%, l -50%)
+  keep the healthy ratio <= 0.21 (trip 0.3). Soak (35 motors) never trips;
+  longest time above 0.3 is 0.8 ms (syn_slow_lr, unramped velocity steps)
+  vs trip_time 20 ms. Untested: hardware, out_rev = 1, field weakening.
+
+## 2026-10-19  Encoder monitor against probe phasing: false residuals
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`
+- Status:  Fixed (the monitor); Open (probe phasing's angle error)
+- Symptom: merging encoder-monitor into master (probe phasing default),
+  `drive_encmon_ok` (healthy motor) peaked at a ratio of 0.99, then 0.56,
+  against 0.1 expected and a 0.3 trip level.
+- Cause:   1) `encmon0.en = fault0.en_out` checked while probing, when the
+  field is turned away from the rotor on purpose. 2) Probe phasing left the
+  commutation ~11 deg off on the bench motor in the sim (align: 0.3 deg)
+  until the index; the jump to the absolute angle at the index then made
+  a one-cycle speed spike in encmon's differentiated angle.
+- Fix:     the template gates on `fault0.en_pid` (phased; not in the
+  dynamic brake), `encmon0.com_src = fb_switch0.current_com_pos` (checks
+  only on an absolute angle, 1..3), and 20 ms hold with the filters reset
+  when the source changes. Test: `drive_encmon_ok.test`. Open: with probe
+  phasing and no index or absolute feedback the monitor never checks;
+  probe phasing's angle error itself (~11 deg) is worth improving.
+
+## 2026-10-19  Simulated encoder: summed rounding moved count edges
+- Area:    `host/hw/enc_fb.c` (sim)
+- Status:  Fixed
+- Symptom: after merging encoder-monitor, `stepper.test`'s acceleration
+  span 520 against < 400.
+- Cause:   encoder-monitor's fault injection summed the angle every cycle
+  (`mod(angle + d * scale)`); float rounding shifted count edges.
+- Fix:     faults kept as an offset to the shaft angle, exact without
+  one. Test: `stepper.test`.

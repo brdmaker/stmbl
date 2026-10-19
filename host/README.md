@@ -231,6 +231,13 @@ generated: edit `tests/motors.py` and run `python3 tests/gen_motor_tests.py`.
 Small j and l are read through a `scale` comp (x 1e6), because the console
 prints 6 decimals.
 
+`tests/drive_encmon_*.test` check the encoder monitor
+(`shared/comps/encmon.c`, `link encmon`): no trip when healthy, a trip
+(fault 17) on lost counts or an angle step, and its low-speed blind spot.
+The simulated encoder takes faults: `enc_fb0.sim_freeze`, `sim_scale` (gain
+on the counted angle, 1 = none) and `sim_offset` (added angle). The soak
+runs the monitor on every motor as its false-trip test.
+
 `tests/drive_highspeed.test` runs a motor to 288 rad/s at 3000 rad/s^2 and
 back (regression test for `vel2.g` in `conf/template/pid.txt`).
 

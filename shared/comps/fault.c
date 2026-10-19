@@ -24,6 +24,7 @@ HAL_PIN(mot_fb_error);
 HAL_PIN(com_fb_error);
 HAL_PIN(joint_fb_error);
 HAL_PIN(phase_error);  // fb_switch: autophasing failed
+HAL_PIN(fb_mon_error);  // encoder monitor (encmon): feedback disagrees with the motor
 HAL_PIN(hv_error);
 
 HAL_PIN(hv_temp);
@@ -103,6 +104,7 @@ static const char* fault_string[] = {
   "Motor overcurrent peak",
   "Motor overcurrent hw limit",
   "phasing failed (rotor blocked, or wrong motor/feedback setup)",
+  "encoder monitor",
 };
 
 struct fault_ctx_t {
@@ -132,6 +134,7 @@ static int stop_for(struct fault_pin_ctx_t *pins, fault_t f, int hv) {
     case MOT_FB_ERROR:
     case COM_FB_ERROR:
     case JOINT_FB_ERROR:
+    case FB_MON_ERROR:  // the encoder monitor: the feedback can't be trusted
       m = PIN(fb_stop) > 0.0 ? 2 : 0;  // no feedback: no quick stop
       break;
     case POS_ERROR:
@@ -251,6 +254,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->state      = SOFT_FAULT;
   }
 
+  if(PIN(fb_mon_error) > 0.0) {  // encmon filters and times it already
+    ctx->fault      = FB_MON_ERROR;
+    PIN(last_fault) = ctx->fault;
+    ctx->state      = SOFT_FAULT;
+  }
+
   // a quick stop brakes at the limit on purpose: no position or
   // saturation error then
   if(ctx->stop != 1 && PIN(max_pos_error) > 0 && (ABS(PIN(pos_error)) > PIN(max_pos_error))) {
@@ -310,7 +319,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     } else if(ctx->stop == 1 && now == 2) {
       ctx->stop = 2;
     } else if(ctx->stop == 1 && ctx->state == SOFT_FAULT && now == 0 &&
-              (ctx->fault == MOT_FB_ERROR || ctx->fault == COM_FB_ERROR || ctx->fault == JOINT_FB_ERROR)) {
+              (ctx->fault == MOT_FB_ERROR || ctx->fault == COM_FB_ERROR || ctx->fault == JOINT_FB_ERROR ||
+               ctx->fault == FB_MON_ERROR)) {
       ctx->stop = 0;  // no feedback and no dynamic brake: coast
     }
     if(PIN(stop_timer) > PIN(stop_time) || (ctx->stop == 1 && PIN(qstop_done) > 0.0) ||
