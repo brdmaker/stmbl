@@ -1,0 +1,3 @@
+load fb1_out
+fb1_out0.rt_prio = 15
+io0.fb1y = fb1_out0.en_a

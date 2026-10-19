@@ -351,6 +351,13 @@
 #define FB1_Z_TXEN_PIN_SOURCE GPIO_PinSource14
 #define FB1_Z_TXEN_PORT GPIOE
 
+// FB1 TX EN of the A and B transceivers (DE and /RE tied, 1k pull-down)
+#define FB1_A_TXEN_PIN GPIO_Pin_10
+#define FB1_A_TXEN_PORT GPIOE
+
+#define FB1_B_TXEN_PIN GPIO_Pin_12
+#define FB1_B_TXEN_PORT GPIOE
+
 #define FB1_ENC_TIM TIM1
 #define FB1_ENC_TIM_AF GPIO_AF_TIM1
 #define FB1_ENC_TIM_RCC RCC_APB2Periph_TIM1
