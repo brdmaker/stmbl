@@ -103,7 +103,9 @@ vel1.pos_in = fb_switch0.vel_fb
 vel1.en = fault0.en_fb
 vel1.torque = pid0.torque_cmd
 vel2.pos_in = fb_switch0.com_fb
-vel2.en = fault0.en_fb
+# not while phasing: the probe turns the field with no current
+# and its speed would be fed forward (cur_ind) as q current
+vel2.en = fb_switch0.state
 vel2.torque = pid0.torque_cmd
 pid0.en = fault0.en_pid
 # quick stop: between the command and pid

@@ -1,0 +1,25 @@
+# Probe autophasing with the current loop's decoupling on (conf0.cur_ind):
+# the angle it finds is the rotor's. The rotor starts at 0.3 rad (1.5 rad
+# electrical, 5 pole pairs) and the encoder counts from 0 at boot.
+# Before 2026-10-19 vel2 followed the field turns between the probe pulses
+# (up to ~94 rad/s with the rotor still) and cur_ind fed that speed forward
+# as q current, up to 0.15 A against a 0.125 A pulse: the estimate was
+# ~11.5 deg off (com_fb 1.70). pid.txt now runs vel2 only once phased
+# (vel2.en = fault0.en_pid). DEBUGNOTES "Probe phasing ~11 deg off".
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 60
+conf0.cur_ind = 1
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.3
+hv0.sim_pos = 0.3
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 3
+fault0.state
+fb_switch0.com_fb
+hv0.sim_pos
+@expect fault0.state == 1
+@expect hv0.sim_pos ~ 0.3 0.002
+@expect fb_switch0.com_fb ~ 1.5 0.035

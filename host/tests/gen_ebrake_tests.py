@@ -112,12 +112,9 @@ END = {
 }
 
 # probe autophasing (fb_switch phase_mode 1) before the ramp: at a share
-# of the motor's current, the heavy rotors still take ~2.5 s; checked.
-# syn_servo_2kw fails its phasing check at 7.5 A and phases at 4 A
-# (DEBUGNOTES 2026-10-19, tests/phasing_check_light_rotor.test)
+# of the motor's current, the heavy rotors still take ~2.5 s; checked
 PHASE_SHARE = 0.25
 PHASE_WAIT = 3.0
-PHASE_CUR = {"syn_servo_2kw": 4.0}
 
 FIRST = {  # the stop that runs, checked 30 ms in
     "link":   "fault0.stop\n@expect fault0.stop[1] == 1\n",
@@ -220,7 +217,7 @@ def main():
             text = TEMPLATE.format(
                 kind=kind, name=name, v0=v0, what=WHAT[kind], coast=coast, plan=plan, r=r, l=l, psi=psi,
                 pp=pp, j=j, f=f, d=d, imax=imax, t_peak=t_peak, max_vel=max_vel, known=known,
-                pcur=PHASE_CUR.get(name, PHASE_SHARE * imax), tphase=PHASE_WAIT,
+                pcur=PHASE_SHARE * imax, tphase=PHASE_WAIT,
                 ramp="\n".join(ramp(v0, amax)), trigger=TRIGGER[kind], first=first, end=END[kind], run=run,
                 ilim=1.3 * imax, ipeak=max(1.3 * imax, 0.95 * 30.0), dlim=dlim, vmin=0.8 * v0)
             with open(os.path.join(args.out, "ebrake_%s.test" % key), "w") as fh:

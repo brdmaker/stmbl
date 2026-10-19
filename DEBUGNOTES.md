@@ -1458,23 +1458,21 @@ Entry format:
   su lcnc -c 'cd .../hwtest/burnin-sim && make test-can'`.
 
 ## 2026-10-19  Probe phasing fails its check on a light rotor
-- Area:    `shared/comps/fb_switch.c` (phase_mode 1), host sim
-- Status:  Open
+- Area:    `shared/comps/fb_switch.c` (phase_mode 1), `conf/template/pid.txt`
+- Status:  Fixed
 - Symptom: merging emergency-braking, its generated suite enables each of
   the 35 motors of `motors.py` and phases with probe phasing (master's
   default since 2026-10-17). syn_servo_2kw (j 0.0012, f 0.9 Nm, 4 poles)
   at phase_cur 7.5 A: fault 17, phase_fail 2 (a check pulse moved the rotor
-  the wrong way). At 1 A and 4 A it phases in 0.6 s. At 15 % of their
-  current fanuc_a06b, move, syn_spindle and weiler_z were not phased
-  within 3 s (slow or failed, not looked at).
-- Cause:   not known yet. The bus and ebrake tests had waited 1.5 s after
-  enable, written when align phasing was the default; probe phasing of the
-  heavy rotors takes 2-4 s.
-- Fix:     Open. Reproducer `host/tests/phasing_check_light_rotor.test`
-  (@todo). The bus tests and the ebrake generator now set a phasing
-  current for their motor (ebrake: 25 % of max_ac_cur, syn_servo_2kw 4 A),
-  wait 3 s and check `fault0.state == 1` before the ramp. Idea: a phasing
-  suite over all motors and phasing currents.
+  the wrong way); 1 A and 4 A phased.
+- Cause:   the same as "Probe phasing ~11 deg off with cur_ind" (below):
+  the estimate was off, at a high current enough to fail the check. The
+  bus and ebrake tests had also waited 1.5 s after enable, written for
+  align phasing; probe phasing of the heavy rotors takes 2-4 s.
+- Fix:     vel2.en = fb_switch0.state. Tests:
+  `phasing_check_light_rotor.test`, `drive_phasing_cur_ind.test`. The bus
+  tests and the ebrake and soak generators set a phasing current for the
+  motor (25 % of max_ac_cur), wait 3 s and check `fault0.state == 1`.
 
 ## 2026-10-14  Encoder monitor (encmon) prototype
 - Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`, fault code
@@ -1501,7 +1499,7 @@ Entry format:
 
 ## 2026-10-19  Encoder monitor against probe phasing: false residuals
 - Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`
-- Status:  Fixed (the monitor); Open (probe phasing's angle error)
+- Status:  Fixed
 - Symptom: merging encoder-monitor into master (probe phasing default),
   `drive_encmon_ok` (healthy motor) peaked at a ratio of 0.99, then 0.56,
   against 0.1 expected and a 0.3 trip level.
@@ -1513,9 +1511,10 @@ Entry format:
 - Fix:     the template gates on `fault0.en_pid` (phased; not in the
   dynamic brake), `encmon0.com_src = fb_switch0.current_com_pos` (checks
   only on an absolute angle, 1..3), and 20 ms hold with the filters reset
-  when the source changes. Test: `drive_encmon_ok.test`. Open: with probe
-  phasing and no index or absolute feedback the monitor never checks;
-  probe phasing's angle error itself (~11 deg) is worth improving.
+  when the source changes. Test: `drive_encmon_ok.test`. The ~11 deg
+  itself: "Probe phasing ~11 deg off with cur_ind" (fixed). Still: with no
+  index or absolute feedback the monitor never checks (com_src stays 4);
+  with an accurate probe that gate could be relaxed.
 
 ## 2026-10-19  Simulated encoder: summed rounding moved count edges
 - Area:    `host/hw/enc_fb.c` (sim)
@@ -1555,3 +1554,33 @@ Entry format:
   (the angle jumps from align's estimate to the absolute one).
 - Fix:     `phasing.py` logs non-text console bytes ("console: bytes that
   are not text") instead of stopping. Watch both.
+
+## 2026-10-19  Probe phasing ~11 deg off with cur_ind
+- Area:    `conf/template/pid.txt` (vel2), `shared/comps/fb_switch.c`
+- Status:  Fixed
+- Symptom: in the sim, probe phasing on the bench motor ended 11.4..12.0
+  deg off with conf0.cur_ind = 1 from every start position (0.6 deg with
+  cur_ind = 0); the encoder monitor saw it as a bad encoder.
+- Cause:   vel2 (hv0.pos, hv0.vel from com_fb) followed the probe's field
+  turns between pulses: up to ~94 rad/s with the rotor still, ~5 rad/s left
+  when the next pulse started. cur_ind feeds that speed forward (uq +=
+  vel * psi): up to 0.15 A of q current between pulses against a 0.125 A
+  pulse, -0.04 A during it, so every pulse pushed ~17 deg off its angle,
+  always in the turn's direction.
+- Fix:     vel2.en = fb_switch0.state (0 while phasing or disabled): the
+  angle passes straight through, the speed is 0. `fault0.en_pid` was tried
+  first: id_pid runs without the pid, and the soak got worse. Test:
+  `drive_phasing_cur_ind.test` (com_fb 1.6965 against 1.5 +- 0.035 before).
+  The bench drive runs cur_ind 0, so its phasing was not affected;
+  configs with cur_ind 1 were. Not yet run on hardware.
+
+## 2026-10-19  Host soak: four motors failed since probe phasing became default
+- Area:    `host/tests/gen_soak_tests.py`
+- Status:  Fixed
+- Symptom: `make -C host soak` on master: fanuc_a06b and weiler_z (id_pid
+  did not finish, position error), sr8_0 and syn_slow_lr (following
+  error); not noticed when probe phasing became the default (2026-10-17).
+- Cause:   the profile started 1.5 s after enable; probe phasing of the
+  heavy rotors takes longer, at the bench drive's phase_cur (1 A) up to ~4 s.
+- Fix:     phase_cur at 25 % of the motor's current (id_pid too), 3 s,
+  `fault0.state[0] == 1` checked. Soak 381/385 (4 known).

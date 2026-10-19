@@ -1,10 +1,11 @@
 # Probe autophasing (fb_switch phase_mode 1) on a light, high-friction rotor
 # (syn_servo_2kw from motors.py: j 0.0012, f 0.9 Nm, 4 poles) at
 # phase_cur 7.5 A: the probe settles on an angle the check then rejects
-# (phase_fail 2: a check pulse moved the rotor the wrong way), fault 17.
-# At 1 A and 4 A it phases in 0.6 s. Found merging emergency-braking
-# (DEBUGNOTES "Probe phasing fails its check on a light rotor").
-@todo probe phasing fails its check on a light rotor at a high phasing current (DEBUGNOTES)
+# (phase_fail 2: a check pulse moved the rotor the wrong way), fault 17,
+# while 1 A and 4 A phased. Found merging emergency-braking; the cause was
+# vel2 feeding the probe's field turns forward as q current (cur_ind):
+# pid.txt runs vel2 only once phased (DEBUGNOTES "Probe phasing fails its
+# check on a light rotor", drive_phasing_cur_ind.test).
 @args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
 @timeout 120
 conf0.r = 0.3
