@@ -1542,3 +1542,16 @@ Entry format:
   units use 24. Test: `test_bootloader` "F4 pending mark in the layout of
   the bootloaders in the field". Recovered the bench drive with
   `make ssburn` (the loader writes the application directly).
+
+## 2026-10-19  Phasing suite: one align check move at 0.40 mm; a non-text console byte
+- Area:    `hwtest/phasing` on v0.9.18-343 (emergency braking merged)
+- Status:  Note
+- Symptom: 1) align (the old method, compared only) at 4.4 mm: check move
+  error 0.40 mm (limit 0.3; all others <= 0.156 mm), no fault. Not seen
+  again in 16 positions 0..4.5 mm (32/32) or on master. 2) the first run
+  stopped on a 0x80 byte in a USB console answer (UnicodeDecodeError);
+  not seen in the two runs after.
+- Cause:   not known. 1) perhaps the index found during the check move
+  (the angle jumps from align's estimate to the absolute one).
+- Fix:     `phasing.py` logs non-text console bytes ("console: bytes that
+  are not text") instead of stopping. Watch both.

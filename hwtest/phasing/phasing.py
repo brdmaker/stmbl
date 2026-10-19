@@ -57,8 +57,12 @@ class Suite:
     def cli(self, *cmds, quiet=0.3, timeout=30):
         args = [CLI, "-d", self.a.usb, "-t", str(quiet)] + sum([["-c", c] for c in cmds], [])
         try:
-            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-            out = r.stdout + r.stderr
+            r = subprocess.run(args, capture_output=True, timeout=timeout)
+            raw = r.stdout + r.stderr
+            # a byte that is not text (seen once: 0x80) is logged, not fatal
+            out = raw.decode("utf-8", errors="backslashreplace")
+            if "\\x" in out:
+                self.note("console: bytes that are not text: %r" % raw)
         except subprocess.TimeoutExpired:
             out = "timeout"
         self.note("$ %s\n%s" % (" ; ".join(cmds), out.strip()))
