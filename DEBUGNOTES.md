@@ -1598,3 +1598,19 @@ Entry format:
 - Fix:     `phasing.py` counts an align refusal with phase_fail 2 and less
   than `--dead-swing` (0.01 mm) movement as "ok (refused)", like the
   brake-held cases.
+
+## 2026-10-19  7C81 "sserialx8" firmware: smart-serial only on P7
+- Area:    Mesa 7C81 FPGA firmware (bench card)
+- Status:  Note
+- Symptom: the user's new build (sserialx8_latest.bit, TopGCSPIHostMot2,
+  6slx9tqg144, 2026/10/19 17:19) wrote and verified, and readhmid showed 1
+  SSerial with 8 channels, all on P7 (DB25: RX0-3 P7-01..04, TX0-3
+  P7-05..08, RX4-7 P7-09..15, TX4-7 P7-17..23, TXEn7 P7-25 only). P5/P6
+  (the RJ45 ports with the on-board RS-422 parts, where the drive is
+  cabled) are unassigned; no StepGen, QCount or PWM.
+- Cause:   that firmware's pin file.
+- Fix:     not testable on the bench as wired (needs RS-422 transceivers
+  on P7, or channels 0/1 on P5/P6 as in 7c81_5abobx2d). The card is back
+  on 7c81_5abobx2d.bit (verified, readhmid identical to before; LinuxCNC
+  link test ok). mesaflash cannot back up a 7C81's flash; restore by
+  writing the bitfile. Files: /home/cnc/stmbl-firmware/mesa-7c81-20261019-1742
