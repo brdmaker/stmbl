@@ -1,0 +1,37 @@
+# DC bus (host/hw/hv.c) at the top of the mains tolerance: 253 V (+10 %),
+# peak 356 V; the burn-in axis at rest.
+# 1. The simulator's chopper (sim_board.txt: 345 V, set below the
+#    template's conf0.high_dc_volt 350 V so that regeneration never reaches
+#    fault0's current scaling) clips every mains peak: ~460 W into the
+#    resistor at standstill. Fine for the suites at 230 V; not for a real
+#    supply card.
+# 2. The thresholds docs/emergency_stop.md recommends for the card: the
+#    chopper on at 375 V, off at 365 V, above the +10 % peak, and the
+#    drive's conf0.high_dc_volt / max_dc_volt raised to 385 / 400 V above
+#    it: the chopper idles, fault0 doesn't scale.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_mains = 253
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+hv0.sim_chop_e = 0
+run 1
+hv0.sim_chop_e
+hv0.sim_chop_on = 375
+hv0.sim_chop_off = 365
+conf0.high_dc_volt = 385
+conf0.max_dc_volt = 400
+run 0.1
+hv0.sim_chop_e = 0
+run 1
+hv0.sim_chop_e
+@sample hv0.dc_volt 0.001 0.04
+fault0.scale
+fault0.fault
+@expect hv0.sim_chop_e[2] > 300
+@expect hv0.sim_chop_e[4] < 1
+@expect max hv0.dc_volt < 360
+@expect min hv0.dc_volt > 350
+@expect fault0.scale == 1
+@expect fault0.fault == 0

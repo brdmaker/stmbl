@@ -1,0 +1,33 @@
+# DC bus (host/hw/hv.c): 230 V 50 Hz mains rectified into the drive's own
+# 540 uF, no capacitors on the supply. Burn-in axis at 188 rad/s against
+# 1.5 Nm of viscous load (~300 W); then the mains goes (sim_mains = 0).
+# The capacitors carry the axis for ~40 ms: the speed holds until the bus
+# is below what the motor needs at that speed (~190 V: back-EMF plus
+# L di/dt of this 23 mH winding), then falls, the position error grows to
+# conf0.max_pos_error and fault0 stops with the dynamic brake (err_stop =
+# 2; it needs no bus). The drive has no under-voltage stop of its own
+# above fault0.min_dc_volt: losing the mains shows up as a following error.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_d = 0.008
+run 0.5
+hv0.sim_dist = 0
+hv0.sim_mains = 0
+@sample hv0.sim_vel 0.005 0.035
+@sample hv0.sim_vbus 0.005 0.3
+fault0.last_fault
+fault0.stop
+hv0.sim_vel
+hv0.sim_dist
+@expect min hv0.sim_vel[1:7] > 186
+@expect hv0.sim_vbus[1] < 210
+@expect max hv0.sim_vbus < 300
+@expect fault0.last_fault == 5
+@expect fault0.stop == 0
+@expect hv0.sim_vel[-1] ~ 0 0.5
+@expect hv0.sim_dist < 25

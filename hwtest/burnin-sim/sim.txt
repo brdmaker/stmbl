@@ -15,5 +15,6 @@ hv0.sim_j = 0.00003
 # hv0.sim_load = -0.2
 # Holding brake [Nm], engaged while io0.out0 = 0:
 # hv0.sim_brake = 1.3
-# Supply [V]:
-hv0.sim_udc = 297
+# Mains [V rms], rectified into the drive's caps: the
+# bench's 297 V bus at rest (sim_supply = 0: sim_udc)
+hv0.sim_mains = 211

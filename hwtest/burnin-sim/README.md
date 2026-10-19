@@ -74,7 +74,7 @@ The simulated drive's HAL pins, for halshow or halscope:
 | `stmbl-sim.0.current` | out | motor current `hv0.iq_fb` [A] |
 | `stmbl-sim.0.enable` | in | drive enable |
 | `stmbl-sim.0.fault` | out | drive fault |
-| `stmbl-sim.0.index_enable` | io | index homing handshake (not wired in this config) |
+| `stmbl-sim.0.index_enable` | io | index homing handshake (not wired in this config; `can.hal` homes on the index over CAN) |
 | `stmbl-sim.0.out-00..03` | in | drive outputs `sserial0.out0..3` (`out-03` is the brake release) |
 | `stmbl-sim.0.in-00..03` | out | drive inputs |
 | `stmbl-sim.0.scale` | in | `sserial0.scale` (this config overrides it with `linrev0.scale = 10`) |
@@ -143,7 +143,8 @@ believes:
 hv0.sim_j = 0.00003      # datasheet inertia instead of conf0.j
 hv0.sim_load = -0.2      # constant load torque [Nm], e.g. gravity
 hv0.sim_brake = 1.3      # holding brake [Nm], engaged while io0.out0 = 0
-hv0.sim_udc = 297        # supply [V]
+hv0.sim_mains = 211      # mains [V rms]: the bench's 297 V bus
+hv0.sim_chop_r = 0       # no brake chopper on the supply
 ```
 
 | Pin | Default (from `sim_board.txt`) | What |
@@ -154,7 +155,13 @@ hv0.sim_udc = 297        # supply [V]
 | `hv0.sim_d`, `sim_f` | `conf0.d`, `conf0.f` | damping [Nm/(rad/s)], coulomb friction [Nm] |
 | `hv0.sim_load` | 0 | external load torque [Nm] |
 | `hv0.sim_brake` | 0 (no brake) | brake torque [Nm]; `sim_brake_release` follows `io0.out0` |
-| `hv0.sim_udc` | 300, 297 in `sim.txt` | DC bus [V]; output voltage limit is udc / √3 · 0.95 |
+| `hv0.sim_supply` | 1 | DC bus: 1 rectified mains into the drive's own caps (no supply caps), 0 a stiff `sim_udc` |
+| `hv0.sim_mains`, `sim_mains_hz` | 230, 50; 211 in `sim.txt` | mains [V rms, Hz]; 0 V: mains lost. The bus at rest is the peak less two diodes |
+| `hv0.sim_mains_r` | 1 | mains, rectifier and wiring resistance [Ω] |
+| `hv0.sim_cap` | 0.00054 | the drive's bus capacitance [F] (as `pe0.cap`) |
+| `hv0.sim_bus_load` | 2 | constant load on the bus [W] (the HV board's own supply) |
+| `hv0.sim_chop_r`, `sim_chop_on`, `sim_chop_off` | 47, 345, 335 | the supply card's brake chopper: the resistor [Ω] across the bus above `on` until below `off` [V]; 0 Ω: none |
+| `hv0.sim_udc` | 300 | `sim_supply = 0` (and the stepper): the supply [V] |
 | `hv0.sim_phase_rev` | `conf0.out_rev` | motor phase order |
 | `hv0.sim_fb_delay` | 0 | extra delay of the current/voltage feedback [rt cycles, 0..4], like the F3 packet |
 | `hv0.sim_cur_noise` | 0 | current measurement noise, uniform ± [A] |
@@ -162,7 +169,10 @@ hv0.sim_udc = 297        # supply [V]
 | `enc_fb0.sim_index` | `conf0.mot_fb_offset` | index position. A different value makes `conf0.mot_fb_offset` wrong for this motor. |
 
 The encoder resolution is `enc_fb0.res`, which the config sets from
-`conf0.mot_fb_res`. Read-only state: `hv0.sim_pos`, `sim_vel`, `sim_acc`,
+`conf0.mot_fb_res`. Bus state: `hv0.sim_vbus` (on the caps; `hv0.dc_volt`
+is the F3's filtered measurement), `sim_ibus` (into the bridge, < 0
+regenerating), `sim_irect`, `sim_chop_e` [J], `sim_hv_fault` (the F3's own
+over-voltage trip at 410 V, kept). Read-only state: `hv0.sim_pos`, `sim_vel`, `sim_acc`,
 `sim_torque`, `sim_id`, `sim_iq`.
 
 You can also set these pins at runtime from the console, for example
@@ -293,3 +303,32 @@ headless:
 - `about`, pin reads and writes;
 - `--dump` identical to the drive's config;
 - console traffic while the axis moves.
+
+## Over CAN (`make test-can`)
+
+`can.hal` in place of `stmbl_sim.hal`: the drive links `can`
+(`conf/template/can.txt`) instead of `sserial`. It sits on a simulated
+CAN bus with a simulated MCP2515 (`stmbl_sim can=1`). LinuxCNC's end is
+the real `stmblcan` component (`spi=sim`), as on a Raspberry Pi with
+MCP2515s (`linuxcnc/stmblcan/README.md`). The console goes over CAN too
+(`sserialterm` on the node's `con-cmd` / `con-fb`).
+
+To run it by hand:
+- set `HALFILE = can.hal`;
+- add `[SSERIALTERM]TTY = /tmp/drive-con`;
+- in `sim.conf`, change `link sserial` to `link can` and add
+  `can0.vel_scale = 600`.
+
+`vel-cmd` goes over the wire as 16 bits with that full scale. At the
+default 100 the 500 mm/s rapids are clipped (`stmblcan.0.1.vel-clipped`
+counts them) and the first one trips the following error.
+
+`make test-can` runs `can_test.py` headless and checks:
+- discovery at load;
+- slot values (supply, temperature, power, current);
+- joint 0 homed on the encoder index (`HOME_USE_INDEX`, index-only);
+- rapids at 500 mm/s with FERROR 1;
+- clean bus counters;
+- `servoterm-cli` over the CAN console, also while the axis moves.
+
+Needs `stmbl_sim.so`, `stmblcan.so` and `sserialterm.so` installed.

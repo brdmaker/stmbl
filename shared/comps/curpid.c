@@ -11,6 +11,10 @@ HAL_COMP(curpid);
 // enable
 HAL_PIN(en);
 HAL_PIN(cmd_mode);
+// 1: braking with a virtual resistor (shared/vbrake.h): no voltage-mode
+// current clamp. Lowering the voltage of u = -rv * i lowers the resistance,
+// so it would raise the current, down to a plain short.
+HAL_PIN(brake);
 
 // current command
 HAL_PIN(id_cmd);
@@ -99,10 +103,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(PIN(cmd_mode) == VOLT_MODE) {
     absvolt = idc * idc + iqc * iqc; // clamp cmd
-    PIN(scale) *= sqrtf(CLAMP(max_volt * max_volt / MAX(absvolt, max_volt * 0.1), 0.0, 1.0));
+    if(PIN(brake) > 0.0) {  // only the voltage limit
+      PIN(scale) = sqrtf(CLAMP(max_volt * max_volt / MAX(absvolt, max_volt * 0.1), 0.0, 1.0));
+    } else {
+      PIN(scale) *= sqrtf(CLAMP(max_volt * max_volt / MAX(absvolt, max_volt * 0.1), 0.0, 1.0));
 
-    abscur = id * id + iq * iq; // clamp over fb
-    PIN(scale) += (max_cur * max_cur - abscur) * PIN(kci) * period;
+      abscur = id * id + iq * iq; // clamp over fb
+      PIN(scale) += (max_cur * max_cur - abscur) * PIN(kci) * period;
+    }
   }
   else{
     abscur = idc * idc + iqc * iqc; // clamp cmd

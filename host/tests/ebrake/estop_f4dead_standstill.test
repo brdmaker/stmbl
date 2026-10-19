@@ -1,0 +1,22 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# The F4 stops while the drive is enabled at standstill: the F3 brakes
+# (nothing to do), ends after its 0.1 s low-current check, and switches off.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+run 0.5
+hv0.sim_dist = 0
+hv0.sim_f4_dead = 1
+run 0.01
+hv0.sim_f3_brake
+run 0.3
+hv0.sim_f3_brake
+hv0.sim_dist
+@expect hv0.sim_f3_brake[1] == 1
+@expect hv0.sim_f3_brake[2] == 0
+@expect hv0.sim_dist ~ 0 0.01

@@ -16,6 +16,12 @@
  * commands, parsed after host/sim_board.txt. tty is where the drive's USB
  * console appears (a pty), for servoterm-cli -d /tmp/stmbl-sim.
  *
+ * can=1: the drive's link is CAN (its conf links "can", conf/template/
+ * can.txt) on a simulated bus with a simulated MCP2515; LinuxCNC's end is
+ * the real stmblcan component, loaded after this one with spi=sim, which
+ * finds stmbl_sim_can_xfer / stmbl_sim_can_wait here. The pins above then
+ * stay unused (stmblcan.0.<node>.* are the drive's).
+ *
  * Only one drive per LinuxCNC instance: the drive's HAL is a single global.
  * uspace only (the console uses a pty and a thread).
  */
@@ -35,6 +41,13 @@ static char *sim = "";
 RTAPI_MP_STRING(sim, "sim-only HAL commands, parsed after sim_board");
 static char *tty = "/tmp/stmbl-sim";
 RTAPI_MP_STRING(tty, "path of the drive console pty symlink, empty for none");
+
+static int can = 0;
+RTAPI_MP_INT(can, "1: the drive on a simulated CAN bus, for stmblcan spi=sim");
+
+// for stmblcan spi=sim (in stmbl_core.o)
+EXPORT_SYMBOL(stmbl_sim_can_xfer);
+EXPORT_SYMBOL(stmbl_sim_can_wait);
 
 #define PREFIX "stmbl-sim.0"
 
@@ -129,6 +142,9 @@ int rtapi_app_main(void) {
     return -ENOMEM;
   }
 
+  if(can) {
+    stmbl_sim_can();
+  }
   int r = stmbl_sim_open(conf, sim, tty);
   if(r) {
     rtapi_print_msg(RTAPI_MSG_ERR, "stmbl_sim: cannot start the drive (%s %s): %d\n",
@@ -144,7 +160,8 @@ int rtapi_app_main(void) {
     return -EINVAL;
   }
 
-  rtapi_print_msg(RTAPI_MSG_INFO, "stmbl_sim: drive from %s, console on %s\n", conf, tty);
+  rtapi_print_msg(RTAPI_MSG_INFO, "stmbl_sim: drive from %s, console on %s%s\n", conf, tty,
+                  can ? ", on CAN" : "");
   hal_ready(comp_id);
   return 0;
 }

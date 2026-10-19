@@ -79,6 +79,7 @@ SHARED_COMPS += shared/comps/spid.c
 SHARED_COMPS += shared/comps/pe.c
 SHARED_COMPS += shared/comps/scope.c
 SHARED_COMPS += shared/comps/fwup.c
+SHARED_COMPS += shared/comps/stp_ttc.c
 SHARED_COMPS += shared/comps/pmsm_limits.c
 SHARED_COMPS += shared/comps/pmsm_ttc.c
 SHARED_COMPS += shared/comps/dc_limits.c
@@ -128,6 +129,8 @@ SHARED_COMPS += shared/comps/idpmsm.c
 SHARED_COMPS += shared/comps/iddc.c
 SHARED_COMPS += shared/comps/idm.c
 SHARED_COMPS += shared/comps/ids.c
+SHARED_COMPS += shared/comps/qstop.c
+SHARED_COMPS += shared/comps/dbrake.c
 #SHARED_COMPS += shared/comps/motsim.c
 
 COMPS = $(SRC_COMPS) $(SHARED_COMPS)
@@ -343,6 +346,10 @@ tbl: inc/commandslist.h src/hal_tbl.c src/conf_templates.c
 obj_boot/blboot.bin: force_look
 	$(MAKE) -f bootloader/Makefile
 
+#brdstepper firmware (STM32G473, brdstepper/)
+brdstepper:
+	$(MAKE) -C brdstepper
+
 #image for LinuxCNC's setsserial flash (the smart-serial bootloader)
 ssfw: $(TARGET).bin
 	$(PYTHON) tools/mkssfw.py $(TARGET).bin $(OBJDIR)/stmbl_ss.bin
@@ -482,7 +489,7 @@ force_look:
 
 # Listing of phony targets
 #
-.PHONY: all build clean \
+.PHONY: all build clean brdstepper \
         elf hex bin lss sym tbl \
         boot boot_flash boot_brburn \
         f3_boot f3_boot_flash f3_boot_btburn \

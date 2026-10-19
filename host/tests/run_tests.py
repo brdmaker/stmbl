@@ -25,6 +25,9 @@ plain PIN means the last one):
   PIN ~ VALUE TOL          |got - VALUE| <= TOL; TOL is absolute or "N%"
   max|PIN| OP VALUE        over every printed value of PIN
   max PIN OP VALUE / min PIN OP VALUE
+  span PIN OP VALUE        max - min (a ripple)
+  max|PIN[a:b]| ...        aggregates over printed values a..b (1-based,
+                           inclusive; an end left out: to the first / last)
 
 Values are read from lines "pin = v" and "OK sink <= source = v".
 Everything else is passed to stmbl_host unchanged.
@@ -47,8 +50,8 @@ VALUE_RE = re.compile(r"^(?:OK )?([A-Za-z_]\w*\.\w+)(?: <= \S+)? = (\S+)")
 OPS = {"==": operator.eq, "!=": operator.ne, "<=": operator.le,
        ">=": operator.ge, "<": operator.lt, ">": operator.gt}
 CHECK_RE = re.compile(
-    r"^(?:(?P<agg>max|min)\s*(?P<abs>\|)?\s*)?"
-    r"(?P<pin>[A-Za-z_]\w*\.\w+)(?:\[(?P<idx>-?\d+)\])?\s*(?P=abs)?\s*"
+    r"^(?:(?P<agg>max|min|span)\s*(?P<abs>\|)?\s*)?"
+    r"(?P<pin>[A-Za-z_]\w*\.\w+)(?:\[(?:(?P<idx>-?\d+)|(?P<a>\d*):(?P<b>\d*))\])?\s*(?P=abs)?\s*"
     r"(?P<op>==|!=|<=|>=|<|>|~)\s*(?P<val>\S+)(?:\s+(?P<tol>\S+))?$")
 
 
@@ -131,12 +134,23 @@ def check(expr, values):
         return False, "%s was never printed" % pin
     if m.group("agg"):
         if m.group("idx") is not None:
-            return False, "index not allowed with max/min"
+            return False, "index not allowed with max/min/span (use [a:b])"
+        if m.group("a") is not None:
+            a = int(m.group("a") or 1)
+            b = int(m.group("b") or len(seq))
+            if a < 1 or b > len(seq) or a > b:
+                return False, "%s printed %d times, wanted [%d:%d]" % (pin, len(seq), a, b)
+            seq = seq[a - 1:b]
         data = [abs(v) for v in seq] if m.group("abs") else seq
         if any(math.isnan(v) for v in data):
             return False, "%s has nan values" % pin
-        got = max(data) if m.group("agg") == "max" else min(data)
+        if m.group("agg") == "span":
+            got = max(data) - min(data)
+        else:
+            got = max(data) if m.group("agg") == "max" else min(data)
     else:
+        if m.group("a") is not None:
+            return False, "a range needs max/min/span"
         idx = int(m.group("idx") or -1)
         try:
             got = seq[idx - 1] if idx > 0 else seq[idx]

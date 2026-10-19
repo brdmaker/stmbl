@@ -23,9 +23,11 @@ TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
 
 CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.c \
             $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c \
-            $(ROOT)/shared/fwstage.c
+            $(ROOT)/shared/fwstage.c $(ROOT)/shared/bip_loop.c \
+            $(ROOT)/linuxcnc/stmblcan/mcp2515.c $(ROOT)/linuxcnc/stmblcan/stmblcan_bus.c \
+            $(ROOT)/linuxcnc/stmblcan/candesc.c
 # Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
-DRIVE_SRCS = drive.c cdc_host.c pty.c fwup_host.c
+DRIVE_SRCS = drive.c cdc_host.c pty.c fwup_host.c can_host.c mcp2515_sim.c
 HOST_SRCS = main.c $(DRIVE_SRCS)
 ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 
@@ -33,7 +35,7 @@ ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_
 CMD_SCAN  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS)
 
 # shim/ comes first so host/shim/usbd_cdc_if.h shadows inc/usbd_cdc_if.h.
-INCLUDES = -Ishim -I. -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared
+INCLUDES = -Ishim -I. -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared -I$(ROOT)/linuxcnc/stmblcan
 CFLAGS  ?= -O1 -g
 # -Wno-format: the firmware's printf formats target a 32-bit-long ABI (ARM);
 # they are harmless on the host and only affect a few diagnostic prints.
@@ -43,7 +45,7 @@ LDLIBS   = -lm -lpthread
 
 all: stmbl_host servoterm
 
-stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c
+stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c $(ROOT)/shared/*.h
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
 
 # CLI servoterm: standalone, no firmware sources, no special includes.
@@ -88,18 +90,29 @@ test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
 test_bootloader: tests/test_bootloader.c ../shared/lbp_flash.c ../shared/lbp_flash.h ../shared/fwstage.c ../shared/fwstage.h ../shared/lbp_dev.c ../shared/lbp_dev.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bootloader.c ../shared/lbp_flash.c ../shared/fwstage.c ../shared/lbp_dev.c ../shared/crc8.c
 
+# brdstepper's two-coil current loop (shared/bip_loop.c)
+test_bip: tests/test_bip.c ../shared/bip_loop.c ../shared/bip_loop.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_bip.c ../shared/bip_loop.c -lm
+
+# linuxcnc/stmblcan: MCP2515 driver and bus logic against simulated chips
+STMBLCAN = ../linuxcnc/stmblcan
+test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp2515.c $(STMBLCAN)/mcp2515.h $(STMBLCAN)/stmblcan_bus.c $(STMBLCAN)/stmblcan_bus.h $(STMBLCAN)/candesc.c $(STMBLCAN)/candesc.h ../shared/canproto.h ../shared/sscon.c
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -I$(STMBLCAN) -I. -o $@ tests/test_stmblcan.c mcp2515_sim.c $(STMBLCAN)/mcp2515.c $(STMBLCAN)/stmblcan_bus.c $(STMBLCAN)/candesc.c ../shared/sscon.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq test_sscon test_bootloader
+check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_stmblcan
 	@./test_ssq
 	@./test_sscon
 	@./test_bootloader
+	@./test_bip
+	@./test_stmblcan
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@$(PYTHON) tests/test_comp_names.py
 	@./test_quota
-	@$(PYTHON) tests/run_tests.py tests/*.test
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
@@ -108,6 +121,13 @@ SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
+
+# Emergency braking (docs/emergency_stop.md): the hand-written tests in
+# tests/ebrake (also part of check), then every motor in tests/motors.py
+# through the stops (tests/gen_ebrake_tests.py), generated into gen/ebrake.
+ebrake: stmbl_host
+	@$(PYTHON) tests/gen_ebrake_tests.py --out $(GEN)/ebrake
+	@$(PYTHON) tests/run_tests.py tests/ebrake/*.test $(GEN)/ebrake/*.test
 
 test: all check
 	@for f in examples/*.hal; do echo "=== $$f ==="; ./stmbl_host $$f; done
@@ -118,4 +138,4 @@ test: all check
 clean:
 	rm -rf $(GEN) stmbl_host servoterm
 
-.PHONY: all check soak test clean
+.PHONY: ebrake all check soak test clean

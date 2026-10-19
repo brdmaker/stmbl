@@ -47,6 +47,7 @@ HAL_PIN(sim_index);  // index angle in the encoder's raw angle [rad]
 HAL_PIN(sim_boot_zero);  // 1: count from 0 at boot like a real incremental
                          // encoder (raw angle - raw angle at boot); 0: the
                          // raw shaft angle, so commutation starts right
+HAL_PIN(sim_fail);   // 1: the encoder is broken (cable): position frozen, error
 
 struct enc_fb_ctx_t {
   int init;
@@ -69,6 +70,12 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct enc_fb_ctx_t *ctx      = (struct enc_fb_ctx_t *)ctx_ptr;
   struct enc_fb_pin_ctx_t *pins = (struct enc_fb_pin_ctx_t *)pin_ptr;
+
+  if(PIN(sim_fail) > 0.0) {  // nothing counts any more; the drive sees the error
+    PIN(error) = 1.0;
+    PIN(index) = 0.0;
+    return;
+  }
 
   int32_t res = MAX((int32_t)PIN(res), 1);
   float raw   = PIN(sim_rev) > 0.0 ? -PIN(sim_pos) : PIN(sim_pos);

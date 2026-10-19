@@ -33,6 +33,8 @@
 #include "pty.h"
 #include "sim_io.h"
 #include "sscon.h"
+#include "can_host.h"
+#include "candesc.h"
 
 #include <time.h>
 
@@ -48,8 +50,83 @@ static sscon_t lcnc_con;      // LinuxCNC's end of the console (shared/sscon.h)
 static char con_in[65536];    // what came, emptied continuously (as sserialterm into its pty)
 static uint32_t con_in_len = 0;
 
+static int lcnc_can = 0;  // 1: the link is CAN (lcnccan), LinuxCNC's end as stmblcan on a Pi
+
+// index homing as LinuxCNC's motion does it (lcncindex): index-enable set,
+// the driver (hm2, stmblcan) clears it once the drive found the index, and
+// motion takes the position feedback of that same period as the index
+// position, moving its command by the feedback's jump. The next periods'
+// feedback must continue from there (a jump: the feedback that cleared
+// index-enable was from before the drive switched to the index position),
+// and the drive must keep following the moved command (the following
+// error stays small).
+static struct {
+  int armed, periods, found;
+  float at, prev, jump;  // the latched feedback; the largest jump after it
+  float ferr;            // the largest |pos_cmd - pos_fb| after it
+  float last;            // the feedback of the period before
+  int after;
+} lidx;
+
+// once per servo period, with the feedback just read; returns how much
+// motion moves its command (motor coordinates) at the index
+static float lcnc_index(int cleared, float pos_fb, float pos_cmd, float vel) {
+  float rebase = 0.0f;
+  if(lidx.armed) {
+    lidx.periods++;
+    if(cleared) {
+      lidx.armed = 0;
+      lidx.found = 1;
+      lidx.at = lidx.prev = pos_fb;
+      lidx.after          = 0;
+      lidx.jump = lidx.ferr = 0;
+      rebase                = pos_fb - lidx.last - vel * 0.001f;
+    }
+  } else if(lidx.found && lidx.after < 1000) {  // the second after
+    if(lidx.after < 20) {                        // continuous?
+      lidx.jump = fmaxf(lidx.jump, fabsf(pos_fb - lidx.prev - vel * 0.001f));
+    }
+    lidx.ferr = fmaxf(lidx.ferr, fabsf(pos_cmd - pos_fb));
+    lidx.prev = pos_fb;
+    lidx.after++;
+  }
+  lidx.last = pos_fb;
+  return rebase;
+}
+
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
+  if(lcnc_can) {
+    // stmblcan.read first in the servo thread, stmblcan.write last
+    stmblcan_node_t *n = can_host_node();
+    can_host_read();
+    io->pos_fb  = n->fb.pos;
+    io->vel_fb  = n->fb.vel;
+    io->current = n->slots[CANP_SLOT_CURRENT];
+    io->power   = n->slots[CANP_SLOT_POWER];
+    io->fault   = n->fb.fault || !n->present;
+    if(n->index_found) {  // stmblcan clears index-enable
+      io->index_enable = 0;
+    }
+    io->pos_cmd += lcnc_index(n->index_found, n->fb.pos, io->pos_cmd, io->vel_cmd);
+    io->pos_cmd += io->vel_cmd * 0.001;
+    n->cmd.pos          = io->pos_cmd;
+    n->cmd.vel          = io->vel_cmd;
+    n->cmd.enable       = io->enable;
+    n->cmd.index_enable = io->index_enable;
+    n->cmd.out = (uint8_t)(io->out[0] | io->out[1] << 1 | io->out[2] << 2 | io->out[3] << 3);
+    n->cmd.con = sscon_frame(&lcnc_con, n->fb.con);  // as sserialterm on the con pins
+    con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
+    can_host_write();
+    return;
+  }
+  // hm2: the drive no longer echoes index-enable (the answer to the
+  // request of the period before, sent since)
+  int cleared = lidx.armed && lidx.periods > 0 && io->index_enable && !io->index_enable_fb;
+  if(cleared) {
+    io->index_enable = 0;
+  }
+  io->pos_cmd += lcnc_index(cleared, io->pos_fb, io->pos_cmd, io->vel_cmd);
   io->pos_cmd += io->vel_cmd * 0.001;
   io->con_cmd = sscon_frame(&lcnc_con, io->con_fb);  // the last reply in, the next request out
   con_in_len += sscon_read(&lcnc_con, con_in + con_in_len, sizeof(con_in) - con_in_len);
@@ -60,6 +137,9 @@ static void run_cycles(long n) {
   for(long i = 0; i < n; i++) {
     if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
       lcnc_servo();
+    }
+    if(lcnc_can) {
+      can_host_run(RT_PERIOD * 1e6);  // the bus during this rt period
     }
     drive_tick();
   }
@@ -114,6 +194,21 @@ void cmd_lcnc(char *ptr) {
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd]], or show feedback");
 
+void cmd_lcncindex(char *ptr) {
+  int arm = -1;
+  sscanf(ptr, " %i", &arm);
+  if(arm == 1) {
+    memset(&lidx, 0, sizeof(lidx));
+    lidx.armed                  = 1;
+    sim_sserial_io.index_enable = 1;
+    return;
+  }
+  // as pin values, for tests' @expect
+  printf("lcncindex.found = %d\nlcncindex.periods = %d\nlcncindex.at = %f\nlcncindex.jump = %f\nlcncindex.ferr = %f\n",
+         lidx.found, lidx.periods, (double)lidx.at, (double)lidx.jump, (double)lidx.ferr);
+}
+COMMAND("lcncindex", cmd_lcncindex, "LinuxCNC index homing: lcncindex 1 arms; lcncindex: found, the jump after");
+
 // the console over smart-serial, as LinuxCNC's sserialterm: send a line,
 // print what came back
 void cmd_con(char *ptr) {
@@ -143,6 +238,66 @@ void cmd_conread(char *ptr) {
   fprintf(stdout, "con: %u bytes in, %u out\n", lcnc_con.n_rx, lcnc_con.n_tx);
 }
 COMMAND("conread", cmd_conread, "print what came over the smart-serial console");
+
+// the link is CAN (docs/can_support.md): LinuxCNC's end as stmblcan on a Pi
+// (its bus code and MCP2515 driver, on a simulated MCP2515), the drive's
+// can component on the same simulated bus. lcnc / con / conread / lcncstop
+// work as with smart-serial. The drive config links "can" for "sserial".
+static int can_discovering;
+static void can_wait(void *ctx, int us) {  // discovery: the drive and the bus run
+  (void)ctx;
+  for(int t = 0; t < us; t += (int)(RT_PERIOD * 1e6)) {
+    can_host_run(RT_PERIOD * 1e6);
+    drive_tick();
+  }
+}
+
+void cmd_lcnccan(char *ptr) {
+  int node = 1;
+  float vs = 100.0f;
+  if(sscanf(ptr, " discover %i", &node) == 1) {
+    // as stmblcan with discover=1: ask the drive, then run with what it says
+    char text[160], err[96];
+    candesc_t d;
+    can_discovering = 1;
+    int r           = can_host_discover(node, text, sizeof(text), can_wait);
+    can_discovering = 0;
+    if(r < 0) {
+      printf("lcnccan: node %d: no answer\n", node);
+      return;
+    }
+    int l = candesc_parse(&d, text, err, sizeof(err));
+    printf("lcnccan: node %d describes itself:\n%s", node, text);
+    if(l || !d.stmbl) {
+      printf("lcnccan: not a stmbl drive (%s)\n", l ? err : "profile");
+      return;
+    }
+    vs = d.vel_scale;
+  } else {
+    sscanf(ptr, " %i %f", &node, &vs);
+  }
+  if(can_host_init(node, vs)) {
+    printf("lcnccan: the simulated MCP2515 did not initialise\n");
+    return;
+  }
+  sscon_reset(&lcnc_con);
+  lcnc_can = 1;
+  printf("lcnccan: node %d, vel_scale %g, 1 Mbit/s\n", node, (double)vs);
+}
+COMMAND("lcnccan", cmd_lcnccan, "LinuxCNC side over CAN: lcnccan [node [vel_scale]] | lcnccan discover node");
+
+void cmd_canstat(char *ptr) {
+  (void)ptr;
+  can_host_stat();
+}
+COMMAND("canstat", cmd_canstat, "CAN link counters (lcnccan)");
+
+void cmd_canplug(char *ptr) {
+  int on = 1;
+  sscanf(ptr, " %i", &on);
+  can_host_drive_attached(on);
+}
+COMMAND("canplug", cmd_canplug, "canplug 0: the drive off the CAN bus, 1: back on");
 
 // the link goes away (cable, LinuxCNC stopped): no more frames; the drive
 // times out. 'lcnc ...' starts them again.

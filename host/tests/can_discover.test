@@ -1,0 +1,27 @@
+# Discovery over CAN (docs/can_support.md, pin inventory): LinuxCNC's end
+# (linuxcnc/stmblcan's stmblcan_bus_discover, on the simulated MCP2515) asks
+# the simulated drive's can component for its description, then runs with
+# it: the drive's vel_scale (set to 250 in its config here) comes from the
+# drive. An absent node gets no answer.
+@args --drive tests/can/stmbl.conf
+@timeout 120
+can0.vel_scale = 250
+run 0.1
+lcnccan discover 7
+lcnccan discover 1
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 31.4
+run 1
+hv0.sim_vel
+canstat
+@match ^lcnccan: node 7: no answer$
+@match ^lcnccan: node 1 describes itself:$
+@match ^device stbl$
+@match ^profile stmbl1$
+@match ^vel_scale 250$
+@match ^lcnccan: node 1, vel_scale 250, 1 Mbit/s$
+@expect hv0.sim_vel ~ 19.73 1%
+@match ^can: present 1 fb [0-9]+ missed 0 tx_late 0

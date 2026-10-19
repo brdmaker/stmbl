@@ -2,7 +2,7 @@
 # "image" in 30 byte lines, as servoterm-cli --update sends them. Refused
 # while the drive is enabled; staged word by word by the realtime loop; a
 # damaged line refused and sent again; fwapply resets and the simulated
-# bootloader copies the image (prints its CRC32): 75 data words + 3 header.
+# bootloader copies the image (prints its CRC32): 75 data words + 4 header (the state unit stays erased).
 @args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
 @timeout 120
 lcnc 0 0
@@ -51,6 +51,6 @@ conread
 @match ^con> fw ok staged 300 32ec5e76$
 @match ^con> fw state ready got 300 size 300 lines 10 bad 1$
 @match ^con> fw ok reset: the bootloader copies the update$
-@match sim: reset \(plain\), 78 staging words programmed$
+@match sim: reset \(plain\), 79 staging words programmed$
 @match sim: bootloader: update applied, 300 bytes, crc32 32ec5e76$
 @reject fw busy

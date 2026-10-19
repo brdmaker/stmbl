@@ -67,6 +67,22 @@ HAL_PIN(brake_release);
 HAL_PIN(warn_timer);
 HAL_PIN(error_timer);
 
+// Stopping instead of coasting (docs/emergency_stop.md). Per cause, what
+// happens when the drive leaves ENABLED: 0 outputs off (coast), 1 quick
+// stop (qstop0: a controlled stop on the feedback), 2 dynamic brake
+// (dbrake0: back-EMF into the windings, no feedback needed).
+HAL_PIN(cmd_stop);   // CMD error (link lost)
+HAL_PIN(fb_stop);    // a feedback error (1 is taken as 2)
+HAL_PIN(err_stop);   // position, saturation, temperature, F4-measured DC bus errors
+HAL_PIN(en_stop);    // en dropped while enabled
+HAL_PIN(stop_time);  // [s] the longest stop; then outputs off
+HAL_PIN(qstop);        // out: quick stop running
+HAL_PIN(dbrake);       // out: dynamic brake running
+HAL_PIN(qstop_done);   // in: qstop0.stopped
+HAL_PIN(dbrake_done);  // in: dbrake0.stopped
+HAL_PIN(stop);         // out: 0, 1 or 2
+HAL_PIN(stop_timer);   // out: [s] into the stop
+
 //fault strings for fault_t form common.h
 static const char* fault_string[] = {
   "no error",
@@ -99,7 +115,37 @@ struct fault_ctx_t {
   float hv_temp_error;
   float dc_volt_error;
   float mot_temp_error;
+  int stop;     // 0 none, 1 quick stop, 2 dynamic brake
+  int hv_fault; // this cycle's fault came from the HV board: outputs off
 };
+
+// the stop for a fault (fault.c's own checks; HV faults coast)
+static int stop_for(struct fault_pin_ctx_t *pins, fault_t f, int hv) {
+  if(hv) {
+    return 0;
+  }
+  int m;
+  switch(f) {
+    case CMD_ERROR:
+      m = PIN(cmd_stop);
+      break;
+    case MOT_FB_ERROR:
+    case COM_FB_ERROR:
+    case JOINT_FB_ERROR:
+      m = PIN(fb_stop) > 0.0 ? 2 : 0;  // no feedback: no quick stop
+      break;
+    case POS_ERROR:
+    case SAT_ERROR:
+    case MOT_TEMP_ERROR:
+    case HV_TEMP_ERROR:
+    case HV_VOLT_ERROR:
+      m = PIN(err_stop);
+      break;
+    default:
+      m = 0;
+  }
+  return CLAMP(m, 0, 2);
+}
 
 void enable(char *ptr) {
   hal_parse("fault0.en = 1");
@@ -130,15 +176,20 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(high_mot_temp) = 80.0;
   PIN(fan_hv_temp)   = 60.0;
   PIN(fan_mot_temp)  = 60.0;
+  PIN(stop_time)     = 2.0;
+  ctx->stop          = 0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fault_ctx_t *ctx      = (struct fault_ctx_t *)ctx_ptr;
   struct fault_pin_ctx_t *pins = (struct fault_pin_ctx_t *)pin_ptr;
 
+  state_t before = ctx->state;
+  ctx->hv_fault  = 0;
+
   switch(ctx->state) {
     case DISABLED:
-      if(PIN(en) > 0.0) {
+      if(PIN(en) > 0.0 && ctx->stop == 0) {  // a stop runs to its end
         ctx->state = PHASING;
       }
       break;
@@ -200,13 +251,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->state      = SOFT_FAULT;
   }
 
-  if(PIN(max_pos_error) > 0 && (ABS(PIN(pos_error)) > PIN(max_pos_error))) {
+  // a quick stop brakes at the limit on purpose: no position or
+  // saturation error then
+  if(ctx->stop != 1 && PIN(max_pos_error) > 0 && (ABS(PIN(pos_error)) > PIN(max_pos_error))) {
     ctx->fault      = POS_ERROR;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;
   }
 
-  if(PIN(max_sat) > 0 && (PIN(sat) > PIN(max_sat))) {
+  if(ctx->stop != 1 && PIN(max_sat) > 0 && (PIN(sat) > PIN(max_sat))) {
     ctx->fault      = SAT_ERROR;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;
@@ -235,6 +288,35 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->fault      = hv_error;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;
+    ctx->hv_fault   = 1;
+  }
+
+  // leaving ENABLED while moving: stop as the cause says; a running stop
+  // ends when the motor stands still, on an HV fault, or after stop_time,
+  // and a feedback fault turns a quick stop into a dynamic brake
+  if(ctx->stop == 0) {
+    if(before == ENABLED && ctx->state == DISABLED) {
+      // a link that times out drops enable with its error: a link loss
+      ctx->stop = CLAMP((int)(PIN(cmd_error) > 0.0 ? PIN(cmd_stop) : PIN(en_stop)), 0, 2);
+    } else if(before == ENABLED && ctx->state == SOFT_FAULT) {
+      ctx->stop = stop_for(pins, ctx->fault, ctx->hv_fault);
+    }
+    PIN(stop_timer) = 0.0;
+  } else {
+    PIN(stop_timer) += period;
+    int now = ctx->state == SOFT_FAULT ? stop_for(pins, ctx->fault, ctx->hv_fault) : ctx->stop;
+    if(ctx->hv_fault) {
+      ctx->stop = 0;
+    } else if(ctx->stop == 1 && now == 2) {
+      ctx->stop = 2;
+    } else if(ctx->stop == 1 && ctx->state == SOFT_FAULT && now == 0 &&
+              (ctx->fault == MOT_FB_ERROR || ctx->fault == COM_FB_ERROR || ctx->fault == JOINT_FB_ERROR)) {
+      ctx->stop = 0;  // no feedback and no dynamic brake: coast
+    }
+    if(PIN(stop_timer) > PIN(stop_time) || (ctx->stop == 1 && PIN(qstop_done) > 0.0) ||
+       (ctx->stop == 2 && PIN(dbrake_done) > 0.0)) {
+      ctx->stop = 0;
+    }
   }
 
   float scale = 1.0;
@@ -291,6 +373,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(en_fb)     = 1.0;
       PIN(en_out)    = 1.0;
       break;
+  }
+
+  // a stop keeps the power stage on: the quick stop with feedback and pid,
+  // the dynamic brake without (dbrake0 holds the frame); the holding brake
+  // stays released until the motor stands still
+  PIN(qstop)  = ctx->stop == 1;
+  PIN(dbrake) = ctx->stop == 2;
+  PIN(stop)   = ctx->stop;
+  if(ctx->stop) {
+    PIN(mot_brake) = 1.0;
+    PIN(en_out)    = 1.0;
+    PIN(en_fb)     = ctx->stop == 1;
+    PIN(en_pid)    = ctx->stop == 1;
   }
 
   PIN(fault) = ctx->fault;

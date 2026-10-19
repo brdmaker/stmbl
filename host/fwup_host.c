@@ -10,6 +10,8 @@
 
 #define KB 1024u
 const uint32_t fwup_stage_size = 512 * KB;
+const uint32_t fwup_prog_size = 4;
+const int fwup_single_bank = 1;  // as the F4: the tests check the refusal
 const uint32_t fwup_max_size   = 448 * KB;
 static uint8_t stage[512 * KB], app[448 * KB];
 static int ready;

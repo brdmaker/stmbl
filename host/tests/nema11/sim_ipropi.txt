@@ -1,0 +1,10 @@
+hv0.sim_motor = 1
+hv0.sim_udc = 24
+hv0.sim_detent = 0.004
+hv0.sim_sense = 1
+hv0.max_duty = 0.88
+hv0.sense_window = 0.12
+hv0.sim_cur_noise = 0.005
+hv0.sense_thr = 0.01
+hv0.sim_rds = 0.7
+hv0.sense_cal = 64

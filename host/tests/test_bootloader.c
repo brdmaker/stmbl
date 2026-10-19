@@ -205,6 +205,28 @@ static int st_program(void *c, uint32_t off, const uint8_t *d, uint32_t len) {
   }
   return 0;
 }
+// the G4's flash: 8-byte aligned units, each programmed once until erased
+static uint8_t *g4_done;
+static int g4_bad;
+static int g4_erase(void *c, uint32_t off, uint32_t len) {
+  memset((uint8_t *)c + off, 0xff, len);
+  memset(g4_done + off / 8, 0, len / 8);
+  return 0;
+}
+static int g4_program(void *c, uint32_t off, const uint8_t *d, uint32_t len) {
+  if(len != 8 || (off & 7) || g4_done[off / 8]) {
+    g4_bad++;
+    return -1;
+  }
+  g4_done[off / 8] = 1;
+  memcpy((uint8_t *)c + off, d, 8);
+  return 0;
+}
+// the application area as the bootloader writes it: any length
+static int st_program_any(void *c, uint32_t off, const uint8_t *d, uint32_t len) {
+  memcpy((uint8_t *)c + off, d, len);
+  return 0;
+}
 static const uint8_t *st_read(void *c, uint32_t off) {
   return (const uint8_t *)c + off;
 }
@@ -435,6 +457,31 @@ int main(void) {
   }
   ok(e < 0 && st.state == FWST_FAILED && fwst_mark(&st) < 0, "a wrong CRC32 for the image: not ready, no mark", st.state);
   ok(fwst_begin(&st, 449 * KB, crc) == -1, "an image larger than the application area is refused", 0);
+
+  // ---- G4 flash: 64-bit units, each programmable once (ECC) ----
+  static uint8_t g4[256 * KB], g4app[256 * KB], g4done[256 * KB / 8];
+  memset(g4, 0xff, sizeof(g4));
+  memset(g4done, 0, sizeof(g4done));
+  g4_bad = 0;
+  fwst_t g = {.stage_size = sizeof(g4), .max_size = 224 * KB, .prog_size = 8, .erase = g4_erase, .program = g4_program,
+              .read = st_read, .ctx = g4};
+  g4_done = g4done;
+  int gb = fwst_begin(&g, isize, crc);
+  for(uint32_t off = 0; off < isize; off += 48) {
+    line(buf, img, off, isize - off < 48 ? (int)(isize - off) : 48);
+    send_line(&g, buf, &full);
+  }
+  while((e = fwst_end(&g)) == 1) {
+    fwst_poll(&g, 1);
+  }
+  fwst_mark(&g);
+  while(g.state == FWST_MARKING) {
+    fwst_poll(&g, 1);
+  }
+  int gp = fwst_pending(&g, &h);
+  int gboot = fwst_boot(&g, st_erase, st_program_any, st_read, g4app);
+  ok(gb == 0 && e == 0 && gp && gboot == 1 && !memcmp(g4app, img, isize) && g4_bad == 0 && !fwst_pending(&g, &h),
+     "G4 flash (8-byte units, each once): staged, marked, applied and marked done, no unit programmed twice", g4_bad);
   printf("# in-band: %u bytes in %u lines (~%u console bytes, ~%.0f s at 1 kB/s)\n", isize, lines, lines * 80,
          lines * 80 / 1000.0);
   // SSLBP (Mesa's smart-serial firmware, SSLBP.SUB recvstring) waits for one

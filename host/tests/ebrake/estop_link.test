@@ -1,0 +1,37 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# The link to LinuxCNC is lost: the link component times out, drops enable
+# and flags CMD error; fault0 (cmd_stop = 1) runs the quick stop: qstop0
+# brakes on an S-curve trajectory at 30 % of what the motor can do, then
+# the outputs go off (~2 rad, 3 mm). The drive's velocity observer lags at
+# that deceleration, so the stop rings a little before it settles.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+lcncstop
+run 0.008
+fault0.stop
+run 0.3
+hv0.sim_dist
+hv0.sim_vel
+fault0.fault
+fault0.state
+fault0.en_out
+fault0.stop
+@expect hv0.sim_vel[1] ~ 188.5 1%
+@expect fault0.stop[1] == 1
+@expect hv0.sim_dist ~ 2 0.5
+@expect hv0.sim_vel[2] ~ 0 0.5
+@expect fault0.fault == 1
+@expect fault0.state == 3
+@expect fault0.en_out == 0
+@expect fault0.stop[2] == 0

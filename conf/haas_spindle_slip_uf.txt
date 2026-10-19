@@ -7,8 +7,9 @@ link sserial_uf
 load idx_home
 load linrev
 linrev0.rt_prio = 2.1
-idx_home0.rt_prio = 2.3
+idx_home0.rt_prio = 2.05 # before linrev0 (index homing)
 linrev0.fb_in = idx_home0.pos_out
+linrev0.cmd_offset = idx_home0.cmd_offset
 linrev0.fb_d_in = vel1.vel
 idx_home0.fb = enc_fb0.pos
 idx_home0.fb_abs = enc_fb0.abs_pos

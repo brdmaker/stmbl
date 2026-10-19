@@ -27,6 +27,7 @@ HAL_PIN(max_acc); // max. acceleration [rad/s^2]
 HAL_PIN(max_force); // max. toruqe [Nm]
 HAL_PIN(max_dc_cur); // max. dc current [A]
 HAL_PIN(max_ac_cur); // max. phase current [A]
+HAL_PIN(max_hv_power); // HV board rating: max. braking power a quick stop feeds back [W]
 
 HAL_PIN(mot_fb_polecount); // #motor feedback pole pairs
 HAL_PIN(mot_fb_offset); // motor feedback commutation offset [rad]

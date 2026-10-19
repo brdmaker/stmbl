@@ -1,0 +1,35 @@
+# DC bus (host/hw/hv.c): 230 V 50 Hz mains rectified into the drive's own
+# 540 uF, no capacitors on the supply. Burn-in axis.
+# At rest the bus sits at the mains peak less two diodes (323 V). At
+# 188 rad/s against 1.5 Nm of viscous load (~300 W) the capacitors carry
+# the load between the mains peaks: ~17 V of 100 Hz ripple, the rectifier
+# charging them in ~10 A pulses at each peak. The F3 measures the bus
+# filtered (~1.3 ms, io.c), so dc_volt ripples less; it sets its duties
+# from that, the bus that is there makes the voltage: the speed holds.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+@sample hv0.sim_vbus 0.0005 0.04
+lcnc 1 300
+run 1
+hv0.sim_d = 0.008
+run 0.5
+@sample hv0.sim_vbus 0.0005 0.04
+@sample hv0.sim_irect 0.0002 0.02
+@sample hv0.dc_volt 0.0005 0.04
+@sample hv0.sim_vel 0.001 0.04
+fault0.fault
+@expect hv0.sim_vbus[1] ~ 323 1
+@expect span hv0.sim_vbus[1:80] < 0.5
+@expect span hv0.sim_vbus[81:160] > 10
+@expect span hv0.sim_vbus[81:160] < 25
+@expect min hv0.sim_vbus[81:160] > 295
+@expect max hv0.sim_irect > 5
+@expect max hv0.sim_irect < 20
+@expect span hv0.dc_volt > 5
+@expect span hv0.dc_volt < 15
+@expect min hv0.sim_vel > 186
+@expect max hv0.sim_vel < 190
+@expect fault0.fault == 0

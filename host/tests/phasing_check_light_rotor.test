@@ -1,0 +1,32 @@
+# Probe autophasing (fb_switch phase_mode 1) on a light, high-friction rotor
+# (syn_servo_2kw from motors.py: j 0.0012, f 0.9 Nm, 4 poles) at
+# phase_cur 7.5 A: the probe settles on an angle the check then rejects
+# (phase_fail 2: a check pulse moved the rotor the wrong way), fault 17.
+# At 1 A and 4 A it phases in 0.6 s. Found merging emergency-braking
+# (DEBUGNOTES "Probe phasing fails its check on a light rotor").
+@todo probe phasing fails its check on a light rotor at a high phasing current (DEBUGNOTES)
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+conf0.r = 0.3
+conf0.l = 0.004
+conf0.psi = 0.25
+conf0.polecount = 4
+conf0.j = 0.0012
+conf0.f = 0.9
+conf0.d = 0.00126
+conf0.max_ac_cur = 30
+conf0.max_force = 45
+conf0.max_vel = 148.1
+conf0.cur_ind = 1
+conf0.phase_cur = 7.5
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 3.0
+fault0.state
+fault0.fault
+fb_switch0.phase_fail
+@expect fault0.state == 1
+@expect fault0.fault == 0
+@expect fb_switch0.phase_fail == 0

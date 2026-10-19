@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Generate the all-motors emergency braking tests (docs/emergency_stop.md):
+every motor in motors.py on the simulated drive (pmsm template), brought to
+speed through the simulated LinuxCNC link, then one failure per test:
+
+  link     the link to LinuxCNC lost: the quick stop (qstop0)
+  fb       the motor encoder fails: the dynamic brake (dbrake0)
+  f4dead   the F4 stops talking: the F3 brakes on its own (shared/vbrake.h)
+
+Speed and acceleration as in gen_soak_tests.py: v0 = half the voltage-limited
+speed (capped), ramped up at 40 % of peak torque / j. Loop gains: the bench
+motor's (bandwidths, so they scale with conf0.j).
+
+fb and f4dead: the virtual resistor holds the current at 0.9 max_ac_cur;
+where that would take more rv than is stable (l / delay), it gives up after
+2 ms above 1.3 x the target and the outputs go off: coasting is safe for the
+power stage. GIVES_UP lists where that happens (as observed; a change shows
+up as a failed check either way). The test runs at least as long as
+coasting would take, so the motor stands still at the end in both cases.
+
+Each test checks:
+  - the motor stands still at the end (|v| < 1 rad/s), the drive's outputs
+    off (link, fb) or the F3's brake over (f4dead), no stop cut off by
+    stop_time;
+  - the phase current, from the failure on: peaks within the power stage
+    (0.95 x the F3's ABS_MAX_CURRENT, 30 A; or 1.3 x max_ac_cur for motors
+    above it), and from 5 ms on within 1.3 x max_ac_cur (the brake's
+    give-up level, 1.3 x its 0.9 target, with a margin). Very-low-L motors
+    peak above max_ac_cur: the stable rv is too small to hold them, but they
+    stop before the 2 ms give-up;
+  - the stop shorter than coasting would be: friction alone takes
+    j v0^2 / (2 f) (the tests' f = 2 % of peak torque, as the soak's), plus
+    the time until the failure is noticed at full speed (the link's ~6 ms
+    timeout; 2 ms for the others);
+  - at most 1 rad of reverse travel: after a short-circuit stop the
+    decaying winding current keeps pushing past standstill (L / R), which
+    on light motors outweighs the short way forward;
+  - link: within 1.5 x the planned quick stop (qstop0's S-curve at
+    dec_share of peak torque / j, power-limited to max_hv_power, after the
+    ~5 ms the link takes to time out) plus 0.5 rad.
+
+usage: gen_ebrake_tests.py [--out DIR]   (default ../gen/ebrake)
+"""
+
+import argparse
+import math
+import os
+
+from motors import MOTORS
+
+DT = 0.002
+MM_PER_RAD = 10.0 / (2 * math.pi)  # linrev0.scale = 10 mm/rev
+UDC = 300.0
+VMAX_CAP = 320.0 * 0.9
+AMAX_CAP = 3000.0
+DEC_SHARE = 0.3    # qstop0.dec_share
+MAX_POWER = 1000.0  # conf0.max_hv_power (template)
+TJ = 0.003         # qstop0.tj
+DETECT = 0.006     # link timeout until the stop starts [s]
+F4_DT = 0.0002     # rt period
+F3_DT = 0.00005    # the simulated F3's current loop (20 kHz)
+
+
+# where the brake can't hold the current and gives up (motor_kind)
+GIVES_UP = {
+    "manutec_r15_1_fb": "short ~39 A, target 4.5 A: needs ~11 ohm, stable on the F4 up to l / 2T = 5",
+}
+
+# Motors whose stop does not meet the checks, with the reason (TAP TODO:
+# reported, not fatal). See DEBUGNOTES "ebrake: motors".
+KNOWN = {}
+
+
+def planned_qstop(v0, t_peak, j):
+    """Distance of qstop0's power-limited S-curve from v0 [rad]."""
+    dec0 = DEC_SHARE * t_peak / j
+    v, a, x, dt = v0, 0.0, v0 * DETECT, 0.0002
+    while v > 0:
+        dec = min(dec0, MAX_POWER / (j * v))
+        jerk = dec / TJ
+        if v <= a * a / (2 * jerk) + a * dt:
+            a = max(a - jerk * dt, 0.0)
+        else:
+            a = min(a + jerk * dt, dec)
+        v -= a * dt
+        x += max(v, 0.0) * dt
+        if a == 0.0 and v > 0 and v < 1e-3:
+            break
+    return x
+
+
+def ramp(v0, amax):
+    lines, v = [], 0.0
+    while v < v0:
+        v = min(v + amax * DT, v0)
+        lines += ["lcnc 1 %.5f" % (v * MM_PER_RAD), "run %g" % DT]
+    return lines
+
+
+TRIGGER = {
+    "link":   "lcncstop",
+    "fb":     "enc_fb0.sim_fail = 1",
+    "f4dead": "hv0.sim_f4_dead = 1",
+}
+
+END = {
+    "link":   "fault0.stop\nfault0.en_out\nfault0.fault\n"
+              "@expect fault0.stop[-1] == 0\n@expect fault0.en_out == 0\n@expect fault0.fault == 1\n",
+    "fb":     "fault0.stop\nfault0.en_out\nfault0.fault\n"
+              "@expect fault0.stop[-1] == 0\n@expect fault0.en_out == 0\n@expect fault0.fault == 2\n",
+    "f4dead": "hv0.sim_f3_brake\n@expect hv0.sim_f3_brake[-1] == 0\n",
+}
+
+# probe autophasing (fb_switch phase_mode 1) before the ramp: at a share
+# of the motor's current, the heavy rotors still take ~2.5 s; checked.
+# syn_servo_2kw fails its phasing check at 7.5 A and phases at 4 A
+# (DEBUGNOTES 2026-10-19, tests/phasing_check_light_rotor.test)
+PHASE_SHARE = 0.25
+PHASE_WAIT = 3.0
+PHASE_CUR = {"syn_servo_2kw": 4.0}
+
+FIRST = {  # the stop that runs, checked 30 ms in
+    "link":   "fault0.stop\n@expect fault0.stop[1] == 1\n",
+    "fb":     "fault0.stop\n@expect fault0.stop[1] == 2\n",
+    "f4dead": "hv0.sim_f3_brake\n@expect hv0.sim_f3_brake[1] == 1\n",
+}
+
+TEMPLATE = """\
+# GENERATED by tests/gen_ebrake_tests.py -- edit it or motors.py there.
+# Emergency braking ({kind}): motor {name} at {v0:.1f} rad/s, {what}.
+# Coasting on friction alone would take {coast:.1f} rad.{plan}
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 180
+conf0.r = {r}
+conf0.l = {l}
+conf0.psi = {psi}
+conf0.polecount = {pp}
+conf0.j = {j}
+conf0.f = {f}
+conf0.d = {d}
+conf0.max_ac_cur = {imax}
+conf0.max_force = {t_peak:.4g}
+conf0.max_vel = {max_vel:.1f}
+conf0.cur_ind = 1
+{known}debug_level 0
+lcnc 0 0
+run 0.5
+conf0.phase_cur = {pcur:.3g}
+lcnc 1 0
+run {tphase}
+fault0.state
+@expect fault0.state[0] == 1
+{ramp}
+run 0.3
+hv0.sim_vel
+hv0.sim_dist = 0
+{trigger}
+@sample hv0.abs_cur 0.0005 0.03
+{first}run {run:.2f}
+hv0.sim_dist
+hv0.sim_vel
+{end}@expect hv0.sim_vel[1] > {vmin:.2f}
+@expect max|hv0.abs_cur| < {ipeak:.3g}
+@expect max|hv0.abs_cur[11:60]| < {ilim:.3g}
+@expect hv0.sim_vel[-1] ~ 0 1
+@expect hv0.sim_dist < {dlim:.3g}
+@expect hv0.sim_dist > -1
+"""
+
+GIVEUP = {  # the brake gave up within 30 ms: outputs off
+    "fb":     "fault0.stop\nfault0.en_out\n@expect fault0.stop[1] == 0\n@expect fault0.en_out[1] == 0\n",
+    "f4dead": "hv0.sim_f3_brake\n@expect hv0.sim_f3_brake[1] == 0\n",
+}
+
+WHAT = {
+    "link":   "then the link to LinuxCNC is lost (quick stop)",
+    "fb":     "then the motor encoder fails (dynamic brake)",
+    "f4dead": "then the F4 stops (the F3 brakes on its own)",
+}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                  "gen", "ebrake"))
+    args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
+    n = 0
+    for name, r, l, psi, pp, j, imax in MOTORS:
+        t_peak = 1.5 * pp * psi * imax
+        f = round(0.02 * t_peak, 4)
+        d = float("%.3g" % (2.8e-5 * t_peak))
+        w_volt = UDC / math.sqrt(3) * 0.95 / (psi * pp)
+        max_vel = min(0.9 * w_volt, 320.0)
+        v0 = min(0.5 * w_volt, 0.9 * max_vel, VMAX_CAP)
+        amax = min(0.4 * t_peak / j, AMAX_CAP)
+        coast = j * v0 * v0 / (2 * f)
+        for kind in ("link", "fb", "f4dead"):
+            plan = ""
+            dlim = coast + v0 * 0.002
+            first = FIRST[kind]
+            run = max(2.5, 1.3 * j * v0 / f)  # coasting stops too
+            key = "%s_%s" % (name, kind)
+            if kind in ("fb", "f4dead"):
+                we = v0 * pp
+                isc = psi * we / math.hypot(r, we * l)
+                gives = key in GIVES_UP
+                plan = "\n# The short alone draws %.1f A at v0 (target %.1f A)%s." % (
+                    isc, 0.9 * imax, "; the brake gives up: " + GIVES_UP[key] if gives else "")
+                pin = "dbrake0.gave_up" if kind == "fb" else "hv0.sim_f3_gave_up"
+                first += "%s\n@expect %s == %d\n" % (pin, pin, 1 if gives else 0)
+                if gives:
+                    first = GIVEUP[kind] + "%s\n@expect %s == 1\n" % (pin, pin)
+                    dlim = 1.2 * coast + v0 * 0.01
+            if kind == "link":
+                q = planned_qstop(v0, t_peak, j)
+                plan = "\n# The planned quick stop: %.2f rad." % q
+                dlim = min(coast + v0 * DETECT, 1.5 * q + 0.5)
+            known = "@todo %s\n" % KNOWN[key] if key in KNOWN else ""
+            text = TEMPLATE.format(
+                kind=kind, name=name, v0=v0, what=WHAT[kind], coast=coast, plan=plan, r=r, l=l, psi=psi,
+                pp=pp, j=j, f=f, d=d, imax=imax, t_peak=t_peak, max_vel=max_vel, known=known,
+                pcur=PHASE_CUR.get(name, PHASE_SHARE * imax), tphase=PHASE_WAIT,
+                ramp="\n".join(ramp(v0, amax)), trigger=TRIGGER[kind], first=first, end=END[kind], run=run,
+                ilim=1.3 * imax, ipeak=max(1.3 * imax, 0.95 * 30.0), dlim=dlim, vmin=0.8 * v0)
+            with open(os.path.join(args.out, "ebrake_%s.test" % key), "w") as fh:
+                fh.write(text)
+            n += 1
+    print("wrote %d emergency braking tests (%d motors) to %s" % (n, len(MOTORS), args.out))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,26 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution): at 188 rad/s (300 mm/s) something fails; hv0.sim_dist,
+# zeroed then, is how far the axis went (1 rad = 1.59 mm). Coasting takes
+# ~16 rad (26 mm) and ~180 ms.
+# An HV board fault (here HV_VOLT_ERROR reported by the F3, hv0.sim_fault =
+# 11): the power stage can't be trusted, so no stop: outputs off, the axis
+# coasts, whatever the stop modes say.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+hv0.sim_vel
+hv0.sim_dist = 0
+hv0.sim_fault = 11
+run 0.004
+fault0.stop
+run 0.3
+hv0.sim_dist
+fault0.fault
+@expect fault0.stop[1] == 0
+@expect hv0.sim_dist > 14
+@expect fault0.fault == 11

@@ -46,7 +46,9 @@ HAL_PIN(state);
 HAL_PIN(depth);
 HAL_PIN(dt);
 
-#define SCOPE_MEM 4096
+#ifndef SCOPE_MEM
+#define SCOPE_MEM 4096  // samples in all; a target may set less (-DSCOPE_MEM=...)
+#endif
 enum { S_IDLE, S_ARMED, S_TRIG, S_DONE };
 
 static float scope_buf[SCOPE_MEM];

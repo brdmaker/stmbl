@@ -6,12 +6,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "can_host.h"
 #include "drive.h"
 #include "pty.h"
 #include "sim_io.h"
 #include "stmbl_sim_api.h"
 
 static long carry_ns = 0;
+static int can_on    = 0;
+
+void stmbl_sim_can(void) {
+  can_host_attach();
+  can_on = 1;
+}
+
+int stmbl_sim_can_xfer(void *ctx, void *segs, int n) {
+  (void)ctx;
+  return can_host_xfer((mcp_seg_t *)segs, n);
+}
+
+// one rt cycle, with the bus during it (as host/main.c's run_cycles)
+static void tick(void) {
+  if(can_on) {
+    can_host_run(RT_PERIOD * 1e6);
+  }
+  drive_tick();
+}
+
+void stmbl_sim_can_wait(void *ctx, int us) {
+  (void)ctx;
+  for(int t = 0; t < us; t += (int)(RT_PERIOD * 1e6)) {
+    tick();
+  }
+}
 
 int stmbl_sim_open(const char *conf, const char *sim, const char *pty) {
   char *text = sim_read_file(conf);
@@ -61,7 +88,7 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
   carry_ns += period_ns;
   if(carry_ns >= rt_ns) {
     carry_ns -= rt_ns;
-    drive_tick();
+    tick();
   }
 
   pd->pos_fb          = io->pos_fb;
@@ -75,6 +102,6 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
 
   while(carry_ns >= rt_ns) {
     carry_ns -= rt_ns;
-    drive_tick();
+    tick();
   }
 }

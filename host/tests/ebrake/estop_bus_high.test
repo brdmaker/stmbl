@@ -1,0 +1,32 @@
+# Emergency braking (docs/emergency_stop.md) on the burn-in axis (10 mm a
+# revolution; 1 rad = 1.59 mm). hv0.sim_dist, zeroed at the failure, is how
+# far the axis went.
+# The dynamic brake with the DC bus high (above high_dc_volt; here set below
+# the bus): rv backs off towards a plain short, so less energy goes into
+# the bus, but not past the current target (2 A here): the current comes
+# first. Before, the short's transient (~3.4 A) went over 1.3 x the target
+# and the brake gave up (coasting, ~10 rad); now it brakes, ~2 rad. If the
+# bus still rises the F3 switches off at ABS_MAX_VOLT (bus_regen_f3.test).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 300
+run 1
+dbrake0.max_cur = 2
+dbrake0.high_dc_volt = 250
+hv0.sim_dist = 0
+enc_fb0.sim_fail = 1
+run 0.0024
+@sample dbrake0.rv 0.0004 0.002
+@sample hv0.abs_cur 0.0004 0.002
+run 0.01
+dbrake0.gave_up
+fault0.en_out
+run 0.4
+hv0.sim_dist
+@expect max|hv0.abs_cur| < 2.6
+@expect dbrake0.gave_up == 0
+@expect hv0.sim_dist < 3

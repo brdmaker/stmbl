@@ -1,0 +1,40 @@
+# stepper_ipropi_worst.test's detent compensation check on its own: at
+# 0.2 rev/s with the DRV8876's worst-case IPROPI errors, switching
+# stp_ttc0.detent on mid-move stick-slips in most phases (following error
+# ~0.055 rad at ~0.2 A, then a jerk: ~10000 rad/s^2 of acceleration span
+# against ~1360 when it doesn't). Which one depends on the phase: shifting
+# the start by one rt cycle flips it, on the code before this branch too
+# (DEBUGNOTES "brdstepper: detent compensation stick-slips").
+@todo detent compensation stick-slips with worst-case IPROPI (DEBUGNOTES)
+@args --drive tests/nema11/stmbl.conf --sim tests/nema11/sim_ipropi_worst.txt
+@timeout 180
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+fault0.state
+@sample pid0.pos_error 0.001 0.2
+lcnc 1 10
+run 1
+@sample pid0.pos_error 0.001 0.3
+@sample hv0.abs_volt 0.001 0.3
+hv0.sim_vel
+lcnc 1 0
+run 1
+hv0.sim_load = 0.047
+run 0.5
+hv0.iq_fb
+pid0.pos_error
+pe0.p_el_ac
+hv0.sim_load = 0
+run 0.5
+stp_ttc0.detent = 0
+lcnc 1 0.2
+run 1
+@sample stp_ttc0.cur 0.0005 0.5
+@sample hv0.sim_acc 0.0005 0.5
+stp_ttc0.detent = 0.004
+run 0.5
+@sample hv0.sim_acc 0.0005 0.5
+@expect span hv0.sim_acc[1:1000] > 2000
+@expect span hv0.sim_acc[1001:2000] < 2000

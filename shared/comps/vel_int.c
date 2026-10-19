@@ -54,7 +54,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float v     = PIN(vel_in);
   int new_cmd = p != ctx->last_p || v != ctx->last_v;  // before the watchdog zeroes v
 
-  if(ctx->counter > PIN(wd) && v != 0.0) {
+  // a new command is no timeout: after a standstill (the same packet
+  // repeated, so no new command for a while) the first moving one used to
+  // be zeroed and flagged for a cycle
+  if(!new_cmd && ctx->counter > PIN(wd) && v != 0.0) {
     v          = 0;
     PIN(error) = 1.0;
   } else {

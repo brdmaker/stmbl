@@ -29,6 +29,7 @@ HAL_PIN(cap);
 HAL_PIN(eff);   // inverter efficiency (0.95)
 HAL_PIN(idle);  // idle draw [W] (15)
 HAL_PIN(tau);   // low-pass of p_in [s] (0.001)
+HAL_PIN(phases);  // motor phases (3; 2 for a stepper): dq power = phases / 2 (ud id + uq iq)
 
 HAL_PIN(e_el);
 HAL_PIN(e_kin);
@@ -43,6 +44,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(eff)  = 0.95;
   PIN(idle) = 15.0;
   PIN(tau)  = 0.001;
+  PIN(phases) = 3.0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -59,10 +61,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(e_kin) = PIN(j) * vel * vel / 2.0;
 
   PIN(p_el_dc) = udc * PIN(idc);
-  float p_ac   = 1.5 * (PIN(ud) * id + PIN(uq) * iq);
+  float k      = CLAMP(PIN(phases), 2.0, 3.0) / 2.0;
+  float p_ac   = k * (PIN(ud) * id + PIN(uq) * iq);
   PIN(p_el_ac) = p_ac;
   PIN(p_m)     = t * vel;
-  PIN(p_t)     = 1.5 * PIN(r) * (id * id + iq * iq);
+  PIN(p_t)     = k * PIN(r) * (id * id + iq * iq);
 
   float eff = CLAMP(PIN(eff), 0.1, 1.0);
   float p   = (p_ac > 0.0 ? p_ac / eff : p_ac * eff) + PIN(idle);

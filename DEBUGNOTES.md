@@ -1027,3 +1027,451 @@ Entry format:
 - Fix:     the comp is `fbtx`; `create_hal_tbl.py` now refuses a comp name
   with anything but letters and `_`. Test: `host/tests/test_comp_names.py`
   (in `make -C host check`).
+
+## 2026-10-16  brdstepper: TIM1 CH4 and FDCAN pins collide with USB on the G4
+- Area:    `docs/brdstepper_hw.md` (pin plan)
+- Status:  Note
+- Symptom: On the 48-pin STM32G431/G473/G474, TIM1_CH4 exists only on PA11
+  (USB D-), and FDCAN1 only on PA11/PA12 (USB) or PB8 (BOOT0)/PB9.
+- Cause:   The pin multiplexing of the UFQFPN-48 package (ST pin data).
+- Fix:     Coil B's second PWM input goes to TIM8_CH1 (PC6), synchronised
+  to TIM1. CAN goes on PB8/PB9, with the option bytes set (nSWBOOT0 = 0,
+  nBOOT0 = 1) so the pin's idle-high CAN RX does not start the ROM
+  bootloader.
+
+
+## 2026-10-16  DRV8876 IPROPI: low side only, one direction only
+- Area:    brdstepper current sensing (`shared/bip_loop.c` `bip_sense`,
+  `host/hw/hv.c` sim_sense, `docs/brdstepper_hw.md`)
+- Status:  Workaround (datasheet-confirmed, simulated; to verify on the board)
+- Symptom: (design) a single IPROPI sample cannot give a signed coil
+  current, and a stepper's coil currents change sign every electrical turn.
+- Cause:   DRV8876 datasheet SLVSDS7B 7.3.3.1: IPROPI mirrors the LOW-side
+  MOSFETs, only for current flowing drain to source. Driving, it reads the
+  current if it flows the way the bridge drives, else 0. In brake (both low
+  sides on, slow decay) it reads the magnitude.
+- Fix:     Sample twice per PWM period, in the drive window and in the brake
+  window (forward = IN1 high and IN2 PWM, the bridge braking around the
+  counter's top). Drive sample ~ brake sample means the current flows with
+  the drive; drive 0 and brake > 0 means against it. If the drive window is
+  too short to sample, take the sign from the current command. Below a
+  noise floor, read 0: the rectified |noise| from the brake window otherwise
+  biases the loop. That bias held the motor ~36 mrad (about a full step)
+  off position before the floor was added to every branch. In simulation,
+  with 5 mA noise, the result matches ideal sensing except at slow speed
+  (detent-compensated ripple ~820 vs ~310 rad/s^2). Bidirectional shunt
+  amplifiers would avoid all this, at the cost of parts and space.
+
+## 2026-10-16  DRV8876 datasheet corrections (gain, offset, delays, IMODE)
+- Area:    `brdstepper/inc/brd.h`, `brdstepper/comps/hv.c`, `shared/bip_loop.c`
+  (bip_cal), `host/hw/hv.c`, `docs/brdstepper_hw.md` (parts)
+- Status:  Fixed (simulated; to verify on the board)
+- Symptom: Before the datasheet (SLVSDS7B), the design assumed AIPROPI
+  450 uA/A, with 4.7 kOhm for 1.5 A: 7 V, past the ADC and the VREF clamp.
+  In simulation at the datasheet's IPROPI offset limit (7.5 mA), the
+  slow-speed ripple went from ~750 to ~9200 rad/s^2.
+- Cause:   The datasheet gives AIPROPI 1000 uA/A, an offset of up to
+  +-7.5 mA at low current, tPD 0.65 us, tDELAY 1.6 us, and RDS(on)
+  0.35 + 0.35 Ohm. In the cycle-by-cycle IMODEs nFAULT also flags plain
+  chopping. Input 00 is coast and 11 is brake.
+- Fix:     RIPROPI 2.0 kOhm (1.65 A full scale) and an IPROPI cap of at most
+  100 pF. PMODE high, IMODE open (fixed off-time, latched overcurrent,
+  nFAULT for faults only). sense_window 0.12, max_duty 0.88. Disabled
+  means coast (CCR > ARR), not brake. nSLEEP stays high and only pulses
+  1.2 ms to clear a latched fault, then the driver gets 1.2 ms (tWAKE)
+  before it is driven. An IPROPI offset calibration (bip_cal) runs at
+  each enable: braking, rotor still, zero current. With it the
+  worst-case ripple is ~1360 rad/s^2 (stepper_ipropi_worst.test). The
+  simulator models the 0.7 Ohm bridge, the offset and the gain error.
+
+## 2026-10-16  G4 flash: 64-bit units, each programmed once
+- Area:    `shared/fwstage.c` (prog_size, the 24-byte header), `brdstepper/src/flash.c`
+- Status:  Fixed
+- Symptom: (design) the staging code programmed 32-bit words and later
+  turned the header's state word from all ones to 0 in place. The G4
+  programs 64-bit double words only, each once until erased (ECC), so
+  neither works there.
+- Cause:   Flash with ECC: a double word cannot be programmed twice.
+- Fix:     fwst_t.prog_size (4 for the F4, 8 for the G4). Data goes in
+  whole aligned units, the tail padded with 0xff. The header is 24 bytes:
+  magic, size, CRC32, then a state unit of its own at offset 16, which
+  stays erased until the bootloader marks the update done.
+  `test_bootloader` checks it on a model of the G4 flash that refuses a
+  second program of a unit.
+
+## 2026-10-16  CAN on stmbl v4.0: no transceiver; classic and FD don't mix
+- Area:    `hw/kicad/v4.0` (P10), `docs/can_support.md`
+- Status:  Note
+- Symptom: (investigation) the v4.0 schematic has CAN_TX / CAN_RX nets,
+  but the board has no CAN transceiver.
+- Cause:   The F405's CAN1 (PD1 TX, PD0 RX) only goes, through the ESD
+  array U20, to the 2x6 header P10 (pins 5 and 7, next to SWD, CMD lines,
+  +5V, +24V). bxCAN is classic CAN only, and not FD-tolerant: it errors
+  CAN FD frames on the bus.
+- Fix:     CAN on a v4.0 board needs a plug-on transceiver board on P10.
+  stmbl v4.0 and FD brdsteppers need separate buses, or all classic.
+
+## 2026-10-17  MCP2515 in the servo loop: filters, priorities, bus time
+- Area:    `linuxcnc/stmblcan` (mcp2515.c, stmblcan_bus.c), `host/tests/test_stmblcan.c`
+- Status:  Note (simulated; not yet on a Pi)
+- Symptom: (simulation) without acceptance filters, a foreign device whose
+  frames have higher priority than the feedback (0x050 vs 0x18x) took
+  both MCP2515 receive buffers every period. No feedback got through, and
+  the drives never became present. With filters, 3 such 8-byte frames a
+  period still made drives miss periods.
+- Cause:   The MCP2515 has 2 receive buffers, and the higher-priority
+  frames reach them first. The 3-frame flood is bus time: 405 us on top of
+  the period's own 605 us is more than 1 ms.
+- Fix:     Accept only the expected feedback IDs (RXB0's two filters, with
+  rollover, so both buffers serve them). Bus time can only be fixed by
+  keeping foreign traffic off the servo buses, or giving it lower
+  priority and less volume.
+
+## 2026-10-17  stmblcan: a bus's period has to fit the MCP2515
+- Area:    `linuxcnc/stmblcan` (stmblcan_bus_check), description files
+- Status:  Note
+- Symptom: (design) a description file can ask for more frames per period
+  than the MCP2515 can hold: 2 drives plus a foreign I/O module need 4
+  frames out and 3 in.
+- Cause:   3 transmit buffers (SYNC included) and 2 receive buffers,
+  serviced once per servo period.
+- Fix:     stmblcan_bus_check refuses such a bus at load, with the reason.
+  Frames with "every N" are staggered over the periods. Spread devices
+  over the buses, or lower their rates.
+
+## 2026-10-17  Index homing: the switched position reached the link a cycle late
+- Area:    `conf/template/sserial.txt`, `can.txt`, `conf/haas_spindle_slip_uf.txt` (rt_prio), `shared/comps/idx_home.c`
+- Status:  Fixed (simulated, both links; to be confirmed on a real drive)
+- Symptom: Index homing (HOME_USE_INDEX) with joint.N.index-enable wired:
+  the feedback that cleared index-enable still had the old position, and
+  the next one was index-relative. LinuxCNC latched the home off by the
+  whole switch (11 mm in host/tests/index_link.test), then the jump
+  tripped the following error.
+- Cause:   idx_home0 (rt_prio 2.3) ran after linrev0 (2.1), whose fb_in it
+  feeds. index_clear reached the link comp (2.0) one rt cycle before the
+  switched position did, and over smart-serial and CAN alike.
+- Fix:     idx_home0.rt_prio = 2.05, so it runs before linrev0. Tests:
+  host/tests/index_link.test (smart-serial), can_index.test (CAN).
+
+## 2026-10-17  Index homing: the drive's loop kept the old command coordinates
+- Area:    `shared/comps/idx_home.c` (cmd_offset), `shared/comps/linrev.c`, templates
+- Status:  Fixed (simulated, both links; to be confirmed on a real drive)
+- Symptom: After a correct index latch, the motor ran away from the
+  command by fb_abs - fb (1 mm on the burn-in config: mot_fb_offset at
+  10 mm/rev), which tripped the following error at FERROR 1.
+- Cause:   At the index, idx_home switches the reported position from fb
+  (raw encoder angle) to fb_abs (index-relative), and LinuxCNC moves its
+  command into those coordinates. fb_switch still closes the position
+  loop on the raw angle plus the offset taken at enable, so it read the
+  moved command in the old coordinates.
+- Fix:     idx_home0.cmd_offset = fb_abs - fb, active from the command that
+  drops index_en (LinuxCNC re-based in that same packet).
+  linrev0.cmd_offset takes it off cmd_out. When unconnected it is 0, so
+  configs without index homing are unchanged. Tests as above
+  (lcncindex.ferr), and hwtest/burnin-sim `make test-can` homes on the index.
+
+## 2026-10-17  can comp: index_out gated by index_clear never finished homing
+- Area:    `shared/comps/can.c`
+- Status:  Fixed
+- Symptom: Over CAN, the drive found the index (position switched) but
+  index-enable never cleared; the following error tripped.
+- Cause:   index_out = index_enable && !index_clear: idx_home saw index_en
+  drop the cycle after it set index_clear, cleared it again, and the
+  feedback went back to "searching".
+- Fix:     index_out = index_enable, as src/comps/sserial.c does.
+
+## 2026-10-17  stmblcan: vel_scale clips vel-cmd silently
+- Area:    `linuxcnc/stmblcan` (vel-clipped pin), `can0.vel_scale`
+- Status:  Note
+- Symptom: The burn-in machine over CAN (rapids at 500 mm/s) tripped the
+  following error on the first rapid.
+- Cause:   vel-cmd goes over the wire as int16 with full scale vel_scale
+  (default 100), so 500 was clipped to 100 and the drive's velocity
+  feedforward was wrong.
+- Fix:     Set can0.vel_scale above the fastest joint speed (the burn-in
+  sim uses 600); stmblcan takes it from the drive (discover=1). The
+  stmblcan.B.N.vel-clipped pin counts clipped periods, so check that it
+  stays 0.
+
+## 2026-10-18  No emergency braking: every fault coasted the motor
+- Area:    `shared/comps/fault.c`, `qstop.c`, `dbrake.c`, `conf/template/pid.txt`, `pmsm.txt`
+- Status:  Fixed (simulated; not yet on hardware)
+- Symptom: Any fault, a lost link or a disable switched the power stage off
+  at once: a moving axis coasted (burn-in axis from 300 mm/s: 26 mm,
+  180 ms).
+- Cause:   fault.c only had "outputs off". fault0.dc_brake was computed but
+  unused.
+- Fix:     Per-cause stop modes in fault.c (cmd_stop, en_stop, fb_stop,
+  err_stop; stop_time):
+  - qstop: a planned S-curve stop on the feedback (3 mm);
+  - dbrake: a virtual resistor in voltage mode, needing no angle, for
+    feedback faults (5 mm);
+  - HV faults still coast.
+  docs/emergency_stop.md; host/tests/estop_*.test.
+
+## 2026-10-18  Link loss arrives as a disable first
+- Area:    `shared/comps/fault.c`, sserial / can link components
+- Status:  Fixed
+- Symptom: With en_stop = 0, a lost link coasted although cmd_stop = 1.
+- Cause:   On timeout the link component drops enable in the same cycle
+  as it sets its error, so fault0 saw ENABLED -> DISABLED before the
+  filtered CMD error.
+- Fix:     Enable dropping while fault0.cmd_error is set counts as a link
+  loss (cmd_stop).
+
+## 2026-10-18  vel_int: the first command after a standstill was zeroed
+- Area:    `shared/comps/vel_int.c`
+- Status:  Fixed
+- Symptom: (found through qstop's hold2) vel_int0.error flickered for one
+  rt cycle at the start of every move after a standstill.
+- Cause:   The watchdog test (counter > wd && v != 0) ran before the new
+  command reset the counter. The counter runs on while the same packet
+  repeats at a standstill, so the first moving packet had its velocity
+  zeroed and was flagged.
+- Fix:     A new command is never a timeout (!new_cmd in the test). It shifts
+  timing by a cycle: index_link.test's jump limit is now 5 encoder counts
+  (it was one), and it exposed the next entry.
+
+## 2026-10-18  brdstepper: detent compensation stick-slips with worst-case IPROPI
+- Area:    `shared/comps/stp_ttc.c` (detent), `host/tests/stepper_ipropi_worst*.test`
+- Status:  Open
+- Symptom: At 0.2 rev/s with the DRV8876's worst-case IPROPI errors,
+  switching stp_ttc0.detent on mid-move stick-slips in most phases. The
+  following error sits at ~0.055 rad with ~0.2 A, then jerks: ~10000
+  rad/s^2 of acceleration span, against ~1360 when it doesn't.
+- Cause:   Not found. It is phase-dependent: on the code before the
+  emergency-braking branch, shifting the test's start by 1..7 rt cycles
+  passed 2 of 6. The test passed by luck.
+- Fix:     The check moved to stepper_ipropi_worst_detent.test (@todo). Look
+  at the current loop's dead zone (B's negative offset reads 0) together
+  with the detent compensation at low speed.
+
+## 2026-10-18  Velocity observer lags at high decelerations (quick stop rings)
+- Area:    `shared/comps/vel.c` (vel1), `shared/comps/qstop.c`
+- Status:  Known
+- Symptom: A quick stop near the motor's capability over-brakes and rings
+  (burn-in motor from 188 rad/s at 80 %: down to -117 rad/s). pid's
+  vel_fb ran ~2 ms behind the real velocity.
+- Cause:   vel1 passes its torque feedforward through a 50 Hz high-pass
+  (acc - lowpass(acc)). A sustained deceleration is tracked by its PLL
+  (w = 1000) alone, which lags by about dec / w. LinuxCNC's moves (a few
+  hundred rad/s^2) don't notice.
+- Fix:     qstop brakes at 30 % of capability with a 3 ms S-curve by default
+  (3.1 mm, 0.01 rad of reverse travel). Harder stops would need the
+  observer to keep its torque feedforward during a stop.
+
+## 2026-10-18  A failed encoder drives the motor for 1 ms before the fault
+- Area:    `shared/comps/fault.c` (err_filter on mot_fb_error), `shared/comps/dbrake.c`
+- Status:  Fixed (simulated)
+- Symptom: (simulation) after enc_fb0.sim_fail at 188 rad/s, the 5 rt
+  cycles until MOT_FB_ERROR commutated on the frozen angle: uq rose to
+  114 V and the current to ~2 A in the wrong direction, before dbrake
+  took over.
+- Cause:   err_filter needs 5 cycles. Commutation keeps the last angle.
+  Even a zero current command can't be held in that frame at speed: on
+  rx60_123 the current still rose to 3 A.
+- Fix:     dbrake0.en_out gates hv0.en: the bridge is off while the raw
+  feedback error is set (fb_err0/1 = fault0.mot/com_fb_error), until the
+  filter decides. A glitch just resumes.
+
+## 2026-10-18  F3: the config index allowed one word past the array
+- Area:    `stm32f303/src/comps/ls.c` (WRITE_CONF / READ_CONF)
+- Status:  Fixed (compiles; not run on an F3)
+- Symptom: none seen; found by reading the code.
+- Cause:   `CLAMP(a, 0, sizeof(config) / 4)` lets a == 9 through, one past
+  the 9 floats, so a WRITE_CONF there writes past `config`. Today's F4
+  never sends 9, but an F4 with a longer config (another version) would.
+- Fix:     `sizeof(config) / 4 - 1`. New F3 features must still not add
+  config words without a version check: an older F3 has this bug. That is
+  why brake_on_loss is a spare flag bit.
+
+## 2026-10-18  F3 voltage mode clamps current by lowering the voltage
+- Area:    `shared/comps/curpid.c` (VOLT_MODE), dynamic braking
+- Status:  Fixed (simulated; needs the F3 firmware)
+- Symptom: The ebrake suite: on manutec_r15_1 (0.4 ohm, 2 mH) the brake
+  current went to 24 A against a 5.25 A limit.
+- Cause:   Above max_cur, curpid scales the commanded voltage down (kci
+  500). For u = -rv * i that is less resistance, so more current; the
+  scale ran to 0, a plain short at the motor's short-circuit current.
+  Keeping the brake at 0.9 * max_cur didn't help once a transient crossed
+  max_cur.
+- Fix:     curpid0.brake (on the F3: ls0.vbrake = flags.brake from the F4's
+  dbrake, or the F3's own brake) applies only the voltage limit. An older
+  F3 ignores the flag. host/hw/hv.c models the clamp and the flag.
+
+## 2026-10-18  The F3 brakes when the F4 is lost (LV side gone)
+- Area:    `stm32f303/src/comps/ls.c`, `shared/vbrake.h`, `src/comps/hv.c`, `shared/common.h`
+- Status:  Fixed (simulated; F3 not yet run)
+- Symptom: With the F4 crashed, reset or unpowered while enabled, the F3
+  switched off on its packet timeout and the motor coasted (25 mm in the
+  simulator).
+- Cause:   Only the F4 knew how to stop. The HV side keeps running, though:
+  it is powered from the DC bus (hv_supply.sch: LNK304, ACT4088).
+- Fix:     The packet flag brake_on_loss (a spare bit, compatible both
+  ways), set by the pmsm template. On timeout, if the last packet enabled
+  the drive, the F3 runs the shared/vbrake.h brake itself until the current
+  has died down (6 mm). host: hv0.sim_f4_dead, estop_f4dead*.test.
+
+## 2026-10-18  A power cap on the dynamic brake can't work with a current limit
+- Area:    `shared/vbrake.h`, `conf0.max_hv_power`
+- Status:  Note
+- Symptom: Capping the brake's bus power (1.5 rv i^2) at 20 W let the current
+  reach 4.3 A against a 1.8 A target; applied only below the target, the
+  brake chattered and nothing changed.
+- Cause:   rv rises only to hold the current down, so any cap on the power it
+  puts into the bus lets the current rise.
+- Fix:     The current comes first (overcurrent destroys the stage at once);
+  the bus has high_dc_volt, max_dc_volt and the F3's ABS_MAX_VOLT.
+  conf0.max_hv_power limits the quick stop's regenerated power
+  (qstop0.max_power), where it does work.
+
+## 2026-10-18  Virtual-resistor brake unstable on low-inductance motors
+- Area:    `shared/vbrake.h`
+- Status:  Fixed (simulated)
+- Symptom: The ebrake suite: on the Yaskawa r2aa06020f (2.7 ohm, 0.7 mH) the
+  brake voltage flipped sign every rt cycle (+-164 V) and the current rang
+  at ~15 A against 5.6 A.
+- Cause:   u = -rv * i is applied a delay after i was measured (2 F4 rt
+  periods). With L / R (0.26 ms) not much longer than that, an rv well above
+  the winding's impedance is delayed feedback with a gain above 1.
+- Fix:     rv stays below l / delay (dbrake0.l = conf0.l; the F3 uses its own
+  period). If the current then can't be held (above 1.3 x the target for
+  2 ms), the brake gives up and the outputs go off (gave_up): coasting is
+  safe for the stage. In the suite only manutec_r15_1 with the F4's brake
+  gives up.
+
+## 2026-10-18  The brake's start as a short overshot the current
+- Area:    `shared/vbrake.h`
+- Status:  Fixed (simulated)
+- Symptom: Up to twice the short-circuit current in the first ms of a
+  dynamic brake (manutec 9 A, sr60_1 15 A for 5 / 11 A motors).
+- Cause:   A sudden short has a transient of up to twice its steady current,
+  and rv started at 0 and only rose once the current was over the target.
+- Fix:     Start at rv = rn (pwm_volt / max_cur: about the target at full
+  back-EMF) and relax towards the short while the current is below target.
+
+## 2026-10-18  host build missed changes in shared/*.h
+- Area:    `host/Makefile` (stmbl_host)
+- Status:  Fixed
+- Symptom: A change to shared/vbrake.h alone did not rebuild stmbl_host;
+  tests ran the old code.
+- Cause:   The stmbl_host rule depended on host/*.h and the sources, but not on
+  the shared headers.
+- Fix:     $(ROOT)/shared/*.h added to its prerequisites.
+
+## 2026-10-18  The simulated F3 runs at 20 kHz, the real one at 15 kHz
+- Area:    `host/hw/hv.c` (F3_PER_RT), `stm32f303/src/main.c` (hal_init 1/15000)
+- Status:  Known
+- Symptom: none.
+- Cause:   The model steps the F3 current loop 4 times per 5 kHz rt cycle.
+- Fix:     Keep in mind for rate-sensitive F3 code: the F3 brake's rv limit
+  (l / 1.5 periods) is a little lower on the real F3.
+
+## 2026-10-18  Simulated DC bus: rectified mains into the drive's own caps
+- Area:    `host/hw/hv.c` (sim_supply, sim_mains, sim_cap, sim_chop_*), `host/sim_board.txt`
+- Status:  Note
+- Symptom: the old fixed 300 V supply soaked up any regeneration, so no
+  over-voltage path was ever exercised.
+- Cause:   model choice.
+- Fix:     230 V 50 Hz through a diode bridge and 1 ohm into 540 uF, no
+  supply caps; the F3 sees the bus through io.c's ~1.3 ms filter and trips
+  at 410 V. A 47 ohm chopper at 345 / 335 V stands in for the planned supply
+  card; without it the soak's manutec_r15_1 and sr8_0 and the spindle fail
+  (regen pushes the bus past high_dc_volt, fault0 scales the current to 0,
+  following error). Tests in `host/tests/bus/`. Not modelled: freewheel
+  diodes charging the bus from back-EMF while the bridge is off.
+
+## 2026-10-18  Without a chopper a hard stop overshoots the F3's 410 V
+- Area:    DC bus, `shared/comps/fault.c` (max_dc_volt), supply card design
+- Status:  Known
+- Symptom: syn_spindle (829 J at speed) quick stop with no chopper: fault0
+  trips HV_VOLT_ERROR at 380 V but the bus is at ~427 V when the bridge is
+  off (`host/tests/bus/bus_regen_nochop.test`).
+- Cause:   540 uF hold ~20 J between 323 and 410 V; braking at kilowatts
+  the bus climbs ~40 V/ms, and the trip takes err_filter's 5 rt periods
+  plus the F3's measurement filter.
+- Fix:     hardware: a brake chopper (docs/emergency_stop.md). Idea for the
+  firmware: limit regenerative torque only (fault0's dc_volt scale cuts
+  motoring torque too, which doesn't lower the bus), or dissipate in the
+  windings with d-axis current while the bus is high.
+
+## 2026-10-18  dbrake gave up the current limit when the bus was high
+- Area:    `shared/vbrake.h`
+- Status:  Fixed
+- Symptom: ebrake_syn_spindle_fb with the mains bus: 64 A against the 52 A
+  limit.
+- Cause:   above high_dc_volt the error was forced to -1 (towards the
+  short) regardless of the current.
+- Fix:     back off only while the current is below its target; if the bus
+  still rises the F3 cuts off at 410 V and the motor coasts.
+  `estop_bus_high.test` rewritten (it had checked the old give-up).
+
+## 2026-10-18  Chopper and high_dc_volt below the +10 % mains peak
+- Area:    `conf/template/conf.txt` (high_dc_volt 350, max_dc_volt 380), supply card
+- Status:  Open
+- Symptom: at 253 V mains (peak 356 V) the simulator's 345 V chopper burns
+  ~460 W at standstill and the bus sits above high_dc_volt
+  (`host/tests/bus/bus_mains_high.test`).
+- Cause:   the template's limits are below 230 V +10 % rectified.
+- Fix:     for the card: chopper ~375 / 365 V and the drives' high_dc_volt /
+  max_dc_volt ~385 / 400 V (tested in bus_mains_high). Changing the template
+  defaults would also apply to drives without a chopper; left to the user.
+
+## 2026-10-18  ebrake suite: the spindle's quick stop rings on bench gains
+- Area:    `host/tests/gen_ebrake_tests.py` (loop gains: the bench motor's)
+- Status:  Open
+- Symptom: ebrake_syn_spindle_link: the current swings 3 <-> 40 A for the
+  whole stop (same with a stiff 300 V supply); with the mains bus that is
+  80 V of bus swing. The checks pass (peaks below 52 A).
+- Cause:   the generator doesn't use id_pid's gains; the soak's tuned gains
+  (pos_bw 32, vel_d 4.1) settle in a few cycles.
+- Fix:     idea: take the gains from the soak's id_pid result.
+
+## 2026-10-18  fault0.last_fault doesn't keep an HV fault behind a link error
+- Area:    `shared/comps/fault.c`
+- Status:  Note
+- Symptom: link lost, then the F3's over-voltage trip: fault0.fault and
+  last_fault read CMD_ERROR afterwards; hv0.fault reads 0 once the F4 has
+  disabled the F3 (io.c clears it).
+- Cause:   the cmd_error filter rewrites the fault every cycle while the link
+  is down.
+- Fix:     tests read `hv0.sim_hv_fault` (kept). The stop logic is right
+  (hv_fault ends the stop).
+
+## 2026-10-18  Mains loss shows up as a following error
+- Area:    `shared/comps/fault.c` (min_dc_volt 20 V)
+- Status:  Note
+- Symptom: mains gone at 188 rad/s and ~300 W: the bus falls ~2.5 V/ms; at
+  ~190 V the burn-in motor can't hold speed; POS_ERROR, dynamic brake
+  (`host/tests/bus/bus_mains_loss.test`).
+- Cause:   no under-voltage stop above min_dc_volt.
+- Fix:     fine as is (the dynamic brake needs no bus). Idea: start the quick
+  stop on a falling bus while there is still voltage to brake with.
+
+## 2026-10-18  LinuxCNC tests refuse to run as root
+- Area:    `hwtest/burnin-sim` (make test-*), rtapi_app
+- Status:  Workaround
+- Symptom: make test-can fails with an empty linuxcnc.log.
+- Cause:   rtapi_app: "Refusing to run as root without fallback UID"; with no
+  tty linuxcnc sends its output to a temp file that it deletes.
+- Fix:     run as the `lcnc` user: `chmod -R a+rX hwtest servoterm-cli;
+  su lcnc -c 'cd .../hwtest/burnin-sim && make test-can'`.
+
+## 2026-10-19  Probe phasing fails its check on a light rotor
+- Area:    `shared/comps/fb_switch.c` (phase_mode 1), host sim
+- Status:  Open
+- Symptom: merging emergency-braking, its generated suite enables each of
+  the 35 motors of `motors.py` and phases with probe phasing (master's
+  default since 2026-10-17). syn_servo_2kw (j 0.0012, f 0.9 Nm, 4 poles)
+  at phase_cur 7.5 A: fault 17, phase_fail 2 (a check pulse moved the rotor
+  the wrong way). At 1 A and 4 A it phases in 0.6 s. At 15 % of their
+  current fanuc_a06b, move, syn_spindle and weiler_z were not phased
+  within 3 s (slow or failed, not looked at).
+- Cause:   not known yet. The bus and ebrake tests had waited 1.5 s after
+  enable, written when align phasing was the default; probe phasing of the
+  heavy rotors takes 2-4 s.
+- Fix:     Open. Reproducer `host/tests/phasing_check_light_rotor.test`
+  (@todo). The bus tests and the ebrake generator now set a phasing
+  current for their motor (ebrake: 25 % of max_ac_cur, syn_servo_2kw 4 A),
+  wait 3 s and check `fault0.state == 1` before the ramp. Idea: a phasing
+  suite over all motors and phasing currents.
