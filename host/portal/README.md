@@ -62,6 +62,18 @@ A cross-coupled gantry controller, with separate loops for the mean and the diff
 
 **The head is the first accuracy limit.** At 0.5 g the head bends 0.16 mm at mid-span statically. LinuxCNC's trapezoids switch acceleration in steps (infinite jerk), and every corner or wiggle rings the 28 Hz mode. On CAM paths the head swings up to 0.5–0.8 mm, even at 12 m/min (`hwtest/portal-sim`).
 
+## Command conditioning (pcomp)
+
+`pcomp.c` conditions the planner's commands with a model of the machine, before the drives. It is plain C, so it can run in `portal_sim` (`comp ...`) or in a future LinuxCNC component.
+1. **ZV shaper** at the head's modes. The y frequency follows the carriage's X; the same filter goes on both axes.
+2. **Moving average**, so the acceleration ramps instead of stepping.
+3. **Acceleration leads:**
+   - + a/ω² for the head's inertial lag;
+   - − ½σ²·a for the filters' shrink;
+   - − τ²·a for the drives' lag.
+
+It reports its mean delay, so the machine's I/O can be delayed to match. Results are in `hwtest/portal-sim/README.md`: on LinuxCNC's recordings the 99th-percentile path error drops 3–5× at 0.25–1 g for the same cycle time. `portal_pcomp.test` checks a circle: 366 → 66 µm.
+
 ## Tests
 
 | Test | Checks |
@@ -70,3 +82,4 @@ A cross-coupled gantry controller, with separate loops for the mean and the diff
 | `portal_move` | a 550 × 550 mm diagonal at 0.7 g: following error, contour error < 0.1 mm, the head rings, the frame moves, the floor sees the force, arrives within 5 µm |
 | `portal_racking` | the carriage near Y1, Y2, in the middle: the near motor carries more; the bridge racks; symmetric in the middle |
 | `portal_bus` | braking raises the bus close to the trip with 1.4 mF, not with 10 mF; the chopper clips it |
+| `portal_pcomp` | circles at 12.6 m/s²: the conditioning cuts the contour error about five-fold; its delay (~24 ms) |

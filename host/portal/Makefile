@@ -12,8 +12,8 @@ all: portal_sim
 $(HOST)/arm/libstmbl_drive.so:
 	$(MAKE) -C $(HOST)/arm libstmbl_drive.so
 
-portal_sim: portal_sim.c portalcore.c pplant.c portalcore.h pplant.h $(HOST)/lcnc/stmbl_sim_api.h $(HOST)/arm/libstmbl_drive.so
-	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Wno-format-truncation -D_GNU_SOURCE -I$(HOST)/lcnc -o $@ portal_sim.c portalcore.c pplant.c -ldl -lm
+portal_sim: portal_sim.c portalcore.c pplant.c pcomp.c portalcore.h pplant.h pcomp.h $(HOST)/lcnc/stmbl_sim_api.h $(HOST)/arm/libstmbl_drive.so
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Wno-format-truncation -D_GNU_SOURCE -I$(HOST)/lcnc -o $@ portal_sim.c portalcore.c pplant.c pcomp.c -ldl -lm
 
 check: all
 	@$(PYTHON) $(HOST)/tests/run_tests.py tests/*.test

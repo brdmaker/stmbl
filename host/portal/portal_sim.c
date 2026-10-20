@@ -54,7 +54,8 @@
  *                                   jammed (racked > 2 mrad, it would bind),
  *                                   mom_x mom_y [kg m/s], energy [J], t [s],
  *                                   bus bus_max bus_min [V] (since mark),
- *                                   e_chopper e_regen [J], fault_code (the
+ *                                   comp_delay (the conditioning's mean delay
+ *                                   [ms]), e_chopper e_regen [J], fault_code (the
  *                                   first faulted drive's, common.h);
  *                                   with a "max_" prefix: the largest |value|
  *                                   since mark (econt, etool, ferr_*, rack, frame_*,
@@ -63,7 +64,18 @@
  *                                   cur_x cur_y1 cur_y2 frame_x frame_y rack
  *   log off
  *   watch y1|y2|x PIN               also log a drive pin (after the columns)
+ *   replay FILE                     play a LinuxCNC recording (hwtest/portal-sim
+ *                                   halsampler file) as the planner's commands
+ *   comp shaper|defl|shrink 0|1     command conditioning (pcomp.h) between the
+ *                                   planner and the drives: input shaper at the
+ *                                   head's modes, head deflection feedforward,
+ *                                   the shaper's shrink compensated
+ *   comp jerk MS                    a moving average of MS ms after the shaper
+ *   comp servo TAU2                 the drives' steady lag per acceleration
+ *                                   [s^2] fed forward (0: off)
+ *   comp model FX FY_END FY_MID ZETA   its model (default: the plant's own)
  */
+#include "pcomp.h"
 #include "portalcore.h"
 
 #include <math.h>
@@ -73,7 +85,9 @@
 
 #define SERVO 0.001
 
-static double cmd[2], cmdv[2];  // X, Y [mm, mm/s]
+static double cmd[2], cmdv[2];  // X, Y [mm, mm/s]: the path wanted (the planner's)
+static pc_t pc;                 // command conditioning (comp), between it and the drives
+static int comp_on = 0;
 static int en = 0;
 static double trapfrac = 0.25;
 static FILE *logfile = NULL;
@@ -153,6 +167,7 @@ static double value(const char *name) {
   if(!strcmp(name, "mom_y")) return m[1];
   if(!strcmp(name, "energy")) return pp_energy(P);
   if(!strcmp(name, "t")) return tnow;
+  if(!strcmp(name, "comp_delay")) return comp_on ? pc.delay * 1000.0 : 0.0;
   if(!strcmp(name, "bus")) return pt_B.v;
   if(!strcmp(name, "bus_max")) return pt_B.v_max;
   if(!strcmp(name, "bus_min")) return pt_B.v_min;
@@ -169,9 +184,14 @@ static double value(const char *name) {
 }
 
 static void servo(void) {
-  ptcore_set_cmd(PP_XM, en, cmd[0], cmdv[0]);
-  ptcore_set_cmd(PP_Y1, en, cmd[1], cmdv[1]);
-  ptcore_set_cmd(PP_Y2, en, cmd[1], cmdv[1]);
+  const double *xs = cmd, *vs = cmdv;
+  if(comp_on) {
+    pc_step(&pc, cmd);
+    xs = pc.out, vs = pc.vout;
+  }
+  ptcore_set_cmd(PP_XM, en, xs[0], vs[0]);
+  ptcore_set_cmd(PP_Y1, en, xs[1], vs[1]);
+  ptcore_set_cmd(PP_Y2, en, xs[1], vs[1]);
   ptcore_servo((long)(SERVO * 1e9 + 0.5));
   tnow += SERVO;
   hist[hist_head][0] = cmd[0], hist[hist_head][1] = cmd[1];
@@ -254,6 +274,64 @@ static void circle(double T, double cx, double cy, double r, double turns) {
   cmdv[0] = cmdv[1] = 0.0;
 }
 
+// play a LinuxCNC recording (hwtest/portal-sim's halsampler file: the
+// sample number, then X and Y commanded, ..., the motion type last) as the
+// planner's commands, from 0.2 s before it moves to 0.5 s after
+static int replay(const char *fn) {
+  FILE *f = fopen(fn, "r");
+  if(!f) {
+    return -1;
+  }
+  static double (*xy)[2];
+  static int *mt;
+  int n = 0, cap = 0;
+  char line[1024];
+  while(fgets(line, sizeof(line), f)) {
+    double v[32];
+    int k = 0;
+    char *p = line, *end;
+    for(; k < 32; p = end) {
+      v[k] = strtod(p, &end);
+      if(end == p) {
+        break;
+      }
+      k++;
+    }
+    if(k < 22) {
+      continue;  // halsampler stopped mid-line
+    }
+    if(n == cap) {
+      cap = cap ? cap * 2 : 65536;
+      xy = realloc(xy, cap * sizeof(*xy));
+      mt = realloc(mt, cap * sizeof(*mt));
+    }
+    xy[n][0] = v[1], xy[n][1] = v[2], mt[n] = (int)v[k - 1];
+    n++;
+  }
+  fclose(f);
+  int first = 0, last = n - 1;
+  while(first < n && mt[first] == 0) {
+    first++;
+  }
+  while(last > first && mt[last] == 0) {
+    last--;
+  }
+  first = first > 200 ? first - 200 : 0;
+  last = last + 500 < n ? last + 500 : n - 1;
+  move(0, 0.5, xy[first][0], xy[first][1]);
+  run(0.2);
+  printf("# replay %s: samples %d..%d\n", fn, first, last);
+  for(int i = first; i <= last; i++) {
+    for(int k = 0; k < 2; k++) {
+      cmdv[k] = (xy[i][k] - cmd[k]) / SERVO;
+      cmd[k] = xy[i][k];
+    }
+    servo();
+  }
+  cmdv[0] = cmdv[1] = 0.0;
+  return 0;
+}
+
 static void print(char *names) {
   for(char *n = strtok(names, " \t\n"); n; n = strtok(NULL, " \t\n")) {
     double v = NAN;
@@ -313,6 +391,30 @@ static int script_line(char *line) {
         fflush(stdout);
       }
     }
+  } else if(!strcmp(kw, "replay")) {
+    char fn[512];
+    if(sscanf(p, " %511s", fn) != 1 || replay(fn) < 0) {
+      return -1;
+    }
+  } else if(!strcmp(kw, "comp")) {  // comp shaper|defl 0|1, comp model FX FY_END FY_MID ZETA
+    char what[16];
+    double m[4];
+    if(sscanf(p, " servo %lf", m) == 1) {  // the drives' lag tau2 [s^2] (0: off)
+      pc.m.servo = m[0], pc.servo = m[0] != 0.0;
+    } else if(sscanf(p, " jerk %lf", m) == 1) {  // moving average [ms]
+      pc.jerk = (int)lround(m[0] / (SERVO * 1000.0));
+    } else if(sscanf(p, " model %lf %lf %lf %lf", m, m + 1, m + 2, m + 3) == 4) {
+      pc.m.fx = m[0], pc.m.fy_end = m[1], pc.m.fy_mid = m[2], pc.m.zeta = m[3];
+    } else if(sscanf(p, " %15s %lf", what, m) == 2 && (!strcmp(what, "shaper") || !strcmp(what, "defl") || !strcmp(what, "shrink"))) {
+      *(!strcmp(what, "shaper") ? &pc.shaper : !strcmp(what, "defl") ? &pc.defl : &pc.shrink) = m[0] != 0.0;
+    } else {
+      return -1;
+    }
+    int on = pc.shaper || pc.defl || pc.servo || pc.jerk > 1;
+    if(on && !comp_on) {  // start from where the command is
+      pc.primed = 0;
+    }
+    comp_on = on;
   } else if(!strcmp(kw, "watch")) {  // watch y1|y2|x PIN: a drive pin, logged after the columns
     char who[8], pin[64];
     if(sscanf(p, " %7s %63s", who, pin) != 2 || nwatch == NWATCH) {
@@ -358,6 +460,12 @@ int main(int argc, char **argv) {
   snprintf(lib, sizeof(lib), "%.*s../arm/libstmbl_drive.so", sl ? (int)(sl - argv[0] + 1) : 0, argv[0]);
   if(ptcore_load(argv[1], lib)) {
     return 1;
+  }
+  {  // the conditioning's model: the plant's own values to start with
+    pp_plant *P = &pt_P;
+    pc_model m = {sqrt(P->kx / P->mh) / (2 * M_PI), sqrt(P->ky_end / P->mh) / (2 * M_PI), sqrt(P->ky_mid / P->mh) / (2 * M_PI),
+                  P->cy / (2.0 * sqrt(P->ky_mid * P->mh)), P->L, pt_x0, 0.0};
+    pc_init(&pc, &m, SERVO);
   }
   FILE *in = argc > 2 ? fopen(argv[2], "r") : stdin;
   if(!in) {

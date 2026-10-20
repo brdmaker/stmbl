@@ -1306,3 +1306,25 @@ Entry format:
   error without X it copies them to ~/linuxcnc_print.txt and
   ~/linuxcnc_debug.txt (here: a pin already on a signal in portal.hal).
 - Fix:     read ~/linuxcnc_debug.txt after a failed headless start.
+
+## 2026-10-20  Acceleration leads: which way each one points
+- Area:    `host/portal/pcomp.c` (command conditioning)
+- Status:  Note
+- Symptom: two of the three leads made the path worse at first (a circle
+  shrank further: -401 instead of -236 um).
+- Cause:   sign. A smoothing filter, and a servo that lags under
+  acceleration, behave like an average along the path: they end up
+  displaced towards the acceleration (inside a curve), s = x + s2/2 a. The
+  head's lag is inertial: it bends against the acceleration.
+- Fix:     out = s + a (1/w^2 - tau2 - s2/2). Leads also need a smooth
+  acceleration: on LinuxCNC's stepping acceleration (even after a ZV
+  shaper) they jump the command by K da (0.5 mm) and double the current;
+  a moving average after the shaper turns the steps into ramps.
+
+## 2026-10-20  halsampler stopped mid-line: numpy.loadtxt rejects the whole file
+- Area:    `hwtest/portal-sim/bench.py`
+- Status:  Fixed
+- Symptom: every run but the first per LinuxCNC session scored "no samples".
+- Cause:   portal_run.py terminates halsampler, which leaves a partial last
+  line; loadtxt raises, and the analysis read that as an empty file.
+- Fix:     keep only rows with all the columns.

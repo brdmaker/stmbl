@@ -4,6 +4,7 @@ benchmark path (gen_path.py) run, and what breaks first?
 
     bench.py [--accel A,A..] [--feeds F,F..] [--vmax V] [--out DIR] [--quick]
              [--portal FILE]   another machine (default host/portal/machine/portal.portal)
+    bench.py --reanalyse DIR..   score finished runs again (their /tmp dirs)
 
 For each acceleration limit A [mm/s^2] (the axes' and joints' MAX_ACCELERATION,
 TRAJ's too) a copy of this config in /tmp runs the path at each feed F
@@ -28,6 +29,7 @@ Results: DIR/results.json and DIR/results.md (a table per acceleration).
 --quick: one acceleration, two feeds (make test).
 """
 import argparse
+import glob
 import json
 import math
 import os
@@ -78,27 +80,38 @@ def seg_dist(p, a, b):
 FEATURES = ["spiral", "gear", "hatch", "hatch", "hatch", "hatch", "circle R100", "circle R20", "circle R5", "star"]
 
 
-def path_error(tool, geom):
-    """distance of each tool point from the programmed polylines, searching
-    near where the last one was (the tool runs along them in order), and
+def path_error(tool, geom, cell=2.0):
+    """distance of each tool point from the programmed polylines (exact:
+    every segment within reach, from a grid of cell [mm] over them), and
     the polyline (feature) it is nearest to"""
-    segs_a = np.concatenate([np.array(pl[:-1]) for pl in geom])
-    segs_b = np.concatenate([np.array(pl[1:]) for pl in geom])
-    n = len(segs_a)
+    a = np.concatenate([np.array(pl[:-1]) for pl in geom])
+    b = np.concatenate([np.array(pl[1:]) for pl in geom])
     owner = np.concatenate([np.full(len(pl) - 1, i) for i, pl in enumerate(geom)])
+    grid = {}
+    lo = np.floor(np.minimum(a, b) / cell).astype(int)
+    hi = np.floor(np.maximum(a, b) / cell).astype(int)
+    for k in range(len(a)):
+        for gx in range(lo[k, 0], hi[k, 0] + 1):
+            for gy in range(lo[k, 1], hi[k, 1] + 1):
+                grid.setdefault((gx, gy), []).append(k)
     out = np.empty(len(tool))
-    feat = np.empty(len(tool), int)
-    ptr = 0
-    for k, p in enumerate(tool):
-        lo, hi = max(0, ptr - 200), min(n, ptr + 2000)
-        d = seg_dist(np.repeat(p[None], hi - lo, 0), segs_a[lo:hi], segs_b[lo:hi])
-        i = int(np.argmin(d))
-        if d[i] > 2.0:  # a new feature: look everywhere
-            d = seg_dist(np.repeat(p[None], n, 0), segs_a, segs_b)
-            i, lo = int(np.argmin(d)), 0
-        out[k] = d[i]
-        ptr = lo + i
-        feat[k] = owner[ptr]
+    feat = np.zeros(len(tool), int)
+    cells = np.floor(tool / cell).astype(int)
+    for n, p in enumerate(tool):
+        cx, cy = cells[n]
+        best, bk, r = np.inf, 0, 1
+        while True:  # rings of cells until the best is closer than the ring
+            ks = [k for gx in range(cx - r, cx + r + 1) for gy in range(cy - r, cy + r + 1) for k in grid.get((gx, gy), ())]
+            if ks:
+                ks = np.unique(ks)
+                d = seg_dist(np.repeat(p[None], len(ks), 0), a[ks], b[ks])
+                i = int(np.argmin(d))
+                if d[i] < best:
+                    best, bk = d[i], ks[i]
+            if best <= r * cell or r > 64:
+                break
+            r *= 2
+        out[n], feat[n] = best, owner[bk]
     return out, feat
 
 
@@ -114,8 +127,9 @@ def servo_error(tool, cmd, w=60):
 
 
 def analyse(samples, res, geom, cut_len, feed):
-    try:
-        a = np.loadtxt(samples, ndmin=2)
+    try:  # halsampler is stopped mid-line: keep the complete rows
+        rows = [l.split() for l in open(samples).read().splitlines()]
+        a = np.array([r for r in rows if len(r) == len(COLS) + 1], float).reshape(-1, len(COLS) + 1)
     except (ValueError, OSError):
         a = np.zeros((0, len(COLS) + 1))
     m = {"status": res.get("status", "?"), "errors": res.get("errors", [])}
@@ -199,6 +213,7 @@ def fmt_row(m):
 
 
 def main():
+    global PORTAL
     ap = argparse.ArgumentParser()
     ap.add_argument("--accel", default="2500,5000,10000,20000")
     ap.add_argument("--feeds", default="6000,12000,24000,36000,48000,72000")
@@ -206,8 +221,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(HERE, "results"))
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--portal", default=PORTAL)
+    ap.add_argument("--reanalyse", nargs="+")
     a = ap.parse_args()
-    global PORTAL
     PORTAL = os.path.abspath(a.portal)
     if a.quick:
         a.accel, a.feeds = "5000", "12000,36000"
@@ -220,7 +235,27 @@ def main():
     print("# " + info.strip(), flush=True)
     allrows = []
     md = ["# Portal speed sweep", "", "Path: %s" % info.strip().split(": ", 1)[1], ""]
-    for acc in [float(x) for x in a.accel.split(",")]:
+    if a.reanalyse:
+        for d in a.reanalyse:
+            acc = float(re.search(r"(?m)^MAX_LINEAR_ACCELERATION = (.*)", open(os.path.join(d, "portal.ini")).read()).group(1))
+            print("# acceleration %g mm/s^2 (%.2f g): %s" % (acc, acc / 9810, d), flush=True)
+            print(HEAD, flush=True)
+            rows = []
+            for p in sorted(glob.glob(os.path.join(d, "path_F*.ngc")), key=lambda p: int(re.search(r"F(\d+)", p).group(1))):
+                name = os.path.splitext(os.path.basename(p))[0]
+                f = int(re.search(r"F(\d+)", p).group(1))
+                try:
+                    res = json.load(open(os.path.join(d, name + ".json")))
+                except OSError:
+                    res = {"status": "not run", "errors": []}
+                m = analyse(os.path.join(d, name + ".samples"), res, geom, cut_len, f)
+                m.update(accel=acc, feed=f, dir=d)
+                rows.append(m)
+                print(fmt_row(m), flush=True)
+            allrows += rows
+            md += ["## %g mm/s^2 (%.2f g)" % (acc, acc / 9810), "", HEAD, "|" + "---|" * 15] + [fmt_row(r) for r in rows] + [""]
+        a.accel = ""
+    for acc in [float(x) for x in a.accel.split(",") if x]:
         print("# acceleration %g mm/s^2 (%.2f g), vmax %g mm/s" % (acc, acc / 9810, a.vmax), flush=True)
         print(HEAD, flush=True)
         rows = run_accel(acc, [int(f) for f in a.feeds.split(",")], a.vmax, a.out, geom_file, cut_len)
