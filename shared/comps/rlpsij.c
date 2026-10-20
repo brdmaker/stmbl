@@ -32,7 +32,14 @@ HAL_COMP(rlpsij);
 //   5  friction, damping, load again from the steady currents at speed steps
 //      +-test_vel/10, +-test_vel, with a speed loop tuned from j / kt and the
 //      state 4 fit as feedforward.
-//   6  done, 7 aborted (overspeed, or nothing measured; output off).
+//   6  done, 7 aborted (overspeed, travel, or nothing measured; output off).
+// max_travel (0: off) bounds states 3 to 5 for a linear axis or any limited
+// axis: travel integrates the motion since the start; a state 4 drive
+// segment heading away from the start ends at max_travel / 2 and the next
+// one heads back, state 5 runs its speed steps towards the start, and
+// beyond max_travel the run aborts. State 3 moves one to two electrical
+// periods, state 5 up to ~1.1 * test_vel * vel_time / 4, so max_travel
+// should be at least ~2 electrical periods (4 pi / polecount).
 
 HAL_PIN(r);
 HAL_PIN(l);
@@ -65,6 +72,9 @@ HAL_PIN(rl_time);
 HAL_PIN(vel_time);
 HAL_PIN(vel_bw);   // state 5 speed loop bandwidth [rad/s]
 HAL_PIN(max_vel);  // states 4/5 reverse torque at +-max_vel, abort at 2x [rad/s]
+HAL_PIN(max_travel);  // states 3-5 stay within +-max_travel of the start [rad], 0: off
+HAL_PIN(travel);      // motion since the start [rad]
+HAL_PIN(dir5);        // state 5 direction, towards the start
 HAL_PIN(lpf);
 
 HAL_PIN(timer);
@@ -122,6 +132,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(vel_time) = 4.0;
   PIN(vel_bw) = 50.0;
   PIN(max_vel) = 10.0 * PIN(test_vel);
+  PIN(dir5) = 1.0;
   PIN(lpf) = 0.9955;
 }
 
@@ -208,6 +219,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if((PIN(state) == 4.0 || PIN(state) == 5.0) && ABS(vel) > 2.0 * PIN(max_vel)){
     abort_id(pins);
   }
+  if(PIN(state) >= 1.0 && PIN(state) <= 5.0){
+    PIN(travel) += vel * period;
+    if(PIN(max_travel) > 0.0 && ABS(PIN(travel)) > PIN(max_travel)){
+      abort_id(pins);
+    }
+  }
+  // past half the travel limit (0: none)
+  int far = PIN(max_travel) > 0.0 && ABS(PIN(travel)) > PIN(max_travel) * 0.5;
 
   switch((int)PIN(state)){
     case 0: // disabled
@@ -224,6 +243,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(last_iq) = PIN(id_fb);
         PIN(d_cmd) = 0.0;
         PIN(q_cmd) = 0.0;
+        PIN(travel) = 0.0;
         PIN(state) = 1;
       }
     break;
@@ -351,6 +371,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
           PIN(load) = kt * x[2];
           PIN(damping) = kt * x[3];
           PIN(vel_c) = vel;
+          PIN(dir5) = PIN(max_travel) > 0.0 && PIN(travel) > 0.0 ? -1.0 : 1.0;
           PIN(error_sum) = 0.0;
           for(int k = 0; k < 4; k++){
             PINA(i, k) = 0.0;
@@ -366,10 +387,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(seg_q) += PIN(iq_fb) * period;
         PIN(seg_s) += SIGN(vel) * period;
         PIN(seg_p) += vel * period;
-        if(ABS(vel) < ABS(PIN(seg_vel)) * 0.5 || PIN(timer) - PIN(seg_start) > PIN(vel_time) / 8.0){
+        if(ABS(vel) < ABS(PIN(seg_vel)) * 0.5 || PIN(timer) - PIN(seg_start) > PIN(vel_time) / 8.0 ||
+           (far && vel * PIN(travel) > 0.0)){  // a light-friction axis coasts far: brake
           seg_eq(pins, PIN(seg_q), vel - PIN(seg_vel), PIN(seg_s), PIN(timer) - PIN(seg_start), PIN(seg_p));
           PIN(coast) = 0.0;
           PIN(q_cmd) = vel > 0.0 ? -PIN(drive_cur) : PIN(drive_cur);
+          if(far){  // head back
+            PIN(q_cmd) = PIN(travel) > 0.0 ? -PIN(drive_cur) : PIN(drive_cur);
+          }
           PIN(seg_vel) = vel;
           PIN(seg_start) = PIN(timer);
           PIN(seg_q) = 0.0;
@@ -386,6 +411,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         if(PIN(q_cmd) != 0.0){
           PIN(drive_cur) = MIN(PIN(drive_cur) * 2.0, PIN(test_cur));
         }
+        if(PIN(q_cmd) == 0.0 && PIN(max_travel) > 0.0){  // first one towards the start
+          PIN(q_cmd) = -PIN(travel);
+        }
         PIN(q_cmd) = PIN(q_cmd) < 0.0 ? -PIN(drive_cur) : PIN(drive_cur);
         PIN(seg_vel) = vel;
         PIN(seg_start) = PIN(timer);
@@ -401,7 +429,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       // A heavy rotor that never reaches max_vel stops driving after vel_time / 2.
       if((PIN(q_cmd) > 0.0 && vel >= PIN(max_vel)) || (PIN(q_cmd) < 0.0 && vel <= -PIN(max_vel)) ||
-         t_seg > PIN(vel_time) / 2.0){
+         t_seg > PIN(vel_time) / 2.0 || (far && PIN(q_cmd) * PIN(travel) > 0.0)){
         seg_eq(pins, PIN(seg_q), vel - PIN(seg_vel), PIN(seg_s), t_seg, PIN(seg_p));
         if(t_seg < SEG_MIN){
           PIN(drive_cur) *= 0.5;
@@ -424,7 +452,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       if(phase != CLAMP((int)((PIN(timer) - period) / quarter), 0, 3)){
         PIN(error_sum) = 0.0;  // the feedforward carries the new direction
       }
-      float vel_cmd = PIN(test_vel) * ((phase & 1) ? 1.0 : 0.1) * ((phase & 2) ? -1.0 : 1.0);
+      float vel_cmd = PIN(dir5) * PIN(test_vel) * ((phase & 1) ? 1.0 : 0.1) * ((phase & 2) ? -1.0 : 1.0);
 
       PIN(com_pos) = mod(minus(PIN(abs_pos_fb), PIN(fb_offset)) * PIN(polecount));
 
@@ -445,8 +473,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       if(PIN(timer) > PIN(vel_time)){
         float kt = 3.0 / 2.0 * PIN(polecount) * PIN(psi);
-        float damping = (PINA(i, 1) - PINA(i, 0) - PINA(i, 3) + PINA(i, 2)) / 2.0 / (PIN(test_vel) * 0.9);
-        PIN(friction) = ((PINA(i, 1) - PINA(i, 3)) / 2.0 - damping * PIN(test_vel)) * kt;
+        float damping = PIN(dir5) * (PINA(i, 1) - PINA(i, 0) - PINA(i, 3) + PINA(i, 2)) / 2.0 / (PIN(test_vel) * 0.9);
+        PIN(friction) = (PIN(dir5) * (PINA(i, 1) - PINA(i, 3)) / 2.0 - damping * PIN(test_vel)) * kt;
         PIN(load) = (PINA(i, 0) + PINA(i, 1) + PINA(i, 2) + PINA(i, 3)) / 4.0 * kt;
         PIN(damping) = damping * kt;
 

@@ -93,13 +93,15 @@ check: stmbl_host test_robot test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
-# profile in closed loop (tests/gen_soak_tests.py), and the simulated arm:
-# movement patterns and error scenarios (arm/tests/gen_arm_soak.py).
-# Generated into gen/soak and gen/arm_soak.
+# profile in closed loop (tests/gen_soak_tests.py), the linear axis
+# (tests/gen_linear_soak.py), and the simulated arm: movement patterns and
+# error scenarios (arm/tests/gen_arm_soak.py). Generated into gen/soak and
+# gen/arm_soak.
 # make soak SOAK_CYCLES=20 for a longer run.
 SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
+	@$(PYTHON) tests/gen_linear_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
 	@$(MAKE) -s -C arm all
 	@$(PYTHON) arm/tests/gen_arm_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/arm_soak

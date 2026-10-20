@@ -195,11 +195,11 @@ HOST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH_CONF = "../hwtest/burnin/ECMA-C30604FS/stmbl.conf"
 
 
-def tune(conf_lines, max_sec=900):
+def tune(conf_lines, max_sec=900, drive_args=("--drive", BENCH_CONF)):
     """Run id_pid on the simulated drive until ids0 reports done (state 1.4);
     return (pos_bw, vel_bw, vel_d), or None if it does not finish within
     max_sec simulated seconds."""
-    p = subprocess.Popen(["./stmbl_host", "--drive", BENCH_CONF], cwd=HOST_DIR,
+    p = subprocess.Popen(["./stmbl_host"] + list(drive_args), cwd=HOST_DIR,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
 

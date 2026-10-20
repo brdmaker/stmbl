@@ -1,0 +1,36 @@
+# rlpsij on the linear axis (examples/linear_axis.conf: ironless, 60 mm
+# electrical period, 2.6 kg, 25 N/A, 5 N friction) started 100 mm from an
+# end stop, with rlpsij0.max_travel = 10.47 rad (100 mm): drive segments
+# turn back and brake at half the limit, state 5 runs towards the start.
+# Unlimited, the run wandered 0..+208 mm. It identifies the motor
+# (psi = 25 N/A * 60 mm / 3 pi) without touching the stop. l is not
+# checked: l / r = 0.375 ms is below rlpsij's observability limit.
+@args --drive examples/linear_axis.conf --sim examples/linear_axis_sim.txt
+hv0.sim_max_pos = 10.47
+@include tests/inc/rlpsij_hv0.txt
+rlpsij0.test_cur = 2
+rlpsij0.max_travel = 10.47
+rlpsij0.abs_pos_fb = hv0.sim_pos
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+rlpsij0.en = 1
+@sample hv0.sim_abs_pos 0.01 11
+rlpsij0.state
+rlpsij0.r
+rlpsij0.psi
+rlpsij0.j
+rlpsij0.friction
+rlpsij0.damping
+rlpsij0.polecount
+hv0.sim_stop_hits
+@expect rlpsij0.state == 6
+@expect rlpsij0.r ~ 4 3%
+@expect rlpsij0.psi ~ 0.159 3%
+@expect rlpsij0.j ~ 0.000237 5%
+@expect rlpsij0.friction ~ 0.0477 10%
+@expect rlpsij0.damping ~ 0.00018 30%
+@expect rlpsij0.polecount == 1
+@expect max|hv0.sim_abs_pos| < 10.47
+@expect hv0.sim_stop_hits == 0

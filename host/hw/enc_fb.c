@@ -8,6 +8,12 @@
  * index sits at sim_index in the encoder's own (raw) angle, which is what
  * conf0.mot_fb_offset measures. As on the drive, state is 1 (incremental)
  * until the first index pulse with en_index set, then 3 (absolute).
+ *
+ * Reference marks (sim_ref_mode) on the unwrapped position sim_abs_pos:
+ * 0 = once per revolution at sim_index (above); 1 = a single mark at
+ * sim_ref_pos (a linear scale with one reference actuator); 2 = marks every
+ * sim_ref_period from sim_ref_pos (a scale with periodic marks). On a mark
+ * the counter is latched, as on the drive.
  */
 #include "enc_fb_comp.h"
 #include "hal.h"
@@ -43,13 +49,19 @@ HAL_PIN(indexprint);
 // simulation
 HAL_PIN(sim_pos);    // shaft angle [rad]
 HAL_PIN(sim_rev);    // count direction reversed
-HAL_PIN(sim_index);
-HAL_PIN(sim_absolute);  // 1: an absolute encoder, state 3 from the start  // index angle in the encoder's raw angle [rad]
+HAL_PIN(sim_index);  // index angle in the encoder's raw angle [rad]
+HAL_PIN(sim_absolute);  // 1: an absolute encoder, state 3 from the start
+HAL_PIN(sim_abs_pos);     // unwrapped shaft position [rad] (hv0.sim_abs_pos)
+HAL_PIN(sim_ref_mode);    // 0 per revolution, 1 single, 2 periodic
+HAL_PIN(sim_ref_pos);     // mark position on sim_abs_pos [rad]
+HAL_PIN(sim_ref_period);  // mark spacing, mode 2 [rad]
 
 struct enc_fb_ctx_t {
   int init;
   int32_t count;  // raw count, 0..res-1
   float absoffset;
+  double last_abs;
+  int abs_init;    // last_abs valid
 };
 
 static int32_t count_of(float angle, int32_t res) {
@@ -98,6 +110,26 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     crossed = k == ic;
   }
   ctx->count = c;
+
+  // reference marks on the unwrapped position
+  int mode = (int)PIN(sim_ref_mode);
+  if(mode == 1 || mode == 2) {
+    double a = PIN(sim_abs_pos), b = ctx->last_abs;
+    double lo = a < b ? a : b, hi = a < b ? b : a;
+    crossed  = 0;
+    double m = PIN(sim_ref_pos);
+    if(mode == 2 && PIN(sim_ref_period) > 0.0) {  // nearest mark at or above lo
+      double per = PIN(sim_ref_period);
+      m += ceil((lo - m) / per) * per;
+    }
+    if(ctx->abs_init && m >= lo && m <= hi && hi > lo) {
+      crossed = 1;
+      float raw_m = PIN(sim_rev) > 0.0 ? -(float)m : (float)m;
+      ic          = count_of(raw_m, res);
+    }
+  }
+  ctx->last_abs = PIN(sim_abs_pos);
+  ctx->abs_init = 1;
 
   PIN(index) = crossed;
   if(crossed && PIN(en_index) > 0.0) {

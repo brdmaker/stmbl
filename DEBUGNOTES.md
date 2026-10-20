@@ -1132,3 +1132,109 @@ Entry format:
   rather than widening the window. The subtitle shows only the kinematics
   module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
   stretch.) Now 1448 px.
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
+- Status:  Fixed
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
+
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
+- Status:  Known
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
+
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
+- Status:  Fixed
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
+
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
+
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
+- Status:  Known
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
+
+
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
+
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Fixed (compiles for the F4; not yet run on a drive)
+- Symptom: none seen; found by reading the code. Relevant for fast linear
+  scales: 1 µm at 4–5 m/s is 4–5 M counts/s.
+- Cause:   Three problems:
+  - TIM_ICInit (ICFilter = 0xF) ran before
+    RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC), so its writes were lost
+    unless res.c had already enabled TIM4. The inputs ran unfiltered.
+  - `TIM_Channel_1 | TIM_Channel_2` is TIM_Channel_2 (Channel_1 is 0), so
+    TIM_ICInit only ever reached B.
+  - Its BothEdge polarity sets CC2NP, which TIM_EncoderInterfaceConfig
+    leaves set. Encoder mode must not use that.
+  Just moving the clock enable would have applied a 3 µs filter to B
+  only (0xF: fDTS/32, N = 8: about 0.65 m/s at 1 µm), in both-edges mode.
+- Fix:     Enable the clock first and drop TIM_ICInit. After
+  TIM_EncoderInterfaceConfig, write IC1F/IC2F in CCMR1 from the new pin
+  `enc_fb0.input_filter` (set at load; default 3 = 8 samples at 84 MHz,
+  ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
+  Still to check on a drive: counts against distance at speed, and the
+  direction.
+
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Known
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
