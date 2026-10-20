@@ -1238,3 +1238,71 @@ Entry format:
   power stage works; a chopper on BRK driven by dc_brake; and, for a dead
   drive, an external normally-closed contactor shorting the phases through
   resistors, plus shock absorbers at the ends.
+
+## 2026-10-20  Linear motors: conf0.j must be the whole moving mass
+- Area:    drive config (`conf0.j`, `vel1` observer), `host/portal/machine/*.conf`
+- Status:  Fixed (portal configs); Known for any linear-motor config
+- Symptom: on the simulated portal the axes rang at 15-25 Hz while moving,
+  with up to 2 mm of following error. Raising pos_bw above about 40 made it
+  a limit cycle. Holding position was quiet.
+- Cause:   `vel1.j = conf0.j`: the velocity observer predicts acceleration
+  from torque / conf0.j. With j = the coil (1.5 kg on X) and the load in
+  j_sys, it expects 8 x too much acceleration; its velocity lags and
+  overshoots (23.6 vs 25.9 rad/s seen). On a rotary motor j is the rotor
+  and the load hangs on a coupling; a linear motor's coil is the load.
+- Fix:     j = the whole moving mass (as rotary: m (p/2pi)^2), j_sys = 0.
+  Cruise error dropped from about 5 to 0.4 um rms, and stable gains went up
+  to pos_bw 150 / vel_bw 1000 on a rigid load.
+
+## 2026-10-20  A loop that rings in motion can hold quietly (friction damps it)
+- Area:    servo tuning, `host/portal`
+- Status:  Note
+- Symptom: gains with a 20 Hz limit cycle in motion held position within
+  2 um at standstill.
+- Cause:   the guides' Coulomb friction acts as very heavy damping around
+  zero speed; in motion it is a constant force and damps nothing.
+- Fix:     judge tuning with the axis moving (constant speed and after
+  acceleration steps), not on a held position.
+
+## 2026-10-20  No acceleration feedforward over smart-serial by default
+- Area:    `conf/template/sserial.txt` (`vel0.en = 0`)
+- Status:  Known
+- Symptom: following error during acceleration of a/(pos_bw vel_bw)
+  (1.2 mm at 0.9 g, pos_bw 25, vel_bw 300).
+- Cause:   pid0.acc_ext_cmd comes from vel0 (the derivative of the
+  command), which the sserial template disables.
+- Fix:     `vel0.en = 1` in the config gives it (the portal's configs do).
+  It is filtered (vel0.lp 50 Hz) and helps about 25 %; feedforward of the
+  planner's own acceleration would help more.
+
+## 2026-10-20  Gantry: racking limits the Y gains
+- Area:    `host/portal` (Y1/Y2 as separate drives)
+- Status:  Known
+- Symptom: Y gains above vel_bw 300 / pos_bw 60 made the bridge oscillate
+  in yaw (0.6-1.3 mrad); without the guides' yaw stiffness it ran away.
+- Cause:   each Y drive is tuned for its 21 kg share of the bridge. In the
+  racking mode a motor moves only the bridge's yaw inertia over (L/2)^2,
+  about 5 kg: the same gains are 4 x too high there.
+- Fix:     tune Y for the racking mode, or a cross-coupled gantry loop
+  (mean and difference of Y1/Y2 controlled separately).
+
+## 2026-10-20  sampler.0.enable defaults to on: halsampler records from startup
+- Area:    `hwtest/portal-sim/portal.hal`
+- Status:  Fixed
+- Symptom: the benchmark's samples started at LinuxCNC's start: 500 mm of
+  "following error" (command 0 before homing) and a program time that
+  included the startup.
+- Cause:   `sampler.N.enable` is true when loaded.
+- Fix:     `setp sampler.0.enable 0` in the HAL file; portal_run.py sets it
+  while a program runs. Also: axis.x.pos-cmd read 0 here, so the HAL file
+  records joint.N.motor-pos-cmd (trivkins, absolute scales: the same).
+
+## 2026-10-20  Headless linuxcnc: its output goes to /tmp/linuxcnc.print.*
+- Area:    LinuxCNC's `scripts/linuxcnc`, `hwtest/portal-sim/bench.py`
+- Status:  Note
+- Symptom: `linuxcnc portal.ini > log` exited 255 with an empty log.
+- Cause:   without a terminal the script redirects itself into
+  /tmp/linuxcnc.print.* / linuxcnc.debug.* and deletes them at exit. On an
+  error without X it copies them to ~/linuxcnc_print.txt and
+  ~/linuxcnc_debug.txt (here: a pin already on a signal in portal.hal).
+- Fix:     read ~/linuxcnc_debug.txt after a failed headless start.

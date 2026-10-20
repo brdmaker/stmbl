@@ -1,0 +1,32 @@
+# Three simulated drives on the portal (machine/portal.portal): enable,
+# hold, a 550 x 550 mm diagonal in 0.8 s (smooth, peak 1.3 m/s per axis,
+# 0.7 g), hold. The scales follow; the tool head lags and rings on its
+# springs (hy: Y at mid-span, the softest); the frame rocks on its feet
+# and the reaction reaches the floor.
+@program portal/portal_sim
+@args portal/machine/portal.portal
+run 0.05
+lcnc 1
+run 0.3
+move 0.3 200 200
+run 0.3
+mark
+move 0.8 750 750
+print max_ferr_x max_ferr_y1 max_ferr_y2 max_econt max_hx max_hy max_rack max_frame_y max_feet_y max_cur_y1 max_cur_x
+run 0.5
+print x y1 y2 tx ty etool fault jammed hits
+@expect max portal.max_ferr_x < 300
+@expect max portal.max_ferr_y1 < 300
+@expect max portal.max_hy > 100
+@expect max portal.max_frame_y > 50
+@expect max portal.max_feet_y > 200
+@expect max portal.max_econt < 100
+@expect max portal.max_rack < 200
+@expect portal.x ~ 750 0.005
+@expect portal.y1 ~ 750 0.005
+@expect portal.y2 ~ 750 0.005
+@expect portal.etool < 10
+@expect portal.fault == 0
+@expect portal.jammed == 0
+@expect portal.hits == 0
+@reject ^ERROR

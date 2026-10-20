@@ -1,0 +1,29 @@
+# A 1 x 1 m portal on Baldor ironless linear motors (docs/baldor_linear.md):
+# a bridge on two Y rails 1.2 m apart, each side an LMCF08F (1152 N peak),
+# a carriage with an LMCF08E (753 N peak) on the bridge, a tool head (Z
+# axis, spindle) on the carriage. 1 um absolute scales. The frame (welded
+# steel, 600 kg) stands on rubber leveling feet. Masses, modes and
+# friction are GUESSES of a light laser / router portal.
+drive y1 y.conf sim.txt 60.96
+drive y2 y.conf sim.txt 60.96
+drive x x.conf sim.txt 60.96
+# machine X, Y [mm] of the frame's centre, the end stops
+origin 500 500
+stroke -5 1005 -5 1005
+# frame: M [kg] J [kg m^2], feet modes x y yaw [Hz], damping ratio
+frame 600 200 12 10 14 0.05
+rails 1.2
+# moving masses [kg], yaw inertias [kg m^2]; the coils included
+bridge 30 3.6
+carriage 5 0.02
+# the guide blocks resist the bridge's yaw (racking) [Nm/rad], damping ratio
+racking 2e5 0.02
+# head: M J, modes x / y at the rails / y at mid-span [Hz], damping ratio
+head 7 0.02 45 55 28 0.03
+# guides: Coulomb [N] (each Y side), viscous [N s/m]; cable chains included
+guidey 25 30
+guidex 15 15
+# the DC bus: 230 V mains through a diode bridge (1 ohm), no capacitors in
+# the supply, only the three drives' own (470 uF each); no brake chopper
+bus 1410 230 1.0
+home 500 500

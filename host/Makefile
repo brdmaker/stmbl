@@ -90,7 +90,8 @@ check: stmbl_host test_robot test_quota
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
-	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test
+	@$(MAKE) -s -C portal all
+	@$(PYTHON) tests/run_tests.py tests/*.test arm/tests/*.test portal/tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py), the linear axis

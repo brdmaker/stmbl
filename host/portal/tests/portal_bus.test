@@ -1,0 +1,39 @@
+# The shared DC bus: braking feeds the axes' energy back, and the diode
+# bridge can't return it to the mains. With only the drives' own 1410 uF a
+# fast diagonal stop lifts the bus close to the drives' 380 V trip; 10 mF
+# keeps it near the mains peak (325 V); a brake chopper at 370 V clips it.
+# (Very hard stops regenerate less: the ironless coils' resistance burns
+# it, 1.5 R I^2.)
+@program portal/portal_sim
+@args portal/machine/portal.portal
+run 0.05
+lcnc 1
+run 0.2
+move 0.5 50 100
+run 0.3
+trapfrac 0.12
+mark
+tmove 0.65 950 900
+run 0.3
+print bus_max bus_min e_regen e_chopper fault
+bus 10000 230 1.0
+run 0.1
+mark
+tmove 0.65 50 100
+run 0.3
+print bus_max bus_min e_regen e_chopper fault
+bus 1410 230 1.0 370 30
+run 0.1
+mark
+tmove 0.65 950 900
+run 0.3
+print bus_max bus_min e_regen e_chopper fault
+@expect portal.bus_max[1] > 360
+@expect portal.bus_max[1] < 380
+@expect portal.bus_min[1] < 300
+@expect portal.e_regen[1] > 15
+@expect portal.bus_max[2] < 330
+@expect portal.bus_max[3] < 372
+@expect portal.e_chopper[3] > 1
+@expect max portal.fault == 0
+@reject ^ERROR
