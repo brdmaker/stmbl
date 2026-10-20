@@ -1657,16 +1657,24 @@ Entry format:
   scope channels/triggers to outputs (or relink after). With relink the
   monitor's angle input is dbrake0.pos_out.
 
-## 2026-10-20  Encoder monitor: the real F3's frame leads hv0.pos by ~0.32 ms
+## 2026-10-20  Encoder monitor: the real F3's frame leads hv0.pos (0.12 ms)
 - Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`
-- Status:  Fixed
-- Symptom: relinked, the monitor's ratio still reached 0.29 (trip 0.3) at
-  300 rad/s on the bench motor: ud -43 V where the model expected ~-10 V.
-- Cause:   the F3 reports ud/uq/id/iq in a frame about 27 deg ahead of
-  hv0.pos at 1500 rad/s electrical (~0.32 ms: it extrapolates the angle
-  between packets, its readings come a packet late). The simulated F3
-  reports in hv0.pos's frame, so the sim never showed it.
-- Fix:     `encmon0.delay` (template 0.00032 s): delta += w * delay. A fit
-  to a bench capture: rms ratio 0.46 at 0, 0.06 at 0.30-0.35 ms. The sim's
-  encmon tests and soak set delay = 0. Regression: the hardware soak with
-  encmon loaded (`soak.py` records encmon_max_ratio).
+- Status:  Fixed (Open: the q residual)
+- Symptom: relinked, the monitor's ratio sat at 0.24 (max 0.275, trip 0.3)
+  above 250 rad/s on the bench motor: ud -43 V where the model expected
+  ~-10 V at 300 rad/s.
+- Cause:   the F3 reports ud/uq/id/iq in a frame ahead of hv0.pos (it
+  extrapolates the angle between packets, its readings come a packet
+  late). The simulated F3 reports in hv0.pos's frame: the sim never showed
+  it.
+- Fix:     `encmon0.delay` (template 0.12 ms): delta += w * delay. Bench,
+  speed above 250 rad/s: delay 0 ratio 0.24 (max 0.275), 0.12 ms 0.10
+  (max 0.14), 0.20 ms 0.10 but err_d +6 V (over). A first offline fit said
+  0.32 ms; it ignored the lead already in the angle chain and over-turned
+  (err_d +10 V). The sim's encmon tests and soak set delay = 0.
+  `max_ratio` is the wrong margin measure: one sample at the instant the
+  monitor turns on (bemf at min_bemf, 5 V) reached 0.27-0.30; a trip needs
+  20 ms above thres (`max_timer`, 0 in every bench run). Open: err_q -6.7 V
+  (~10 % of the back-EMF) at speed: dead-time loss or psi a little high.
+  Regression: the hardware soak with encmon loaded (soak.py records
+  encmon_max_ratio / encmon_max_timer_s).

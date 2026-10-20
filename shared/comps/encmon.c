@@ -38,7 +38,7 @@ HAL_PIN(psi);
 HAL_PIN(max_volt);  // available voltage [V] (hv0.pwm_volt)
 HAL_PIN(delay);     // [s] the F3 reports its voltages and currents in a frame
                     // this far ahead of com (it extrapolates the angle between
-                    // packets, and its readings arrive a packet late): 0.32 ms
+                    // packets, and its readings arrive a packet late): 0.12 ms
                     // measured on the bench (v4, 5 kHz); the sim's F3 ~75 us
 HAL_PIN(com_src);   // fb_switch0.current_com_pos: check only once the angle is
                     // absolute (1..3: index or absolute feedback), not while it
