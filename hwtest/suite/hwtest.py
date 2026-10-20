@@ -28,6 +28,8 @@ import threading
 import time
 import traceback
 
+import math
+
 import serial
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -992,6 +994,119 @@ def t_end(ctx):
 
 
 # --------------------------------------------------------------------------
+# ebrake phase: deliberate stops while moving (docs/emergency_stop.md). Run
+# on its own: run_hwtest.sh hw --phase-only ebrake [--ebrake-speeds ...].
+# Each case: rapid to the start, a G1 move at the speed, the cause fired at
+# cruise, the drive's scope captures it (all over USB: arm, cause, download).
+
+MM_PER_RAD = 10.0 / (2.0 * math.pi)  # the burn-in axis: 10 mm a revolution
+
+EBRAKE = {  # kind: (what, trigger pin, edge 0 rising / 1 falling, level, stop mode)
+    "off":  ("machine off (enable dropped)", "fault0.en", 1, 0.5, 1),
+    "link": ("smart-serial link lost (LinuxCNC's threads stopped)", "fault0.cmd_error", 0, 0.5, 1),
+    "fb":   ("feedback fault (fault0.mot_fb_error forced)", "fault0.mot_fb_error", 0, 0.5, 2),
+    "f3":   ("the F4 gone for the F3 (hv0.drop_link)", "hv0.drop_link", 0, 0.5, 0),
+}
+
+
+def ebrake_case(ctx, kind, v):
+    what, trig, edge, level, mode = EBRAKE[kind]
+    a = ctx.a
+    L = ready(ctx)
+    need(L.mdi("G0 X-250", 30), "rapid to X-250")
+    time.sleep(0.5)
+    csv = os.path.join(ctx.dir, "ebrake-%s-%g.csv" % (kind, v))
+    # 4 channels x 1024 samples, every 3rd rt period: 0.61 s, 10 % before
+    rc, out = ctx.cli(a.usb, "-c", "scope0.nch = 4", "-c", "scope0.ch0 = vel1.vel", "-c", "scope0.ch1 = hv0.iq_fb",
+                      "-c", "scope0.ch2 = hv0.dc_volt", "-c", "scope0.ch3 = fault0.stop", "-c", "scope0.div = 3",
+                      "-c", "scope0.trig = %s" % trig, "-c", "scope0.edge = %d" % edge,
+                      "-c", "scope0.level = %g" % level, "-c", "scope0.pre = 0.1", "-c", "scope0.mode = 0",
+                      "-c", "scopearm", "-c", "scopestat")
+    need("armed" in out, "scope not armed: %s" % out[-200:])
+    L.c.mode(L.lc.MODE_MDI)
+    L.c.wait_complete()
+    L.c.mdi("G1 X250 F%d" % int(v * 60))
+    # fire at cruise, past X-100 (stopping takes millimetres; 350 mm left)
+    fired = L.wait(lambda s: s.joint[0]["velocity"] > 0.97 * v and s.position[0] > -100, 20, 0.001)
+    need(fired, "never at %g mm/s past X-100" % v)
+    x0 = L.poll().position[0]
+    if kind == "off":
+        L.c.state(L.lc.STATE_OFF)
+    elif kind == "link":
+        subprocess.run(["halcmd", "stop"], timeout=10)
+    elif kind == "fb":
+        ctx.cli(a.usb, "-c", "fault0.mot_fb_error = 1", quiet=0.2)
+    elif kind == "f3":
+        ctx.cli(a.usb, "-c", "hv0.drop_link = 1.5", quiet=0.2)
+    time.sleep(2.0)
+    # put things back
+    if kind == "link":
+        subprocess.run(["halcmd", "start"], timeout=10)
+        # the card's watchdog bit while the threads stood: clear it
+        board = a.prefix.split(".")[0] + ".0"
+        subprocess.run(["halcmd", "setp", board + ".watchdog.has_bit", "0"], timeout=10)
+    if kind == "fb":
+        ctx.cli(a.usb, "-c", "fault0.mot_fb_error = enc_fb0.error", quiet=0.2)
+    rc, out = ctx.cli(a.usb, "--capture", csv, "--no-arm", "--capture-timeout", "20", timeout=120)
+    need(rc == 0 and os.path.exists(csv), "capture: %s" % out[-300:])
+    rows = [r.split(",") for r in open(csv).read().split()]
+    d = [[float(x) for x in r] for r in rows[1:]]
+    t = [r[0] for r in d]
+    w = [r[1] for r in d]
+    i0 = next(i for i in range(len(t)) if t[i] >= 0.0)
+    w0 = w[i0]
+    # distance from the trigger until the speed is (and stays) below 2 rad/s
+    dist, stop_t = 0.0, None
+    for i in range(i0 + 1, len(t)):
+        dist += 0.5 * (w[i] + w[i - 1]) * (t[i] - t[i - 1])
+        if stop_t is None and abs(w[i]) < 2.0 and all(abs(x) < 2.0 for x in w[i:i + 20]):
+            stop_t = t[i]
+            break
+    mm = dist * MM_PER_RAD
+    ipk = max(abs(r[2]) for r in d[i0:])
+    upk = max(r[3] for r in d[i0:])
+    modes = sorted(set(int(round(r[4])) for r in d[i0:]))
+    tag = "%s_%g" % (kind, v)
+    ctx.m("ebrake_%s_mm" % tag, mm)
+    ctx.m("ebrake_%s_ms" % tag, stop_t * 1000 if stop_t else None)
+    ctx.m("ebrake_%s_ipk" % tag, ipk)
+    ctx.m("ebrake_%s_udc" % tag, upk)
+    detail = "%.0f rad/s: %.2f mm in %s ms, peak %.1f A, bus %.0f V, stop modes %s" % (
+        w0, mm, "%.0f" % (stop_t * 1000) if stop_t else "?", ipk, upk, modes)
+    need(w0 > 0.9 * v / MM_PER_RAD, "not at speed at the trigger (%.0f rad/s) " % w0 + detail)
+    need(stop_t is not None, "not standing still within the capture: " + detail)
+    need(ipk <= 1.3 * a.ebrake_max_cur, "current above 1.3 x %g A: " % a.ebrake_max_cur + detail)
+    need(upk < a.ebrake_max_dc, "bus above %g V: " % a.ebrake_max_dc + detail)
+    if mode:
+        need(mode in modes, "the drive did not run stop mode %d: " % mode + detail)
+    # the drive comes back: machine on again, a short move, no crash record
+    L.errors()
+    if kind == "link":
+        time.sleep(1.0)
+    need(L.on(), "machine on after the stop failed: %s" % L.errors())
+    time.sleep(1.0)
+    need(L.home(), "not homed after the stop")
+    need(L.mdi("G0 X0", 30), "move after the stop")
+    rc, out2 = ctx.cli(a.usb, "-c", "crash")
+    need("no crash" in out2, "crash record: " + out2[-200:])
+    return detail
+
+
+def ebrake_tests():
+    for v in [float(x) for x in EBRAKE_SPEEDS]:
+        for kind in EBRAKE_KINDS:
+            def f(ctx, kind=kind, v=v):
+                return ebrake_case(ctx, kind, v)
+            f.__name__ = "t_ebrake_%s_%g" % (kind, v)
+            test("ebrake", "ebrake %s at %g mm/s: %s" % (kind, v, EBRAKE[kind][0]), targets=("hw",))(f)
+
+
+EBRAKE_SPEEDS = (os.environ.get("EBRAKE_SPEEDS") or "50,150,300").split(",")
+EBRAKE_KINDS = (os.environ.get("EBRAKE_KINDS") or "off,link,fb,f3").split(",")
+ebrake_tests()
+
+
+# --------------------------------------------------------------------------
 # post phase: after LinuxCNC exited
 
 
@@ -1054,7 +1169,7 @@ def run_phase(ctx, phase):
 
 def report(a):
     phases = []
-    for ph in ("drive", "lcnc", "post"):
+    for ph in ("drive", "lcnc", "ebrake", "post"):
         p = os.path.join(a.out, "results-%s.json" % ph)
         if os.path.exists(p):
             phases.append(json.load(open(p)))
@@ -1090,7 +1205,7 @@ def report(a):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--phase", choices=["drive", "lcnc", "post", "report"], required=True)
+    p.add_argument("--phase", choices=["drive", "lcnc", "ebrake", "post", "report"], required=True)
     p.add_argument("--target", choices=["hw", "sim"], default="hw")
     p.add_argument("--out", required=True, help="run directory")
     p.add_argument("--usb", default="/dev/ttyACM0", help="the drive's USB console (sim: its pty)")
@@ -1107,13 +1222,15 @@ def main():
     p.add_argument("--max-ferror-rest", type=float, default=0.02, help="mm at rest")
     p.add_argument("--rt-note", type=float, default=0.85, help="note rt max above this part of the period")
     p.add_argument("--rt-fail", type=float, default=0.97, help="fail rt max above this part of the period")
+    p.add_argument("--ebrake-max-cur", type=float, default=10.0, help="A, the drive's max_ac_cur (ebrake phase)")
+    p.add_argument("--ebrake-max-dc", type=float, default=380.0, help="V, highest DC bus during a stop")
     a = p.parse_args(os.environ.get("HWTEST_ARGS", "").split() if len(sys.argv) <= 1 else None)
     os.makedirs(a.out, exist_ok=True)
     if a.phase == "report":
         return report(a)
     ctx = Ctx(a)
     results = run_phase(ctx, a.phase)
-    if a.phase == "lcnc":
+    if a.phase in ("lcnc", "ebrake"):
         try:
             lcnc(ctx).off()
         except Exception:

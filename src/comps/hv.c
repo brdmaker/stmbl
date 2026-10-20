@@ -53,6 +53,9 @@ HAL_PIN(fault);  //fault from hv
 HAL_PIN(ignore_fault_pin);
 HAL_PIN(brake);  // braking with a virtual resistor (dbrake0.active)
 HAL_PIN(brake_on_loss);  // the F3 brakes if this F4 stops talking (docs/emergency_stop.md)
+HAL_PIN(drop_link);  // test: send nothing to the F3 for this many seconds (counts down),
+                     // as if this F4 had stopped; the F3 brakes on its own if
+                     // enabled with brake_on_loss (hwtest/ebrake)
 HAL_PIN(y);
 HAL_PIN(u_fb);
 HAL_PIN(v_fb);
@@ -511,6 +514,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->send_state = 0;
   }
   ctx->send_state++;
+
+  if(PIN(drop_link) > 0.0) {  // the F3 sees the F4 gone; it comes back by itself
+    PIN(drop_link) = MAX(PIN(drop_link) - period, 0.0);
+    tx_size        = 0;
+  }
 
   if(tx_size) {
     CRC_ResetDR();

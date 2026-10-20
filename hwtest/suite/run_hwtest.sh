@@ -14,7 +14,7 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-TARGET=${1:?usage: run_hwtest.sh hw|sim [--phase-only drive|lcnc] [options]}
+TARGET=${1:?usage: run_hwtest.sh hw|sim [--phase-only drive|lcnc|ebrake] [options]}
 shift
 PHASES="drive lcnc"
 if [ "$1" = --phase-only ]; then PHASES=$2; shift 2; fi
@@ -56,8 +56,11 @@ if [[ " $PHASES " == *" drive "* ]]; then
   [ -n "$SIMPID" ] && kill $SIMPID 2>/dev/null || true
 fi
 
-if [[ " $PHASES " == *" lcnc "* ]]; then
-  echo "== LinuxCNC phase"
+LPHASE=
+[[ " $PHASES " == *" lcnc "* ]] && LPHASE=lcnc
+[[ " $PHASES " == *" ebrake "* ]] && LPHASE=ebrake  # deliberate stops: only on its own
+if [ -n "$LPHASE" ]; then
+  echo "== LinuxCNC phase ($LPHASE)"
   mkdir -p "$RUN/lcnc"
   cp "$SRC"/* "$RUN/lcnc/" 2>/dev/null || true
   INI=$RUN/lcnc/stmbl.ini
@@ -68,7 +71,7 @@ cd "$RUN/lcnc"
 # (after the task has made its ini.* pins, as AXIS does once it is connected)
 i=0; while ! halcmd getp ini.0.ferror >/dev/null 2>&1 && [ \$i -lt 150 ]; do sleep 0.2; i=\$((i+1)); done
 for f in \$(sed -n 's/^POSTGUI_HALFILE *= *//p' "$INI"); do halcmd -i "$INI" -f "\$f" || exit 1; done
-exec python3 "$HERE/hwtest.py" --phase lcnc $ARGS > "$RUN/lcnc-phase.log" 2>&1
+exec python3 "$HERE/hwtest.py" --phase $LPHASE $ARGS > "$RUN/lcnc-phase.log" 2>&1
 EOS
   chmod +x "$RUN/lcnc/display.sh"
   sed -i "s|^DISPLAY *=.*|DISPLAY = $RUN/lcnc/display.sh|" "$INI"
@@ -83,8 +86,8 @@ EOS
   # No X display: LinuxCNC's error dialogs would pop up on the desktop.
   (cd "$RUN/lcnc" && env -u DISPLAY linuxcnc "$INI" </dev/null >"$RUN/linuxcnc.log" 2>&1) || true
   cat "$RUN/lcnc-phase.log" 2>/dev/null | grep -E '^(ok|fail|skip) ' || true
-  grep -q '"status": "fail"' "$RUN/results-lcnc.json" 2>/dev/null && rc=1
-  [ -f "$RUN/results-lcnc.json" ] || { echo "LinuxCNC phase produced no results: $RUN/linuxcnc.log" >&2; rc=1; }
+  grep -q '"status": "fail"' "$RUN/results-$LPHASE.json" 2>/dev/null && rc=1
+  [ -f "$RUN/results-$LPHASE.json" ] || { echo "LinuxCNC phase produced no results: $RUN/linuxcnc.log" >&2; rc=1; }
 fi
 
 if [[ " $PHASES " == *" lcnc "* ]] && [ "$TARGET" = hw ]; then
