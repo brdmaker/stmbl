@@ -46,6 +46,7 @@ void pp_defaults(pp_plant *p) {
   p->kx = 5.6e5, p->ky_end = 8.4e5, p->ky_mid = 2.2e5;
   p->cx = pp_damp(p->kx, p->mh, 0.03), p->cy = pp_damp(p->ky_mid, p->mh, 0.03);
   p->vs = 1e-3;
+  p->fy2_c = p->fy2_v = -1.0;
   p->ymin = -0.5, p->ymax = 0.5, p->xmin = -0.5, p->xmax = 0.5;
   p->kstop = 2e7, p->cstop = 2e4;
 }
@@ -162,11 +163,18 @@ static void accel(pp_plant *p, const double *F) {
   for(int s = 0; s < 2; s++) {  // Y1, Y2 with their guides
     double pos_s, vel_s, arm = (s == 0 ? -0.5 : 0.5) * p->L * c;
     pp_motor(p, s, &pos_s, &vel_s);
-    double f = F[s] - fric(vel_s, p->fy_c, p->fy_v, p->vs);
+    int own = s == 1 && p->fy2_c >= 0.0;  // the Y2 side's own guide (an idler rail)
+    double f = F[s] - fric(vel_s, own ? p->fy2_c : p->fy_c, own ? p->fy2_v : p->fy_v, p->vs);
+    if(p->cog_a[s] != 0.0) {
+      f -= p->cog_a[s] * sin(2.0 * M_PI * pos_s / p->cog_per[s] + p->cog_ph[s]);
+    }
     Q[PP_Y] += f, Q[PP_TH] += arm * f;
   }
   Q[PP_TH] -= p->kr * q[PP_TH] + p->cr * qd[PP_TH];
   Q[PP_X] += F[PP_XM] - fric(qd[PP_X], p->fx_c, p->fx_v, p->vs);
+  if(p->cog_a[PP_XM] != 0.0) {
+    Q[PP_X] -= p->cog_a[PP_XM] * sin(2.0 * M_PI * q[PP_X] / p->cog_per[PP_XM] + p->cog_ph[PP_XM]);
+  }
   double ky = pp_ky(p, q[PP_X]), dk = (pp_ky(p, q[PP_X] + 1e-6) - pp_ky(p, q[PP_X] - 1e-6)) / 2e-6;
   Q[PP_HX] -= p->kx * q[PP_HX] + p->cx * qd[PP_HX];
   Q[PP_HY] -= ky * q[PP_HY] + p->cy * qd[PP_HY];

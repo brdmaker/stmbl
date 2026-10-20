@@ -22,7 +22,12 @@
  *   head M J FX FY_END FY_MID ZETA  the tool head on the carriage: modes in
  *                                   x and y (at the rails, at mid-span) [Hz]
  *   guidey FC FV / guidex FC FV     guide friction: Coulomb [N] (per Y side),
- *                                   viscous [N s/m]
+ *                                   viscous [N s/m]; guidey2 FC FV: the Y2
+ *                                   side alone (an idler rail)
+ *   drive y2 none                   one Y motor: Y2 is an idler rail with a
+ *                                   passive scale (y2 reads it)
+ *   cogging y1|y2|x A PERIOD PHASE  iron-core cogging: -A sin(2pi s/PERIOD +
+ *                                   PHASE) [N, mm, deg] at the scale position s
  *   bus C VRMS RSRC [VON RCH]       a shared DC bus instead of the fixed sim.txt
  *                                   voltage: capacitance [uF], mains [V rms]
  *                                   through a diode bridge with source
@@ -387,7 +392,7 @@ static int script_line(char *line) {
     p[strcspn(p, "\r\n")] = 0;
     for(int k = 0; k < 3; k++) {
       const char *nm = k == PP_XM ? "x" : k == PP_Y1 ? "y1" : "y2";
-      if(!strcmp(who, "all") || !strcmp(who, nm)) {
+      if(pt_drv[k].on && (!strcmp(who, "all") || !strcmp(who, nm))) {
         pt_drv[k].cmd(p + n);
         fflush(stdout);
       }
@@ -422,7 +427,7 @@ static int script_line(char *line) {
       return -1;
     }
     int k = !strcmp(who, "x") ? PP_XM : !strcmp(who, "y1") ? PP_Y1 : !strcmp(who, "y2") ? PP_Y2 : -1;
-    float *v = k >= 0 ? pt_drv[k].pin(pin) : NULL;
+    float *v = k >= 0 && pt_drv[k].on ? pt_drv[k].pin(pin) : NULL;
     if(!v) {
       return -1;
     }

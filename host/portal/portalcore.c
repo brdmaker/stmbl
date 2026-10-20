@@ -158,6 +158,14 @@ int ptcore_line(char *line) {
   }
   char *p = line + off;
   pp_plant *P = &pt_P;
+  if(!strcmp(kw, "drive") && strstr(p, " none")) {  // drive y2 none: an idler rail (a scale only)
+    char name[8];
+    if(sscanf(p, " %7s", name) != 1 || strcmp(name, "y2")) {
+      return 0;
+    }
+    pt_drv[PP_Y2].on = 0;  // (a loaded drive stays loaded, unused)
+    return 1;
+  }
   if(!strcmp(kw, "drive")) {  // drive y1|y2|x CONF SIM PERIOD_MM
     char name[8], conf[256], sim[256], cp[1024], sp[1024];
     if(sscanf(p, " %7s %255s %255s %lf", name, conf, sim, v) != 4) {
@@ -196,6 +204,16 @@ int ptcore_line(char *line) {
     P->cx = pp_damp(P->kx, v[0], v[5]), P->cy = pp_damp(P->ky_mid, v[0], v[5]);
   } else if(!strcmp(kw, "guidey") && n == 2) {
     P->fy_c = v[0], P->fy_v = v[1];
+  } else if(!strcmp(kw, "guidey2") && n == 2) {  // the Y2 side alone (an idler rail)
+    P->fy2_c = v[0], P->fy2_v = v[1];
+  } else if(!strcmp(kw, "cogging") && n == 3) {  // cogging y1|y2|x A[N] PERIOD[mm] PHASE[deg]
+    char name[8];
+    sscanf(p, " %7s", name);
+    int k = !strcmp(name, "y1") ? PP_Y1 : !strcmp(name, "y2") ? PP_Y2 : !strcmp(name, "x") ? PP_XM : -1;
+    if(k < 0 || v[1] <= 0.0) {
+      return 0;
+    }
+    P->cog_a[k] = v[0], P->cog_per[k] = v[1] / 1000.0, P->cog_ph[k] = v[2] * M_PI / 180.0;
   } else if(!strcmp(kw, "guidex") && n == 2) {
     P->fx_c = v[0], P->fx_v = v[1];
   } else if(!strcmp(kw, "stroke") && n == 4) {  // ymin ymax xmin xmax [mm, machine]
@@ -240,7 +258,7 @@ int ptcore_load(const char *file, const char *lib) {
   }
   free(text);
   for(int k = 0; k < 3 && !rc; k++) {
-    if(!pt_drv[k].on) {
+    if(!pt_drv[k].on && k != PP_Y2) {
       fprintf(stderr, "portalcore: %s: drive %s missing\n", file, k == PP_XM ? "x" : k ? "y2" : "y1");
       rc = -1;
     }
@@ -267,8 +285,8 @@ void ptcore_set_cmd(int k, int en, double pos, double vel) {
   d->pd.vel_cmd = vel;
 }
 
-double ptcore_fb(int k) {
-  return pt_drv[k].pd.pos_fb + pt_drv[k].off;
+double ptcore_fb(int k) {  // an idler's: its scale (a second scale on the passive rail)
+  return pt_drv[k].on ? pt_drv[k].pd.pos_fb + pt_drv[k].off : ptcore_scale(k);
 }
 
 double ptcore_fb_vel(int k) {
@@ -307,9 +325,12 @@ static void bus_step(double p_drives) {
 }
 
 void ptcore_tick(int servo) {
-  double F[3], p_drives = 0.0;
+  double F[3] = {0}, p_drives = 0.0;
   for(int k = 0; k < 3; k++) {
     pt_drive *d = &pt_drv[k];
+    if(!d->on) {  // an idler rail: no motor
+      continue;
+    }
     double pos, vel, g = 2.0 * M_PI / d->period;
     pp_motor(&pt_P, k, &pos, &vel);
     *d->sim_pos = (float)wrap(pos * g);
@@ -331,7 +352,7 @@ void ptcore_tick(int servo) {
   }
   if(servo && need_off && --need_off == 0) {  // absolute scales
     for(int k = 0; k < 3; k++) {
-      pt_drv[k].off = ptcore_scale(k) - pt_drv[k].pd.pos_fb;
+      pt_drv[k].off = pt_drv[k].on ? ptcore_scale(k) - pt_drv[k].pd.pos_fb : 0.0;
     }
   }
   for(int s = 0; s < PT_SUB; s++) {

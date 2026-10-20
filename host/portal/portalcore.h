@@ -6,6 +6,8 @@
  * 200 us rt cycle the motors' positions go to the drives, one drive tick,
  * their forces back, then the plant (pplant.c) in four 50 us steps. The
  * LinuxCNC side sets the process data before each 1 ms servo period.
+ * `drive y2 none`: one Y motor, the other side an idler rail (its own
+ * friction, guidey2) with a passive scale (ptcore_fb(PP_Y2) reads it).
  *
  * A linear motor runs as a rotary one with one revolution per electrical
  * period p: position [rad] = s 2pi/p, force = torque 2pi/p. LinuxCNC

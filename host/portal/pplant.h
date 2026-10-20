@@ -42,8 +42,12 @@ typedef struct {
   double ky_end, ky_mid, cy;  // head y: stiffness at the rails / mid-span
   // guides: Coulomb [N] (regularized below vs [m/s]) and viscous [N s/m]
   double fy_c, fy_v;        // per Y side
+  double fy2_c, fy2_v;      // the Y2 side alone, when it differs (an idler rail; < 0: as Y1)
   double fx_c, fx_v;
   double vs;
+  // cogging (iron-core motors): a force -A sin(2 pi s/period + phase) on
+  // motor k at its scale position s (A 0: none)
+  double cog_a[3], cog_per[3], cog_ph[3];
   // strokes (end stops, spring kstop / damper cstop)
   double ymin, ymax, xmin, xmax, kstop, cstop;
 
