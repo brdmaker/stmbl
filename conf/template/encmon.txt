@@ -13,4 +13,6 @@ encmon0.l = conf0.l
 encmon0.psi = conf0.psi
 encmon0.max_volt = hv0.pwm_volt
 encmon0.com_src = fb_switch0.current_com_pos
+# the F3's frame leads hv0.pos (bench: 0.32 ms)
+encmon0.delay = 0.00032
 fault0.fb_mon_error = encmon0.fault

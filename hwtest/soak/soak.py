@@ -287,7 +287,9 @@ def health_check(run, con, cycle):
         up = con.command("uptime")
         pins = pin_values(con.command("fault0.state") + con.command("fault0.fault") +
                           con.command("hv0.dc_volt") + con.command("hv0.hv_temp") +
-                          con.command("iit0.temp") + con.command("pid0.pos_error"))
+                          con.command("iit0.temp") + con.command("pid0.pos_error") +
+                          # the encoder monitor, if loaded (link encmon): "not found" otherwise
+                          con.command("encmon0.max_ratio") + con.command("encmon0.max_timer"))
     except ConsoleError as e:
         run.event("console_no_answer", str(e))
         return False
@@ -311,6 +313,9 @@ def health_check(run, con, cycle):
     run.stat("dc_volt", dc)
     run.stat("hv_temp", hvt)
     run.stat("mot_temp", mt)
+    if pins.get("encmon0.max_ratio") is not None:
+        run.stat("encmon_max_ratio", pins["encmon0.max_ratio"])
+        run.stat("encmon_max_timer_s", pins.get("encmon0.max_timer"))
 
     if hal_state != "HAL_OK2":
         ok = run.event("hal_state", "%s\n%s" % (hal_state, text))

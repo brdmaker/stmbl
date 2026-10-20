@@ -36,6 +36,10 @@ HAL_PIN(r);         // motor model (conf0.r, conf0.l, conf0.psi)
 HAL_PIN(l);
 HAL_PIN(psi);
 HAL_PIN(max_volt);  // available voltage [V] (hv0.pwm_volt)
+HAL_PIN(delay);     // [s] the F3 reports its voltages and currents in a frame
+                    // this far ahead of com (it extrapolates the angle between
+                    // packets, and its readings arrive a packet late): 0.32 ms
+                    // measured on the bench (v4, 5 kHz); the sim's F3 ~75 us
 HAL_PIN(com_src);   // fb_switch0.current_com_pos: check only once the angle is
                     // absolute (1..3: index or absolute feedback), not while it
                     // is autophasing's estimate (4..); 0 (unlinked): always
@@ -78,7 +82,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float w   = minus(PIN(pos), PIN(last_pos)) / period;
   PIN(last_pos) = PIN(pos);
   PIN(vel)  = w;
-  float delta = minus(PIN(pos), PIN(com));
+  float delta = minus(PIN(pos), PIN(com)) + w * PIN(delay);
   // the voltage was applied between the last and this current sample: use
   // the difference for l * di/dt and the average for the other terms
   float did = (PIN(id) - PIN(last_id)) / period;

@@ -269,6 +269,7 @@ conf0.phase_cur = {pcur:.3g}
 link encmon
 relink
 start
+encmon0.delay = 0
 debug_level 0
 lcnc 0 0
 run 0.5

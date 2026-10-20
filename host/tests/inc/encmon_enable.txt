@@ -6,6 +6,9 @@ debug_level 1
 link encmon
 relink
 start
+# the simulated F3 reports in hv0.pos's frame; the real one
+# about 0.32 ms ahead (the template's encmon0.delay)
+encmon0.delay = 0
 debug_level 0
 lcnc 0 0
 run 0.5

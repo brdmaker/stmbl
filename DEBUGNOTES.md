@@ -1640,3 +1640,33 @@ Entry format:
      the scope was set up): the suite logs such bytes now
      (`console_bad_bytes`). Open: where it comes from.
 - Fix:     see above; the phase is the regression test for the braking.
+
+## 2026-10-20  An input linked to an input reads a stale value until relink
+- Area:    `shared/hal.c` (PIN() reads source->value, one level), console
+- Status:  Known (procedure)
+- Symptom: on the bench, encmon loaded at runtime (`stop`, `link encmon`,
+  `start`) tripped at once (fault 18, ratio up to 2.2); its residual rotated
+  at the electrical frequency. A scope channel on `encmon0.pos` recorded 0,
+  and a scope trigger on `fault0.en` never fired.
+- Cause:   `encmon0.com = hv0.pos` links to hv0.pos, itself an input
+  (linked to dbrake0.pos_out): PIN() follows one link, so encmon read
+  hv0.pos's own stale value. `relink` flattens such chains; the boot does
+  it after loadconf, the host tests do it, my runtime load did not. Scope
+  channels and triggers linked to inputs have the same problem.
+- Fix:     load at runtime with `stop`, `link X`, `relink`, `start`; link
+  scope channels/triggers to outputs (or relink after). With relink the
+  monitor's angle input is dbrake0.pos_out.
+
+## 2026-10-20  Encoder monitor: the real F3's frame leads hv0.pos by ~0.32 ms
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`
+- Status:  Fixed
+- Symptom: relinked, the monitor's ratio still reached 0.29 (trip 0.3) at
+  300 rad/s on the bench motor: ud -43 V where the model expected ~-10 V.
+- Cause:   the F3 reports ud/uq/id/iq in a frame about 27 deg ahead of
+  hv0.pos at 1500 rad/s electrical (~0.32 ms: it extrapolates the angle
+  between packets, its readings come a packet late). The simulated F3
+  reports in hv0.pos's frame, so the sim never showed it.
+- Fix:     `encmon0.delay` (template 0.00032 s): delta += w * delay. A fit
+  to a bench capture: rms ratio 0.46 at 0, 0.06 at 0.30-0.35 ms. The sim's
+  encmon tests and soak set delay = 0. Regression: the hardware soak with
+  encmon loaded (`soak.py` records encmon_max_ratio).
