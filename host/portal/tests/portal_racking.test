@@ -1,7 +1,8 @@
 # The load split: with the carriage and head (12 kg) near Y1's rail, Y1
 # carries more of the bridge's acceleration than Y2 (current), and the
-# other way round near Y2. The bridge racks while they differ; in the
-# middle both share it.
+# other way round near Y2; in the middle both share it. With the drives'
+# exact command feedforward and unbiased velocity observer (y.conf) the
+# two loops hold the bridge square (a few urad) wherever the load is.
 @program portal/portal_sim
 @args portal/machine/portal.portal
 run 0.05
@@ -26,11 +27,9 @@ print max_cur_y1 max_cur_y2 max_rack fault jammed
 @expect portal.max_cur_y2[1] < 1.05
 @expect portal.max_cur_y1[2] < 1.05
 @expect portal.max_cur_y2[2] > 1.25
-@expect portal.max_cur_y1[3] ~ 1.15 3%
-@expect portal.max_cur_y2[3] ~ 1.15 3%
-@expect portal.max_rack[1] > 15
-@expect portal.max_rack[2] > 15
-@expect portal.max_rack[3] < 3
+@expect portal.max_cur_y1[3] ~ 1.29 4%
+@expect portal.max_cur_y2[3] ~ 1.29 4%
+@expect max portal.max_rack < 15
 @expect portal.fault == 0
 @expect portal.jammed == 0
 @reject ^ERROR

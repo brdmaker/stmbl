@@ -21,11 +21,14 @@ HAL_PIN(torque);
 HAL_PIN(vel_ff);
 HAL_PIN(en);
 HAL_PIN(pos_error);
+HAL_PIN(bc);     // velocity bias correction (0 off, 1 on)
+HAL_PIN(bc_lp);  // its low-pass [Hz] (0: none)
 
 struct vel_ctx_t {
   float last_acc;
   float acc_sum;
   float vel_sum;
+  float corr;  // the proportional correction, low-passed (bc)
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -39,6 +42,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(j)  = 0.00001;
   PIN(lp) = 50.0;
   PIN(en) = 1.0;
+  PIN(bc) = 0.0;
+  PIN(bc_lp) = 0.0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -68,10 +73,23 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   ctx->acc_sum += acc_ff * period;
 
-  PIN(vel) = ctx->acc_sum + vel_ff;
+  float vel_out = ctx->acc_sum + vel_ff;
   PIN(acc) = acc_ff;
 
   vel_ff = 2.0 * d * w * pos_error;
+
+  // bc: the estimate's own velocity includes the proportional correction.
+  // Without it (bc 0, as before) the torque model only acts above lp, so a
+  // steady acceleration a is tracked with an error a/w^2 and vel lags the
+  // true velocity by 2 d a / w (1.8 ms x a at w 1000, d 0.9); the speed
+  // loop then pushes against every acceleration. bc_lp [Hz] (0: none)
+  // filters the correction against encoder quantization.
+  if(PIN(bc) > 0.0) {
+    float c = PIN(bc_lp) > 0.0 ? LP_HZ(PIN(bc_lp)) : 1.0;
+    ctx->corr = vel_ff * c + (1.0 - c) * ctx->corr;
+    vel_out += PIN(bc) * ctx->corr;
+  }
+  PIN(vel) = vel_out;
 
   ctx->vel_sum += vel_ff * period;
   ctx->vel_sum = mod(ctx->vel_sum);

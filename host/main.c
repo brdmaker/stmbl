@@ -39,12 +39,22 @@ extern volatile uint64_t systime;
 
 // --- LinuxCNC side of the smart-serial link (drive mode) --------------------
 // Stands in for the LinuxCNC servo thread: once per ms it sends the held
-// command, and pos_cmd advances by vel_cmd (a constant-velocity jog).
+// command, and pos_cmd advances by vel_cmd (a constant-velocity jog). With
+// an acceleration (lcnc EN VEL POS ACC) it moves as LinuxCNC's planner
+// does, with constant acceleration: the true velocity ramps, the position
+// follows it exactly, and vel_cmd is what LinuxCNC sends (joint.N.vel-cmd:
+// the average over the last period).
 static int lcnc_on = 0;
 static int rt_count = 0;
+static float lcnc_acc = 0.0f, lcnc_vel = 0.0f;
 
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
+  if(lcnc_acc != 0.0f) {
+    float v0 = lcnc_vel;
+    lcnc_vel += lcnc_acc * 0.001f;
+    io->vel_cmd = 0.5f * (v0 + lcnc_vel);
+  }
   io->pos_cmd += io->vel_cmd * 0.001;
   io->seq++;
 }
@@ -88,14 +98,15 @@ COMMAND("time", cmd_time, "print simulated time");
 void cmd_lcnc(char *ptr) {
   sim_sserial_io_t *io = &sim_sserial_io;
   int en;
-  float vel, pos;
-  int n = sscanf(ptr, " %i %f %f", &en, &vel, &pos);
+  float vel, pos, acc;
+  int n = sscanf(ptr, " %i %f %f %f", &en, &vel, &pos, &acc);
   if(n >= 1) {
     lcnc_on    = 1;
     io->enable = en > 0;
   }
   if(n >= 2) {
-    io->vel_cmd = vel;
+    io->vel_cmd = lcnc_vel = vel;
+    lcnc_acc    = n >= 4 ? acc : 0.0f;
   }
   if(n >= 3) {
     io->pos_cmd = pos;
@@ -105,7 +116,7 @@ void cmd_lcnc(char *ptr) {
            io->enable, io->pos_cmd, io->vel_cmd, io->pos_fb, io->vel_fb, io->fault);
   }
 }
-COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd]], or show feedback");
+COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd [acc]]], or show feedback");
 
 void cmd_exit(char *ptr) {
   (void)ptr;

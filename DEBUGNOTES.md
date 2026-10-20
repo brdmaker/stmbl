@@ -1350,3 +1350,40 @@ Entry format:
   rate. 3. fb_out = fb + (in now - out the period before).
   The servo lag constant tau2 had to be recalibrated after 2 (1.45e-5 ->
   2.15e-5 s^2): the stale velocity had been part of it.
+
+## 2026-10-21  Velocity observer lags under acceleration (2 d a / w); vel_bw ceiling 556
+- Area:    `shared/comps/vel.c` (vel1: pid0.vel_fb), every drive
+- Status:  Workaround (opt-in `vel1.bc = 1`; default unchanged)
+- Symptom: the portal and the linear axis held a position error
+  proportional to acceleration that tuning couldn't remove; acceleration
+  feedforward made circles worse; vel_bw above about 550 was unstable on
+  every load; the vel_bw a config said wasn't the loop's real bandwidth.
+- Cause:   the observer's torque model only acts above `lp` (50 Hz). A
+  steady acceleration a is tracked with an error a/w^2, and the reported
+  velocity (acc_sum, without the proportional correction 2 d w e) lags the
+  true one by 2 d a / w (1.8 ms x a at w 1000, d 0.9). In the speed loop
+  that is positive acceleration feedback: the effective inertia is
+  j (1 - 2 d vel_bw / w), so the real bandwidth is vel_bw / (1 - 2 d vel_bw / w)
+  (650 for a configured 300), unstable at vel_bw = w / 2d = 556. It also
+  stands in for missing acceleration feedforward, which is why feedforward
+  alone looked harmful.
+- Fix:     `vel1.bc = 1` adds the correction to the reported velocity
+  (`vel1.bc_lp` [Hz] filters it against quantization). Use it together with
+  acceleration feedforward (`vel_int0.mode = 1`) and retune: vel_bw is then
+  the real bandwidth. Portal: following error 115 -> 7 um at 0.7 g;
+  linear axis at 2 m/s^2: 3.7 -> 0.5 mrad (`tests/acc_ff_linear.test`). With
+  bc on by default the host suite's motors all still pass; only configs
+  tuned with the lag in place (portal, two arm detector thresholds) move,
+  so it stays opt-in.
+
+## 2026-10-21  LinuxCNC's vel-cmd is half a servo period late; acc feedforward over sserial
+- Area:    `shared/comps/vel_int.c`, `conf/template/sserial.txt`
+- Status:  Fixed (opt-in `vel_int0.mode = 1`)
+- Symptom: velocity feedforward lagged; no acceleration feedforward over
+  smart-serial (vel0 is off in sserial.txt; on, it is a filtered derivative).
+- Cause:   joint.N.vel-cmd is the average over the last period. LinuxCNC's
+  planner moves with constant acceleration between updates.
+- Fix:     mode 1: velocity and acceleration from the last three positions
+  (exact for the planner: a = (d1 - d0)/T^2, v = d1/T + a T/2, T =
+  1/cmd_freq), quadratic interpolation, acc_out -> rev0.out_dd ->
+  pid0.acc_ext_cmd. Mode 0 passes vel0.acc through, as before.

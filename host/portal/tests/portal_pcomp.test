@@ -1,10 +1,12 @@
 # Physics-based command conditioning (pcomp.h): circles at 0.5 m/s, R20 at
 # mid-span (12.5 m/s^2 centripetal, where the head is softest), as planned
 # and then conditioned: a ZV shaper at the model's head modes, a 20 ms
-# moving average, the shrink of both, the head's deflection and the drives'
-# lag (tau2 calibrated on this circle) fed forward. The tool's contour error
-# drops about five-fold; the conditioning's delay (~24 ms) is reported for
-# delaying the machine's I/O.
+# moving average, the shrink of both and the head's deflection fed forward
+# (the drives' own lag needs no term since vel_int0.mode 1 and vel1.bc 1:
+# servo 0). Without it the carriage follows exactly and the head bends
+# outwards by a/w^2 (~0.4 mm); with it the contour error drops about nine-
+# fold. The conditioning's delay (~24 ms) is reported for delaying the
+# machine's I/O.
 @program portal/portal_sim
 @args portal/machine/portal.portal
 run 0.05
@@ -22,14 +24,14 @@ comp shaper 1
 comp jerk 20
 comp shrink 1
 comp defl 1
-comp servo 2.15e-5
+comp servo 0
 run 0.2
 circle 0.3 500 500 20 1.2
 mark
 circle 1.0 500 500 20 4
 print max_econt max_hy comp_delay fault
-@expect portal.max_econt[1] > 300
-@expect portal.max_econt[2] < 90
+@expect portal.max_econt[1] > 600
+@expect portal.max_econt[2] < 120
 @expect portal.comp_delay ~ 24 2
 @expect portal.fault == 0
 @reject ^ERROR

@@ -13,6 +13,18 @@ HAL_PIN(pos_out);
 HAL_PIN(vel_in);
 HAL_PIN(vel_out);
 
+// mode 0: extrapolate the last position with vel_in (LinuxCNC's vel-cmd: the
+//         average over the period before, half a period late); acc_out is
+//         acc_in (vel0's estimate, when the config enables it)
+// mode 1: LinuxCNC's planner moves with constant acceleration between its
+//         updates: from the last three positions the velocity and the
+//         acceleration at the newest one are exact (v = d1/T + a T/2,
+//         a = (d1 - d0)/T^2, T = 1/cmd_freq); extrapolate quadratically,
+//         acc_out to the acceleration feedforward. vel_in only says stop.
+HAL_PIN(mode);
+HAL_PIN(acc_in);
+HAL_PIN(acc_out);
+
 HAL_PIN(cmd_freq);
 HAL_PIN(real_cmd_freq);
 
@@ -25,6 +37,11 @@ struct vel_int_ctx_t {
   float cmd_freq;
   float last_p;  // last command, to detect a new one (per instance)
   float last_v;
+  // mode 1
+  float p1, p2;  // the two packets before
+  int n;         // packets seen (up to 2)
+  float v, a;    // velocity and acceleration at the newest packet
+  float t;       // time since it
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -53,6 +70,46 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float p     = PIN(pos_in);
   float v     = PIN(vel_in);
   int new_cmd = p != ctx->last_p || v != ctx->last_v;  // before the watchdog zeroes v
+
+  if(PIN(mode) > 0.0) {
+    if(new_cmd) {
+      float T  = 1.0 / MAX(PIN(cmd_freq), 1.0);
+      float d1 = ctx->n >= 1 ? minus(p, ctx->p1) : 0.0;
+      float d0 = ctx->n >= 2 ? minus(ctx->p1, ctx->p2) : 0.0;
+      if(v == 0.0 || d1 == 0.0 || ctx->n < 2) {  // stopped (or starting): hold
+        ctx->v = d1 / T, ctx->a = 0.0;
+        if(v == 0.0) {
+          ctx->v = 0.0;
+        }
+      } else {
+        ctx->a = (d1 - d0) / (T * T);
+        ctx->v = d1 / T + ctx->a * T * 0.5;
+      }
+      ctx->p2 = ctx->p1, ctx->p1 = p;
+      ctx->n  = ctx->n < 2 ? ctx->n + 1 : 2;
+      ctx->t  = 0.0;
+      ctx->counter = 0.0;
+      ctx->last_p = p, ctx->last_v = v;
+      ctx->cmd_freq += 1.0;
+    } else {
+      ctx->t += period;
+      ctx->counter += period;
+    }
+    float vv = ctx->v + ctx->a * ctx->t, aa = ctx->a;
+    if(ctx->counter > PIN(wd)) {  // no more packets: stand where it got to
+      PIN(error) = vv != 0.0 || aa != 0.0;  // ... an error if it was moving
+      vv = aa = 0.0, ctx->t -= period;
+    } else {
+      PIN(error) = 0.0;
+    }
+    ctx->cmd_freq -= ctx->cmd_freq * period;
+    PIN(real_cmd_freq) = ctx->cmd_freq * 0.001 + PIN(real_cmd_freq) * 0.999;
+    PIN(pos_out) = mod(ctx->p1 + ctx->v * ctx->t + 0.5f * ctx->a * ctx->t * ctx->t);
+    PIN(vel_out) = vv;
+    PIN(acc_out) = aa;
+    return;
+  }
+  PIN(acc_out) = PIN(acc_in);
 
   if(ctx->counter > PIN(wd) && v != 0.0) {
     v          = 0;

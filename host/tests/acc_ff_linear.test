@@ -1,0 +1,32 @@
+# The drive's command feedforward from LinuxCNC's position stream
+# (vel_int0.mode 1) with the unbiased velocity observer (vel1.bc 1), on the
+# ironless linear axis (examples/linear_axis.conf): a LinuxCNC-style move at
+# 2 m/s^2 (lcnc ... ACC: constant acceleration, vel_cmd the average over
+# each period, as joint.N.vel-cmd). vel_int recovers the acceleration
+# exactly (2000 mm/s^2 = 209.4 rad/s^2 at 60 mm per revolution) and the
+# position error while accelerating is ~0.5 mrad. The stock settings
+# (mode 0, bc 0) hold ~3.7 mrad here; either alone does not help (the
+# observer's lag under acceleration, 2 d a / w, had been standing in for the
+# missing acceleration feedforward).
+@args --drive examples/linear_axis.conf --sim examples/linear_axis_sim.txt
+debug_level 0
+conf0.pos_bw = 60
+conf0.vel_bw = 400
+vel_int0.mode = 1
+vel1.bc = 1
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 0 0 2000
+run 0.05
+@sample pid0.pos_error 0.01 0.15
+vel_int0.acc_out
+lcnc 1 0
+run 0.3
+pid0.pos_error
+fault0.fault
+@expect vel_int0.acc_out ~ 209.4 1%
+@expect max|pid0.pos_error| < 0.0012
+@expect fault0.fault == 0
+@reject ^ERROR
