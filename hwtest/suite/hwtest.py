@@ -96,11 +96,17 @@ class Ctx:
         cmd = [CLI, "-d", port, "-t", str(q)] + list(args)
         self.note("$ " + " ".join(cmd[1:]))
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=self.dir)
+            r = subprocess.run(cmd, capture_output=True, timeout=timeout, cwd=self.dir)
         except subprocess.TimeoutExpired:
             self.note("  timeout")
             return -1, "timeout"
-        out = r.stdout + r.stderr
+        raw = r.stdout + r.stderr
+        # a byte that is not text (0x80 in place of a digit, seen on the bench
+        # 2026-10-19/20) is logged, not fatal
+        out = raw.decode("utf-8", errors="backslashreplace")
+        if "\\x" in out:
+            self.note("  console: bytes that are not text: %r" % raw[-400:])
+            self.meas["console_bad_bytes"] = self.meas.get("console_bad_bytes", 0) + 1
         for l in out.splitlines()[:60]:
             self.note("  " + l)
         return r.returncode, out
@@ -1001,10 +1007,15 @@ def t_end(ctx):
 
 MM_PER_RAD = 10.0 / (2.0 * math.pi)  # the burn-in axis: 10 mm a revolution
 
+# The trigger is the drive's own state (fault0.state: 0 disabled, 1
+# enabled, 3 soft fault, 4 hard fault): leaving ENABLED is when the stop
+# starts, whatever the cause.
 EBRAKE = {  # kind: (what, trigger pin, edge 0 rising / 1 falling, level, stop mode)
-    "off":  ("machine off (enable dropped)", "fault0.en", 1, 0.5, 1),
-    "link": ("smart-serial link lost (LinuxCNC's threads stopped)", "fault0.cmd_error", 0, 0.5, 1),
-    "fb":   ("feedback fault (fault0.mot_fb_error forced)", "fault0.mot_fb_error", 0, 0.5, 2),
+    "off":  ("machine off (enable dropped)", "fault0.state", 1, 0.5, 1),
+    "link": ("smart-serial link lost (the card's port stopped)", "fault0.state", 0, 2.5, 1),
+    "fb":   ("feedback fault (fault0.mot_fb_error forced)", "fault0.state", 0, 2.5, 2),
+    # the F4 reports the HV timeout and LinuxCNC switches off (state 0):
+    # trigger on the drop itself
     "f3":   ("the F4 gone for the F3 (hv0.drop_link)", "hv0.drop_link", 0, 0.5, 0),
 }
 
@@ -1012,12 +1023,13 @@ EBRAKE = {  # kind: (what, trigger pin, edge 0 rising / 1 falling, level, stop m
 def ebrake_case(ctx, kind, v):
     what, trig, edge, level, mode = EBRAKE[kind]
     a = ctx.a
+    board = a.prefix.split(".")[0] + ".0"
     L = ready(ctx)
     need(L.mdi("G0 X-250", 30), "rapid to X-250")
     time.sleep(0.5)
     csv = os.path.join(ctx.dir, "ebrake-%s-%g.csv" % (kind, v))
     # 4 channels x 1024 samples, every 3rd rt period: 0.61 s, 10 % before
-    rc, out = ctx.cli(a.usb, "-c", "scope0.nch = 4", "-c", "scope0.ch0 = vel1.vel", "-c", "scope0.ch1 = hv0.iq_fb",
+    rc, out = ctx.cli(a.usb, "-c", "scope0.nch = 4", "-c", "scope0.ch0 = enc_fb0.pos", "-c", "scope0.ch1 = hv0.iq_fb",
                       "-c", "scope0.ch2 = hv0.dc_volt", "-c", "scope0.ch3 = fault0.stop", "-c", "scope0.div = 3",
                       "-c", "scope0.trig = %s" % trig, "-c", "scope0.edge = %d" % edge,
                       "-c", "scope0.level = %g" % level, "-c", "scope0.pre = 0.1", "-c", "scope0.mode = 0",
@@ -1032,19 +1044,21 @@ def ebrake_case(ctx, kind, v):
     x0 = L.poll().position[0]
     if kind == "off":
         L.c.state(L.lc.STATE_OFF)
-    elif kind == "link":
-        subprocess.run(["halcmd", "stop"], timeout=10)
+    elif kind == "link":  # no more packets, as a pulled cable; LinuxCNC runs on
+        subprocess.run(["halcmd", "setp", board + ".sserial.port-0.run", "0"], timeout=10)
     elif kind == "fb":
         ctx.cli(a.usb, "-c", "fault0.mot_fb_error = 1", quiet=0.2)
     elif kind == "f3":
         ctx.cli(a.usb, "-c", "hv0.drop_link = 1.5", quiet=0.2)
+    st = L.poll().task_state
+    p = ctx.pins(a.usb, "fault0.state", "fault0.fault", "fault0.en", "fault0.stop", "fault0.stop_timer",
+                 "scope0.state", "vel1.vel", quiet=0.2)
+    ctx.note("fired %s at X%.1f: LinuxCNC task_state %s, drive %r" % (kind, x0, st, p))
     time.sleep(2.0)
     # put things back
     if kind == "link":
-        subprocess.run(["halcmd", "start"], timeout=10)
-        # the card's watchdog bit while the threads stood: clear it
-        board = a.prefix.split(".")[0] + ".0"
-        subprocess.run(["halcmd", "setp", board + ".watchdog.has_bit", "0"], timeout=10)
+        subprocess.run(["halcmd", "setp", board + ".sserial.port-0.run", "1"], timeout=10)
+        time.sleep(2.0)
     if kind == "fb":
         ctx.cli(a.usb, "-c", "fault0.mot_fb_error = enc_fb0.error", quiet=0.2)
     rc, out = ctx.cli(a.usb, "--capture", csv, "--no-arm", "--capture-timeout", "20", timeout=120)
@@ -1052,20 +1066,26 @@ def ebrake_case(ctx, kind, v):
     rows = [r.split(",") for r in open(csv).read().split()]
     d = [[float(x) for x in r] for r in rows[1:]]
     t = [r[0] for r in d]
-    w = [r[1] for r in d]
+    # the encoder's own angle (enc_fb0.pos, -pi..pi), unwrapped: it keeps
+    # counting whatever the drive's state (vel1 stops with the feedback)
+    ang = [d[0][1]]
+    for r in d[1:]:
+        ang.append(ang[-1] + math.remainder(r[1] - ang[-1], 2.0 * math.pi))
+    w = [0.0] + [(ang[i] - ang[i - 1]) / (t[i] - t[i - 1]) for i in range(1, len(t))]
+    w = [sum(w[max(1, i - 2):i + 3]) / len(w[max(1, i - 2):i + 3]) if i else 0.0 for i in range(len(w))]  # 5 samples
     i0 = next(i for i in range(len(t)) if t[i] >= 0.0)
-    w0 = w[i0]
+    w0 = abs(sum(w[i0 - 10:i0]) / 10.0)  # just before the trigger (the encoder may count down)
     # distance from the trigger until the speed is (and stays) below 2 rad/s
     dist, stop_t = 0.0, None
     for i in range(i0 + 1, len(t)):
-        dist += 0.5 * (w[i] + w[i - 1]) * (t[i] - t[i - 1])
-        if stop_t is None and abs(w[i]) < 2.0 and all(abs(x) < 2.0 for x in w[i:i + 20]):
+        if abs(w[i]) < 2.0 and all(abs(x) < 2.0 for x in w[i:i + 20]):
             stop_t = t[i]
+            dist = ang[i] - ang[i0]
             break
-    mm = dist * MM_PER_RAD
     ipk = max(abs(r[2]) for r in d[i0:])
     upk = max(r[3] for r in d[i0:])
     modes = sorted(set(int(round(r[4])) for r in d[i0:]))
+    mm = abs(dist) * MM_PER_RAD
     tag = "%s_%g" % (kind, v)
     ctx.m("ebrake_%s_mm" % tag, mm)
     ctx.m("ebrake_%s_ms" % tag, stop_t * 1000 if stop_t else None)
@@ -1073,7 +1093,8 @@ def ebrake_case(ctx, kind, v):
     ctx.m("ebrake_%s_udc" % tag, upk)
     detail = "%.0f rad/s: %.2f mm in %s ms, peak %.1f A, bus %.0f V, stop modes %s" % (
         w0, mm, "%.0f" % (stop_t * 1000) if stop_t else "?", ipk, upk, modes)
-    need(w0 > 0.9 * v / MM_PER_RAD, "not at speed at the trigger (%.0f rad/s) " % w0 + detail)
+    # LinuxCNC halts its command with a machine off: the motor may slow first
+    need(abs(w0) > 0.7 * v / MM_PER_RAD, "not at speed at the trigger (%.0f rad/s) " % w0 + detail)
     need(stop_t is not None, "not standing still within the capture: " + detail)
     need(ipk <= 1.3 * a.ebrake_max_cur, "current above 1.3 x %g A: " % a.ebrake_max_cur + detail)
     need(upk < a.ebrake_max_dc, "bus above %g V: " % a.ebrake_max_dc + detail)
@@ -1081,9 +1102,14 @@ def ebrake_case(ctx, kind, v):
         need(mode in modes, "the drive did not run stop mode %d: " % mode + detail)
     # the drive comes back: machine on again, a short move, no crash record
     L.errors()
-    if kind == "link":
+    ok = False
+    for _ in range(5):  # the port may take a moment to come back
+        if L.on():
+            ok = True
+            break
+        ctx.note("machine on: task_state %s, %s" % (L.poll().task_state, L.errors()))
         time.sleep(1.0)
-    need(L.on(), "machine on after the stop failed: %s" % L.errors())
+    need(ok, "machine on after the stop failed: %s" % L.errors())
     time.sleep(1.0)
     need(L.home(), "not homed after the stop")
     need(L.mdi("G0 X0", 30), "move after the stop")

@@ -71,6 +71,30 @@ smart-serial console is the pty `<run>/drive-con`.
 | rt load | `HAL_OK2` under LinuxCNC; rt / frt maxima recorded; FAIL above `--rt-fail` (97%) |
 | end | machine off disables the drive; no reboot during the phase, no crash record, config unchanged |
 
+**ebrake** (hw, only with `--phase-only ebrake`; **the axis moves at up to
+300 mm/s and is stopped on purpose**): emergency braking
+(`docs/emergency_stop.md`). For each speed in `EBRAKE_SPEEDS` (50,150,300
+mm/s) and each cause in `EBRAKE_KINDS` (off, link, fb, f3): a G1 move from
+X-250, the cause fired at speed past X-100, the stop captured by the
+drive's scope (the encoder's own angle, q current, DC bus, `fault0.stop`).
+
+```sh
+./run_hwtest.sh hw --phase-only ebrake
+EBRAKE_SPEEDS=50 EBRAKE_KINDS=off,fb ./run_hwtest.sh hw --phase-only ebrake
+```
+
+| Cause | Fired by | Checks |
+|---|---|---|
+| off | LinuxCNC machine off | stop mode 1 (quick stop) |
+| link | `<board>.sserial.port-0.run = 0` for 2 s | stop mode 1 |
+| fb | `fault0.mot_fb_error = 1`, relinked to `enc_fb0.error` after | stop mode 2 (dynamic brake) |
+| f3 | `hv0.drop_link = 1.5` (the F4 sends the F3 nothing; the F3 brakes on its own) | stopped |
+
+Every case: at speed at the trigger (70 % or more), standing still within
+the capture, peak current at most 1.3 × `--ebrake-max-cur` (10 A), the bus
+below `--ebrake-max-dc` (380 V); then machine on, homed, a move, no crash
+record. Distances and times go to the summary.
+
 **post** (hw): after LinuxCNC has exited, a USB `--dump` must take no
 longer than 1.5 × the one before LinuxCNC. The smart-serial link has timed
 out by then; a console still treating it as active slowed all output.

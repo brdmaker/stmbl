@@ -24,7 +24,9 @@ it. The tests are `host/tests/estop_*.test`.
 - This is firmware. A safety-rated stop (STO, a contactor, mechanical end
   stops) is still needed. Losing the F4 or the LV supply is covered by the F3
   (below), but with no DC bus, or the F3 itself failing, nothing here runs.
-- None of it has run on hardware yet. Try it at low speed first.
+- Tested on the bench drive (ECMA-C30604FS, burn-in axis) at 50, 150 and
+  300 mm/s for every cause but an HV fault: [On hardware](#on-hardware).
+  On another machine, try it at low speed first.
 
 ## Contents
 
@@ -300,6 +302,35 @@ or LV supply is needed.
   drive can act, with no bus and no F3. The drive must open it before it
   enables.
 
+## On hardware
+
+`hwtest/suite/run_hwtest.sh hw --phase-only ebrake` (the axis moves; see
+`hwtest/suite/README.md`) runs each cause at each speed (`EBRAKE_SPEEDS`,
+default 50,150,300 mm/s; `EBRAKE_KINDS` off,link,fb,f3) during a G1 move
+under LinuxCNC. The drive's scope records the encoder's own angle
+(`enc_fb0.pos`, which keeps counting whatever the drive's state), the q
+current, the DC bus and `fault0.stop` around the stop; then the drive must
+come back into service (machine on, home, a move, no crash record).
+
+| Cause | How it is made | 50 mm/s | 150 mm/s | 300 mm/s (188 rad/s) |
+|---|---|---|---|---|
+| Enable dropped (machine off) | LinuxCNC machine off | 0.06 mm, 16 ms | 0.37 mm, 44 ms | 1.46 mm, 52 ms, 3.1 A |
+| Link lost | `hm2_7c81.0.sserial.port-0.run = 0` (no more packets, as a pulled cable) | 0.02 mm, 14 ms | 0.38 mm, 44 ms | 1.49 mm, 53 ms, 3.0 A |
+| Feedback fault | `fault0.mot_fb_error = 1` (dynamic brake) | 0.08 mm, 11 ms | 0.23 mm, 16 ms | 0.55 mm, 17 ms, 2.6 A |
+| The F4 gone | `hv0.drop_link = 1.5`: the F4 sends the F3 nothing for 1.5 s and keeps reading the encoder | 0.10 mm, 11 ms | 0.27 mm, 16 ms | 0.75 mm, 18 ms |
+| (coasting, friction only) | | ~0.9 mm, 36 ms | ~8 mm | ~30 mm, ~220 ms |
+
+Bench drive, v0.9.18-348, 200 V bus (peak 202 V), max_ac_cur 10 A,
+2026-10-20. The F3's own current isn't reported while its link is
+dropped. Not run on hardware: an HV fault (coasts by design).
+
+- `hv0.drop_link` is a test pin: it counts down, so the link always comes
+  back; the F4 then sends "disabled" and the F3 stops braking.
+- Stopping LinuxCNC's threads (`halcmd stop`) instead of the port makes the
+  card's watchdog bite and hostmot2 stop the port ("too many errors"); the
+  test did not get the machine back on after that (clearing
+  `watchdog.has-bit` and toggling the port's `run` was not enough).
+
 ## Testing in the simulator
 
 ### The `ebrake` suite
@@ -418,7 +449,8 @@ unchanged.
   drive's own capacitors, so over-voltage is tested (above). Not modelled:
   the bridge's freewheel diodes charging the bus from back-EMF above it
   while the bridge is off (a motor driven above its voltage-limited speed).
-- **F3 untested on hardware:** the F3 brake has only run against the
+- **F3 on hardware:** tested on the bench with `hv0.drop_link` (above);
+  before that the F3 brake had only run against the
   simulated F3. The simulated F3 loop runs at 20 kHz, the real F3's rt at
   15 kHz. The F3 code uses its own period for the delay, so its rv limit
   will be a little lower than in the simulator.

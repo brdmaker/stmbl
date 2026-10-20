@@ -1614,3 +1614,29 @@ Entry format:
   on 7c81_5abobx2d.bit (verified, readhmid identical to before; LinuxCNC
   link test ok). mesaflash cannot back up a 7C81's flash; restore by
   writing the bitfile. Files: /home/cnc/stmbl-firmware/mesa-7c81-20261019-1742
+
+## 2026-10-20  Emergency braking on hardware; test notes
+- Area:    `hwtest/suite` ebrake phase, `src/comps/hv.c` (drop_link)
+- Status:  Note
+- Symptom: results in `docs/emergency_stop.md` "On hardware" (all four
+  causes at 50/150/300 mm/s pass; 300 mm/s: 1.46 / 1.49 / 0.55 / 0.75 mm).
+  Getting there:
+  1) a scope trigger on `fault0.en` never fired on machine off; the
+     drive's own `fault0.state` does (fall through 0.5; faults rise
+     through 2.5).
+  2) `vel1.vel` goes to 0 when the dynamic brake starts (en_fb off): the
+     test measures from `enc_fb0.pos`, unwrapped.
+  3) link loss by `halcmd stop`: the card's watchdog bit and hostmot2
+     stopped the port ("too many errors"); the machine did not come back
+     on. `sserial.port-0.run = 0` drops the link the same way for the
+     drive and LinuxCNC recovers.
+  4) after the port restarts LinuxCNC once reported "Exceeded POSITIVE
+     soft limit (1000)" (drive disabled then: a junk position read, no
+     motion); the test then re-homes.
+  5) with the F3 link dropped the F4 reports the HV timeout, LinuxCNC
+     switches off: the drive goes to state 0, so that case triggers on
+     `hv0.drop_link`.
+  6) the 0x80 console byte again (`fault0.state = 1.00\x80000`, USB, while
+     the scope was set up): the suite logs such bytes now
+     (`console_bad_bytes`). Open: where it comes from.
+- Fix:     see above; the phase is the regression test for the braking.
