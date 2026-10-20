@@ -6,10 +6,14 @@
 #   make test     the benchmark path at 12 and 36 m/min, 0.5 g (~3 min)
 #   make bench    the speed sweep: accelerations x feeds (bench.py, ~30 min);
 #                 results/results.md
+#   make test-pcomp / bench-pcomp   the same with linuxcnc/pcomp's
+#                 conditioning between motion and the drives
+#                 (portal_pcomp.hal, the model in [PCOMP])
 #   make run      LinuxCNC with AXIS
 #
 # Needs host/arm/libstmbl_drive.so and stmbl_portal.so installed:
 #   make -C ../../host/portal/lcnc all install
+# (and for pcomp: make -C ../../linuxcnc/pcomp all install)
 # Not as root (rtapi_app refuses). bench.py needs numpy (system python3);
 # LinuxCNC's python is put on PATH for the display (portal_run.py).
 
@@ -23,7 +27,13 @@ test:
 bench:
 	@LINUXCNC=$(LINUXCNC) $(PY) bench.py --out results
 
+test-pcomp:
+	@LINUXCNC=$(LINUXCNC) $(PY) bench.py --pcomp --quick --out $$(mktemp -d /tmp/portal-test.XXXXXX)
+
+bench-pcomp:
+	@LINUXCNC=$(LINUXCNC) $(PY) bench.py --pcomp --accel 2500,5000,10000,20000 --feeds 24000,72000 --out results-pcomp
+
 run:
 	@. $(LINUXCNC)/scripts/rip-environment >/dev/null && linuxcnc portal.ini
 
-.PHONY: test bench run
+.PHONY: test bench test-pcomp bench-pcomp run

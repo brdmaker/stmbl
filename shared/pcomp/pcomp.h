@@ -1,8 +1,8 @@
 /*
- * pcomp: conditioning of the portal's commands from a model of its
+ * pcomp: conditioning of a portal's commands from a model of its
  * physics, between the trajectory planner (LinuxCNC's X, Y every servo
- * period) and the drives. Plain C, no HAL: portal_sim uses it, a LinuxCNC
- * component can.
+ * period) and the drives. Plain C, no HAL: host/portal/portal_sim uses it,
+ * and linuxcnc/pcomp (the HAL component).
  *
  *   shaper   a ZV input shaper against the head's modes: the command plus
  *            a copy half a damped period later (amplitudes 1/(1+K), K/(1+K),
@@ -56,10 +56,12 @@ typedef struct {
   double zv[PC_HIST][2];   // after the ZV shapers
   double sh[PC_HIST][2];   // shaped commands (after the moving average)
   int head, n;
+  double vin[2];           // the planner's velocity [mm/s] (set before pc_step;
+                           // passed through when nothing is on)
   double out[2], vout[2];  // to the drives: position [mm], velocity [mm/s]
   double delay;            // the conditioning's mean delay now [s]: delay the
                            // machine's I/O (laser, spindle) as much
-  double last[2];
+  double a_prev[2];        // the shaped command's acceleration, last period
   int primed;
 } pc_t;
 

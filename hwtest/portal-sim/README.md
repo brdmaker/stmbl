@@ -96,6 +96,20 @@ It adds about 24 ms of delay, once. A controller delays its laser or spindle I/O
 - **Each part is needed.** The shaper alone rounds corners and shrinks circles. The leads alone, on LinuxCNC's stepping acceleration, jump the command and double the current.
 - **Steady circles show the servo term best.** On R20 at 0.5 m/s (12.6 m/s²) the contour error goes 366 → 66 µm (`host/portal/tests/portal_pcomp.test`).
 
+**In LinuxCNC, closed loop** (`make bench-pcomp`: `linuxcnc/pcomp` between motion and the drives, `portal_pcomp.hal`, the model in `[PCOMP]`), fastest feed, path p99 / max in µm:
+
+| accel | without pcomp | with pcomp | program time | following error (drives' own) |
+|---|---|---|---|---|
+| 0.25 g | 208 / 239 | **48 / 74** | 75 s | 0.09 mm |
+| 0.5 g | 260 / 566 | **93 / 146** | 54 s | 0.19 mm |
+| 1 g | 612 / 925 | **210 / 277** | 38 s | 0.34 mm |
+| 2 g | aborts | aborts (X following error, 8.8 mm, first rapid) | | |
+
+- **The fastest run per target is about 1.5× faster:**
+  - 50 µm at 0.25 g in 75 s (it needed 0.1 g and 116 s);
+  - 100 µm at 0.5 g in 54 s (75 s needed a 200 µm tolerance before).
+- **2 g is beyond the servo:** the drives can't track the rapids' acceleration. Conditioning doesn't add bandwidth.
+
 **Identifying the model on the machine.**
 - A 1 mm step at standstill, then the ring-down read from the scale *or the motor current* alone, finds the head's y mode within 3–6 % at each X. Fitting the beam model to five positions gives 46 / 27 Hz (rails / mid-span; true 55 / 28).
 - The x step reads 33 Hz against the head's own 45 Hz: the mode as coupled to the servo-held 5 kg carriage.

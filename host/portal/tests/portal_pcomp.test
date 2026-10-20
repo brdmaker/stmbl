@@ -22,7 +22,7 @@ comp shaper 1
 comp jerk 20
 comp shrink 1
 comp defl 1
-comp servo 1.45e-5
+comp servo 2.15e-5
 run 0.2
 circle 0.3 500 500 20 1.2
 mark

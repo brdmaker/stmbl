@@ -82,22 +82,26 @@ void pc_step(pc_t *c, const double xy[2]) {
     c->delay += (nj - 1) / 2.0 * c->dt;
   }
   memcpy(c->sh[c->head], s, sizeof(s));
-  double o[2];
-  if(c->defl || c->servo || (c->shrink && s2 > 0.0)) {  // leads: acceleration of the shaped command, one period back
+  if(c->shaper || nj > 1 || c->defl || c->servo) {
+    // the output is the shaped command one period back: its velocity is the
+    // central difference (exact on the planner's piecewise quadratic path; a
+    // backward difference is half a period late: v dt/2 of servo lag), the
+    // leads take its acceleration
     const double *s0 = c->sh[c->head], *s1 = c->sh[(c->head - 1 + PC_HIST) % PC_HIST],
                  *sb = c->sh[(c->head - 2 + PC_HIST) % PC_HIST];
     double w[2] = {2.0 * M_PI * c->m.fx, 2.0 * M_PI * pc_fy(&c->m, s1[0])};
     for(int k = 0; k < 2; k++) {
       double a = (s0[k] - 2.0 * s1[k] + sb[k]) / (c->dt * c->dt);  // mm/s^2
-      o[k] = s1[k] + a * ((c->defl ? 1.0 / (w[k] * w[k]) : 0.0) - (c->servo ? c->m.servo : 0.0) - (c->shrink ? 0.5 * s2 : 0.0));
-      c->delay += k == 0 ? c->dt : 0.0;  // one period back
+      double K = (c->defl ? 1.0 / (w[k] * w[k]) : 0.0) - (c->servo ? c->m.servo : 0.0) - (c->shrink ? 0.5 * s2 : 0.0);
+      c->out[k] = s1[k] + a * K;
+      c->vout[k] = (s0[k] - sb[k]) / (2.0 * c->dt) + (c->primed > 1 ? K * (a - c->a_prev[k]) / c->dt : 0.0);
+      c->a_prev[k] = a;
     }
-  } else {
-    o[0] = s[0], o[1] = s[1];
-  }
-  for(int k = 0; k < 2; k++) {
-    c->vout[k] = c->primed > 1 ? (o[k] - c->last[k]) / c->dt : 0.0;
-    c->out[k] = c->last[k] = o[k];
+    c->delay += c->dt;  // one period back
+  } else {  // nothing on: through
+    for(int k = 0; k < 2; k++) {
+      c->out[k] = xy[k], c->vout[k] = c->vin[k], c->a_prev[k] = 0.0;
+    }
   }
   c->primed = 2;
 }

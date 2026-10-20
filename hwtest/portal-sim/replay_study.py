@@ -7,7 +7,7 @@ bench.py does.
 
     replay_study.py SAMPLES [--geom path_geom.json] [--portal FILE] [--variants 0,5]
 
-The servo variant's tau2 (1.45e-5 s^2) is calibrated on a circle: R20 at
+The servo variant's tau2 (2.15e-5 s^2) is calibrated on a circle: R20 at
 0.5 m/s with the rest of the conditioning on, until the tool's mean radius
 is 20 mm (host/portal/tests/portal_pcomp.test).
 
@@ -38,7 +38,7 @@ VARIANTS = [
     ("ZV + jerk 10 ms + shrink + deflection ff", ["comp shaper 1", "comp jerk 10", "comp shrink 1", "comp defl 1"]),
     ("ZV + jerk 20 ms + shrink + deflection ff", ["comp shaper 1", "comp jerk 20", "comp shrink 1", "comp defl 1"]),
     ("ZV + jerk 20 ms + shrink + deflection ff + servo lag", ["comp shaper 1", "comp jerk 20", "comp shrink 1", "comp defl 1",
-                                                             "comp servo 1.45e-5"]),
+                                                             "comp servo 2.15e-5"]),
     ("as above (10 ms), model 10 % stiff", ["comp model %g %g %g %g", "comp shaper 1", "comp jerk 10", "comp shrink 1", "comp defl 1"]),
 ]
 

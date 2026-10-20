@@ -4,6 +4,7 @@ benchmark path (gen_path.py) run, and what breaks first?
 
     bench.py [--accel A,A..] [--feeds F,F..] [--vmax V] [--out DIR] [--quick]
              [--portal FILE]   another machine (default host/portal/machine/portal.portal)
+             [--pcomp]         with linuxcnc/pcomp's conditioning (portal_pcomp.hal, [PCOMP])
     bench.py --reanalyse DIR..   score finished runs again (their /tmp dirs)
 
 For each acceleration limit A [mm/s^2] (the axes' and joints' MAX_ACCELERATION,
@@ -51,10 +52,15 @@ IMAX = (9.2, 7.8, 7.8)  # X, Y1, Y2 drives' max_ac_cur
 PORTAL = os.path.join(ROOT, "host", "portal", "machine", "portal.portal")
 
 
+PCOMP = False
+
+
 def setup(d, accel, vmax):
-    for f in ("portal.ini", "portal.hal", "portal_run.py", "tool.tbl", "portal.var"):
+    for f in ("portal.ini", "portal.hal", "portal_pcomp.hal", "portal_run.py", "tool.tbl", "portal.var"):
         shutil.copy(os.path.join(HERE, f), d)
     ini = open(os.path.join(d, "portal.ini")).read()
+    if PCOMP:
+        ini = ini.replace("HALFILE = portal.hal", "HALFILE = portal_pcomp.hal")
     ini = ini.replace("DISPLAY = axis", "DISPLAY = ./portal_run.py")
     ini = ini.replace("FILE = ../../host/portal/machine/portal.portal", "FILE = %s" % PORTAL)
     ini = ini.replace("LIB = ../../host/arm/libstmbl_drive.so", "LIB = %s/host/arm/libstmbl_drive.so" % ROOT)
@@ -213,7 +219,7 @@ def fmt_row(m):
 
 
 def main():
-    global PORTAL
+    global PORTAL, PCOMP
     ap = argparse.ArgumentParser()
     ap.add_argument("--accel", default="2500,5000,10000,20000")
     ap.add_argument("--feeds", default="6000,12000,24000,36000,48000,72000")
@@ -222,8 +228,10 @@ def main():
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--portal", default=PORTAL)
     ap.add_argument("--reanalyse", nargs="+")
+    ap.add_argument("--pcomp", action="store_true")
     a = ap.parse_args()
     PORTAL = os.path.abspath(a.portal)
+    PCOMP = a.pcomp
     if a.quick:
         a.accel, a.feeds = "5000", "12000,36000"
     os.makedirs(a.out, exist_ok=True)

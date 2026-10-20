@@ -186,6 +186,7 @@ static double value(const char *name) {
 static void servo(void) {
   const double *xs = cmd, *vs = cmdv;
   if(comp_on) {
+    pc.vin[0] = cmdv[0], pc.vin[1] = cmdv[1];
     pc_step(&pc, cmd);
     xs = pc.out, vs = pc.vout;
   }

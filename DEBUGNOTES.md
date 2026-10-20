@@ -1328,3 +1328,25 @@ Entry format:
 - Cause:   portal_run.py terminates halsampler, which leaves a partial last
   line; loadtxt raises, and the analysis read that as an empty file.
 - Fix:     keep only rows with all the columns.
+
+## 2026-10-20  A command filter between motion and the drives: three traps
+- Area:    `linuxcnc/pcomp` (any component that changes the command after motion)
+- Status:  Fixed
+- Symptom: LinuxCNC with pcomp: amplifier faults at machine on; following
+  error aborts out of rapids, even at 0.25 g (1.1 mm, proportional to v).
+- Cause:   three, one after the other:
+  1. Wind-up. With the drives off, motion makes its command follow the
+     feedback. pcomp hands back fb + (in - out), and through the filter's
+     delay that loop integrates; at startup (absolute scales: 0 -> 500 mm)
+     it wound up.
+  2. Stale velocity. A backward difference of the output is half a servo
+     period late: v dt/2 of drive lag (0.8 mm at 1.6 m/s).
+  3. Feedback pairing. pcomp reads the drives' feedback before they run (it
+     shows where they got to with pcomp's previous output), and motion
+     compares it with this period's command. fb + (in - out) of the same
+     period, or of the period before, both leave v dt (1 mm at 1 m/s).
+- Fix:     1. enable = the amplifiers' enable; restart at standstill.
+  2. the shaped path's central difference (one period back) + the lead's
+  rate. 3. fb_out = fb + (in now - out the period before).
+  The servo lag constant tau2 had to be recalibrated after 2 (1.45e-5 ->
+  2.15e-5 s^2): the stale velocity had been part of it.
