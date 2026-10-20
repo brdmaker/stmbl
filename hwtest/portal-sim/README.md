@@ -110,6 +110,19 @@ It adds about 24 ms of delay, once. A controller delays its laser or spindle I/O
   - 100 µm at 0.5 g in 54 s (75 s needed a 200 µm tolerance before).
 - **2 g is beyond the servo:** the drives can't track the rapids' acceleration. Conditioning doesn't add bandwidth.
 
+**With the drive fixes** (`vel_int0.mode 1`, `vel1.bc 1`, pos_bw 100, vel_bw 500 in `host/portal/machine/*.conf`, DEBUGNOTES 2026-10-21; pcomp's servo term off), path p99 at 72 m/min:
+
+| accel | old drive | old drive + pcomp | new drive | new drive + pcomp | following error, new drive |
+|---|---|---|---|---|---|
+| 0.25 g | 208 µm | 48 µm | 194 µm | **26 µm** | 0.03 mm |
+| 0.5 g | 260 µm | 93 µm | 277 µm | **48 µm** | 0.06 mm |
+| 1 g | 612 µm | 210 µm | 781 µm | **137 µm** | 0.12 mm |
+| 2 g | aborts at 0.4 s | aborts | aborts at 86 % | aborts at 86 % | |
+
+- **The drive fixes alone barely move the path error, and at 1 g it gets worse.** The scales now follow the command almost exactly (the following error drops about 4×), so the head's swing shows in full. Before, the servo's lag partly hid the head's outward bend.
+- **Together with pcomp the two add up:** pcomp's head model now acts on an axis that does what it is told.
+- **2 g gets much further:** 86 % of the program instead of 0.4 s. It aborts later on Y2's following error, as the bridge racks.
+
 **Identifying the model on the machine.**
 - A 1 mm step at standstill, then the ring-down read from the scale *or the motor current* alone, finds the head's y mode within 3–6 % at each X. Fitting the beam model to five positions gives 46 / 27 Hz (rails / mid-span; true 55 / 28).
 - The x step reads 33 Hz against the head's own 45 Hz: the mode as coupled to the servo-held 5 kg carriage.
