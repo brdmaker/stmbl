@@ -18,7 +18,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import harness  # noqa: E402
-from client import C  # noqa: E402
+from client import C, segs as path_segs  # noqa: E402
 
 CHROME = os.environ.get("CHROME", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome")
 fails = []
@@ -80,8 +80,8 @@ async def scenario(port, shot):
     check(ok(await a.call("program_save", name="uploaded.ngc", text=text)), "upload a program")
     check(ok(await a.call("program_load", name="uploaded.ngc")), "load it")
     check(await a.until(lambda c: c.seen(lambda m: m["t"] == "program" and m["name"] == "uploaded.ngc") is not None), "its preview arrives")
-    pv = a.seen(lambda m: m["t"] == "program" and m["name"] == "uploaded.ngc") or {"segs": [], "error": "no preview"}
-    segs = pv["segs"]
+    pv = a.seen(lambda m: m["t"] == "program" and m["name"] == "uploaded.ngc") or {"path": [], "error": "no preview"}
+    segs = path_segs(pv)
     check(pv["error"] is None, "the interpreter read it without error (%s)" % pv["error"])
     check(any(s[0] == 3 and s[9] == 3 for s in segs), "the preview has the T3 tool change")
     arcs = [s for s in segs if s[0] == 1 and 50 <= s[8] <= 60]

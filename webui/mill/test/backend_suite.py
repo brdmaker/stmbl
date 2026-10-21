@@ -20,7 +20,7 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import harness  # noqa: E402
-from client import C, near  # noqa: E402
+from client import C, near, segs  # noqa: E402
 
 G54 = [440.0, 460.0, -195.0]
 G55 = [640.0, 460.0, -195.0]
@@ -121,7 +121,7 @@ class T:
         r = await self.a.call("program_load", name=name)
         if not r.get("ok"):
             raise Failed("load %s: %s" % (name, r.get("err")))
-        await self.a.until(lambda c: c.since(mk, lambda m: m["t"] == "program" and m["name"] == name), 20)
+        await self.a.until(lambda c: c.since(mk, lambda m: m["t"] == "program" and m["name"] == name), 300)
         return self.a.since(mk, lambda m: m["t"] == "program" and m["name"] == name)
 
 
@@ -307,7 +307,7 @@ async def _(t):
                    ("spindle", dict(dir=1)), ("probe", dict(kind="z"))):
         t.refused(await b.call(op, **kw), "watching: %s" % op, "doesn't have control")
     r = await b.call("program_get", name="bracket-op1.ngc")
-    t.check(r["ok"] and r["program"]["lines"] and r["program"]["segs"], "watching: program_get")
+    t.check(r["ok"] and r["program"]["lines"] and r["program"]["path"], "watching: program_get")
     t.ok(await b.call("estop", on=True), "watching: E-STOP")
     t.check(await t.a.until(lambda c: c.st["estop"] and not c.st["on"], 3), "the machine is in E-STOP")
 
@@ -522,11 +522,16 @@ async def _(t):
     pg = r.get("program", {})
     t.check(r["ok"] and pg["lines"] == ["G0 X1 Y2 Z3", "G1 X11 F500", "M2"], "program_get: the lines")
     # the first move only sets where the toolpath starts (where the tool is before it is unknown)
-    t.check(pg.get("error") is None and len(pg["segs"]) == 1 and pg["segs"][0][:9] == [1, 1, 2, 3, 11, 2, 3, 500, 2],
-            "program_get: the segments (%r)" % pg.get("segs"))
+    t.check(pg.get("error") is None and len(segs(pg)) == 1 and segs(pg)[0][:9] == [1, 1, 2, 3, 11, 2, 3, 500, 2],
+            "program_get: the segments (%r)" % segs(pg))
+    st = pg.get("stats") or {}
+    t.check(st.get("moves") == 1 and st.get("ext", {}).get("x") == [1, 11] and st.get("cut") == 10, "program_get: stats (%r)" % st)
     pv = await t.load("t-prog.ngc")
-    t.check(pv and pv["segs"] and pv["lines"][0] == "G0 X1 Y2 Z3", "loading broadcasts its preview")
+    t.check(pv and pv["path"] and pv["lines"][0] == "G0 X1 Y2 Z3", "loading broadcasts its preview")
     t.check(await a.until(lambda c: c.st["file"].endswith("t-prog.ngc"), 3), "st: the file")
+    await t.upload("t-prog.ngc", "G0 X1 Y2 Z3\nG1 X22 F500\nM2")  # edited ...
+    pv = await t.load("t-prog.ngc")                                  # ... and loaded again
+    t.check(pv and segs(pv) and segs(pv)[-1][4] == 22, "the same file loaded again: a new preview (%r)" % (segs(pv)[-1:] if pv else None))
     t.refused(await a.call("program_delete", name="t-prog.ngc"), "deleting the loaded program", "loaded")
     await t.upload("t-other.ngc", "M2")
     t.ok(await a.call("program_delete", name="t-other.ngc"), "deleting another")
@@ -568,8 +573,8 @@ async def _(t):
 async def _(t):
     a = t.a
     pv = await t.load("bracket-op1.ngc")
-    t.check(pv["error"] is None and any(s[0] == 3 and s[9] == 3 for s in pv["segs"]), "preview with the T3 change")
-    xs = [s[4] for s in pv["segs"]]
+    t.check(pv["error"] is None and any(s[0] == 3 and s[9] == 3 for s in segs(pv)), "preview with the T3 change")
+    xs = [s[4] for s in segs(pv)]
     t.check(near(max(xs), 120) and near(min(xs), 0), "preview in G54: X 0..120")
     mk = a.mark()
     t.ok(await a.call("cycle", action="start"), "cycle start")
@@ -660,7 +665,8 @@ async def _(t):
                             ("rapid", 0.5, 0.5, "rapid"), ("rapid", 1.5, 1.0, "rapid"), ("maxv", 0.4, 0.4, "maxv"), ("maxv", 2, 1.0, "maxv")):
         t.ok(await a.call("override", k=k, v=v), "%s %s" % (k, v))
         t.check(await a.until(lambda c: near(c.st["ovr"][key], want), 3), "%s reads %s (%s)" % (k, want, a.st["ovr"][key]))
-    for v, want in ((0.8, 0.8), (5, 2.0)):
+    t.check(a.hello["machine"]["ovr_max"] == {"feed": 2.0, "spin": 1.5, "spin_min": 0.5}, "hello: the INI's override limits")
+    for v, want in ((0.8, 0.8), (5, 1.5), (0.1, 0.5)):
         t.ok(await a.call("override", k="spin", v=v), "spin %s" % v)
         t.check(await a.until(lambda c: near(c.st["spin"]["ovr"], want), 3), "spindle override %s" % want)
     t.refused(await a.call("override", k="jerk", v=1), "an unknown override", "unknown override")
@@ -669,6 +675,11 @@ async def _(t):
     t0 = time.time()
     await t.mdi("G1 X40 F1200")  # 30 mm at 600 mm/min: 3 s
     t.check(2.6 < time.time() - t0 < 4.5, "feed override 50 %% slows G1 (%.1f s for 3 s)" % (time.time() - t0))
+    await a.call("override", k="feed", v=2.0)
+    await a.until(lambda c: near(c.st["ovr"]["feed"], 2.0), 3)
+    t0 = time.time()
+    await t.mdi("G1 X10 F1200")  # 30 mm at 2400 mm/min: 0.75 s
+    t.check(time.time() - t0 < 1.4, "feed override 200 %% speeds G1 up (%.2f s for 0.75 s)" % (time.time() - t0))
 
 
 @case("spindle: CW, CCW, stop")

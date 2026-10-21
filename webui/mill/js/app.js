@@ -185,8 +185,10 @@ function plan(p) {
     s.cut = s.k === "mv" && !s.rapid && Math.min(s.z, s.z0) < 0.5;
   }
   p.total = t; p.cutLen = cut;
-  const xs = S.flatMap((s) => [s.x0, s.x]), ys = S.flatMap((s) => [s.y0, s.y]), zs = S.flatMap((s) => [s.z0, s.z]);
-  p.ext = { x: [Math.min(...xs), Math.max(...xs)], y: [Math.min(...ys), Math.max(...ys)], z: [Math.min(...zs), Math.max(...zs)] };
+  // a loop, not Math.min(...all): spreading 100 000 values overflows the stack
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const s of S) for (const [i, a, b] of [[0, s.x0, s.x], [1, s.y0, s.y], [2, s.z0, s.z]]) { lo[i] = Math.min(lo[i], a, b); hi[i] = Math.max(hi[i], a, b); }
+  p.ext = { x: [lo[0], hi[0]], y: [lo[1], hi[1]], z: [lo[2], hi[2]] };
   return p;
 }
 const toolOf = (t) => st.tools.find((x) => x.t === t);
@@ -388,9 +390,19 @@ $$("[data-reset]").forEach((b) => b.addEventListener("click", () => { const i = 
 let lastLine = 0;
 function renderProgram() {
   $("h-prog").textContent = prog.name;
-  $("pg-sub").textContent = `${prog.lines.length} lines · ${[...prog.tools].map((t) => "T" + t).join(" ")}`;
-  $("gcode").innerHTML = prog.lines.map((l, i) => `<div id="gl-${i + 1}" data-l="${i + 1}"><span>${nline(i + 1)}</span>${esc(l)}</div>`).join("");
-  lastLine = 0; st.selLine = 0; $("b-runfrom").disabled = true; $("b-runfrom").textContent = "Run from line";
+  $("pg-sub").textContent = `${(prog.nlines || prog.lines.length).toLocaleString("en-US")} lines · ${[...prog.tools].map((t) => "T" + t).join(" ")}`;
+  renderListing();
+  st.selLine = 0; $("b-runfrom").disabled = true; $("b-runfrom").textContent = "Run from line";
+}
+// the listing: all of a program's lines, or (a long one from the machine) a
+// window of them from line0, fetched again when the running line leaves it
+function renderListing() {
+  const b = prog.line0 || 1, n = prog.nlines || prog.lines.length, end = b + prog.lines.length - 1;
+  $("gcode").innerHTML = (b > 1 ? `<div class="more">… lines 1–${(b - 1).toLocaleString("en-US")}</div>` : "") +
+    prog.lines.map((l, i) => `<div id="gl-${b + i}" data-l="${b + i}"><span>${nline(b + i)}</span>${esc(l)}</div>`).join("") +
+    (n > end ? `<div class="more">… ${(n - end).toLocaleString("en-US")} more lines</div>` : "");
+  const sel = $("gl-" + st.selLine); if (sel) sel.classList.add("sel");
+  lastLine = 0;
 }
 $("gcode").addEventListener("click", (e) => {
   const d = e.target.closest("div[data-l]"); if (!d) return;
@@ -426,11 +438,13 @@ function renderPreflight(p) {
   $("fl-name").textContent = p.name;
   const e = p.ext, mn = toMach({ x: e.x[0], y: e.y[0], z: e.z[0] }), mx = toMach({ x: e.x[1], y: e.y[1], z: e.z[1] });
   const fits = inside(mn) && inside(mx), missing = [...p.tools].filter((t) => !toolOf(t)), deep = e.z[0] < -STOCK.h;
+  const ps = p.stats, part = !!p.truncated;  // from the machine: over every move (part: interpreting stopped early)
   $("fl-cards").innerHTML = `
-    <div class="card"><h3>Travel <span class="pill ${fits ? "ok" : "bad"}">${fits ? "FITS" : "OUTSIDE"}</span></h3><dl class="kv"><dt>X</dt><dd>${e.x[0].toFixed(1)} … ${e.x[1].toFixed(1)}</dd><dt>Y</dt><dd>${e.y[0].toFixed(1)} … ${e.y[1].toFixed(1)}</dd><dt>Z</dt><dd>${e.z[0].toFixed(1)} … ${e.z[1].toFixed(1)}</dd></dl><p class="note">In ${off().n}, checked against the soft limits.</p></div>
+    <div class="card"><h3>Travel <span class="pill ${part ? "warn" : fits ? "ok" : "bad"}">${part ? (fits ? "FITS SO FAR" : "OUTSIDE") : fits ? "FITS" : "OUTSIDE"}</span></h3><dl class="kv"><dt>X</dt><dd>${e.x[0].toFixed(1)} … ${e.x[1].toFixed(1)}</dd><dt>Y</dt><dd>${e.y[0].toFixed(1)} … ${e.y[1].toFixed(1)}</dd><dt>Z</dt><dd>${e.z[0].toFixed(1)} … ${e.z[1].toFixed(1)}</dd></dl><p class="note">In ${off().n}, checked against the soft limits.</p></div>
     <div class="card"><h3>Tools <span class="pill ${missing.length ? "bad" : "ok"}">${missing.length ? "MISSING" : "ALL IN THE TABLE"}</span></h3><dl class="kv">${[...p.tools].map((t) => { const tl = toolOf(t); return `<dt>T${t}</dt><dd>${tl ? "Ø" + tl.d.toFixed(1) + " · L " + tl.l.toFixed(2) + " · life " + tl.life + " %" : "not in the table"}</dd>`; }).join("")}</dl></div>
-    <div class="card"><h3>Time and dynamics <span class="pill ${deep ? "warn" : "info"}">${deep ? "THROUGH THE STOCK" : "ESTIMATE"}</span></h3><dl class="kv"><dt>Cycle (planner, 0.5 g)</dt><dd>${mmss(p.total)}</dd><dt>Cutting length</dt><dd>${Math.round(p.cutLen)} mm</dd><dt>Predicted path error p99</dt><dd>${Math.round(pct(p.segs.filter((s) => s.cut).map((s) => s.errMean), 0.99))} µm</dd><dt>Tool changes</dt><dd>${p.segs.filter((s) => s.k === "tc").length}</dd></dl></div>`;
-  $("fl-code").textContent = p.lines.slice(0, 400).join("\n") + (p.lines.length > 400 ? `\n… ${p.lines.length - 400} more lines` : "");
+    <div class="card"><h3>Time and dynamics <span class="pill ${deep ? "warn" : "info"}">${deep ? "THROUGH THE STOCK" : "ESTIMATE"}</span></h3><dl class="kv"><dt>Cycle (planner, 0.5 g)</dt><dd>${mmss(p.total)}</dd><dt>Cutting length</dt><dd>${Math.round(p.cutLen)} mm</dd><dt>Predicted path error p99</dt><dd>${Math.round(pct(p.segs.filter((s) => s.cut).map((s) => s.errMean), 0.99))} µm</dd><dt>Tool changes</dt><dd>${p.segs.filter((s) => s.k === "tc").length}</dd>${ps ? `<dt>Moves</dt><dd>${ps.moves.toLocaleString("en-US")}${ps.stride > 1 ? ` · drawn: every ${ps.stride}th point` : ""}</dd>` : ""}</dl>${part ? `<p class="note">${esc(p.truncated)}: travel, time and tools cover the lines read.</p>` : ""}</div>`;
+  const nl = p.nlines || p.lines.length, shown = Math.min(400, p.lines.length);
+  $("fl-code").textContent = p.lines.slice(0, shown).join("\n") + (nl > shown ? `\n… ${(nl - shown).toLocaleString("en-US")} more lines` : "");
 }
 $("files").addEventListener("click", (e) => {
   const b = e.target.closest(".file"); if (!b) return;
@@ -787,22 +801,33 @@ function rebuildPath() {
 function colorPath(all) {
   if (!R || !R.pathSegs) return;
   const S = R.pathSegs, col = R.pathGeo.getAttribute("color");
-  let doneTo = -1;
-  if (st.motion === prog) { const cur = prog.segs[st.seg]; doneTo = S.findIndex((s) => s.t0 >= (cur ? cur.t0 : st.t)); if (doneTo < 0) doneTo = S.length; }
-  else if (st.run === "done") doneTo = S.length;
+  let doneTo = 0;  // segments before it are done (drawn bright)
+  if (st.motion === prog) {
+    const cur = prog.segs[st.seg], t = cur ? cur.t0 : st.t;
+    let lo = 0, hi = S.length;  // the first with t0 >= t (t0 grows along the path)
+    while (lo < hi) { const m = (lo + hi) >> 1; if (S[m].t0 < t) lo = m + 1; else hi = m; }
+    doneTo = lo;
+  } else if (st.run === "done") doneTo = S.length;
   if (!all && doneTo === pathDone) return;
+  // only what changed: a running program moves the boundary a little each frame
+  let from = 0, to = S.length;
+  if (!all && pathDone >= 0) { from = Math.min(pathDone, doneTo); to = Math.max(pathDone, doneTo); }
   pathDone = doneTo;
-  S.forEach((s, i) => {
+  const a = col.array;
+  for (let i = from; i < to; i++) {
+    const s = S[i];
     let c;
-    if (s.rapid) c = [.35, .42, .5];
+    if (s.rapid) c = RAPID_COL;
     else if (st.color === "err") c = ramp(s.errMean / 60);
     else if (st.color === "feed") c = ramp(s.f / 6000);
-    else c = toolColors[s.tool] || [.8, .8, .8];
-    const k = doneTo >= 0 && i < doneTo ? 1 : s.rapid ? .45 : .5;
-    col.setXYZ(i * 2, c[0] * k, c[1] * k, c[2] * k); col.setXYZ(i * 2 + 1, c[0] * k, c[1] * k, c[2] * k);
-  });
+    else c = toolColors[s.tool] || GREY_COL;
+    const k = i < doneTo ? 1 : s.rapid ? .45 : .5, j = i * 6;
+    a[j] = a[j + 3] = c[0] * k; a[j + 1] = a[j + 4] = c[1] * k; a[j + 2] = a[j + 5] = c[2] * k;
+  }
+  col.updateRange.offset = from * 6; col.updateRange.count = to > from ? (to - from) * 6 : 0;
   col.needsUpdate = true;
 }
+const RAPID_COL = [.35, .42, .5], GREY_COL = [.8, .8, .8];
 function setCam(kind, instant) {
   if (!R) return;
   $$("[data-cam]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cam === kind)));
@@ -1038,7 +1063,7 @@ function renderUi(tip, seg, moving, pTot) {
   $("fd-v").textContent = Math.round(st.feedNow).toLocaleString("en-US");
   $("fd-cmd").textContent = seg && seg.k === "mv" && seg.rapid && moving ? "rapid" : `F${fcmd} · mm/min`;
   $("vel-v").textContent = Math.round(st.velNow).toLocaleString("en-US");
-  $("f-feed").textContent = "F" + Math.round(st.feedNow); $("f-wcs").textContent = off().n; $("dro-wcs").textContent = off().n;
+  $("f-feed").textContent = "F" + Math.round(st.feedNow); const wn = LIVE && LIVE.wcsOk === false ? "G5x?" : off().n; $("f-wcs").textContent = wn; $("dro-wcs").textContent = wn;
   const tt = st.motion === prog ? st.t : st.run === "done" ? prog.total : 0;
   $("t-el").textContent = mmss(tt); $("t-rem").textContent = mmss(prog.total - tt); $("t-clock").textContent = clock().slice(0, 5);
   const total = prog.total || 1;
@@ -1048,6 +1073,7 @@ function renderUi(tip, seg, moving, pTot) {
   if (curLine !== lastLine) {
     const p = $("gl-" + lastLine); if (p) p.classList.remove("cur");
     const c = $("gl-" + curLine); if (c) { c.classList.add("cur"); const gc = $("gcode"); if (gc.offsetParent) gc.scrollTop = c.offsetTop - gc.offsetTop - gc.clientHeight / 2; }
+    else if (LIVE && curLine) LIVE.lines(curLine);  // outside the window: the lines around it
     lastLine = curLine;
   }
   updateChips();

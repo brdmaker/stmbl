@@ -122,7 +122,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .lower { display: grid; gap: 8px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); min-height: 0; }
 .gcode { font: 12px/1.6 var(--f-mono); flex: 1; min-height: 80px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 0; }
 .gcode div { padding: 0 10px; white-space: pre; color: var(--ink-dim); cursor: pointer; }
-.gcode div span { color: var(--ink-faint); display: inline-block; width: 48px; }
+.gcode div span { color: var(--ink-faint); display: inline-block; min-width: 48px; padding-right: 6px; }
+.gcode div.more { color: var(--ink-faint); font-style: italic; cursor: default; }
 .gcode div.cur { background: var(--accent-dim); color: var(--ink); }
 .gcode div.sel { box-shadow: inset 3px 0 0 var(--warn); }
 .gcode div:hover { color: var(--ink); }

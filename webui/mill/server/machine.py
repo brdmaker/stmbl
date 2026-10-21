@@ -84,6 +84,19 @@ def write_tool_table(path, tools):
     os.replace(path + ".tmp", path)
 
 
+def var_value(path, n, default=None):
+    """One parameter from the parameter file (5220: the coordinate system at startup)."""
+    try:
+        with open(path) as f:
+            for line in f:
+                w = line.split()
+                if len(w) >= 2 and w[0] == str(n):
+                    return float(w[1])
+    except (OSError, ValueError):
+        pass
+    return default
+
+
 def parse_var_offsets(path):
     """G54..G59.3 [x, y, z] from the parameter file (5221 + 20 i ...)."""
     vals = {}
@@ -134,6 +147,10 @@ class Machine:
         self.offsets = parse_var_offsets(self.var_file)
         self.g92 = [0.0, 0.0, 0.0]
         self.maxv = cfg.num("TRAJ", "MAX_LINEAR_VELOCITY", cfg.num("TRAJ", "MAX_VELOCITY", 100.0))
+        # LinuxCNC clamps the overrides to these, though stat reads back what was asked (DEBUGNOTES)
+        self.ovr_max = {"feed": cfg.num("DISPLAY", "MAX_FEED_OVERRIDE", 1.0),
+                        "spin": cfg.num("DISPLAY", "MAX_SPINDLE_OVERRIDE", 1.0),
+                        "spin_min": cfg.num("DISPLAY", "MIN_SPINDLE_OVERRIDE", 0.5)}
         ts = (cfg.get("MILLWEB", "TOOLSETTER") or "").split()
         self.toolsetter = [float(v) for v in ts] if len(ts) >= 4 else None  # X Y Z_above Z_ref [travel]
         self.pins = cfg.all("MILLWEB", "PIN")
@@ -141,6 +158,8 @@ class Machine:
         self.sig = {k: cfg.get("MILLWEB", k) for k in ("SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN")}
         self.pcomp = cfg.get("MILLWEB", "PCOMP", "pcomp.0")
         self.last_run = "idle"
+        self.wcs_unknown = False
+        self.notes = []                 # for the event log, from the worker thread
         self.done_flag = False
         self.jog_active = {}
 
@@ -157,7 +176,7 @@ class Machine:
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,
                 "toolsetter": bool(self.toolsetter), "pcomp": self._pin_exists(self.pcomp + ".shaper"),
-                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS}
+                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max}
 
     def _pin_exists(self, name):
         if not self.hal or not name:
@@ -194,6 +213,7 @@ class Machine:
             x, y = x * math.cos(t) - y * math.sin(t), x * math.sin(t) + y * math.cos(t)
         x, y, z = x - g92[0], y - g92[1], z - g92[2]
         wi = max(0, s.g5x_index - 1)
+        self.wcs_unknown = on and s.g5x_index == 0  # see resync_offsets
         self.offsets[wi] = [g5x[0], g5x[1], g5x[2]]  # what LinuxCNC has is the truth
         self.g92 = [g92[0], g92[1], g92[2]]
         interp = {lc.INTERP_IDLE: "idle", lc.INTERP_READING: "reading", lc.INTERP_PAUSED: "paused", lc.INTERP_WAITING: "waiting"}.get(s.interp_state, "idle")
@@ -223,7 +243,7 @@ class Machine:
             "pos": [round(x, 4), round(y, 4), round(z, 4)],
             "mach": [round(act[0] - tlo[0], 4), round(act[1] - tlo[1], 4), round(act[2] - tlo[2], 4)],
             "wcs": wi, "g5x": [round(g5x[i], 4) for i in range(3)], "g92": [round(g92[i], 4) for i in range(3)],
-            "rot": round(s.rotation_xy, 4), "tool": s.tool_in_spindle, "tlo": round(tlo[2], 4),
+            "rot": round(s.rotation_xy, 4), "tool": s.tool_in_spindle, "tlo": round(tlo[2], 4), "wcs_ok": s.g5x_index > 0,
             "dtg": [round(v, 4) for v in s.dtg[:3]], "fe": fe, "vel": round(s.current_vel * 60, 1),
             "feed": round(s.settings[1], 1),
             "spin": {"dir": sp.get("direction", 0), "s": round(abs(spd), 1), "enabled": bool(sp.get("enabled", 0)),
@@ -253,6 +273,8 @@ class Machine:
 
     def events(self):
         out = []
+        while self.notes:
+            out.append(("warn", self.notes.pop(0)))
         while True:
             m = self.e.poll()
             if not m:
@@ -311,6 +333,25 @@ class Machine:
             return "a program or MDI is running"
         return None
 
+    def resync_offsets(self):
+        """LinuxCNC's status can come up without the interpreter's work offset
+        (g5x_index 0, offsets 0) when commands arrive just after it starts;
+        a move then uses the real offset while every display shows machine
+        coordinates (DEBUGNOTES). Selecting another coordinate system and
+        then the startup one makes it publish them. Machine on, homed, idle."""
+        self.ws.poll()
+        if self.ws.task_state != self.lc.STATE_ON or self.ws.g5x_index != 0 or self._ready():
+            return None
+        start = int(var_value(self.var_file, 5220, 1.0) or 1)
+        start = start if 1 <= start <= 9 else 1
+        self._mode(self.lc.MODE_MDI)
+        for i in (2 if start == 1 else 1, start):
+            self.c.mdi(self.WCS[i - 1])
+            time.sleep(0.05)
+            self._wait_idle(5)
+        self.ws.poll()
+        return "LinuxCNC's status had no work offset: re-read (%s)" % self.WCS[self.ws.g5x_index - 1] if self.ws.g5x_index else None
+
     def mdi(self, text, wait=False, timeout=60.0, since=None):
         """One MDI line; with wait, until it is done. `since`: the stop count
         the calling sequence started at; after a stop it sends nothing more."""
@@ -320,6 +361,9 @@ class Machine:
         err = self._ready()
         if err:
             return err
+        note = self.resync_offsets()
+        if note:
+            self.notes.append(note)
         self._mode(self.lc.MODE_MDI)
         self.c.mdi(text)
         if wait:
@@ -450,11 +494,11 @@ class Machine:
     def cmd_override(self, k, v):
         v = max(0.0, float(v))
         if k == "feed":
-            self.c.feedrate(min(v, 2.0))
+            self.c.feedrate(min(v, self.ovr_max["feed"]))
         elif k == "rapid":
             self.c.rapidrate(min(v, 1.0))
         elif k == "spin":
-            self.c.spindleoverride(min(v, 2.0), 0)
+            self.c.spindleoverride(max(self.ovr_max["spin_min"], min(v, self.ovr_max["spin"])), 0)
         elif k == "maxv":
             self.c.maxvel(min(v, 1.0) * self.maxv)
         else:

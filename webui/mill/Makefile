@@ -5,6 +5,7 @@
 #   make test-backend   the protocol case by case against real LinuxCNC (test/sim; ~7 min)
 #   make test-gui-live  the console on real LinuxCNC through its own controls (~3 min)
 #   make test-live      the end-to-end scenario: protocol, then the page (~1 min)
+#   make test-stress    large programs (a million lines ...) through every layer (~10 min)
 #   make check-all      all of them
 #   make sim            LinuxCNC on test/sim with millweb: http://localhost:8080/
 #   make demo           the console alone (simulated): http://localhost:8000/
@@ -35,6 +36,9 @@ test-gui-live:
 test-live:
 	python3 test/run_live.py --browser
 
+test-stress:
+	python3 test/stress_suite.py $(if $(K),-k "$(K)",)
+
 check-all: test test-gui-sim test-backend test-gui-live
 
 sim:
@@ -43,4 +47,4 @@ sim:
 demo:
 	python3 -m http.server -d . 8000
 
-.PHONY: test test-gui-sim test-backend test-gui-live test-live check-all sim demo
+.PHONY: test test-gui-sim test-backend test-gui-live test-live test-stress check-all sim demo

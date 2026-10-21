@@ -80,5 +80,16 @@ class C:
         self.task.cancel()
 
 
+def segs(pv):
+    """A program message's path as [kind, x0, y0, z0, x, y, z, feed, line, tool] segments."""
+    out, d = [], pv.get("path") or []
+    x0, y0, z0 = pv.get("start") or (0, 0, 0)
+    for i in range(0, len(d), 7):
+        k, x, y, z, f, line, tool = d[i:i + 7]
+        out.append([k, x0, y0, z0, x, y, z, f, line, tool])
+        x0, y0, z0 = x, y, z
+    return out
+
+
 def near(a, b, tol=1e-3):
     return all(abs(x - y) < tol for x, y in zip(a, b)) if isinstance(a, (list, tuple)) else abs(a - b) < tol

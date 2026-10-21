@@ -4,8 +4,8 @@ temporary directory, started headless, stopped by stopping millweb.
 
     python3 harness.py [--ini-set SECTION.KEY=VALUE ...] [--keep] -- CMD ARGS...
 
-runs CMD with MILLWEB_PORT (and MILLWEB_DIR, the config's directory) in its
-environment and exits with its status. As a module: `with Machine() as m:`
+runs CMD in LinuxCNC's environment with MILLWEB_PORT (and MILLWEB_DIR, the
+config's directory) and exits with its status. As a module: `with Machine() as m:`
 gives m.port and m.dir. Runs as a non-root user (rtapi_app refuses root).
 """
 import argparse
@@ -81,7 +81,13 @@ class Machine:
         shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
         p = os.path.join(self.dir, "mill.ini")
         ini = open(p).read()
-        ini = set_ini(ini, "DISPLAY", "DISPLAY", os.path.join(MILL, "millweb"))
+        # millweb through a wrapper that keeps its output (LinuxCNC's own log
+        # file is deleted when it exits)
+        wrap = os.path.join(self.dir, "millweb-display")
+        with open(wrap, "w") as f:
+            f.write('#!/bin/sh\nexec "%s" "$@" >> "%s" 2>&1\n' % (os.path.join(MILL, "millweb"), os.path.join(self.dir, "millweb.log")))
+        os.chmod(wrap, 0o755)
+        ini = set_ini(ini, "DISPLAY", "DISPLAY", wrap)
         ini = set_ini(ini, "MILLWEB", "PORT", str(self.port))
         ini = set_ini(ini, "MILLWEB", "HOST", "127.0.0.1")
         for item in self.ini_set:
@@ -104,9 +110,17 @@ class Machine:
                 return self
             except OSError:
                 time.sleep(0.3)
-        log = open(os.path.join(self.dir, "linuxcnc.log")).read()[-3000:]
+        log = "".join(open(os.path.join(self.dir, f)).read()[-3000:] for f in ("linuxcnc.log", "millweb.log")
+                      if os.path.exists(os.path.join(self.dir, f)))
         self.__exit__(None, None, None)
         raise RuntimeError("millweb didn't come up:\n" + log)
+
+    @staticmethod
+    def lcnc_env():
+        """This environment plus LinuxCNC's (PATH, PYTHONPATH, ... from rip-environment)."""
+        sh = "export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; env -0" % (LINUXCNC, LINUXCNC)
+        out = subprocess.run(["bash", "-c", sh], capture_output=True, timeout=20).stdout
+        return dict(kv.split("=", 1) for kv in out.decode().split("\0") if "=" in kv)
 
     def halcmd(self, *args):
         """halcmd in this LinuxCNC's environment; its output."""
@@ -149,7 +163,7 @@ def main():
         ap.error("a command to run: -- CMD ARGS")
     with Machine(a.ini_set, a.keep) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
-        env = dict(os.environ, MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
+        env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
         rc = subprocess.run(cmd, env=env).returncode
     if not m.clean_exit:
         print("FAIL LinuxCNC didn't stop when millweb did")

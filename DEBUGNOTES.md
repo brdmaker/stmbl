@@ -1844,3 +1844,112 @@ Entry format:
 - Cause:   newlines double in JSON; the frame passed the 8 MB limit and the
   server closed the connection (as designed).
 - Fix:     the test sends 7 MB without escapes, and checks the close separately.
+
+## 2026-10-21  millweb: a big program's preview stopped LinuxCNC
+- Area:    `webui/mill/server/preview.py`, `millweb.py`
+- Status:  Fixed
+- Symptom: loading a 300 000-line adaptive program (arcs) ended millweb, and
+  LinuxCNC with it (millweb is its display).
+- Cause:   past 400 000 segments the canon's check_abort() said stop;
+  `gcode.parse` then raises **KeyboardInterrupt** ("Load aborted"), which is
+  not an Exception: it left the worker thread and stopped the event loop.
+- Fix:     the preview runs in a child process (`preview.py` reading a JSON
+  request); check_abort only enforces `PREVIEW_TIMEOUT`, and that
+  KeyboardInterrupt is caught as "truncated". A crash in the interpreter now
+  costs a preview, not the machine.
+
+## 2026-10-21  millweb: big previews stalled the server for seconds
+- Area:    `webui/mill/server/millweb.py`, `preview.py`, `js/live.js`, `js/app.js`
+- Status:  Fixed
+- Symptom: 20 000 G83 holes: 380 000 segments, a 26 MB message, pings
+  unanswered for 5.2 s, 300 MB RSS; the poll loop awaited the preview, so the
+  status stopped meanwhile; previews of one file ran twice (get, then load);
+  the listing stopped at line 50 000.
+- Cause:   the interpreter's Python canon holds the GIL; the whole path went
+  out as JSON lists of 10 numbers, encoded on the event loop.
+- Fix:     child process; the drawn path merges neighbouring moves past
+  `PREVIEW_SEGS` (100 000) while stats (travel, lengths, time, tools) cover
+  every move; 7 numbers per segment chained from the last; the message is
+  assembled as text; a cache; the load's preview in the background; the
+  listing in windows (`program_lines`, an index of every 1000th line).
+  A million lines: under 8 MB, pings under 0.5 s (make test-stress).
+
+## 2026-10-21  The preview child segfaults on a T word without stat()
+- Area:    `webui/mill/server/preview.py` (main)
+- Status:  Fixed
+- Symptom: every preview in the child process died with SIGSEGV (exit -11)
+  in LinuxCNC's tooldata library.
+- Cause:   as in the entry on the gcode module and T words: the tool data's
+  shared memory is mapped by the `linuxcnc` module's stat().poll() (creating
+  the stat isn't enough: tested); the fresh child had never polled (millweb's
+  own process polls 30 times a second).
+- Fix:     the child creates a linuxcnc.stat() and polls it once before parsing.
+
+## 2026-10-21  Tests: `pkill -f PATTERN` kills the shell that runs it
+- Area:    test tooling
+- Status:  Note
+- Symptom: the command running `pkill -f stress_suite.py` exited 144 and the
+  edit after it never ran.
+- Cause:   the pattern is in that shell's own command line.
+- Fix:     `pkill -f "[s]tress_suite"`, or kill by pid.
+
+## 2026-10-21  LinuxCNC: feed override above MAX_FEED_OVERRIDE is ignored, silently
+- Area:    `webui/mill/server/machine.py` (cmd_override), `js/live.js`, `test/sim/mill.ini`
+- Status:  Fixed
+- Symptom: at 200 % feed override a program of short moves ran at exactly
+  its F: 3000 mm/min, 71 lines/s, the same as at 100 %; stat.feedrate read 2.0.
+- Cause:   milltask clamps the override to `[DISPLAY] MAX_FEED_OVERRIDE`
+  (default 1.0) but stat reports the value commanded; the console's slider
+  went to 150 %.
+- Fix:     millweb reads MAX_FEED_OVERRIDE / MAX_SPINDLE_OVERRIDE /
+  MIN_SPINDLE_OVERRIDE, clamps to them and sends them in hello; the page sets
+  its sliders' ranges from them. test/sim allows 200 %: 6000 mm/min, 135 lines/s.
+
+## 2026-10-21  Console: a long program never showed (Math.min(...array))
+- Area:    `webui/mill/js/app.js` (plan)
+- Status:  Fixed
+- Symptom: with a 62 000-segment path the page stayed on "—", 0 lines;
+  "RangeError: Maximum call stack size exceeded".
+- Cause:   the extents were `Math.min(...xs)` over every segment's ends:
+  spreading ~125 000 arguments overflows the stack.
+- Fix:     a loop.
+
+## 2026-10-21  Console: recolouring the whole path every frame while running
+- Area:    `webui/mill/js/app.js` (colorPath), `js/live.js` (step)
+- Status:  Fixed
+- Symptom: a running program with a long path made the page sluggish.
+- Cause:   the "done" boundary moves every frame, and each move recoloured
+  and re-uploaded every segment (after a linear search); live step searched
+  the segments from the start each frame.
+- Fix:     a binary search for the boundary, only the segments between the
+  old and new boundary recoloured and uploaded (updateRange); step resumes
+  from the last segment. ~3 ms of script a frame with 62 000 segments.
+  Frames per second in the test container (software WebGL, 4 shared cores)
+  stay ~5 at 1600x1000 with LinuxCNC running, 11 with nothing loaded: the
+  rasteriser, not the program.
+
+## 2026-10-21  millweb: loading the same file again kept the old preview
+- Area:    `webui/mill/server/millweb.py` (op_program_load)
+- Status:  Fixed
+- Symptom: a program edited on disk and loaded again showed its old path.
+- Cause:   previews were sent only when LinuxCNC's file name changed.
+- Fix:     every load sends its preview (the cache makes an unchanged file cheap).
+
+## 2026-10-21  LinuxCNC: status without the work offset after a fast start
+- Area:    `webui/mill/server/machine.py` (resync_offsets), `millweb.py`, `js/live.js`
+- Status:  Workaround
+- Symptom: `make test-live` failed "the DRO reaches X10 Y20 Z5" every time,
+  run directly it passed: the DRO showed machine coordinates (X450 for G54 X10).
+- Cause:   when commands come within a second or so of LinuxCNC starting
+  (the scenario starts the moment millweb's port opens), stat can stay at
+  g5x_index 0 (not a valid system) with offsets 0, though the interpreter
+  uses G54 = 440 (the move lands right). A fresh linuxcnc.stat() in another
+  process reads the same: every display would be wrong. A move or "G54"
+  doesn't republish it; selecting another system does. 5 of 6 fast starts
+  with node's bin first in PATH (it shifts the start-up timing), 0 of 6 with
+  1 s to settle.
+- Fix:     millweb sees g5x_index 0 while on, and once homed and idle (and
+  before any MDI) selects another system and then the startup one (param
+  5220), logging it; `st.wcs_ok` false meanwhile, and the page's DRO says
+  "G5x?". Repaired within 1.5 s of homing in every case tried. Root cause in
+  LinuxCNC's task start-up not chased further.

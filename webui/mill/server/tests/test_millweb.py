@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import fake_linuxcnc as lc  # noqa: E402
 import machine  # noqa: E402
+import preview  # noqa: E402
 import millweb  # noqa: E402
 import wsserver  # noqa: E402
 
@@ -288,6 +289,19 @@ class Protocol(Base):
         await self.until(ws, lambda m: m["t"] == "ev" and "released control" in m["text"])
         await ws.close()
 
+    async def test_status_without_work_offset_is_resynced(self):
+        ws = await self.client()
+        await self.ready(ws)
+        lc.M.g5x_index = 0  # LinuxCNC's status after a too-early start: no work offset
+        await self.until(ws, lambda m: m["t"] == "st" and m.get("wcs_ok") is False)
+        r = await self.call(ws, "mdi", cmd="G0 X1")
+        self.assertTrue(r["ok"], r)
+        i = lc.M.mdi_log.index("G0 X1")
+        self.assertEqual(lc.M.mdi_log[i - 2:i], ["G55", "G54"])  # another system, then the startup one
+        self.assertEqual(lc.M.g5x_index, 1)
+        await self.until(ws, lambda m: m["t"] == "ev" and "re-read (G54)" in m["text"])
+        await ws.close()
+
     async def test_tool_zero_unloads(self):
         ws = await self.client()
         await self.ready(ws)
@@ -321,6 +335,63 @@ class Protocol(Base):
             self.assertFalse(any(x.startswith("G53 G0 X") for x in lc.M.mdi_log[lc.M.mdi_log.index("G49"):][2:]))
             lc.M.mdi_log.clear()
         await ws.close()
+
+
+    async def test_long_program_lines_and_preview_message(self):
+        ws = await self.client()
+        p = os.path.join(self.d, "nc", "long.ngc")
+        with open(p, "w") as f:
+            f.write("".join("G1 X%d\n" % i for i in range(1, 25001)))
+        r = await self.call(ws, "program_lines", name="long.ngc", start=23999, count=3)  # a watcher may read
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["lines"], ["G1 X23999", "G1 X24000", "G1 X24001"])
+        self.assertEqual(r["nlines"], 25000)
+        r = await self.call(ws, "program_lines", name="long.ngc", start=24999, count=5000)
+        self.assertEqual(r["lines"], ["G1 X24999", "G1 X25000"])
+        # the preview: a child process; without LinuxCNC's gcode module it says so
+        r = await self.call(ws, "program_get", name="long.ngc")
+        pg = r["program"]
+        self.assertEqual((pg["nlines"], pg["line0"], len(pg["lines"]), pg["path"]), (25000, 1, 2000, []))
+        self.assertIn("gcode module", pg["error"])
+        await ws.close()
+
+
+class Decimation(unittest.TestCase):
+    """The preview's canon on its own: stats over every move, a bounded path."""
+
+    def test_merges_past_the_cap_and_counts_everything(self):
+        c = preview.Canon(max_segs=1000, rapid=6000, acc=1000)
+        c.feedrate = 600.0
+        c._seg(0, (0.0,) * 9)  # the first move only sets where the path starts
+        n = 10000
+        for i in range(1, n + 1):  # a zig-zag of 10 000 feed moves, 0.1 mm each in X
+            c.lineno = i
+            c._seg(1, (i * 0.1 / 25.4, (i % 2) * 0.05 / 25.4, -0.5 / 25.4) + (0.0,) * 6)
+        c.change_tool(1)
+        self.assertEqual(c.n, n)
+        self.assertLessEqual(len(c.segs), 1001)
+        self.assertGreaterEqual(c.stride, 8)
+        self.assertEqual(c.segs[-1][0], 3)           # a tool change is never merged
+        self.assertEqual(c.segs[-2][8], n)           # the last drawn segment ends on the last line
+        self.assertAlmostEqual(c.segs[-2][4], n * 0.1, 6)
+        self.assertAlmostEqual(c.hi_ext[0], n * 0.1, 6)
+        self.assertGreater(c.cut, n * 0.1)           # every move's length, not the merged ones'
+        for a, b in zip(c.segs, c.segs[1:]):         # still one connected path
+            self.assertEqual(a[4:7], b[1:4])
+
+    def test_alternating_rapid_and_feed_still_shrinks(self):
+        c = preview.Canon(max_segs=1000)
+        c.feedrate = 450.0
+        c._seg(0, (0.0,) * 9)
+        for i in range(20000):  # peck drilling: down at feed, up at rapid, over at rapid
+            x = (i // 4) * 0.5 / 25.4
+            c.lineno = i
+            c._seg(1 if i % 4 == 1 else 0, (x, 0.0, (-6.0 if i % 4 == 1 else 2.0) / 25.4) + (0.0,) * 6)
+        self.assertLessEqual(len(c.segs), 1001)
+        self.assertLess(c.stride, 64)
+        self.assertAlmostEqual(c.lo_ext[2], -6.0, 6)
+        for a, b in zip(c.segs, c.segs[1:]):
+            self.assertEqual(a[4:7], b[1:4])
 
 
 class Token(Base):

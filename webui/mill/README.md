@@ -72,6 +72,9 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `DRIVE` (repeat) | | `NAME CURRENT_PIN [POWER_PIN] [FAULT_PIN]` for the Dynamics page's drive table |
 | `SPINDLE_LOAD_PIN`, `BUS_PIN`, `YAW_PIN`, `CONTOUR_PIN`, `AT_SPEED_PIN`, `AIR_PIN` | | the Dynamics page's live values; `AIR_PIN`: a bit the Air button sets |
 | `PCOMP` | pcomp.0 | pcomp's HAL prefix; its switches are on the Dynamics page when it is loaded |
+| `[DISPLAY] MAX_FEED_OVERRIDE`, `MAX_SPINDLE_OVERRIDE`, `MIN_SPINDLE_OVERRIDE` | 1.0, 1.0, 0.5 | the sliders' ranges: LinuxCNC clamps the overrides to these (and still reads back the value asked for) |
+| `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
+| `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
 ## The protocol
 
@@ -84,7 +87,7 @@ JSON over the WebSocket at `/ws`.
 | `hello` | on connect | `you` (this browser's id), `machine` (name, coordinates, limits, units, program folder, drives, pins, token required), `control` (the holder), recent `events` |
 | `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
 | `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
-| `program` | when a program is loaded | name, lines, `segs` `[kind, x0, y0, z0, x, y, z, feed, line, tool]` from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates |
+| `program` | when a program is loaded | name; `nlines` and the first 2000 `lines` (from `line0`); `path`: `[kind, x, y, z, feed, line, tool]` per segment, each from where the one before ended (`start`), from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates; `stats` over every move: `moves`, `shown`, `stride` (past `PREVIEW_SEGS` the drawn path merges neighbouring moves), `ext` (travel), `cut` and `rapid` lengths, `time`, `tools`; `error`, `truncated` |
 | `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder |
 | `control` | on change | who has control |
 | `ev` | as they happen | `{time, lvl, text}`: LinuxCNC's error channel, state changes, commands |
@@ -101,6 +104,7 @@ JSON over the WebSocket at `/ws`.
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
 - `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text]};
+- `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
 
@@ -111,6 +115,8 @@ JSON over the WebSocket at `/ws`.
 - **Continuous jogging needs a keep-alive:** a message at least every 300 ms, or millweb stops the jog. A lost connection stops it at once.
 - **E-STOP, Stop and jog stop never wait** behind another command (a tool measurement takes 30 s): they go to LinuxCNC from their own thread on their own command channel. After a Stop or an E-STOP, a running sequence (tool setter, probe, a multi-point move) sends nothing more.
 - **Checks before LinuxCNC:** commands are checked (E-STOP, machine on, homed, idle) first, and LinuxCNC checks everything again.
+- **A program can't take millweb down.** The preview interprets in a child process (killed after `PREVIEW_TIMEOUT`); the server keeps answering while it works.
+- **The work offset shown is LinuxCNC's.** When LinuxCNC's status comes up without it (a fast start, DEBUGNOTES), the DRO says "G5x?" and millweb has LinuxCNC publish it again once the machine is homed and idle, and before any MDI.
 - **Probe moves stay inside the soft limits.** LinuxCNC refuses a G38 move whose end lies beyond them, so millweb shortens the travel to what's left.
 - **Program files** stay inside the program folder: base names only, G-code extensions only.
 - **Access:** keep the machine on the shop network or behind a VPN. Use `CERT`/`KEY` for HTTPS and `TOKEN` for a password. There are no user accounts or roles yet.
@@ -122,6 +128,7 @@ JSON over the WebSocket at `/ws`.
 - **Units:** mm machines only.
 - **Tool table:** wear and life are not kept.
 - **Preview:** a program with a T word only previews while LinuxCNC runs, because the 2.9 interpreter reads tool data from LinuxCNC's shared memory (DEBUGNOTES).
+- **Uploads** through the page stop at 6 MB; larger programs go into the program folder directly (network share, USB), as CAM output for a big part usually does.
 - **Remote enable:** the key-switch pin is read, but no hardware example is wired.
 
 ## Testing
@@ -133,6 +140,7 @@ JSON over the WebSocket at `/ws`.
 | `make test-backend` | the protocol case by case on real LinuxCNC (`test/sim`) | 7 min | LinuxCNC, a non-root user |
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
+| `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
 | `make check-all` | the first four | 15 min | |
 
 `K=word` runs only the cases whose name contains it, `SHOTS=dir` keeps a
@@ -203,6 +211,20 @@ page from the machine's interpreter, load, cycle buttons, run from a line to
 the end; a wizard's program saved and loaded; overrides, spindle, coolant, M1
 and block delete as the machine reports them; changes made by another browser
 showing; no script errors on any page; finally millweb stopping (OFFLINE).
+
+**Stress** (`make test-stress`, `test/stress_suite.py`): `test/bigcode.py`
+writes CAM-style programs into the program folder: a 1 001 661-line 3D raster
+finish (27 MB), 300 000 lines of adaptive clearing with G2/G3, 20 000 G83
+peck cycles, and 25 lines of O-word loops that make 2 million moves; with
+LinuxCNC's own `3D_Chips.ngc` (inches). Each is previewed: no error, every
+move counted, the travel right, at most 100 000 segments drawn, the message
+under 8 MB, the server answering pings within 0.5 s meanwhile, millweb
+alive. Then: line windows at 500 000 and the end of the million; the cache;
+a load answering at once while its preview runs, and a newer load winning;
+20 000 short moves run to the end (the median feed is printed); run from
+line 900 000; and the page in Chromium while the machine runs the million
+from line 500 000 (drawn, the listing following the running line, the
+scripts' time per frame, heap, the preflight).
 
 **End-to-end** (`make test-live`): about 50 checks through one session, then
 `test/browser_live.js` on the page. `--shot FILE` / `--browser FILE` take

@@ -40,6 +40,7 @@ test("connects: LIVE, the machine's name, tables from the INI", async (t) => {
   t.check((await t.text("#b-control")).includes("TAKE"), "nobody has control: TAKE CONTROL");
   t.check((await t.text("#ch-on")).includes("MACHINE ON") && (await t.text("#ch-home")) === "HOMED", "the machine's state");
   t.check(await t.ev(() => TRAVEL.z[0] === -215 && TRAVEL.x[1] === 1000), "travel from the INI");
+  t.check(await t.ev(() => document.getElementById("o-feed").max === "200" && document.getElementById("o-spin").max === "150" && document.getElementById("o-spin").min === "50"), "override sliders: the INI's limits");
   t.check(await t.ev(() => events.some((e) => e.text.includes("Browser connected"))), "events from the server");
   await t.nav("stat");
   t.check(await t.until(() => document.querySelectorAll("#pins tbody tr").length === 5 && document.getElementById("lpin-0").textContent !== "—"), "the INI's five pins, with values");

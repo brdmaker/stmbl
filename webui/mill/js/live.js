@@ -69,6 +69,10 @@ const Live = (() => {
     for (const e of m.events.slice().reverse()) events.push({ t: e.time, lvl: e.lvl, text: e.text });
     renderEvents();
     buildLiveTables();
+    if (info.ovr_max) {  // the INI's override limits: beyond them LinuxCNC would ignore the slider
+      $("o-feed").max = Math.round(info.ovr_max.feed * 100);
+      $("o-spin").max = Math.round(info.ovr_max.spin * 100); $("o-spin").min = Math.round(info.ovr_max.spin_min * 100);
+    }
     linkChip(); controlUi();
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
     msg(`Connected to ${info.name}`, "ok");
@@ -79,6 +83,7 @@ const Live = (() => {
     if (m.homed) st.homed = { x: m.homed[0], y: m.homed[1], z: m.homed[2] };
     if (m.pos) st.pos = { x: m.pos[0], y: m.pos[1], z: m.pos[2] };
     if ("wcs" in m) st.wcs = m.wcs;
+    if ("wcs_ok" in m) L.wcsOk = m.wcs_ok;  // false: LinuxCNC hasn't published the work offset yet
     if (m.g5x) { const o = st.offsets[st.wcs]; const moved = o.x !== m.g5x[0] || o.y !== m.g5x[1] || o.z !== m.g5x[2]; o.x = m.g5x[0]; o.y = m.g5x[1]; o.z = m.g5x[2]; if (moved) { rebuildPath(); if (st.page === "off") renderOffsets(); } }
     if (m.g92) st.g92 = { x: m.g92[0], y: m.g92[1], z: m.g92[2] };
     if ("rot" in m) st.rot = m.rot;
@@ -100,7 +105,10 @@ const Live = (() => {
       st.run = m.run === "mdi" ? "run" : m.run;
       st.motion = (m.run === "run" || m.run === "hold") ? prog : null;
     }
-    if ("mline" in m || "line" in m) L.line = m.mline || m.line || L.line;
+    // the line motion is on; the interpreter's (read ahead) only until motion has one
+    if ("mline" in m) L.mline = m.mline;
+    if ("line" in m) L.iline = m.line;
+    if ("mline" in m || "line" in m) L.line = L.mline || L.iline || L.line;
     if (m.gcodes !== undefined || m.mcodes !== undefined) {
       L.gcodes = m.gcodes ?? L.gcodes; L.mcodes = m.mcodes ?? L.mcodes;
       L.modal = `${L.gcodes || ""} ${L.mcodes || ""}`.trim();
@@ -121,23 +129,41 @@ const Live = (() => {
       }
     }
   }
+  // the path: [kind, x, y, z, feed, line, tool] per segment, each from where the one before ended
   function toProgram(m) {
-    const segs = [], used = new Set();
-    for (const s of m.segs) {
-      const [k, x0, y0, z0, x, y, z, f, line, tool] = s;
-      if (k === 3) { segs.push({ k: "tc", tool, line, x0, y0, z0, x, y, z }); used.add(tool); continue; }
-      segs.push({ k: "mv", x0, y0, z0, x, y, z, f: k === 0 ? 0 : f, rapid: k === 0, line, tool, probe: k === 2 });
-      if (tool > 0) used.add(tool);
+    const segs = [], used = new Set(m.stats ? m.stats.tools : []), d = m.path || [];
+    let [x0, y0, z0] = m.start || [0, 0, 0];
+    for (let i = 0; i < d.length; i += 7) {
+      const k = d[i], x = d[i + 1], y = d[i + 2], z = d[i + 3], f = d[i + 4], line = d[i + 5], tool = d[i + 6];
+      if (k === 3) { segs.push({ k: "tc", tool, line, x0, y0, z0, x, y, z }); used.add(tool); }
+      else {
+        segs.push({ k: "mv", x0, y0, z0, x, y, z, f: k === 0 ? 0 : f, rapid: k === 0, line, tool, probe: k === 2 });
+        if (tool > 0) used.add(tool);
+      }
+      x0 = x; y0 = y; z0 = z;
     }
-    const p = { name: m.name, lines: m.lines, segs, tools: used, server: true, error: m.error };
+    const p = { name: m.name, lines: m.lines, line0: m.line0 || 1, nlines: m.nlines || m.lines.length, segs, tools: used,
+      server: true, error: m.error, truncated: m.truncated, stats: m.stats };
     plan(p);
+    if (m.stats) { p.total = m.stats.time; p.cutLen = m.stats.cut; if (m.stats.moves) p.ext = m.stats.ext; }  // every move, not only those drawn
     if (!segs.length) p.ext = { x: [0, 0], y: [0, 0], z: [0, 0] };
     return p;
   }
+  // a window of the listing around line n
+  let linesBusy = false;
+  L.lines = async (n) => {
+    if (linesBusy || !prog.server || !prog.nlines) return;
+    linesBusy = true;
+    const want = prog.name, start = Math.max(1, n - 300);
+    const r = await send("program_lines", { name: want, start, count: 2000 });
+    linesBusy = false;
+    if (r.ok && prog.name === want) { prog.lines = r.lines; prog.line0 = r.start; prog.nlines = r.nlines; renderListing(); }
+  };
   function program(m) {
     prog = toProgram(m);
     renderProgram(); rebuildPath();
     if (m.error) msg(`${m.name}: ${m.error}`, "warn");
+    else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
   function tools(list) {
     st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, wear: 0, life: 100, c: t.c }));
@@ -206,8 +232,10 @@ const Live = (() => {
     st.motion = (st.run === "run" || st.run === "hold") && st.lmode === "auto" ? prog : null;
     let seg = null;
     if (prog.segs.length && L.line) {
-      let i = prog.segs.findIndex((s) => s.line >= L.line);
-      if (i < 0) i = prog.segs.length - 1;
+      // from where it was: a long program moves on a little each frame (a loop's lines repeat: then from the top)
+      const S = prog.segs, from = st.seg < S.length && S[st.seg].line <= L.line ? st.seg : 0;
+      let i = from; while (i < S.length && S[i].line < L.line) i++;
+      if (i >= S.length) i = S.length - 1;
       seg = prog.segs[i]; st.seg = i; st.t = seg.t0;
     }
     const moving = st.velNow > 1;

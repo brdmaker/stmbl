@@ -34,6 +34,7 @@ import wsserver  # noqa: E402
 
 WEBROOT = os.path.dirname(HERE)
 JOG_DEADMAN = 0.3
+NO_REPLY = object()  # a handler that sent its reply itself
 VERSION = "0.1"
 
 
@@ -64,7 +65,14 @@ class Hub:
         self.upool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="millweb-urgent")
         self.state = {}
         self.slow_state = {}
-        self.program = None          # the last preview sent
+        self.program = None          # the last preview sent (its JSON text)
+        self.pv_cache = {}           # key -> (text, head): the last few previews
+        self.pv_running = {}         # key -> future: one child process per preview
+        self.pv_sem = asyncio.Semaphore(2)
+        self.pv_segs = int(cfg.num("MILLWEB", "PREVIEW_SEGS", 100000))
+        self.pv_timeout = cfg.num("MILLWEB", "PREVIEW_TIMEOUT", 120.0)
+        self.resyncing = False
+        self.line_index = {}         # path -> (mtime, size, byte offset of every 1000th line, lines)
         self.program_file = None
         self.jog_seen = {}           # axis -> time of the last continuous-jog message
         self.token = cfg.get("MILLWEB", "TOKEN")
@@ -103,7 +111,7 @@ class Hub:
         await ws.send_json(self.offsets_msg())
         await ws.send_json({"t": "files", "files": self.m.programs()})
         if self.program:
-            await ws.send(json.dumps(self.program, separators=(",", ":")))
+            await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
         try:
             while True:
@@ -169,7 +177,7 @@ class Hub:
                 if a in self.jog_seen:
                     self.jog_seen[a] = time.time()
                     return await reply()
-            if op in ("files", "program_get", "ping", "events"):
+            if op in ("files", "program_get", "program_lines", "ping", "events"):
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -180,6 +188,8 @@ class Hub:
                 return await reply("unknown op %r" % op)
             self.m.done_flag = False
             res = await handler(c, msg)
+            if res is NO_REPLY:
+                return
             if isinstance(res, dict):
                 return await reply(None, **res)
             return await reply(res)
@@ -324,9 +334,19 @@ class Hub:
 
     async def op_program_get(self, c, m):
         path = self.m._safe(m["name"])
+        text, head = await self.preview(path)
+        # the preview's text goes in as it is: no second encoding of a big message
+        await c.ws.send('{"t":"reply","id":%s,"op":"program_get","ok":true,"program":%s}' % (json.dumps(m.get("id")), text))
+        return NO_REPLY
+
+    async def op_program_lines(self, c, m):
+        """Lines start ... start+count-1 (from 1) of a program: the listing of a
+        long one comes in windows."""
+        path = self.m._safe(m["name"])
+        start, count = max(1, int(m.get("start", 1))), max(1, min(5000, int(m.get("count", 2000))))
         loop = asyncio.get_event_loop()
-        pv = await loop.run_in_executor(self.ppool, self.make_preview, path)
-        return {"program": pv}
+        lines, n = await loop.run_in_executor(self.ppool, self.read_lines, path, start, count)
+        return {"start": start, "lines": lines, "nlines": n}
 
     async def op_program_save(self, c, m):
         text = str(m.get("text", ""))
@@ -348,6 +368,9 @@ class Hub:
         err = await self.run(self.m.cmd_program_load, m["name"])
         if not err:
             self.event("ok", "Loaded %s" % os.path.basename(m["name"]))
+            # its preview, also when it is the same file again (edited on disk since?)
+            self.program_file = self.m._safe(m["name"])
+            asyncio.ensure_future(self.send_preview(self.program_file))
         return err
 
     async def op_pcomp(self, c, m):
@@ -360,22 +383,132 @@ class Hub:
     def offsets_msg(self):
         return {"t": "offsets", "offsets": self.m.offsets, "g92": self.m.g92, "wcs": self.state.get("wcs", 0)}
 
-    def make_preview(self, path):
+    def read_lines(self, path, start, count):
+        """(lines start ... start+count-1, how many lines), through an index of
+        every 1000th line's offset, so line 900 000 of a 30 MB file is quick."""
+        st = os.stat(path)
+        ix = self.line_index.get(path)
+        if not ix or ix[0] != st.st_mtime or ix[1] != st.st_size:
+            offs, n, pos = [0], 0, 0
+            with open(path, "rb") as f:
+                for line in f:
+                    n += 1
+                    pos += len(line)
+                    if n % 1000 == 0:
+                        offs.append(pos)
+            ix = (st.st_mtime, st.st_size, offs, n)
+            self.line_index = {path: ix}  # the last file only
+        offs, n = ix[2], ix[3]
+        k = min((start - 1) // 1000, len(offs) - 1)
+        out = []
+        with open(path, "rb") as f:
+            f.seek(offs[k])
+            ln = k * 1000
+            for line in f:
+                ln += 1
+                if ln >= start:
+                    out.append(line.decode("utf-8", "replace").rstrip("\r\n"))
+                    if len(out) >= count:
+                        break
+        return out, n
+
+    async def preview(self, path):
+        """(the program message as JSON text, its header): from LinuxCNC's
+        interpreter in a child process (preview.py); cached; one at a time per file."""
         s = self.state
-        active = [s.get("g5x", [0, 0, 0])[i] + s.get("g92", [0, 0, 0])[i] for i in range(3)]
-        tools = {}
-        for t in self.m.tools():
-            tools[t["t"]] = (t["t"], 0.0, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4, 0, 0, 0)
-        pv = preview.parse(path, tools, self.m.var_file, "G21", "", active, pockets=[t["t"] for t in self.m.tools()])
+        active = [round(s.get("g5x", [0, 0, 0])[i] + s.get("g92", [0, 0, 0])[i], 4) for i in range(3)]
+        tl = self.m.tools()
         try:
-            with open(path, errors="replace") as f:
-                lines = f.read().splitlines()[:50000]
+            st = os.stat(path)
+            key = (path, st.st_mtime, st.st_size, tuple(active), json.dumps(tl), s.get("wcs", 0))
         except OSError:
-            lines = []
-        return {"t": "program", "name": os.path.basename(path), "path": path, "lines": lines,
-                "segs": pv["segs"], "error": pv["error"], "wcs": s.get("wcs", 0)}
+            key = (path, None)
+        if key in self.pv_cache:
+            return self.pv_cache[key]
+        if key in self.pv_running:
+            return await asyncio.shield(self.pv_running[key])
+        fut = asyncio.get_event_loop().create_future()
+        self.pv_running[key] = fut
+        try:
+            async with self.pv_sem:
+                res = await self._preview_child(path, active, tl)
+            self.pv_cache[key] = res
+            while len(self.pv_cache) > 3:
+                self.pv_cache.pop(next(iter(self.pv_cache)))
+            fut.set_result(res)
+            return res
+        except BaseException as e:
+            fut.set_exception(e)
+            raise
+        finally:
+            del self.pv_running[key]
+            if fut.done() and not fut.cancelled():
+                fut.exception()  # retrieved: no "never retrieved" warning
+
+    async def _preview_child(self, path, active, tl):
+        req = {"path": path, "var": self.m.var_file, "unitcode": "G21", "active": active,
+               "tools": {t["t"]: (t["t"], 0.0, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4, 0, 0, 0) for t in tl},
+               "pockets": [t["t"] for t in tl], "max_segs": self.pv_segs, "timeout": self.pv_timeout,
+               "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0)}
+        head, ptext = {"error": None, "truncated": None, "stats": None, "lines": 0, "start": [0, 0, 0]}, "[]"
+        proc = await asyncio.create_subprocess_exec(sys.executable, preview.__file__, stdin=asyncio.subprocess.PIPE,
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(json.dumps(req).encode()), self.pv_timeout + 30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            out, err = b"", b"no answer in time"
+        first, _, rest = out.partition(b"\n")
+        try:
+            head.update(json.loads(first))
+            ptext = rest.decode().strip() or "[]"
+        except ValueError:
+            tail = err.decode(errors="replace").strip().splitlines()[-1:] or ["exit %s" % proc.returncode]
+            head["error"] = "the preview failed: %s" % tail[0]
+        loop = asyncio.get_event_loop()
+        try:
+            lines, n = await loop.run_in_executor(self.ppool, self.read_lines, path, 1, 2000)
+        except OSError:
+            lines, n = [], 0
+        msg = {"t": "program", "name": os.path.basename(path), "path": path, "lines": lines, "line0": 1, "nlines": n,
+               "error": head["error"], "truncated": head["truncated"], "stats": head["stats"], "start": head["start"],
+               "wcs": self.state.get("wcs", 0), "seconds": head.get("seconds")}
+        return json.dumps(msg, separators=(",", ":"))[:-1] + ',"path":' + ptext + "}", msg
 
     # ------------------------------------------------------------ loops
+    async def resync(self):
+        self.resyncing = True
+        try:
+            note = await self.run(self.m.resync_offsets)
+            if note:
+                self.event("warn", note)
+                self.broadcast(self.offsets_msg())
+        finally:
+            await asyncio.sleep(2.0)  # not again at once if it didn't help
+            self.resyncing = False
+
+    async def send_preview(self, path):
+        """The loaded program's preview to every browser (in the background:
+        a long program doesn't hold up the status)."""
+        try:
+            text, head = await self.preview(path)
+        except Exception as e:
+            self.event("bad", "Preview: %s" % e)
+            return
+        if path != self.program_file:
+            return  # another program was loaded meanwhile
+        self.program = text
+        self.broadcast_raw(text)
+        if head["error"]:
+            self.event("warn", "Preview: %s" % head["error"])
+        if head["truncated"]:
+            self.event("warn", "Preview: %s" % head["truncated"])
+
+    def broadcast_raw(self, text):
+        for c in list(self.clients.values()):
+            asyncio.ensure_future(c.ws.send(text))
+
     async def poll_loop(self):
         loop = asyncio.get_event_loop()
         period = 1.0 / max(self.poll_hz, 1.0)
@@ -404,11 +537,10 @@ class Hub:
             # a new program: its preview, once
             if st.get("file") and st["file"] != self.program_file:
                 self.program_file = st["file"]
-                pv = await loop.run_in_executor(self.ppool, self.make_preview, st["file"])
-                self.program = pv
-                self.broadcast(pv)
-                if pv["error"]:
-                    self.event("warn", "Preview: %s" % pv["error"])
+                asyncio.ensure_future(self.send_preview(st["file"]))
+            # the status without a work offset (DEBUGNOTES): fix it when the machine allows
+            if self.m.wcs_unknown and st["run"] == "idle" and all(st["homed"]) and not self.resyncing:
+                asyncio.ensure_future(self.resync())
             # the jog deadman
             for a, seen in list(self.jog_seen.items()):
                 if time.time() - seen > JOG_DEADMAN:
