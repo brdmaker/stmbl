@@ -55,3 +55,38 @@ Raspberry Pi 4 GUI):
 
 Link meshes would come from the robot's STEP files, the way
 `tools/step2cell.py` already derives the collider boxes.
+
+## Mill console (`mill.html`)
+
+A concept operator screen for a gantry milling machine on stmbl drives and
+LinuxCNC (the portal of `host/portal`), published at
+https://claude.ai/artifact/UuyHMUutm91XVcraCHsXmr. One HTML file, no
+libraries; open it from disk. Everything in it is simulated: an OP1 program
+(face, pocket at two depths, contour, four holes) plays back with its
+G-code, DRO and spindle.
+
+The idea it shows: the operator sees the machine's physics, not just
+positions.
+- **Toolpath:** coloured by the path error the dynamics model predicts at
+  each corner, or by feed. The 3D view orbits and zooms.
+- **Dynamics:** the command conditioning's parts as switches, the head's
+  modes at the current X, the added delay, and path error now and p99.
+- **Gantry link and power:** Y1/Y2 following error and the bridge's yaw;
+  DC bus and chopper.
+- **Calibration:** the machine model dynwiz measured, and its last verify.
+- **Vibration:** the spindle current's spectrum, with the tooth-pass
+  frequency against the head's modes (chatter shows there first).
+
+| Panel | Source |
+|---|---|
+| DRO, following error bars | `joint.N.pos-fb`, `joint.N.f-error`; G5x from `stat` |
+| Spindle, load, overrides | `spindle.0.*`, the spindle drive's current; `halui` feed / spindle / rapid override |
+| Colour by path error | pcomp's model (`[PCOMP]`) evaluated on the program's preview (the corner's acceleration over the head's mode) |
+| Command conditioning | `pcomp.0.shaper/defl/shrink/jerk-ms`, `.fx/.fy-*`, `.delay` |
+| Gantry link | `gantry0.yaw`, `.active`, `.r_vel` on the Y drives, Y1/Y2 `f-error` |
+| Power | `stmbl-*.power`, the bus voltage, `powerquota.0.*` |
+| Drives | each drive's current, following error, HV temperature, power, fault |
+| Calibration | `dynwiz.json` (the session), `dynwiz run` from the button |
+| Vibration | an FFT of the spindle drive's current (a HAL sampler at the servo rate, or the drive's own scope) |
+
+Built for real it would be a QtVCP screen like `linuxcnc/arm6hmi`.
