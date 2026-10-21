@@ -1722,3 +1722,45 @@ Entry format:
   phase_cur / 8 and grows (drive_phasing_align_gentle.test).
   Bench, v0.9.18-356: offset reading with the bridge off 0.09 -> ~0.01 A;
   phasing suite 36/36 (align swing <= 0.018 mm, move error <= 0.115 mm).
+
+## 2026-10-21  Preview: the gcode module segfaults on a T word without LinuxCNC running
+- Area:    `webui/mill/server/preview.py` (LinuxCNC 2.9 `gcode.parse`)
+- Status:  Known
+- Symptom: `gcode.parse` of a program with `T3` (or `M6 T3`) crashes the
+  Python process (SIGSEGV) when LinuxCNC isn't running; without T words it works.
+- Cause:   since 2.9 the interpreter reads tool data from LinuxCNC's tool
+  data shared memory, not from the canon's `get_tool`.
+- Fix:     preview only while LinuxCNC runs (millweb always does). Unit tests
+  of the preview avoid T words; the live test covers them.
+
+## 2026-10-21  Preview canon: external length units 1.0 on an mm machine; tool numbers from pockets
+- Area:    `webui/mill/server/preview.py`
+- Status:  Fixed
+- Symptom: the preview came out 25.4x too large and offset; the tool change
+  named tool 2 for T3.
+- Cause:   `get_external_length_units` must return stat.linear_units (1.0
+  for mm), as rs274's StatMixin does: the canon works in inches either way.
+  `change_tool` gets the tool table row ("pocket", from 1), not the T number.
+- Fix:     1.0; the backend passes the tool table's row order.
+
+## 2026-10-21  Probing from a remote console: probe trips and probe travel
+- Area:    `webui/mill/server/machine.py` (cmd_probe, cmd_tool_measure), `webui/mill/test/sim/mill.hal`
+- Status:  Fixed
+- Symptom: (1) "Probe tripped during non-probe move" ended a program; (2)
+  "Probe move would exceed Z's negative limit": the tool setter never touched;
+  (3) a probe result of 0 right after the move.
+- Cause:   (1) the simulated probe tripped whenever the tool was below the
+  stock top, cutting included; a real probe isn't in the spindle then, and
+  LinuxCNC aborts a move the probe trips in. (2) LinuxCNC refuses a G38 whose
+  end is beyond the soft limit, even if it would trip before. (3)
+  stat.probed_position can lag the interpreter going idle.
+- Fix:     the sim's probe trips only during probe moves (motion-type 5) and
+  on the tool tip (joint Z less motion.tooloffset.z); millweb shortens the
+  travel to what the soft limit leaves, and waits up to 1 s for the result.
+
+## 2026-10-21  millweb: an MDI move reports run "mdi", not "run"
+- Area:    `webui/mill/server/machine.py` (status), clients
+- Status:  Note
+- Symptom: a client that waited for run != "run" after MDI went on while the
+  machine still moved.
+- Fix:     wait for interp "idle" (the live test does); run is "mdi" during MDI.

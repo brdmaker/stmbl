@@ -1,0 +1,5 @@
+T1 P1 D12.0000 Z+62.4150 ;12 mm 3-flute roughing endmill
+T3 P3 D6.0000 Z+48.1300 ;6 mm 3-flute carbide endmill
+T5 P5 D5.0000 Z+71.9020 ;5 mm carbide drill
+T12 P12 D50.0000 Z+40.2200 ;50 mm face mill
+T99 P99 D2.0000 Z+110.0000 ;3D touch probe

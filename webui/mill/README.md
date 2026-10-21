@@ -1,119 +1,147 @@
 # webui/mill: a browser console for a headless milling machine
 
-The operator console for a gantry mill on stmbl drives and LinuxCNC, built
-as a web app. The machine runs headless: LinuxCNC and a small backend on
-the controller, and the operator uses a browser on any tablet or PC on the
-shop network.
+The operator console for a gantry mill on stmbl drives and LinuxCNC, as a
+web app. The machine runs headless: LinuxCNC and **millweb** run on the
+controller, and the operator uses a browser on any tablet or PC on the shop
+network.
 
-**Status:** the front end is complete as a concept. It runs on its own:
-everything is simulated in the page, including the machine, a program,
-offsets, tools, probing and the dynamics. The backend below is the plan.
+The console runs two ways:
+- **Live:** served by `millweb`, it shows the real machine and drives it.
+- **Simulated:** opened from disk, with `?sim`, or when no millweb answers within 2.5 s. It runs a built-in machine and program, for demos and training.
 
 ```sh
-xdg-open webui/mill/index.html              # straight from disk
-python3 -m http.server -d webui/mill 8080   # or served: http://<host>:8080/
+make -C webui/mill demo        # the console alone, simulated: http://localhost:8000/
+make -C webui/mill sim         # LinuxCNC (test/sim, no hardware) with millweb: http://localhost:8080/
+make -C webui/mill test        # millweb against a stand-in LinuxCNC (~3 s)
+make -C webui/mill test-live   # against real LinuxCNC and a headless browser (~1 min, non-root)
 ```
 
-It has no build step and needs no internet:
-- **three.js** (r128, MIT) is copied under `vendor/three` with its licence.
-- **Fonts** come from Google Fonts when the browser has internet; offline the page falls back to the system fonts.
+Nothing to build and nothing to install beyond LinuxCNC:
+- **millweb** is Python 3, standard library only, plus LinuxCNC's own `linuxcnc`, `hal`, `gcode` and `rs274` modules. It runs on a Raspberry Pi too.
+- **The page** needs no internet: three.js r128 (MIT) is under `vendor/three` with its licence. Fonts come from Google Fonts when online and fall back to system fonts.
 
-| File | What |
+| Path | What |
 |---|---|
-| `index.html` | The whole app: HTML, CSS and the JS, including the simulated machine |
-| `vendor/three/` | three.js r128 and its OrbitControls (MIT) |
+| `index.html` | the console's markup and style |
+| `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
+| `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
+| `millweb` | the backend's launcher: LinuxCNC's display program |
+| `server/millweb.py` | the hub: browsers, control lease, jog deadman, status diffs, events, previews |
+| `server/machine.py` | LinuxCNC: status, commands, tool table, offsets, programs, probing |
+| `server/preview.py` | a program's toolpath from LinuxCNC's interpreter (the `gcode` module, as AXIS previews) |
+| `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
+| `server/tests/` | unit tests against `fake_linuxcnc.py` |
+| `test/sim/` | a LinuxCNC config without hardware: a gantry mill (X Y Y Z), loopback joints, a probe, a tool changer |
+| `test/run_live.py`, `test/browser_live.js` | the integration test: real LinuxCNC, the protocol, then a headless Chromium on the page |
+| `deploy/linuxcnc-millweb.service` | systemd: LinuxCNC with millweb at boot |
 
-## The pages
+## Running it on a machine
 
-| Page | What |
-|---|---|
-| MAIN | The machine in 3D: frame, rails, bridge, carriage, ram, spindle, tool, the stock in its fixture, the travel limits. The toolpath is coloured by predicted path error, feed or tool, and the deflection is drawn exaggerated. Below: the G-code (run from a line), MDI with history, jog |
-| FILE | Programs, each with a preflight: travel, tools, time, predicted path error |
-| WIZARDS | Facing, bolt circle and circular pocket generate G-code |
-| OFFSETS | G54–G59.3 and G92, a touch plate |
-| TOOLS | The tool table: load, measure on the setter, add, delete |
-| PROBE | Eight probing cycles; set the offset from the result |
-| DYNAMICS | Command conditioning (pcomp), the head's modes, the gantry link, spindle vibration, drives, power, the dynwiz model |
-| STATUS | Events, machine counters, a HAL pin watch |
-| SETTINGS | Units, display options, M1 / block delete / lift on hold, the keys |
+1. **Make millweb the display.** In the machine's INI:
 
-On every page the right column holds:
-- the DRO, with zero, touch-off and home per axis;
-- the modal G-codes;
-- spindle, coolant and the overrides;
-- cycle start, hold, single block and stop.
+   ```ini
+   [DISPLAY]
+   DISPLAY = /path/to/stmbl/webui/mill/millweb
+   PROGRAM_PREFIX = ~/linuxcnc/nc_files
 
-## The backend (plan)
+   [MILLWEB]
+   PORT = 8080
+   ```
 
-One Python process on the controller between LinuxCNC and the browsers.
-It is a LinuxCNC user interface like AXIS or QtVCP, with a web socket
-where they have a window.
+   LinuxCNC starts millweb and stops when it stops. Alternatively, run `webui/mill/millweb --ini machine.ini` beside a LinuxCNC that already has another display.
+2. **Start it at boot:** `deploy/linuxcnc-millweb.service` (systemd; set the user and the INI path).
+3. **Open** `http://<controller>:8080/` in any browser on the shop network. **Take control** (the header button), release E-STOP, switch the machine on, home.
 
-```
-browser (any number)  <── HTTPS + WebSocket ──>  millweb (Python, asyncio)  ──>  LinuxCNC (task, motion, HAL)
-                                                   │  linuxcnc.stat / command / error_channel
-                                                   │  hal: a userspace component "millweb" (postgui HAL)
-                                                   │  halsampler (servo-rate data) · gcode module (preview)
-                                                   └  files: nc_files, tool.tbl, the INI, dynwiz.json
-```
+**`[MILLWEB]` keys**
 
-### Process and start-up
-- **How it starts:** `millweb` is the INI's display program (`[DISPLAY] DISPLAY = millweb`), the way `hwtest/portal-sim/portal_run.py` drives LinuxCNC headless. LinuxCNC starts it and stops with it, and a systemd unit starts LinuxCNC at boot.
-- **Where it runs:** it is ordinary user-space Python, not realtime, and nothing it does can delay the servo thread.
-- **What it needs:** the `linuxcnc` and `hal` modules and `aiohttp` (`python3-aiohttp` on Debian). Configuration lives in the INI's `[MILLWEB]`: port, certificate, users, the nc_files directory, the HAL pins it shows.
+| Key | Default | What |
+|---|---|---|
+| `PORT`, `HOST` | 8080, 0.0.0.0 | where it listens |
+| `CERT`, `KEY` | | HTTPS (and WSS) with this certificate |
+| `TOKEN` | | required to take control (asked for in the browser) |
+| `REMOTE_ENABLE_PIN` | | a HAL bit (a key switch at the machine): while false, nobody can take control, and control is dropped |
+| `ON_CONTROL_LOSS` | continue | `hold`: feed hold when the controlling browser disconnects during a program |
+| `POLL_HZ` | 30 | status rate |
+| `NC_DIR` | `[DISPLAY] PROGRAM_PREFIX` | the program folder (browsers list, upload, load, delete) |
+| `TOOLSETTER` | | `X Y Z_ABOVE Z_REF [TRAVEL]` (machine): tool length = touched Z − Z_REF |
+| `PIN` (repeat) | | HAL pins for the Status page's watch |
+| `DRIVE` (repeat) | | `NAME CURRENT_PIN [POWER_PIN] [FAULT_PIN]` for the Dynamics page's drive table |
+| `SPINDLE_LOAD_PIN`, `BUS_PIN`, `YAW_PIN`, `CONTOUR_PIN`, `AT_SPEED_PIN`, `AIR_PIN` | | the Dynamics page's live values; `AIR_PIN`: a bit the Air button sets |
+| `PCOMP` | pcomp.0 | pcomp's HAL prefix; its switches are on the Dynamics page when it is loaded |
 
-### Status out
-- **Machine state:** `linuxcnc.stat()` polled at 30–50 Hz: position, homed, state, mode, interpreter state, current line, overrides, spindle, coolant, tool, offsets, G-codes.
-- **HAL values:** a userspace HAL component, `millweb`, with input pins netted in a postgui HAL file, like `linuxcnc/arm6hmi`'s. That covers the drives' current, power and fault, `pcomp.0.*`, the gantry link's `yaw`/`active`, `powerquota.0.*`, the spindle load and the DC bus.
-- **What goes to the browser:** only what changed since the last message, as JSON. Three rates:
-  - fast, about 30 Hz: DRO, following error, feed, spindle;
-  - slow, about 2 Hz: drives, power, pins;
-  - on change: files, tool table, offsets, events.
-- **Servo-rate data** (contour error, bridge yaw, the spindle current for its spectrum) comes from a HAL `sampler` read with `halsampler`, the same way `linuxcnc/dynwiz` records. The backend reduces it: decimated series, and an FFT of the spindle current at 2 Hz. A browser never gets 1 kHz raw data unless a scope view asks for it.
-- **Events:** `error_channel` and the backend's own events, kept in a ring buffer (a log file too) and replayed to a browser that connects later.
+## The protocol
 
-### Commands in
+JSON over the WebSocket at `/ws`.
 
-The JSON messages are `{"op": ..., ...}`, each answered with ok or a reason:
+**From the server** (`t` = type):
 
-| op | LinuxCNC |
-|---|---|
-| `estop`, `power` | `C.state(STATE_ESTOP / ESTOP_RESET / ON / OFF)` |
-| `home`, `unhome` | `C.home(j)` in manual mode |
-| `jog` | `C.jog(JOG_INCREMENT / JOG_CONTINUOUS / JOG_STOP, ...)`; continuous jog is a deadman, below |
-| `mdi` | `C.mode(MODE_MDI)`, `C.mdi(text)` |
-| `cycle` | `C.auto(AUTO_RUN, line)`, `AUTO_PAUSE / RESUME / STEP`, `C.abort()` |
-| `override` | `C.feedrate`, `rapidrate`, `spindleoverride`, `maxvel` |
-| `spindle`, `coolant` | `C.spindle(...)`, `C.flood / mist`; air as a HAL bit |
-| `offset` | G10 L2 / L20 through MDI; G92 / G92.1 |
-| `tool` | edit `tool.tbl`, then `C.load_tool_table()`; M6 / M61 through MDI; measure is an O-word subroutine |
-| `probe` | O-word subroutines with G38.x, as QtDragon's probe screens use; the results come back through `#5061`… parameters |
-| `program` | list, upload, delete, load (`C.program_open`), preflight |
-| `wizard` | facing, bolt circle, pocket: the generators of `index.html` move to the server, write a file and load it |
-| `pcomp` | `hal.set_p("pcomp.0.shaper", ...)` at standstill |
-| `dynwiz` | runs `linuxcnc/dynwiz` as a subprocess, streams its output and loads `dynwiz.json` |
+| t | When | What |
+|---|---|---|
+| `hello` | on connect | `you` (this browser's id), `machine` (name, coordinates, limits, units, program folder, drives, pins, token required), `control` (the holder), recent `events` |
+| `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
+| `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
+| `program` | when a program is loaded | name, lines, `segs` `[kind, x0, y0, z0, x, y, z, feed, line, tool]` from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates |
+| `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder |
+| `control` | on change | who has control |
+| `ev` | as they happen | `{time, lvl, text}`: LinuxCNC's error channel, state changes, commands |
+| `reply` | to each request | `{id, ok, err}`, plus a result (probe, tool setter, preview) |
 
-### Preview geometry
-- **When a program loads,** the backend parses it with LinuxCNC's own interpreter (the `gcode` module with a canon object, as AXIS and QtVCP do).
-- **It sends** the line segments with their line numbers, feeds, tools and kinds, as one binary message (Float32Array).
-- **It computes** the path-error colour the same way pcomp does, from the machine model in `[PCOMP]`, so the browser draws what the controller predicts.
+**From the browser:** `{"op": ..., "id": n, ...}`:
+- `control` {take, force, token};
+- `estop` {on} (any browser), `power` {on};
+- `home` / `unhome` {axis | all};
+- `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop`;
+- `mdi` {cmd};
+- `cycle` {action: start | pause | resume | step | stop, line};
+- `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
+- `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
+- `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
+- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text]};
+- `pcomp` {k, v}.
 
-### Safety
+## Safety, as built
 
-The web page is a convenience, not a safety function:
-- **The E-STOP chain is hardware.** It runs through stmbl's fault inputs and the drives' quick stop, as it does today. The page's E-STOP button only requests `STATE_ESTOP`.
-- **One browser has control at a time.** The others view only. Control is a lease you take, and a local "remote enable" key switch on a HAL input can forbid it.
-- **Continuous jog needs a heartbeat:** a message at least every 100 ms, or the backend sends `JOG_STOP`. A lost connection stops a jog at once.
-- **A program keeps running** if the controlling browser goes away (configurable: feed hold instead). Nobody else can take control without the lease expiring, or someone confirming at the machine.
-- **Access:** HTTPS with a login (operator, viewer, integrator roles) and rate limits. Keep it on the shop network or behind a VPN; never put the machine directly on the internet.
-- **Checks before LinuxCNC:** commands are validated first (limits, mode, machine on). LinuxCNC still checks everything again.
+- **The E-STOP chain is hardware**: stmbl's fault inputs and the drives' quick stop. The page's E-STOP only asks LinuxCNC for `STATE_ESTOP`, and any browser, watching or not, may press it.
+- **One browser has control** at a time, the others watch. Control goes away when its browser disconnects. `REMOTE_ENABLE_PIN` forbids remote control at the machine, and `TOKEN` asks for a password.
+- **Continuous jogging needs a keep-alive:** a message at least every 300 ms, or millweb stops the jog. A lost connection stops it at once.
+- **Checks before LinuxCNC:** commands are checked (E-STOP, machine on, homed, idle) first, and LinuxCNC checks everything again.
+- **Probe moves stay inside the soft limits.** LinuxCNC refuses a G38 move whose end lies beyond them, so millweb shortens the travel to what's left.
+- **Program files** stay inside the program folder: base names only, G-code extensions only.
+- **Access:** keep the machine on the shop network or behind a VPN. Use `CERT`/`KEY` for HTTPS and `TOKEN` for a password. There are no user accounts or roles yet.
 
-### The front end's side
-- **`index.html` splits along one seam:** its simulated machine becomes `sim.js`, and a `ws.js` speaks the protocol above.
-- **Both implement the same interface:** a stream of state updates in, commands out. The UI code doesn't know which one it has.
-- **Opened from disk, or with `?sim`,** it keeps working as now, as a demo or for training. Served by `millweb`, it drives the machine.
+## Not yet
 
-### Testing without hardware
-- **The integration test** is `hwtest/portal-sim` (on the portal-dynamics branch): real LinuxCNC on the simulated portal, with the simulated stmbl drives in the servo thread. `millweb` runs as its display program.
-- **The browser side:** headless Chromium (pre-installed for Playwright) drives the page: home, MDI, run, hold, probe. The test reads the DRO and the event log.
-- **The protocol** gets unit tests against a fake `linuxcnc` module.
+- **Probe cycles:** Z surface, touch plate and the tool setter are live. The page's other cycles (corners, edges, bores, bosses, edge angle) run only in the simulation.
+- **Dynamics page:** live values come from configured pins. The model and verify cards still show the simulation's numbers. Running dynwiz from the page is not wired up.
+- **Units:** mm machines only.
+- **Tool table:** wear and life are not kept.
+- **Preview:** a program with a T word only previews while LinuxCNC runs, because the 2.9 interpreter reads tool data from LinuxCNC's shared memory (DEBUGNOTES).
+- **Remote enable:** the key-switch pin is read, but no hardware example is wired.
+
+## Testing
+
+**`make test`** runs the protocol against `server/tests/fake_linuxcnc.py`:
+- `hello` and the static files (no path traversal);
+- the control lease, and E-STOP from a watching browser;
+- E-STOP, power, homing, MDI, G10 L20 and the overrides;
+- the jog deadman;
+- the tool table (backup, unique numbers), program names, upload and load, probing.
+
+**`make test-live`** runs `test/run_live.py`, about 50 checks against real LinuxCNC on `test/sim`, with millweb as its display:
+- the INI's name and coordinates;
+- the lease, power and homing;
+- MDI and the DRO, G10 L20 / L2, increment and continuous jogs (the deadman stops it);
+- upload and load; the interpreter's preview (the tool change, arcs as segments, G54 coordinates);
+- the run to the end: the tool change, M3;
+- probing at the stock top (machine Z −195, on the tool tip with its length offset);
+- the tool table, M6, the tool setter (length 50.000);
+- a second browser that watches, can't send MDI, and can press E-STOP.
+
+Then `test/browser_live.js` (Playwright, headless Chromium) uses the page's own controls:
+- take control, E-STOP reset, machine on, home all;
+- MDI, with the DRO following;
+- a jog from the pad;
+- a wizard's program saved and loaded on the machine, the File page and its preflight;
+- no script errors.
+
+`--shot FILE` / `--browser FILE` take screenshots.

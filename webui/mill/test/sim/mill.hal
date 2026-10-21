@@ -1,0 +1,40 @@
+# no hardware: the joints' commands are their feedback; a probe that trips
+# when the tool tip (joint Z less the tool length offset) is below machine
+# Z -195 during a probe move; the tool changer and the spindle answer at once
+loadrt [KINS]KINEMATICS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+loadrt sum2 names=tipz
+loadrt wcomp names=probez,probing
+loadrt conv_s32_float names=mtype
+loadrt and2 names=probe-and
+addf motion-command-handler servo-thread
+addf motion-controller      servo-thread
+addf tipz                   servo-thread
+addf probez                 servo-thread
+addf mtype                  servo-thread
+addf probing                servo-thread
+addf probe-and              servo-thread
+
+net j0 joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+net j1 joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net j2 joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb tipz.in0
+net tlo motion.tooloffset.z => tipz.in1
+setp tipz.gain1 -1
+net tip-z tipz.out => probez.in
+setp probez.min -1000
+setp probez.max -195
+# only while a probe move runs (motion type 5): a real probe isn't in the
+# spindle while cutting, and LinuxCNC aborts a move the probe trips in
+net mtype-s motion.motion-type => mtype.in
+net mtype-f mtype.out => probing.in
+setp probing.min 4.5
+setp probing.max 5.5
+net tip-low probez.out => probe-and.in0
+net probing probing.out => probe-and.in1
+net probe probe-and.out => motion.probe-input
+
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
+net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed
+net tool-prep iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
+setp spindle.0.at-speed 1

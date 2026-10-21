@@ -1,0 +1,28 @@
+# LinuxCNC at boot on a headless controller, with millweb as its display:
+# the operator's browser is the console (webui/mill/README.md, Deployment).
+#
+#   sudo cp linuxcnc-millweb.service /etc/systemd/system/
+#   sudo systemctl edit --full linuxcnc-millweb   (User, the INI path)
+#   sudo systemctl enable --now linuxcnc-millweb
+#
+# The machine's INI has [DISPLAY] DISPLAY = /path/to/stmbl/webui/mill/millweb
+# and a [MILLWEB] section. LinuxCNC runs as an ordinary user (rtapi_app
+# refuses root); a PREEMPT_RT kernel as for any LinuxCNC machine.
+[Unit]
+Description=LinuxCNC with the millweb browser console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cnc
+Group=cnc
+WorkingDirectory=/home/cnc/linuxcnc/configs/mill
+ExecStart=/usr/bin/linuxcnc /home/cnc/linuxcnc/configs/mill/mill.ini
+# systemd sends SIGTERM to LinuxCNC and millweb; both stop cleanly
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
