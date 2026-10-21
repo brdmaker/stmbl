@@ -168,11 +168,13 @@ class Suite:
             return row
         # phase: enable and watch until the drive is enabled or faults
         if a.capture_phasing:
-            # the phase itself: the encoder's own angle (does the rotor move?),
-            # the positions fb_switch reports, the drive's state
-            self.cli("scope0.nch = 4", "scope0.ch0 = enc_fb0.pos", "scope0.ch1 = fb_switch0.pos_fb",
-                     "scope0.ch2 = fb_switch0.mot_fb_no_offset", "scope0.ch3 = fault0.state", "scope0.div = 10",
-                     "scope0.trig = fault0.state", "scope0.edge = 0", "scope0.level = 0.5", "scope0.pre = 0.05",
+            # around the hand-over to the check (current_com_pos rising
+            # through 6): the encoder's own angle, the field angle, the d
+            # current command, the q current (does the rotor move, and with
+            # what current?)
+            self.cli("scope0.nch = 4", "scope0.ch0 = enc_fb0.pos", "scope0.ch1 = fb_switch0.com_fb",
+                     "scope0.ch2 = fb_switch0.id", "scope0.ch3 = hv0.iq_fb", "scope0.div = 1",
+                     "scope0.trig = fb_switch0.current_com_pos", "scope0.edge = 0", "scope0.level = 6", "scope0.pre = 0.3",
                      "scope0.mode = 0", "scopearm")
         r = self.worker("phase", a.phase_timeout)
         if a.capture_phasing:
@@ -298,7 +300,7 @@ def main():
     p.add_argument("--check-move", type=float, default=5.0, help="mm out and back")
     p.add_argument("--check-vel", type=float, default=20.0, help="mm/s")
     p.add_argument("--capture-phasing", action="store_true",
-                   help="capture the encoder angle and the reported positions during each phase (phase-N-kind.csv)")
+                   help="capture the hand-over to the check after each phase (phase-N-kind.csv)")
     p.add_argument("--index-jump", action="store_true",
                    help="capture the angle step at the encoder index during the check move (the phasing error)")
     p.add_argument("--max-pos-error", type=float, default=1.0, help="drive's fault0.max_pos_error during the suite [rad]")
