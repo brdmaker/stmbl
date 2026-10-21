@@ -1703,7 +1703,7 @@ Entry format:
 
 ## 2026-10-21  Align phasing: the rotor drifts when align lets go (current offset)
 - Area:    `stm32f303/src/comps/io.c` (current offsets), `shared/cur_offset.h`
-- Status:  Fixed (to be confirmed on the bench)
+- Status:  Fixed
 - Symptom: after LinuxCNC 2.9.10 / hm2_spix, the phasing suite's align
   cases failed at most positions: swing 0.3-0.7 mm, check move error up to
   0.8 mm, some fault 17 (check the wrong way). Probe and brake cases fine.
@@ -1720,3 +1720,5 @@ Entry format:
   tau 1 s, readings above 0.5 A ignored): `shared/cur_offset.h`,
   `host/tests/test_cur_offset.c`. Also the align check starts at
   phase_cur / 8 and grows (drive_phasing_align_gentle.test).
+  Bench, v0.9.18-356: offset reading with the bridge off 0.09 -> ~0.01 A;
+  phasing suite 36/36 (align swing <= 0.018 mm, move error <= 0.115 mm).
