@@ -16,11 +16,13 @@ LinuxCNC sees a trivkins XYY gantry (joint 0 = X, joints 1 and 2 = Y) with absol
 | `bench.py` | the sweep: accelerations × feeds, scored against the program (`results.md`, `results.json`) |
 | `pareto.py` | the fastest run that meets each accuracy target |
 | `replay_study.py` | replays a recording through `portal_sim` with `pcomp`'s physics-based command conditioning |
+| `dynwiz_display.py` | headless display for `make dynwiz`: `linuxcnc/dynwiz` measures the machine through LinuxCNC (`[DYNWIZ]` in `portal.ini`; its own `sampler.1`) |
 
 ```sh
 make -C ../../host/portal/lcnc all install   # stmbl_portal.so into LinuxCNC
 make test     # the path at 12 and 36 m/min, 0.5 g (~3 min)
 make bench    # the full sweep (~40 min)
+make dynwiz   # linuxcnc/dynwiz through LinuxCNC, with pcomp (~3 min)
 ```
 
 Run these as a non-root user. `bench.py` needs numpy, so it runs under the system python3, and it puts LinuxCNC's python on the PATH for the display.

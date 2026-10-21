@@ -1387,3 +1387,95 @@ Entry format:
   (exact for the planner: a = (d1 - d0)/T^2, v = d1/T + a T/2, T =
   1/cmd_freq), quadratic interpolation, acc_out -> rev0.out_dd ->
   pid0.acc_ext_cmd. Mode 0 passes vel0.acc through, as before.
+
+## 2026-10-21  vel_int mode 1: a jump while standing kicks the next move (POS_ERROR)
+- Area:    `shared/comps/vel_int.c` (mode 1)
+- Status:  Fixed
+- Symptom: on some portal origins (X 400 and 450, not 420 or 500) the
+  first move faulted with POS_ERROR at once; the drive ran backwards.
+- Cause:   standing still, LinuxCNC's packets repeat and aren't "new", so
+  the history p2 kept whatever came before the stop. After a jump in the
+  command while stopped (here portal_sim's unsynced first command, the raw
+  scale, then the offset one), the next move's first packet computed
+  a = (d1 - jump) / T^2, about 2.7e6 rad/s^2.
+- Fix:     a stop (v = 0 or no change) sets p2 = p: the history is
+  "standing at p". `host/tests/acc_ff_jump.test` (fails before).
+
+## 2026-10-21  portal_sim sent an unsynced command before the scale offsets were set
+- Area:    `host/portal/portalcore.c` (`ptcore_set_cmd`)
+- Status:  Fixed
+- Symptom: as above; with mode 0 harmless.
+- Cause:   until the offsets were known (5 exchanges), the command was the
+  raw machine position (400 mm), then about 0: a jump LinuxCNC never sends.
+- Fix:     until synced, each drive gets its own feedback as command (as
+  LinuxCNC follows the feedback while disabled).
+
+## 2026-10-21  portal files: `cogging` lines never parsed; fault_code crashed without a Y2 drive
+- Area:    `host/portal/portalcore.c`, `host/portal/portal_sim.c`
+- Status:  Fixed
+- Symptom: `cogging y1 28 22.86 30` -> "bad line"; `print fault_code` on a
+  file with only `drive y2 none` segfaulted.
+- Cause:   the number parser started at the motor's name (n = 0 numbers);
+  fault_code called the unloaded drive's `pin()` (NULL).
+- Fix:     parse the numbers after the name; skip drives that never
+  loaded. `host/portal/tests/portal_retrofit*.test`.
+
+## 2026-10-21  Gantry: Y1 and Y2 fight at 160-235 Hz in the bridge's yaw
+- Area:    gantry drive tuning (`conf0.vel_bw`, `conf0.cur_bw`), `host/portal/machine/retrofit`
+- Status:  Workaround (per machine: cur_bw 2000 or a lower vel_bw)
+- Symptom: Y1 and Y2 currents opposite, +-4 to +-7 A at 160-235 Hz, while
+  moving (laser3015, cmm) or after reversing at slow speed (pcbdrill); with
+  one Y motor, against the bridge's twist (dispenser). Masses, modes, the
+  portal's own machine fine.
+- Cause:   each Y drive is tuned for its share of the moving mass; in the
+  yaw (Y1 against Y2) it moves only 2 J / L^2 of the bridge (18 of 73 kg on
+  the laser, 4.7 of 21.5 kg on the driller): the velocity loop is 4-5x as
+  fast there and meets the default current loop (1000 rad/s). Guide
+  friction damps it on some machines (it appeared without friction on the
+  laser: 11.5 A).
+- Fix:     `conf0.cur_bw = 2000`, or `conf0.vel_bw` 200-300. dynwiz's
+  `mass` and `cogging` steps detect it (a sustained line in the current)
+  and `write` proposes vel_bw x 0.6. Open: a gantry-aware loop (yaw
+  controlled with its own gain, or cross-coupling).
+
+## 2026-10-21  Brake chopper above the drives' max_dc_volt never helps
+- Area:    `host/portal` `bus` lines, real supplies
+- Status:  Note
+- Symptom: HV_VOLT_ERROR at 2 g with a chopper set to switch on at 390 V.
+- Cause:   `conf0.max_dc_volt` is 380 (conf/template/conf.txt): the
+  drives trip before the chopper conducts.
+- Fix:     chopper on below it (360 V in the retrofit files); on a real
+  machine, check the resistor module's threshold against max_dc_volt.
+
+## 2026-10-21  Moving mass from the current: a ringing head biases a per-sample fit
+- Area:    `linuxcnc/dynwiz/dynident.py` (`mass_fit`)
+- Status:  Fixed
+- Symptom: X masses 14 % high (cmm) or 18 % low (pcbdrill); dynwiz would
+  have proposed a wrong conf0.j.
+- Cause:   the head swinging on its springs adds a force that, over the
+  short accelerations (36 ms at 2 g), sits at whatever phase it has.
+- Fix:     fit the impulse: both sides summed over each move's samples;
+  the head's part then is its momentum, which stays small. All five
+  simulated machines within 3 %.
+
+## 2026-10-21  Step-response modes: the base and the servo look like the head
+- Area:    `linuxcnc/dynwiz` (`modes`)
+- Status:  Workaround
+- Symptom: the strongest ring after a step was 17 Hz at the bridge's ends
+  (pcbdrill: its frame on its feet) or 15 Hz everywhere (dispenser: the
+  position loop's own settling, pos_bw 100 rad/s), not the head.
+- Cause:   the scales are on the frame and only see the head through its
+  reaction on the servo-held carriage; a light, stiff head (1.2 kg at
+  85-140 Hz on 1.8 kg) barely shows at all.
+- Fix:     the three strongest peaks per position; a frequency within 3 %
+  at every position is the base's and is left out; the current is used
+  where it is clearer than the scale; a fit that doesn't bend like a bridge
+  is marked doubtful and not written; `--use-tool` for a sensor on the head.
+
+## 2026-10-21  HAL sampler: a second instance needs its own depth
+- Area:    LinuxCNC `sampler` (2.9)
+- Status:  Note
+- Symptom: `loadrt sampler depth=20000 cfg=...,...` then `addf sampler.1`:
+  "function 'sampler.1' not found".
+- Cause:   depth is per instance; an instance without one isn't created.
+- Fix:     `depth=20000,20000`.

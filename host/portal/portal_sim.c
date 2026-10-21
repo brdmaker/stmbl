@@ -180,7 +180,7 @@ static double value(const char *name) {
   if(!strcmp(name, "e_regen")) return pt_B.e_regen;
   if(!strcmp(name, "fault_code")) {  // the first drive in fault: its fault0.fault (common.h)
     for(int k = 0; k < 3; k++) {
-      float *f = pt_drv[k].pin("fault0.fault");
+      float *f = pt_drv[k].pin ? pt_drv[k].pin("fault0.fault") : NULL;  // no y2 drive: an idler
       if(f && *f != 0.0f) return *f;
     }
     return 0;

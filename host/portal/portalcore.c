@@ -206,9 +206,12 @@ int ptcore_line(char *line) {
     P->fy_c = v[0], P->fy_v = v[1];
   } else if(!strcmp(kw, "guidey2") && n == 2) {  // the Y2 side alone (an idler rail)
     P->fy2_c = v[0], P->fy2_v = v[1];
-  } else if(!strcmp(kw, "cogging") && n == 3) {  // cogging y1|y2|x A[N] PERIOD[mm] PHASE[deg]
+  } else if(!strcmp(kw, "cogging")) {  // cogging y1|y2|x A[N] PERIOD[mm] PHASE[deg]
     char name[8];
-    sscanf(p, " %7s", name);
+    int skip = 0;
+    if(sscanf(p, " %7s%n", name, &skip) != 1 || nums(p + skip, v, 8) != 3) {  // the numbers after the name
+      return 0;
+    }
     int k = !strcmp(name, "y1") ? PP_Y1 : !strcmp(name, "y2") ? PP_Y2 : !strcmp(name, "x") ? PP_XM : -1;
     if(k < 0 || v[1] <= 0.0) {
       return 0;
@@ -281,6 +284,10 @@ void ptcore_tool(double out[2]) {
 void ptcore_set_cmd(int k, int en, double pos, double vel) {
   pt_drive *d = &pt_drv[k];
   d->pd.enable = en;
+  if(need_off) {  // the offset not known yet: hold where the drive is (as LinuxCNC follows the feedback)
+    d->pd.pos_cmd = d->pd.pos_fb, d->pd.vel_cmd = 0.0;
+    return;
+  }
   d->pd.pos_cmd = pos - d->off;
   d->pd.vel_cmd = vel;
 }

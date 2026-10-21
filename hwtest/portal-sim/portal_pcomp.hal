@@ -8,7 +8,8 @@
 loadrt [KINS]KINEMATICS
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
 loadrt stmbl_portal portal=[PORTAL]FILE lib=[PORTAL]LIB
-loadrt sampler depth=20000 cfg=ffffffffffffffffffffs
+# sampler.1: linuxcnc/dynwiz's recording (its 11 columns; [DYNWIZ] SAMPLER = 1)
+loadrt sampler depth=20000,20000 cfg=ffffffffffffffffffffs,fffffffffff
 loadrt pcomp
 
 addf motion-command-handler servo-thread
@@ -16,7 +17,9 @@ addf motion-controller      servo-thread
 addf pcomp.0                servo-thread
 addf stmbl-portal.0         servo-thread
 addf sampler.0              servo-thread
+addf sampler.1              servo-thread
 setp sampler.0.enable 0     # portal_run.py records while a program runs
+setp sampler.1.enable 0     # dynwiz links its pins and records itself
 
 net x-pos-cmd  joint.0.motor-pos-cmd  => pcomp.0.x-cmd
 net y1-pos-cmd joint.1.motor-pos-cmd  => pcomp.0.y-cmd

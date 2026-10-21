@@ -9,6 +9,10 @@
 #   make test-pcomp / bench-pcomp   the same with linuxcnc/pcomp's
 #                 conditioning between motion and the drives
 #                 (portal_pcomp.hal, the model in [PCOMP])
+#   make dynwiz   linuxcnc/dynwiz measures the machine through LinuxCNC
+#                 (dynwiz_display.py, with pcomp: portal_pcomp.hal;
+#                 DYNWIZ_STEPS, default run; ~4 min):
+#                 the log and the session in a /tmp directory
 #   make run      LinuxCNC with AXIS
 #
 # Needs host/arm/libstmbl_drive.so and stmbl_portal.so installed:
@@ -33,7 +37,15 @@ test-pcomp:
 bench-pcomp:
 	@LINUXCNC=$(LINUXCNC) $(PY) bench.py --pcomp --accel 2500,5000,10000,20000 --feeds 24000,72000 --out results-pcomp
 
+DYNWIZ_STEPS ?= run
+dynwiz:
+	@d=$$(mktemp -d /tmp/portal-dynwiz.XXXXXX); cp portal.ini portal.hal portal_pcomp.hal tool.tbl portal.var $$d/; \
+	sed -i "s#^DISPLAY = axis#DISPLAY = $(CURDIR)/dynwiz_display.py#; s#^HALFILE = portal.hal#HALFILE = portal_pcomp.hal#; s#= \.\./\.\./#= $(abspath ../..)/#" $$d/portal.ini; \
+	export PATH=$(LINUXCNC)/pybin:$$PATH; . $(LINUXCNC)/scripts/rip-environment >/dev/null; \
+	cd $$d && DYNWIZ_OUT=$$d DYNWIZ_STEPS="$(DYNWIZ_STEPS)" timeout 900 linuxcnc portal.ini > linuxcnc.log 2>&1; \
+	cat $$d/dynwiz.log; echo "(in $$d)"
+
 run:
 	@. $(LINUXCNC)/scripts/rip-environment >/dev/null && linuxcnc portal.ini
 
-.PHONY: test bench test-pcomp bench-pcomp run
+.PHONY: test bench test-pcomp bench-pcomp dynwiz run

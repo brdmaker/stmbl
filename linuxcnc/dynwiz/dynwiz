@@ -1,0 +1,788 @@
+#!/usr/bin/env python3
+"""dynwiz: measure a gantry machine's dynamics through LinuxCNC (or the
+simulator) and set up pcomp and the drives from it. Console only, for a
+headless controller; every step can run on its own and the results collect
+in a session file (JSON), so a GUI can come later on the same steps.
+
+usage: dynwiz [-b lcnc|sim] [--ini FILE] [--portal FILE] [-s SESSION] [-y]
+              STEP [options]
+
+  -b lcnc       a running LinuxCNC: --ini its INI (default $INI_FILE_NAME)
+  -b sim        host/portal/portal_sim on --portal FILE (no LinuxCNC)
+  -s SESSION    results file (default dynwiz.json; a step adds to it)
+  -y            don't ask before moving
+
+Steps (README.md has what each does and how far it moves):
+  check     the drives' configs: settings that cost accuracy
+  mass      moving mass and friction per motor (back-and-forth moves)
+  modes     the head's vibration modes along the bridge and the bridge's
+            racking (small steps at five X positions): pcomp's model
+  circle    the servo's steady lag on a circle (pcomp's servo term)
+  cogging   force ripple against position (slow passes)
+  verify    point-to-point moves with pcomp off and on: settling, residual ring
+  write     the model into the INI's [PCOMP] (with a backup), and drive
+            configs with the suggested changes as CONF.dynwiz files
+  report    what the session holds
+  run       all of them in turn, asking before each
+"""
+import argparse
+import datetime
+import json
+import math
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dynback  # noqa: E402
+import dynident as di  # noqa: E402
+
+DT = 0.001
+
+
+def out(msg=""):
+    print(msg, flush=True)
+
+
+class Ctx:
+    def __init__(self, a, be):
+        self.a = a
+        self.be = be
+        self.m = be.m
+        self.path = a.session
+        self.s = {"machine": be.m.name, "backend": be.describe(), "results": {}}
+        if os.path.exists(self.path):
+            old = json.load(open(self.path))
+            if old.get("machine") == be.m.name:
+                self.s = old
+            else:
+                out("dynwiz: %s holds another machine (%s): starting a new session" % (self.path, old.get("machine")))
+        self.s["backend"] = be.describe()
+
+    def save(self, step, res):
+        res["time"] = datetime.datetime.now().isoformat(timespec="seconds")
+        self.s["results"][step] = res
+        tmp = self.path + ".tmp"
+        json.dump(self.s, open(tmp, "w"), indent=1)
+        os.replace(tmp, self.path)
+
+    def res(self, step):
+        return self.s["results"].get(step)
+
+    def ask(self, what):
+        """Before a step that moves: 1 go, 0 skip; raises SystemExit on quit."""
+        if self.a.yes:
+            return 1
+        while True:
+            try:
+                r = input("%s\n  [Enter] go, s skip, q quit: " % what).strip().lower()
+            except EOFError:
+                raise SystemExit(1)
+            if r in ("", "y", "yes", "g"):
+                return 1
+            if r in ("s", "skip", "n"):
+                return 0
+            if r in ("q", "quit"):
+                raise SystemExit(0)
+
+    def center(self):
+        return 0.5 * sum(self.m.xlim), 0.5 * sum(self.m.ylim)
+
+    def feed(self, axis, frac=1.0):
+        return self.m.vmax[axis] * 60.0 * frac
+
+
+def fmt_hz(r):
+    return "%6.1f Hz  zeta %.3f  snr %4.0f" % (r["f"], r["zeta"], r["snr"])
+
+
+# ---------------------------------------------------------------- check
+CHECKS = """\
+  vel_int0.mode = 1   velocity and acceleration from LinuxCNC's position stream,
+                      the acceleration fed forward (smart-serial carries no acceleration)
+  vel1.bc = 1         the velocity observer without its lag under acceleration
+  conf0.j             the whole moving mass on this motor (linear motors), not the coil's"""
+
+
+def mass_kg(conf, period):
+    j = float(conf.get("conf0.j", "nan")) + float(conf.get("conf0.j_sys", "0") or 0)
+    return j / (period / 1000.0 / (2 * math.pi)) ** 2
+
+
+def step_check(c):
+    res = {"motors": {}}
+    mass = c.res("mass")
+    any_conf = False
+    for k, mo in sorted(c.m.motors.items()):
+        if not mo.get("conf") or not os.path.exists(mo["conf"]):
+            out("  %-3s no drive config (lcnc: [DYNWIZ] CONF_%s = a servoterm-cli --dump of it)" % (k, k.upper()))
+            continue
+        any_conf = True
+        conf = dynback.read_conf(mo["conf"])
+        flags = []
+        if conf.get("vel_int0.mode", "0") != "1":
+            flags.append("vel_int0.mode = 1")
+        if conf.get("vel1.bc", "0") in ("0", "0.0"):
+            flags.append("vel1.bc = 1")
+        vbw = float(conf.get("conf0.vel_bw", "0") or 0)
+        if vbw > 500 and conf.get("vel1.bc", "0") in ("0", "0.0"):
+            flags.append("vel_bw %g: without bc the observer's lag limits it to about 556" % vbw)
+        r = {"conf": mo["conf"], "kf": mo["kf"], "flags": flags}
+        if mo.get("period"):
+            r["j_kg"] = mass_kg(conf, mo["period"])
+            if mass and k in mass.get("motors", {}):
+                mm = mass["motors"][k]["mass"]
+                r["mass_kg"] = mm
+                if abs(r["j_kg"] - mm) > 0.15 * mm:
+                    flags.append("conf0.j is %.1f kg, the motor moves %.1f kg: conf0.j = %.6g" %
+                                 (r["j_kg"], mm, mm * (mo["period"] / 1000.0 / (2 * math.pi)) ** 2))
+        if mass and mass.get("motors", {}).get(k, {}).get("oscillation"):
+            o = mass["motors"][k]["oscillation"]
+            flags.append("the current oscillated (%.2f A at %.0f Hz) in the mass step: conf0.vel_bw lower" % (o["amp"], o["f"]))
+        out("  %-3s %s  Kf %.1f N/A%s" % (k, os.path.basename(mo["conf"]), mo["kf"] or float("nan"),
+                                          "  j = %.1f kg" % r["j_kg"] if "j_kg" in r else ""))
+        for f in flags:
+            out("      -> %s" % f)
+        if not flags:
+            out("      ok")
+        res["motors"][k] = r
+    if any_conf:
+        out("\n" + CHECKS)
+    return res
+
+
+# ---------------------------------------------------------------- mass
+def step_mass(c):
+    xc, yc = c.center()
+    res = {"motors": {}, "axes": {}}
+    for axis in ("x", "y"):
+        lim = c.m.xlim if axis == "x" else c.m.ylim
+        D = min(150.0, 0.3 * (lim[1] - lim[0]))
+        mv = [("to", xc, yc, 3000), ("dwell", 0.2)]
+        for frac in (0.3, 0.6):
+            f = min(c.feed(axis, frac), 600 * 60.0)
+            mv += [("rel", axis, D / 2, f), ("dwell", 0.1), ("rel", axis, -D, f), ("dwell", 0.1), ("rel", axis, D / 2, f), ("dwell", 0.1)]
+        r = c.be.record(mv)
+        cmd = r["cx"] if axis == "x" else r["cy"]
+        motors = ["x"] if axis == "x" else [k for k in ("y1", "y2") if k in c.m.motors]
+        tot = 0.0
+        for k in motors:
+            cur = r["i" + k]
+            if cur is None:
+                out("  %-3s no current recorded" % k)
+                continue
+            fit = di.mass_fit(cmd, cur, DT)
+            kf = c.m.motors[k]["kf"]
+            mo = {"k_a": fit["k_a"], "k_c": fit["k_c"], "i0": fit["i0"], "rms": fit["rms"]}
+            osc = oscillation(cmd, cur, fit)
+            if osc:
+                mo["oscillation"] = osc
+            if kf:
+                mo.update(mass=fit["k_a"] * kf, friction=fit["k_c"] * kf, viscous=fit["k_v"] * kf, push=fit["i0"] * kf)
+                per = c.m.motors[k].get("period")
+                if per:
+                    mo["j"] = mo["mass"] * (per / 1000.0 / (2 * math.pi)) ** 2
+                tot += mo["mass"]
+                out("  %-3s %6.1f kg  friction %5.1f N + %5.1f N s/m  push %5.1f N  (fit rms %.3f A)%s" %
+                    (k, mo["mass"], mo["friction"], mo["viscous"], mo["push"], fit["rms"],
+                     "  conf0.j = %.6g" % mo["j"] if "j" in mo else ""))
+            else:
+                out("  %-3s %.4f A per m/s^2 (no Kf: [DYNWIZ] KF_%s)" % (k, fit["k_a"], k.upper()))
+            if osc:
+                out("      -> the current oscillates, %.2f A at %.0f Hz: the loop is at its limit. Lower conf0.vel_bw "
+                    "(or raise conf0.cur_bw); see README, Oscillation" % (osc["amp"], osc["f"]))
+            res["motors"][k] = mo
+        if tot:
+            res["axes"][axis] = tot
+            out("  %s moves %.1f kg in all" % (axis.upper(), tot))
+    return res
+
+
+def oscillation(cmd, cur, fit=None, vmin=5.0):
+    """A loop at its stability limit: what the force model (fit; without
+    one, a straight line) leaves in the current while moving, as a clear,
+    sustained spectral line. None, or {f, amp}."""
+    v, a = di.derivatives(cmd, DT)
+    if fit is None:
+        fit = {"k_a": 0.0, "k_c": 0.0, "k_v": 0.0, "i0": 0.0}
+    res = [cur[k] - (fit["k_a"] * a[k] / 1000 + fit["k_c"] * (1 if v[k] > 0 else -1) + fit["k_v"] * v[k] / 1000 + fit["i0"])
+           if abs(v[k]) > vmin else None for k in range(len(cmd))]
+    best, run = [], []
+    for r in res + [None]:
+        if r is None:
+            if len(run) > len(best):
+                best = run
+            run = []
+        else:
+            run.append(r)
+    if len(best) < 128:
+        return None
+    mid = max(len(best) // 2 - 300, 0)  # away from the run's ends (its acceleration)
+    seg_ = di.detrend(best[mid:mid + 600], 1)
+    f, amp, snr = di.spectrum_peak(seg_, DT, 20.0, 450.0)
+    # sustained: a limit cycle keeps its amplitude; a mode rung by the
+    # acceleration (the head) dies away over the run
+    env = [v for _, v in di.envelope(seg_, DT, f)]
+    third = max(len(env) // 3, 1)
+    keep = di.mean(env[-third:]) / max(di.mean(env[:third]), 1e-12)
+    if amp > 0.2 and snr > 10 and keep > 0.6:
+        return {"f": f, "amp": amp, "snr": snr, "sustained": keep}
+    return None
+
+
+# ---------------------------------------------------------------- modes
+def step_responses(r, steps, sig, fmin, fmax, t0=0.04, t1=0.38):
+    """Ring-down fits after each step move: the best one (highest snr), and
+    its signal (to fit again at another of its peaks)."""
+    cmd = r["cx"] if sig[0] == "x" else r["cy"]
+    best = None
+    for s, e in di.merge_moves(di.moves(cmd, DT), 5):
+        d = abs(cmd[e] - cmd[s])
+        if not any(abs(d - st) < 1e-3 for st in steps):
+            continue
+        a, b = e + int(t0 / DT), e + int(t1 / DT)
+        if b > r.n():
+            continue
+        y = sig[1](r, a, b, cmd[e])
+        fit = di.ringdown(y, DT, fmin, fmax)
+        fit["step"] = d
+        if best is None or fit["snr"] > best[0]["snr"]:
+            best = (fit, y)
+    return best
+
+
+def near(f, fs, tol):
+    return any(abs(f - g) <= tol * g for g in fs)
+
+
+def base_modes(lists, xpeaks, min_snr, tol=0.03):
+    """Modes of the base (the frame on its feet): a frequency among the
+    clear peaks at every bridge position (the head's y mode changes along
+    the bridge), or at all but one and in the X step as well."""
+    cands = []
+    for pk in lists:
+        for f, _, snr in pk:
+            if snr >= min_snr and not near(f, cands, tol):
+                cands.append(f)
+    out = []
+    for f in cands:
+        n = sum(1 for pk in lists if any(abs(g - f) <= tol * f and snr >= min_snr for g, _, snr in pk))
+        inx = any(abs(g - f) <= tol * f for g, _, snr in xpeaks if snr >= min_snr)
+        if n == len(lists) or (n >= max(len(lists) - 1, 2) and inx):
+            out.append(f)
+    return sorted(out)
+
+
+def pick(resp, base, fmin, fmax, min_snr):
+    """The ring to keep from a step response: the strongest clear peak that
+    is not a base mode (fitted again there)."""
+    fit, y = resp
+    for f, amp, snr in fit["peaks"]:
+        if snr >= min_snr and not near(f, base, 0.06):
+            if abs(f - fit["f"]) < 1e-9:
+                return fit
+            g = di.ringdown(y, DT, fmin, fmax, f=f)
+            g["step"] = fit["step"]
+            return g
+    return fit
+
+
+def seg(col, mult=1.0):
+    return lambda r, a, b, c0: [(v - c0) * mult for v in r[col][a:b]]
+
+
+def ycur(r, a, b, c0):
+    """The Y motors' current (summed): the head's swing pushes on them."""
+    i1 = r["iy1"][a:b]
+    if r.get("iy2") is None:
+        return list(i1)
+    return [p + q for p, q in zip(i1, r["iy2"][a:b])]
+
+
+def xcur(r, a, b, c0):
+    return list(r["ix"][a:b])
+
+
+def best_of(*resps):
+    """Of step responses from different signals, the clearest."""
+    got = [x for x in resps if x]
+    return max(got, key=lambda x: x[0]["snr"]) if got else None
+
+
+def yerr(r, a, b, c0):
+    return [v - c0 for v in r.y()[a:b]]
+
+
+def rack(r, a, b, c0):
+    return [p - q for p, q in zip(r["y1"][a:b], r["y2"][a:b])]
+
+
+def step_modes(c):
+    a = c.a
+    xc, yc = c.center()
+    lo, hi = c.m.xlim
+    xs = [lo + (hi - lo) * u for u in (0.1, 0.3, 0.5, 0.7, 0.9)]
+    steps = [a.step_mm, a.step_mm * 0.37]
+    res = {"y": [], "x": None, "steps": steps}
+    fy = min(c.feed("y"), 3000.0 * 60)
+    two = "y2" in c.m.motors or c.m.idler
+    out("    X [mm]   head y (from the scales or the current)       %s%s" % ("twist y1 - y2 [um/mm]  " if two else "",
+                                                                      "tool (simulation)" if c.m.has_tool else ""))
+    raw = []
+    for X in xs:
+        mv = [("to", X, yc, 6000), ("dwell", 0.4)]
+        for st in steps:
+            mv += [("rel", "y", st, fy), ("dwell", 0.45), ("rel", "y", -st, fy), ("dwell", 0.45)]
+        r = c.be.record(mv)
+        if a.use_tool:  # a sensor on the head (an accelerometer; the simulation's tool point)
+            sc, cu = step_responses(r, steps, ("y", seg("ty")), a.fmin, a.fmax), None
+        else:
+            sc = step_responses(r, steps, ("y", yerr), a.fmin, a.fmax)
+            cu = step_responses(r, steps, ("y", ycur), a.fmin, a.fmax) if r.get("iy1") is not None else None
+        e = {"X": X, "resp": best_of(sc, cu), "alt": (sc, cu)}
+        e["src"] = "current" if cu and e["resp"] is cu else "tool" if a.use_tool else "scale"
+        if r.get("y2") is not None:
+            # the bridge twisting: the ring in y1 - y2 per mm of step (the head's
+            # swing off the bridge's middle shows here; the racking mode itself
+            # needs the Y motors moved against each other, which a gantry can't)
+            e["twist"] = step_responses(r, steps, ("y", rack), a.fmin, a.fmax)[0]
+        if r.get("ty") is not None:
+            e["tool"] = step_responses(r, steps, ("y", seg("ty")), a.fmin, a.fmax)[0]
+        raw.append(e)
+    # x: at the middle
+    fx = min(c.feed("x"), 3000.0 * 60)
+    mv = [("to", xc, yc, 6000), ("dwell", 0.4)]
+    for st in steps:
+        mv += [("rel", "x", st, fx), ("dwell", 0.45), ("rel", "x", -st, fx), ("dwell", 0.45)]
+    r = c.be.record(mv)
+    if a.use_tool:
+        xsc, xcu = step_responses(r, steps, ("x", seg("tx")), a.fmin, a.fmax), None
+    else:
+        xsc = step_responses(r, steps, ("x", seg("x")), a.fmin, a.fmax)
+        xcu = step_responses(r, steps, ("x", xcur), a.fmin, a.fmax) if r.get("ix") is not None else None
+    xresp = best_of(xsc, xcu)
+    xsrc = "current" if xcu and xresp is xcu else "tool" if a.use_tool else "scale"
+    xtool = step_responses(r, steps, ("x", seg("tx")), a.fmin, a.fmax)[0] if r.get("tx") is not None else None
+    # the base's modes, then the head's ring at each position
+    if a.verbose:
+        pk = lambda p: "  ".join("%.1f Hz snr %.0f" % (f, snr) for f, amp, snr in p)  # noqa: E731
+        for e in raw:
+            for name, rr in zip(("scale", "current"), e["alt"]):
+                if rr:
+                    out("    y at X %4.0f, %-7s %s" % (e["X"], name, pk(rr[0]["peaks"])))
+        for name, rr in (("scale", xsc), ("current", xcu)):
+            if rr:
+                out("    x,            %-7s %s" % (name, pk(rr[0]["peaks"])))
+    base = base_modes([e["resp"][0]["peaks"] for e in raw], xresp[0]["peaks"], a.min_snr)
+    res["base_hz"] = base
+    for e in raw:
+        e.pop("alt")
+        e["y"] = pick(e.pop("resp"), base, a.fmin, a.fmax, a.min_snr)
+        line = "  %7.1f   %s %-7s" % (e["X"], fmt_hz(e["y"]), e["src"])
+        if e.get("twist"):
+            line += "   %8.2f @ %5.1f Hz      " % (1000 * e["twist"]["amp"] / e["twist"]["step"], e["twist"]["f"])
+        if e.get("tool"):
+            line += "   %s" % fmt_hz(e["tool"])
+        out(line)
+        res["y"].append(e)
+    res["x"] = {"X": xc, "x": pick(xresp, base, a.fmin, a.fmax, a.min_snr)}
+    res["x"]["src"] = xsrc
+    line = "  head x at the middle:  %s %-7s" % (fmt_hz(res["x"]["x"]), xsrc)
+    if xtool:
+        res["x"]["tool"] = xtool
+        line += "   tool %s" % fmt_hz(xtool)
+    out(line)
+    if base:
+        out("  the base: %s Hz at every position (the frame on its feet?): left out of the head's model; "
+            "pcomp doesn't shape it" % ", ".join("%.1f" % f for f in base))
+    # the model
+    good = [(e["X"], e["y"]["f"]) for e in res["y"] if e["y"]["snr"] >= a.min_snr]
+    if len(good) < 2:
+        out("  too few clear ring-downs (snr >= %g) to fit the bridge: larger --step?" % a.min_snr)
+        return res
+    f_end, f_mid, err = di.beam_fit(good, c.m.x_center, c.m.rails)
+    zs = sorted(e["y"]["zeta"] for e in res["y"] if e["y"]["snr"] >= a.min_snr and e["y"]["zeta"] == e["y"]["zeta"])
+    zeta = zs[len(zs) // 2] if zs else 0.03
+    model = {"fx": res["x"]["x"]["f"], "fy_end": f_end, "fy_mid": f_mid, "zeta": zeta,
+             "rails": c.m.rails, "x_center": c.m.x_center, "jerk_ms": 20}
+    res["model"] = model
+    res["beam_rms_hz"] = err
+    out("  model: FX %.1f  FY_END %.1f  FY_MID %.1f  ZETA %.3f  (beam fit rms %.2f Hz; RAILS %g, X_CENTER %g)" %
+        (model["fx"], f_end, f_mid, zeta, err, c.m.rails, c.m.x_center))
+    fs = [f for _, f in good]
+    if not (f_end == f_end and f_mid == f_mid) or err > 0.1 * di.mean(fs):
+        out("  -> the positions don't fit a bridge bending (rms %.1f Hz): look at the table; a mode that isn't "
+            "the head's may have been picked (--fmin above it)" % err)
+        res["model_doubtful"] = True
+    return res
+
+
+# ---------------------------------------------------------------- circle
+def step_circle(c):
+    xc, yc = c.center()
+    R = c.a.radius
+    acc = 0.5 * min(c.m.acc.values())
+    v = math.sqrt(acc * R)
+    F = v * 60.0
+    r = c.be.record([("to", xc + R, yc, 6000), ("dwell", 0.3), ("circle", xc, yc, R, F, 3), ("dwell", 0.2)])
+    rc = [math.hypot(x - xc, y - yc) for x, y in zip(r["cx"], r["cy"])]
+    idx = [k for k in range(1, r.n() - 1) if abs(rc[k] - R) < 0.005 and (abs(r["cx"][k] - r["cx"][k - 1]) + abs(r["cy"][k] - r["cy"][k - 1])) > 1e-6]
+    if len(idx) < 100:
+        raise RuntimeError("no circle in the recording")
+    n = len(idx)
+    idx = idx[int(0.25 * n):int(0.85 * n)]
+    sub = lambda col: [col[k] for k in idx]  # noqa: E731
+    y = r.y()
+    lag = di.circle_lag(sub(r["cx"]), sub(r["cy"]), sub(r["x"]), sub(y), DT, (xc, yc))
+    out("  R %.1f mm at %.0f mm/s (%.1f m/s^2): the scales' radius %.4f mm, %+.1f um" %
+        (lag["r_cmd"], lag["speed"], lag["acc"] / 1000, lag["r_fb"], (lag["r_fb"] - lag["r_cmd"]) * 1000))
+    out("  tau2 = %.3g s^2%s" % (lag["tau2"], "  (negligible: SERVO 0)" if abs(lag["tau2"]) < 2e-6 else "  (SERVO 1, SERVO_TAU2)"))
+    if r.get("tx") is not None:
+        lag["tool"] = di.circle_lag(sub(r["cx"]), sub(r["cy"]), sub(r["tx"]), sub(r["ty"]), DT, (xc, yc))
+        out("  the tool's radius (simulation): %+.1f um" % ((lag["tool"]["r_fb"] - lag["r_cmd"]) * 1000))
+    return lag
+
+
+# ---------------------------------------------------------------- cogging
+def step_cogging(c):
+    xc, yc = c.center()
+    res = {}
+    v = c.a.cog_speed
+    for axis in ("x", "y"):
+        lim = c.m.xlim if axis == "x" else c.m.ylim
+        span = min(c.a.cog_span, 0.6 * (lim[1] - lim[0]))
+        r = c.be.record([("to", xc, yc, 6000), ("rel", axis, -span / 2, 3000), ("dwell", 0.3),
+                         ("rel", axis, span, v * 60), ("dwell", 0.2), ("rel", axis, -span, v * 60), ("dwell", 0.2)])
+        cmd = r["cx"] if axis == "x" else r["cy"]
+        vel, _ = di.derivatives(cmd, DT)
+        motors = ["x"] if axis == "x" else [k for k in ("y1", "y2") if k in c.m.motors]
+        for k in motors:
+            cur, pos = r["i" + k], r[k] if k != "x" else r["x"]
+            if cur is None:
+                continue
+            ks = [i for i in range(len(vel)) if abs(abs(vel[i]) - v) < 0.05 * v]
+            # averaged over blocks of about 0.2 mm (the fit's cost goes with the samples)
+            nb = max(1, int(round(0.2 / (v * DT))))
+            P, I, S = [], [], []
+            for b in range(0, len(ks) - nb + 1, nb):
+                blk = ks[b:b + nb]
+                if blk[-1] - blk[0] != nb - 1:
+                    continue
+                P.append(di.mean([pos[i] for i in blk]))
+                I.append(di.mean([cur[i] for i in blk]))
+                S.append(1 if vel[blk[0]] > 0 else -1)
+            fit = di.cogging_fit(P, I, S)
+            osc = oscillation(cmd, cur, vmin=0.5 * v)
+            if osc:
+                fit["oscillation"] = osc
+            kf = c.m.motors[k]["kf"] or float("nan")
+            fit["force"] = fit["amp"] * kf
+            fit["clear"] = fit["amp"] > 0.5 * fit["rms"] and fit["force"] > c.a.cog_min
+            per = c.m.motors[k].get("period")
+            line = "  %-3s " % k
+            if fit["clear"]:
+                line += "%.1f N (%.3f A) every %.2f mm, phase %.0f deg" % (fit["force"], fit["amp"], fit["period"], fit["phase"])
+                if per:
+                    pp = c.m.motors[k].get("pp", 1)
+                    fit["pmsm_ttc"] = {"nc": per / fit["period"], "ac": fit["force"] * per / 1000.0 / (2 * math.pi) / pp}
+                    line += "  pmsm_ttc: nc %.3f ac %.4g (pc: from the drive's position, README)" % (fit["pmsm_ttc"]["nc"], fit["pmsm_ttc"]["ac"])
+            else:
+                line += "none above %.1f N (largest %.1f N at %.1f mm; current noise %.3f A)" % (c.a.cog_min, fit["force"], fit["period"], fit["rms"])
+            out(line)
+            if osc:
+                out("      -> the current oscillates at slow speed, %.2f A at %.0f Hz: the loop is at its limit. Lower "
+                    "conf0.vel_bw (or raise conf0.cur_bw); see README, Oscillation" % (osc["amp"], osc["f"]))
+            res[k] = fit
+    return res
+
+
+# ---------------------------------------------------------------- verify
+def ptp_metrics(r, tol, tool):
+    """After each point-to-point move: the time until the tool (or the
+    scales) stays within tol, and the ring left 80 ms after the end."""
+    ms = di.merge_moves(di.moves([a + b for a, b in zip(r["cx"], r["cy"])], DT), 5)
+    out_ = []
+    for s, e in ms[1:]:  # the first: getting to the start
+        X, Y = r["cx"][e], r["cy"][e]
+        px, py = (r["tx"], r["ty"]) if tool else (r["x"], r.y())
+        err = [math.hypot(px[k] - X, py[k] - Y) for k in range(e, min(e + 600, r.n()))]
+        st = di.settle(err, DT, 0, tol, 0.6)
+        ring = max(err[80:]) if len(err) > 80 else 0.0
+        out_.append({"t_settle": st["t_settle"], "peak": st["peak"], "ring": ring})
+    return out_
+
+
+def step_verify(c):
+    xc, yc = c.center()
+    model = (c.res("modes") or {}).get("model")
+    if not model:
+        out("  no model yet: run modes first")
+        return None
+    model = dict(model)
+    ci = c.res("circle")
+    if ci and abs(ci["tau2"]) >= 2e-6:
+        model["servo_tau2"] = ci["tau2"]
+    S = min(c.a.square, 0.2 * (c.m.xlim[1] - c.m.xlim[0]), 0.2 * (c.m.ylim[1] - c.m.ylim[0]))
+    F = min(c.feed("x"), c.feed("y"))
+    mv = [("to", xc - S / 2, yc - S / 2, 6000), ("dwell", 0.5)]
+    for _ in range(2):
+        for dx, dy in ((S, 0), (0, S), (-S, 0), (0, -S), (S, S), (-S, -S)):
+            mv += [("rel", "x", dx, F)] if dx and not dy else [("rel", "y", dy, F)] if dy and not dx else [("to", xc - S / 2 + (S if dx > 0 else 0), yc - S / 2 + (S if dy > 0 else 0), F)]
+            mv.append(("dwell", 0.6))
+    tool = c.m.has_tool
+    res = {"tol_mm": c.a.tol, "by": "tool" if tool else "scales", "square": S}
+    for name, comp in (("off", None), ("on", model)):
+        c.be.set_comp(comp)
+        try:
+            r = c.be.record(mv)
+        finally:
+            c.be.set_comp(None)
+        m = ptp_metrics(r, c.a.tol, tool)
+        res[name] = {"t_settle_ms": 1000 * di.mean([v["t_settle"] for v in m]), "ring_um": 1000 * di.mean([v["ring"] for v in m]),
+                     "peak_um": 1000 * max(v["peak"] for v in m), "moves": len(m)}
+    out("  %d point-to-point moves (%.0f mm, full acceleration), judged by the %s, tolerance %.0f um" %
+        (res["off"]["moves"], S, res["by"], c.a.tol * 1000))
+    out("             settle [ms]   ring 80 ms after [um]")
+    for name in ("off", "on"):
+        v = res[name]
+        st = "%8.0f" % v["t_settle_ms"] if v["t_settle_ms"] < 599 else "    >600"  # the window's end
+        out("  pcomp %-4s %s   %16.1f" % (name, st, v["ring_um"]))
+    if not tool:
+        out("  (the scales don't see the head: with an accelerometer on the tool, give it as [DYNWIZ] TOOL_X/TOOL_Y)")
+    return res
+
+
+# ---------------------------------------------------------------- write
+PCOMP_KEYS = ("SHAPER", "DEFL", "SHRINK", "SERVO", "JERK_MS", "FX", "FY_END", "FY_MID", "ZETA", "RAILS", "X_CENTER", "SERVO_TAU2")
+
+
+def ini_set(text, section, values):
+    """INI text with values set in section (the keys replaced, or added at
+    its end; the section added at the end if missing)."""
+    lines = text.splitlines(True)
+    start = end = None
+    for i, l in enumerate(lines):
+        s = l.strip()
+        if s.startswith("["):
+            if start is not None and end is None:
+                end = i
+            if s == "[%s]" % section:
+                start = i
+    if start is None:
+        add = ["\n[%s]\n" % section, "# dynwiz %s\n" % datetime.date.today().isoformat()] + ["%s = %s\n" % kv for kv in values.items()]
+        return text + ("" if text.endswith("\n") else "\n") + "".join(add)
+    if end is None:
+        end = len(lines)
+    done = set()
+    for i in range(start + 1, end):
+        m = re.match(r"^(\s*)([A-Z_0-9]+)(\s*=\s*)", lines[i])
+        if m and m.group(2) in values:
+            lines[i] = "%s%s%s%s\n" % (m.group(1), m.group(2), m.group(3), values[m.group(2)])
+            done.add(m.group(2))
+    # missing keys after the section's last non-blank line
+    last = end
+    while last > start + 1 and not lines[last - 1].strip():
+        last -= 1
+    lines[last:last] = ["%s = %s\n" % (k, v) for k, v in values.items() if k not in done]
+    return "".join(lines)
+
+
+def conf_set(text, values):
+    lines = text.splitlines(True)
+    done = set()
+    for i, l in enumerate(lines):
+        m = re.match(r"^\s*(\S+)\s*=", l)
+        if m and m.group(1) in values:
+            lines[i] = "%s = %s\n" % (m.group(1), values[m.group(1)])
+            done.add(m.group(1))
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines += ["%s = %s\n" % (k, v) for k, v in values.items() if k not in done]
+    return "".join(lines)
+
+
+def step_write(c):
+    modes = c.res("modes") or {}
+    model = modes.get("model")
+    ini = c.a.ini
+    res = {}
+    if model and modes.get("model_doubtful") and not c.a.force:
+        out("  the modes step's model is doubtful (see its output): not written (--force to write it anyway)")
+        model = None
+    if model and ini:
+        ci = c.res("circle")
+        tau2 = ci["tau2"] if ci and abs(ci["tau2"]) >= 2e-6 else 0.0
+        vals = {"SHAPER": "1", "DEFL": "1", "SHRINK": "1", "SERVO": "1" if tau2 else "0", "JERK_MS": "%g" % model.get("jerk_ms", 20),
+                "FX": "%.1f" % model["fx"], "FY_END": "%.1f" % model["fy_end"], "FY_MID": "%.1f" % model["fy_mid"],
+                "ZETA": "%.3f" % model["zeta"], "RAILS": "%g" % model["rails"], "X_CENTER": "%g" % model["x_center"],
+                "SERVO_TAU2": "%.3g" % tau2}
+        text = open(ini).read()
+        new = ini_set(text, "PCOMP", vals)
+        if new != text:
+            bak = "%s.dynwiz-%s" % (ini, time.strftime("%Y%m%d-%H%M%S"))
+            open(bak, "w").write(text)
+            open(ini, "w").write(new)
+            out("  %s: [PCOMP] %s  (backup %s)" % (ini, " ".join("%s %s" % kv for kv in vals.items()), os.path.basename(bak)))
+        else:
+            out("  %s: [PCOMP] already so" % ini)
+        res["ini"] = ini
+        res["pcomp"] = vals
+    elif model:
+        out("  no --ini: [PCOMP] would be FX %.1f FY_END %.1f FY_MID %.1f ZETA %.3f" % (model["fx"], model["fy_end"], model["fy_mid"], model["zeta"]))
+    mass = (c.res("mass") or {}).get("motors", {})
+    res["confs"] = {}
+    for k, mo in sorted(c.m.motors.items()):
+        conf = mo.get("conf")
+        if not conf or not os.path.exists(conf):
+            continue
+        cur = dynback.read_conf(conf)
+        vals = {}
+        if cur.get("vel_int0.mode", "0") != "1":
+            vals["vel_int0.mode"] = "1"
+        if cur.get("vel1.bc", "0") in ("0", "0.0"):
+            vals["vel1.bc"] = "1"
+        cog = (c.res("cogging") or {}).get(k) or {}
+        if ((k in mass and mass[k].get("oscillation")) or (isinstance(cog, dict) and cog.get("oscillation"))) and cur.get("conf0.vel_bw"):
+            vals["conf0.vel_bw"] = "%g" % round(0.6 * float(cur["conf0.vel_bw"]), -1)
+        if k in mass and "j" in mass[k] and mo.get("period"):
+            have = mass_kg(cur, mo["period"])
+            if abs(have - mass[k]["mass"]) > 0.15 * mass[k]["mass"]:
+                vals["conf0.j"] = "%.6g" % mass[k]["j"]
+                vals["conf0.j_sys"] = "0"
+        if not vals:
+            out("  %-3s %s: nothing to change" % (k, os.path.basename(conf)))
+            continue
+        dst = os.path.join(c.a.conf_out or os.path.dirname(os.path.abspath(c.path)), os.path.basename(conf) + ".dynwiz")
+        open(dst, "w").write(conf_set(open(conf).read(), vals))
+        res["confs"][k] = {"file": dst, "set": vals}
+        out("  %-3s %s: %s" % (k, dst, ", ".join("%s = %s" % kv for kv in vals.items())))
+    if res["confs"]:
+        out("  load a drive's with: servoterm-cli --load FILE (it backs up the old one), then reset the drive")
+    return res
+
+
+# ---------------------------------------------------------------- report
+def step_report(c):
+    R = c.s["results"]
+    out("machine %s, %s" % (c.s["machine"], c.s["backend"]))
+    if "mass" in R:
+        for k, mo in sorted(R["mass"]["motors"].items()):
+            if "mass" in mo:
+                out("  mass    %-3s %6.1f kg, friction %.1f N" % (k, mo["mass"], mo["friction"]))
+    if "modes" in R and "model" in R["modes"]:
+        m = R["modes"]["model"]
+        out("  modes   FX %.1f  FY_END %.1f  FY_MID %.1f  ZETA %.3f" % (m["fx"], m["fy_end"], m["fy_mid"], m["zeta"]))
+    if "circle" in R:
+        out("  circle  tau2 %.3g s^2" % R["circle"]["tau2"])
+    if "cogging" in R:
+        for k, f in sorted(R["cogging"].items()):
+            if not isinstance(f, dict):
+                continue
+            out("  cogging %-3s %s" % (k, "%.1f N every %.2f mm" % (f["force"], f["period"]) if f["clear"] else "none"))
+    if R.get("verify"):
+        v = R["verify"]
+        out("  verify  settle %.0f -> %.0f ms, ring %.1f -> %.1f um (%s)" % (v["off"]["t_settle_ms"], v["on"]["t_settle_ms"],
+                                                                         v["off"]["ring_um"], v["on"]["ring_um"], v["by"]))
+    tr = getattr(c.be, "truth", None)
+    if tr and "head" in tr:
+        h = tr["head"]
+        out("  (the simulated machine's head: FX %g FY_END %g FY_MID %g ZETA %g; moving Y %.1f kg, X %.1f kg)" %
+            (h["fx"], h["fy_end"], h["fy_mid"], h["zeta"], tr.get("bridge", 0) + tr.get("carriage", 0) + h["m"], tr.get("carriage", 0) + h["m"]))
+    return None
+
+
+STEPS = [
+    ("check", step_check, False, "check: the drives' configs"),
+    ("mass", step_mass, True, "mass: back-and-forth moves of each axis about the middle (up to 150 mm, 30-60 % of max speed)"),
+    ("modes", step_modes, True, "modes: small steps in Y at five X positions and in X at the middle"),
+    ("circle", step_circle, True, "circle: three circles about the middle at half the acceleration limit"),
+    ("cogging", step_cogging, True, "cogging: slow passes each way of each axis about the middle"),
+    ("verify", step_verify, True, "verify: point-to-point moves at full acceleration, pcomp off then on"),
+    ("write", step_write, False, "write: [PCOMP] into the INI, drive configs as .dynwiz files"),
+]
+
+
+def run_step(c, name):
+    fn, moves, what = {s[0]: s[1:] for s in STEPS}[name]
+    if moves:
+        if not c.ask("dynwiz: %s" % what):
+            out("  skipped")
+            return
+    else:
+        out("dynwiz: %s" % what)
+    t = time.time()
+    r = fn(c)
+    if r is not None:
+        c.save(name, r)
+    out("  (%.0f s)" % (time.time() - t))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="dynwiz", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", metavar="STEP", choices=[s[0] for s in STEPS] + ["report", "run"])
+    ap.add_argument("-b", "--backend", choices=("lcnc", "sim"), default="lcnc")
+    ap.add_argument("--ini", default=os.environ.get("INI_FILE_NAME"))
+    ap.add_argument("--portal", help="sim: the portal file")
+    ap.add_argument("--acc", type=float, help="sim: the axes' acceleration limit [mm/s^2] (else the portal file's #@dynwiz line)")
+    ap.add_argument("--vmax", type=float, help="sim: their speed limit [mm/s]")
+    ap.add_argument("--sim-line", action="append", default=[], metavar="LINE",
+                    help="sim: a portal_sim line before the drives are enabled, e.g. 'drv y1 conf0.vel_bw = 300' (repeatable)")
+    ap.add_argument("-s", "--session", default="dynwiz.json")
+    ap.add_argument("-y", "--yes", action="store_true")
+    ap.add_argument("-v", "--verbose", action="store_true", help="more detail (modes: every position's spectral peaks)")
+    ap.add_argument("--use-tool", action="store_true",
+                    help="modes: identify from the head's own sensor ([DYNWIZ] TOOL_X/TOOL_Y: an accelerometer will do; "
+                         "the simulation's tool point) instead of the scales and currents")
+    ap.add_argument("--force", action="store_true", help="write: also a model the modes step doubted")
+    ap.add_argument("--step", dest="step_mm", type=float, default=1.0, help="modes: step size [mm] (and 0.37 of it)")
+    ap.add_argument("--fmin", type=float, default=14.0, help="modes: lowest frequency looked for [Hz]")
+    ap.add_argument("--fmax", type=float, default=250.0)
+    ap.add_argument("--min-snr", type=float, default=6.0)
+    ap.add_argument("--radius", type=float, default=20.0, help="circle: radius [mm]")
+    ap.add_argument("--cog-speed", type=float, default=20.0, help="cogging: speed [mm/s]")
+    ap.add_argument("--cog-span", type=float, default=300.0, help="cogging: length of a pass [mm]")
+    ap.add_argument("--cog-min", type=float, default=2.0, help="cogging: smallest ripple reported [N]")
+    ap.add_argument("--square", type=float, default=100.0, help="verify: move length [mm]")
+    ap.add_argument("--tol", type=float, default=0.01, help="verify: settling tolerance [mm]")
+    ap.add_argument("--conf-out", help="write: where CONF.dynwiz files go (default: the session's directory)")
+    a = ap.parse_args()
+    if a.backend == "sim":
+        if not a.portal:
+            ap.error("-b sim needs --portal FILE")
+        be = dynback.SimBackend(a.portal, acc=a.acc, vmax=a.vmax, extra=a.sim_line)
+    else:
+        if not a.ini:
+            ap.error("-b lcnc needs --ini (or INI_FILE_NAME)")
+        be = dynback.LcncBackend(a.ini)
+        why = be.ready()
+        if why:
+            sys.exit("dynwiz: LinuxCNC: %s" % why)
+    if a.use_tool and not be.m.has_tool:
+        ap.error("--use-tool: no head sensor ([DYNWIZ] TOOL_X/TOOL_Y)")
+    c = Ctx(a, be)
+    out("dynwiz: %s" % be.describe())
+    m = be.m
+    out("  X %g..%g  Y %g..%g mm, acceleration X %g Y %g mm/s^2, motors %s%s" %
+        (m.xlim[0], m.xlim[1], m.ylim[0], m.ylim[1], m.acc["x"], m.acc["y"], " ".join(sorted(m.motors)), ", Y2 an idler rail" if m.idler else ""))
+    try:
+        name = a.cmd
+        if name == "report":
+            step_report(c)
+        elif name == "run":
+            if a.backend == "lcnc" and not a.yes:
+                c.ask("dynwiz moves the machine at up to its INI limits. The work area clear, E-stop at hand?")
+            for s in STEPS:
+                run_step(c, s[0])
+            out()
+            step_report(c)
+        else:
+            run_step(c, name)
+    except RuntimeError as e:
+        sys.exit("dynwiz: %s" % e)
+    except KeyboardInterrupt:
+        sys.exit("dynwiz: interrupted")
+
+
+if __name__ == "__main__":
+    main()

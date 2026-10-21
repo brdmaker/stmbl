@@ -15,7 +15,7 @@ Each drive is a copy of the real drive code (`libstmbl_drive.so`, as in `host/ar
 - **Guide friction:** Coulomb and viscous, per side.
 - **The DC bus** is shared: 230 V mains through a diode bridge, the drives' own 3 × 470 µF, and an optional brake chopper. Braking energy can't go back to the mains.
 
-Machine numbers are guesses for a light laser / router portal (`machine/portal.portal`). Motor numbers are Baldor's catalog (`docs/baldor_linear.md`).
+Machine numbers are guesses for a light laser / router portal (`machine/portal.portal`). Motor numbers are Baldor's catalog (`docs/baldor_linear.md`). Four imaginary retrofit machines (a laser flatbed, a dispenser with one Y motor, a CMM, a PCB driller) are in `machine/retrofit` (its README), and `linuxcnc/dynwiz` measures any of them.
 
 ```
 make                 # portal_sim (and ../arm/libstmbl_drive.so)

@@ -76,7 +76,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       float T  = 1.0 / MAX(PIN(cmd_freq), 1.0);
       float d1 = ctx->n >= 1 ? minus(p, ctx->p1) : 0.0;
       float d0 = ctx->n >= 2 ? minus(ctx->p1, ctx->p2) : 0.0;
-      if(v == 0.0 || d1 == 0.0 || ctx->n < 2) {  // stopped (or starting): hold
+      int stop = v == 0.0 || d1 == 0.0;
+      if(stop || ctx->n < 2) {  // stopped (or starting): hold
         ctx->v = d1 / T, ctx->a = 0.0;
         if(v == 0.0) {
           ctx->v = 0.0;
@@ -85,8 +86,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         ctx->a = (d1 - d0) / (T * T);
         ctx->v = d1 / T + ctx->a * T * 0.5;
       }
-      ctx->p2 = ctx->p1, ctx->p1 = p;
-      ctx->n  = ctx->n < 2 ? ctx->n + 1 : 2;
+      // after a stop the history is "standing at p": standing still the
+      // packets repeat and aren't new, so p2 would stay whatever came before
+      // the stop (a jump while disabled, say), and the next move's first
+      // acceleration would be (d1 - that) / T^2
+      ctx->p2 = stop ? p : ctx->p1;
+      ctx->p1 = p;
+      ctx->n  = stop ? 2 : ctx->n < 2 ? ctx->n + 1 : 2;
       ctx->t  = 0.0;
       ctx->counter = 0.0;
       ctx->last_p = p, ctx->last_v = v;

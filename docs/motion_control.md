@@ -88,7 +88,7 @@ For each drive, after the motor is identified (setup wizard or `rlpsij`):
 2. **Turn both settings on:** `vel_int0.mode = 1` and `vel1.bc = 1`.
 3. **Pick the gains.** Start at pos_bw 60, vel_bw 400–600. With `bc` on, vel_bw is the real bandwidth. If you come from a tuning without it, the old vel_bw behaved like vel_bw/(1 − 2d·vel_bw/w): about twice the number for typical values.
 4. **Judge the tuning while moving, not at standstill.** Guide friction acts as heavy damping around zero speed, so a loop that rings in motion can hold perfectly still. Run constant-speed moves and acceleration steps, and watch `pid0.pos_error` and the current.
-5. **Raise vel_bw until the first mechanical resonance shows** (ringing at a fixed frequency after acceleration steps), then back off 30 %. On a gantry this is often the racking mode: the two Y loops against the bridge's yaw.
+5. **Raise vel_bw until the first mechanical resonance shows** (ringing at a fixed frequency after acceleration steps), then back off 30 %. On a gantry this is often the racking mode: the two Y loops against the bridge's yaw. In the yaw each Y motor moves only `2 J / L²` of the bridge, a quarter or less of the mass it is tuned for, so its loop is that much faster there. With the default current loop (`cur_bw` 1000 rad/s) four of the five simulated gantries fought at 160–235 Hz with vel_bw 500: raise `conf0.cur_bw` to 2000 or lower vel_bw (`host/portal/machine/retrofit/README.md`). `dynwiz mass` and `dynwiz cogging` detect it.
 6. **Then pos_bw:** typically vel_bw/5 to vel_bw/4.
 
 ## pcomp: model-based command conditioning
@@ -131,6 +131,15 @@ The model only has to be roughly right: with all frequencies 10 % off the result
 
 ## Measuring the machine
 
+**`linuxcnc/dynwiz` does all of this from the console.** It moves the machine through LinuxCNC and records every servo cycle. It finds:
+- the masses (`conf0.j`);
+- the head's modes along the bridge;
+- `tau2`;
+- cogging;
+- loops at their limit.
+
+It then verifies pcomp and writes `[PCOMP]` and suggested drive configs. Each step runs on its own: `dynwiz mass`, `dynwiz modes`, ..., or all of them with `dynwiz run`. Its README covers setting up a machine (`[DYNWIZ]`), safety and reading the results. The rest of this section is what it does, by hand.
+
 ### Head modes: the step test
 
 1. Stand the axis still, with the drives tuned.
@@ -163,6 +172,14 @@ All in one HAL `sampler` row per servo cycle:
 ## Testing in simulation
 
 Everything below runs without hardware. The drives are the real drive code (`libstmbl_drive.so`); the machines are simulated plants.
+
+Besides the portal (`host/portal/machine/portal.portal`) there are four imaginary retrofit machines in `host/portal/machine/retrofit`:
+- a 3 × 1.5 m laser on iron-core motors;
+- a dispenser with one Y motor and an idler rail;
+- a CMM on air bearings;
+- a 2 g PCB driller.
+
+Their README has what each needed. `linuxcnc/dynwiz`'s `make test-sim` runs the wizard on all of them and checks what it finds against their files; `make -C hwtest/portal-sim dynwiz` runs it through LinuxCNC.
 
 ### Host suite
 
@@ -251,7 +268,9 @@ These are 99th-percentile path errors.
   - the velocity must not be a backward difference;
   - feedback re-referencing must pair *this* period's command with the *previous* output.
 - **Make sure the speed limit is real.** The motor's back-EMF at speed must stay below the DC bus. In the simulator, Y tops out at 1.8 m/s on 230 V mains.
-- **Braking needs capacitance or a chopper.** A fast stop lifted the simulated bus from 325 to 373 V on the drives' own 1.4 mF.
+- **Braking needs capacitance or a chopper.** A fast stop lifted the simulated bus from 325 to 373 V on the drives' own 1.4 mF. The chopper must switch on below the drives' `conf0.max_dc_volt` (380 V), or they trip first.
+- **Gantry yaw.** Each Y loop is tuned for its share of the mass, but in the bridge's yaw it moves much less: Y1 and Y2 can fight at 150–250 Hz. Raise `cur_bw` or lower `vel_bw` (Tuning procedure, step 5).
+- **The scales may not see the head.** A light, stiff head barely moves a servo-held carriage, and the frame on its feet or the position loop's own settling can ring louder. `dynwiz modes` sets aside a base mode, marks a fit that doesn't bend like a bridge as doubtful, and can use a sensor on the head (`--use-tool`).
 - **Two LinuxCNC HAL gotchas:**
   - A HAL pin can be on only one signal: join the existing signal rather than netting the pin again.
   - The `sampler` records from load time unless `sampler.0.enable` is set to 0.
