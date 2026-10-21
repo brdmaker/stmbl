@@ -34,6 +34,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CLI = os.path.join(REPO, "servoterm-cli", "servoterm-cli")
 HAL_FILE = os.path.join(HERE, "phasing.hal")
+sys.path.insert(0, os.path.join(HERE, ".."))
+import hm2_driver  # noqa: E402
 WORKER = os.path.join(HERE, "phasing_worker.py")
 
 
@@ -92,7 +94,10 @@ class Suite:
 
     def hal_start(self):
         self.hal_stop()
-        self.hal = subprocess.Popen(["halrun", "-f", HAL_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        # phasing.hal with the bench's SPI driver (hwtest/burnin/stmbl.ini)
+        hal = os.path.join(self.dir, "phasing.hal")
+        open(hal, "w").write(open(HAL_FILE).read().replace("loadrt hm2_rpspi\n", hm2_driver.loadrt() + "\n"))
+        self.hal = subprocess.Popen(["halrun", "-f", hal], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True)
         end = time.time() + 20
         while time.time() < end:

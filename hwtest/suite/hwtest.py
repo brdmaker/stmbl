@@ -32,6 +32,9 @@ import math
 
 import serial
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import hm2_driver  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CLI = os.path.join(REPO, "servoterm-cli", "servoterm-cli")
@@ -547,7 +550,7 @@ def t_setsserial(ctx):
     if built.encode() not in img:
         raise Skip("%s is not the repo build (make ssfw_install)" % SSFW)
     hal = os.path.join(ctx.dir, "setsserial.hal")
-    open(hal, "w").write('loadrt hostmot2 sserial_baudrate=115200\nloadrt hm2_rpspi\n'
+    open(hal, "w").write('loadrt hostmot2 sserial_baudrate=115200\n' + hm2_driver.loadrt() + '\n'
                          'loadrt setsserial cmd="flash %ssibl.0.0 stmbl/STMBL_SS.BIN"\n'
                          % ctx.a.prefix.replace("stbl.0.0.", ""))
     ctx.cli(ctx.a.usb, "-c", "hardboot", quiet=0.3, timeout=20)
@@ -980,6 +983,48 @@ def t_rt(ctx):
     need(h["rt_max"] < ctx.a.rt_fail * h["rt_period"], "rt max %.1f us of %.0f" % (h["rt_max"], h["rt_period"]))
     note = " (above %.0f%%: see DEBUGNOTES rt worst case)" % (ctx.a.rt_note * 100) if h["rt_max"] > ctx.a.rt_note * h["rt_period"] else ""
     return "rt max %.1f us, frt max %.1f us%s" % (h["rt_max"], h["frt_max"] or 0, note)
+
+
+@test("lcnc", "Pi side: servo thread and the card's read/write times (SPI driver)", targets=("hw",))
+def t_host_timing(ctx):
+    """LinuxCNC's own timing of the servo thread and hostmot2's read and
+    write functions (rtapi clocks: ns on the Pi), recorded to compare SPI
+    drivers and clocks (hwtest/burnin/stmbl.ini [HOSTMOT2])."""
+    board = ctx.a.prefix.split(".")[0] + ".0"
+    def getp(name):
+        r = subprocess.run(["halcmd", "getp", name], capture_output=True, text=True, timeout=10)
+        try:
+            return int(r.stdout.strip())
+        except ValueError:
+            return None
+
+    # .time is the last period's: average 50 samples over ~5 s; .tmax is
+    # the largest since it was last cleared: cleared here, read after 10 s
+    # of running (start-up excluded)
+    for part in ("servo-thread", board + ".read", board + ".write"):
+        subprocess.run(["halcmd", "setp", part + ".tmax", "0"], timeout=10)
+    time.sleep(10.0)
+    vals = {}
+    for part in ("servo-thread", board + ".read", board + ".write"):
+        samples = []
+        for _ in range(50):
+            v = getp(part + ".time")
+            if v is not None:
+                samples.append(v)
+            time.sleep(0.1 / 3)
+        vals[part + ".time"] = int(sum(samples) / len(samples)) if samples else None
+        vals[part + ".tmax"] = getp(part + ".tmax")
+    ctx.note("host timing %r" % vals)
+    drv = "%s %s" % hm2_driver.driver()
+    for k, v in vals.items():  # host_servo_tmax, host_read_time, ...
+        part, what = k.rsplit(".", 1)
+        ctx.m("host_%s_%s" % ("servo" if part == "servo-thread" else part.rsplit(".", 1)[-1], what), v)
+    ctx.m("host_driver", drv)
+    need(all(v is not None for v in vals.values()), "missing: %r" % vals)
+    us = lambda v: v / 1000.0
+    return "%s: servo %.0f us (max %.0f), read %.0f (max %.0f), write %.0f (max %.0f)" % (
+        drv, us(vals["servo-thread.time"]), us(vals["servo-thread.tmax"]), us(vals[board + ".read.time"]),
+        us(vals[board + ".read.tmax"]), us(vals[board + ".write.time"]), us(vals[board + ".write.tmax"]))
 
 
 @test("lcnc", "end: machine off disables the drive; no reboot, no crash, config unchanged")

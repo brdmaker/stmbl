@@ -7,7 +7,8 @@
 #   tools/ssflash.sh --in-loader  the drive is already in the loader (broken
 #                               application, or sserialboot sent elsewhere)
 #
-# Environment: HM2_CARD (hm2_7c81), HM2_DRIVER (hm2_rpspi), HM2_CONFIG
+# Environment: HM2_CARD (hm2_7c81), HM2_DRIVER (the loadrt line's driver and
+# parameters; default from hwtest/burnin/stmbl.ini [HOSTMOT2]), HM2_CONFIG
 # (the driver's config string, if any), DEV (/dev/ttyACM0).
 # LinuxCNC and halrun must not be running; the drive must be disabled.
 set -e
@@ -16,7 +17,7 @@ REPO=$(cd "$HERE/.." && pwd)
 CLI=$REPO/servoterm-cli/servoterm-cli
 DEV=${DEV:-/dev/ttyACM0}
 CARD=${HM2_CARD:-hm2_7c81}
-DRIVER=${HM2_DRIVER:-hm2_rpspi}
+DRIVER=${HM2_DRIVER:-$(python3 "$REPO/hwtest/hm2_driver.py" | sed "s/^loadrt //")}
 IMAGE=stmbl/STMBL_SS.BIN
 
 if pgrep -x milltask >/dev/null || pgrep -x rtapi_app >/dev/null; then

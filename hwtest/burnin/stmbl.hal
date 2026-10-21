@@ -1,7 +1,7 @@
 loadrt [KINS]KINEMATICS
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
 loadrt hostmot2 debug_pin_descriptors=1
-loadrt hm2_rpspi config=[HOSTMOT2](CONFIG)
+loadrt [HOSTMOT2](DRIVER) config=[HOSTMOT2](CONFIG) [HOSTMOT2](DRIVER_PARAMS)
 loadrt estop_latch
 
 setp    hm2_[HOSTMOT2](BOARD).0.watchdog.timeout_ns 50000000
