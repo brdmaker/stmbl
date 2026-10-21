@@ -44,18 +44,36 @@ TOOLSETTER = 980 20 -40 -130 100
 """
 
 
+class FakeHal:
+    """hal.get_value / set_p over a dict of pins."""
+
+    def __init__(self, pins):
+        self.pins = pins
+
+    def get_value(self, name):
+        if name not in self.pins:
+            raise NameError(name)
+        return self.pins[name]
+
+    def set_p(self, name, v):
+        self.pins[name] = v
+
+
 class Base(unittest.IsolatedAsyncioTestCase):
+    INI_EXTRA = ""   # more [MILLWEB] keys
+    HAL = None
+
     async def asyncSetUp(self):
         lc.M.reset()
         lc.M.g5x[:3] = [440.0, 460.0, -195.0]  # what LinuxCNC read from sim.var
         self.d = tempfile.mkdtemp(prefix="millweb-test.")
-        open(os.path.join(self.d, "m.ini"), "w").write(INI)
+        open(os.path.join(self.d, "m.ini"), "w").write(INI + self.INI_EXTRA)
         open(os.path.join(self.d, "tool.tbl"), "w").write("T3 P3 D6.0 Z+48.13 ;6 mm endmill\nT5 P5 D5 Z71.9 ;drill\n")
         open(os.path.join(self.d, "sim.var"), "w").write("5221 440.0\n5222 460.0\n5223 -195.0\n")
         os.makedirs(os.path.join(self.d, "nc"))
         open(os.path.join(self.d, "nc", "a.ngc"), "w").write("G0 X1\nM2\n")
         cfg = machine.Config(os.path.join(self.d, "m.ini"))
-        self.m = machine.Machine(cfg, lc, None)
+        self.m = machine.Machine(cfg, lc, self.HAL)
         self.hub = millweb.Hub(self.m, cfg, asyncio.Event())
         self.srv = await wsserver.Server(millweb.WEBROOT, self.hub.handle).serve("127.0.0.1", 0)
         self.port = self.srv.sockets[0].getsockname()[1]
@@ -86,6 +104,12 @@ class Base(unittest.IsolatedAsyncioTestCase):
             if m["t"] == "reply" and m["id"] == ws.n:
                 return m
             ws.inbox.append(m)
+
+    async def ready(self, ws):
+        await self.call(ws, "control", take=True)
+        for op, kw in (("estop", {"on": False}), ("power", {"on": True}), ("home", {"axis": "all"})):
+            r = await self.call(ws, op, **kw)
+            self.assertTrue(r["ok"], (op, r))
 
     async def until(self, ws, pred, timeout=3.0):
         loop = asyncio.get_event_loop()
@@ -225,6 +249,129 @@ class Protocol(Base):
         # tool load
         self.assertTrue((await self.call(ws, "tool_load", t=7))["ok"])
         st = await self.until(ws, lambda m: m["t"] == "st" and m.get("tool") == 7)
+        await ws.close()
+
+
+    async def test_ping_events_unknown_and_bugs(self):
+        ws = await self.client()
+        r = await self.call(ws, "ping")  # no control needed
+        self.assertTrue(r["ok"])
+        self.assertIn("time", r)
+        r = await self.call(ws, "events", n=2)
+        self.assertTrue(r["ok"])
+        self.assertTrue(1 <= len(r["events"]) <= 2)
+        await ws.send("not json")
+        await ws.send("[1]")
+        await self.call(ws, "control", take=True)
+        r = await self.call(ws, "frobnicate")
+        self.assertFalse(r["ok"])
+        self.assertIn("unknown op", r["err"])
+        r = await self.call(ws, "wcs", index=12)  # an IndexError inside: still a reply
+        self.assertFalse(r["ok"])
+
+        async def boom(c, m):
+            raise RuntimeError("bug")
+        self.hub.op_ping = boom
+        r = await self.call(ws, "ping")
+        self.assertFalse(r["ok"])
+        self.assertIn("internal error", r["err"])
+        await self.until(ws, lambda m: m["t"] == "ev" and "ping failed" in m["text"])
+        await ws.close()
+
+    async def test_power_off_and_release(self):
+        ws = await self.client()
+        await self.ready(ws)
+        r = await self.call(ws, "power", on=False)  # reads back as ESTOP_RESET
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(lc.M.task_state, lc.STATE_ESTOP_RESET)
+        self.assertTrue((await self.call(ws, "control", take=False))["ok"])
+        await self.until(ws, lambda m: m["t"] == "ev" and "released control" in m["text"])
+        await ws.close()
+
+    async def test_tool_zero_unloads(self):
+        ws = await self.client()
+        await self.ready(ws)
+        await self.call(ws, "tool_load", t=3)
+        self.assertIn("T3 M6 G43", lc.M.mdi_log)
+        await self.call(ws, "tool_load", t=0)
+        self.assertIn("T0 M6 G49", lc.M.mdi_log)
+        await ws.close()
+
+    async def test_urgent_commands_dont_wait(self):
+        ws = await self.client()
+        await self.ready(ws)
+        await self.call(ws, "tool_load", t=3)
+        for op, kw, why in (("estop", {"on": True}, "stopped"), ("cycle", {"action": "stop"}, "stopped")):
+            if op == "cycle":
+                await self.ready(ws)
+            lc.M.slow = True
+            ws.n += 1
+            n = ws.n
+            await ws.send_json({"op": "tool_measure", "id": n})  # waits on the busy interpreter
+            await asyncio.sleep(0.3)
+            t0 = asyncio.get_event_loop().time()
+            r = await self.call(ws, op, **kw)
+            self.assertTrue(r["ok"])
+            self.assertLess(asyncio.get_event_loop().time() - t0, 0.5, op + " waited")
+            lc.M.slow = False
+            m = await self.until(ws, lambda m: m["t"] == "reply" and m["id"] == n)
+            self.assertFalse(m["ok"])
+            self.assertIn(why, m["err"])
+            # nothing more was sent after the stop
+            self.assertFalse(any(x.startswith("G53 G0 X") for x in lc.M.mdi_log[lc.M.mdi_log.index("G49"):][2:]))
+            lc.M.mdi_log.clear()
+        await ws.close()
+
+
+class Token(Base):
+    INI_EXTRA = "TOKEN = s3cret\n"
+
+    async def test_token(self):
+        ws = await self.client()
+        self.assertTrue(ws.hello["machine"]["token_required"])
+        self.assertIn("token", (await self.call(ws, "control", take=True))["err"])
+        self.assertIn("token", (await self.call(ws, "control", take=True, token="x"))["err"])
+        self.assertTrue((await self.call(ws, "estop", on=True))["ok"])  # E-STOP needs none
+        self.assertTrue((await self.call(ws, "control", take=True, token="s3cret"))["ok"])
+        await ws.close()
+
+
+class HoldOnLoss(Base):
+    INI_EXTRA = "ON_CONTROL_LOSS = hold\n"
+
+    async def test_hold(self):
+        a, b = await self.client(), await self.client()
+        await self.ready(a)
+        lc.M.task_mode = lc.MODE_AUTO
+        lc.M.interp_state = lc.INTERP_READING
+        await self.until(b, lambda m: m["t"] == "st" and m.get("run") == "run")
+        await a.close()
+        await self.until(b, lambda m: m["t"] == "ev" and "feed hold" in m["text"])
+        self.assertTrue(lc.M.paused)
+        await b.close()
+
+
+class RemoteKey(Base):
+    INI_EXTRA = "REMOTE_ENABLE_PIN = key.in\nAIR_PIN = air.in\n"
+
+    async def asyncSetUp(self):
+        self.HAL = FakeHal({"key.in": True, "air.in": False})
+        await super().asyncSetUp()
+
+    async def test_remote_key(self):
+        ws = await self.client()
+        await self.ready(ws)
+        self.assertTrue((await self.call(ws, "coolant", k="air", on=True))["ok"])
+        self.assertEqual(self.HAL.pins["air.in"], "1")
+        self.HAL.pins["key.in"] = False
+        await self.until(ws, lambda m: m["t"] == "control" and m["holder"] is None)
+        self.assertIn("switched off", (await self.call(ws, "control", take=True))["err"])
+        self.assertIn("control", (await self.call(ws, "mdi", cmd="G0 X1"))["err"])
+        self.assertTrue((await self.call(ws, "estop", on=True))["ok"])
+        ws.inbox.clear()
+        self.HAL.pins["key.in"] = True
+        await self.until(ws, lambda m: m["t"] == "slow" and m.get("remote") is True)
+        self.assertTrue((await self.call(ws, "control", take=True))["ok"])
         await ws.close()
 
 

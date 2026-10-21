@@ -12,21 +12,14 @@ Exit status 0 when every check passed.
 import argparse
 import asyncio
 import os
-import re
-import shutil
-import signal
-import socket
 import subprocess
 import sys
-import tempfile
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MILL = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(MILL, "server"))
-import wsserver  # noqa: E402
+sys.path.insert(0, HERE)
+import harness  # noqa: E402
+from client import C  # noqa: E402
 
-LINUXCNC = os.environ.get("LINUXCNC", "/home/user/linuxcnc-2.9")
 CHROME = os.environ.get("CHROME", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome")
 fails = []
 
@@ -37,65 +30,11 @@ def check(cond, what):
         fails.append(what)
 
 
-def free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
-
-
 def ok(r):
     """A reply's ok; its reason printed when it failed."""
     if not r.get("ok"):
         print("      (%s)" % r.get("err"), flush=True)
     return bool(r.get("ok"))
-
-
-class C:
-    """A test client: replies by id, everything else kept in order."""
-
-    def __init__(self, ws):
-        self.ws, self.n, self.st, self.msgs = ws, 0, {}, []
-
-    @classmethod
-    async def open(cls, port):
-        c = cls(await wsserver.connect("127.0.0.1", port))
-        c.hello = await c.ws.recv_json(10)
-        c.task = asyncio.ensure_future(c.reader())
-        c.replies = {}
-        return c
-
-    async def reader(self):
-        while True:
-            m = await self.ws.recv_json(3600)
-            if m is None:
-                return
-            if m["t"] == "st":
-                self.st.update(m)
-            if m["t"] == "reply":
-                self.replies[m["id"]] = m
-            self.msgs.append(m)
-
-    async def call(self, op, timeout=130, **kw):
-        self.n += 1
-        n = self.n
-        await self.ws.send_json({"op": op, "id": n, **kw})
-        end = time.time() + timeout
-        while n not in self.replies and time.time() < end:
-            await asyncio.sleep(0.02)
-        return self.replies.pop(n, {"ok": False, "err": "no reply"})
-
-    async def until(self, pred, timeout=15.0):
-        end = time.time() + timeout
-        while time.time() < end:
-            if pred(self):
-                return True
-            await asyncio.sleep(0.05)
-        return False
-
-    def seen(self, pred):
-        return next((m for m in self.msgs if pred(m)), None)
 
 
 async def scenario(port, shot):
@@ -185,8 +124,8 @@ async def scenario(port, shot):
     check(not r["ok"], "the watching browser can't send MDI")
     check(ok(await b.call("estop", on=True)), "the watching browser can press E-STOP")
     check(await a.until(lambda c: c.st.get("estop") is True and c.st.get("on") is False), "E-STOP: the machine is off")
-    await b.ws.close()
-    await a.ws.close()
+    await b.close()
+    await a.close()
     if fails:  # what the machine said
         for m in a.msgs:
             if m["t"] == "ev":
@@ -203,19 +142,6 @@ def screenshot(port, path):
     print("screenshot:", path, flush=True)
 
 
-def millweb_pids():
-    out = []
-    for p in os.listdir("/proc"):
-        if p.isdigit():
-            try:
-                cmd = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
-            except OSError:
-                continue
-            if any(c.endswith(b"webui/mill/millweb") for c in cmd) and int(p) != os.getpid():
-                out.append(int(p))
-    return out
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="keep the temporary directory")
@@ -223,53 +149,17 @@ def main():
     ap.add_argument("--browser", nargs="?", const="", help="also drive the page in headless Chromium (Playwright); "
                     "optionally a screenshot file")
     args = ap.parse_args()
-    if os.geteuid() == 0:
-        sys.exit("run as a non-root user (LinuxCNC's rtapi_app refuses root)")
-    d = tempfile.mkdtemp(prefix="millweb-live.")
-    shutil.copytree(os.path.join(HERE, "sim"), d, dirs_exist_ok=True)
-    port = free_port()
-    ini = open(os.path.join(d, "mill.ini")).read()
-    ini = re.sub(r"(?m)^DISPLAY = .*", "DISPLAY = " + os.path.join(MILL, "millweb"), ini)
-    ini = re.sub(r"(?m)^PORT = .*", "PORT = %d" % port, ini)
-    ini = re.sub(r"(?m)^HOST = .*", "HOST = 127.0.0.1", ini)
-    open(os.path.join(d, "mill.ini"), "w").write(ini)
-    sh = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1"
-          % (LINUXCNC, LINUXCNC, d))
-    lc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
-    try:
-        t = time.time() + 60
-        while time.time() < t:
-            try:
-                socket.create_connection(("127.0.0.1", port), 1).close()
-                break
-            except OSError:
-                time.sleep(0.5)
-        else:
-            print(open(os.path.join(d, "linuxcnc.log")).read()[-3000:])
-            sys.exit("millweb didn't come up")
-        print("millweb up on port %d (%s)" % (port, d), flush=True)
-        asyncio.run(asyncio.wait_for(scenario(port, args.shot), 300))
+    with harness.Machine(keep=args.keep) as m:
+        print("millweb up on port %d (%s)" % (m.port, m.dir), flush=True)
+        asyncio.run(asyncio.wait_for(scenario(m.port, args.shot), 300))
         if args.browser is not None:
             env = dict(os.environ, NODE_PATH=os.environ.get("NODE_PATH", "/opt/node22/lib/node_modules"))
-            cmd = ["node", os.path.join(HERE, "browser_live.js"), str(port)] + ([args.browser] if args.browser else [])
-            p = subprocess.run(cmd, env=env, timeout=180)
-            if p.returncode:
+            cmd = ["node", os.path.join(HERE, "browser_live.js"), str(m.port)] + ([args.browser] if args.browser else [])
+            if subprocess.run(cmd, env=env, timeout=180).returncode:
                 fails.append("the browser test")
-    finally:
-        for p in millweb_pids():
-            try:
-                os.kill(p, signal.SIGTERM)
-            except OSError:
-                pass
-        try:
-            lc.wait(40)
-        except subprocess.TimeoutExpired:
-            os.killpg(lc.pid, signal.SIGKILL)
-            fails.append("LinuxCNC didn't shut down when millweb stopped")
-        if fails or args.keep:
-            print("(kept %s)" % d)
-        else:
-            shutil.rmtree(d, ignore_errors=True)
+        m.keep = m.keep or bool(fails)
+    if not m.clean_exit:
+        fails.append("LinuxCNC didn't shut down when millweb stopped")
     print("%d check(s) failed" % len(fails) if fails else "all checks passed", flush=True)
     sys.exit(1 if fails else 0)
 

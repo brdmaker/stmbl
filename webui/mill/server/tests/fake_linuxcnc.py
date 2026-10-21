@@ -43,6 +43,7 @@ class _M:
         self.probed = [0.0] * 9
         self.optional_stop = 0
         self.block_delete = 0
+        self.slow = False               # MDI keeps the interpreter busy until an abort or E-STOP
 
 
 M = _M()
@@ -88,13 +89,16 @@ class stat:
 
 class command:
     def state(self, s):
+        # as LinuxCNC: "off" reads back as STATE_ESTOP_RESET; E-STOP aborts
         if s == STATE_ESTOP:
             M.task_state = STATE_ESTOP
+            M.interp_state = INTERP_IDLE
         elif s == STATE_ESTOP_RESET:
-            M.task_state = STATE_OFF
-        elif s in (STATE_ON, STATE_OFF):
-            if M.task_state != STATE_ESTOP:
-                M.task_state = s
+            M.task_state = STATE_ESTOP_RESET
+        elif s == STATE_ON and M.task_state != STATE_ESTOP:
+            M.task_state = STATE_ON
+        elif s == STATE_OFF and M.task_state != STATE_ESTOP:
+            M.task_state = STATE_ESTOP_RESET
 
     def mode(self, m):
         M.task_mode = m
@@ -124,6 +128,8 @@ class command:
 
     def mdi(self, text):
         M.mdi_log.append(text)
+        if M.slow:
+            M.interp_state = INTERP_READING
         import re
         t = text.upper()
         if re.match(r"^G[01]\b", t):

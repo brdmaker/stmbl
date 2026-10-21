@@ -12,8 +12,8 @@ The console runs two ways:
 ```sh
 make -C webui/mill demo        # the console alone, simulated: http://localhost:8000/
 make -C webui/mill sim         # LinuxCNC (test/sim, no hardware) with millweb: http://localhost:8080/
-make -C webui/mill test        # millweb against a stand-in LinuxCNC (~3 s)
-make -C webui/mill test-live   # against real LinuxCNC and a headless browser (~1 min, non-root)
+make -C webui/mill test        # millweb against a stand-in LinuxCNC (~5 s)
+make -C webui/mill check-all   # every suite: unit, simulated GUI, backend and GUI on real LinuxCNC (~15 min, non-root)
 ```
 
 Nothing to build and nothing to install beyond LinuxCNC:
@@ -32,7 +32,11 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
 | `server/tests/` | unit tests against `fake_linuxcnc.py` |
 | `test/sim/` | a LinuxCNC config without hardware: a gantry mill (X Y Y Z), loopback joints, a probe, a tool changer |
-| `test/run_live.py`, `test/browser_live.js` | the integration test: real LinuxCNC, the protocol, then a headless Chromium on the page |
+| `test/harness.py` | LinuxCNC on a copy of `test/sim` with millweb, for the suites (`harness.py -- CMD` runs CMD beside it) |
+| `test/client.py` | a protocol client for the Python suites |
+| `test/backend_suite.py` | the backend, case by case, on real LinuxCNC |
+| `test/gui/` | the GUI suites (Playwright): `runner.js`, `sim_suite.js` (simulated), `live_suite.js` (real LinuxCNC), `wsclient.js` |
+| `test/run_live.py`, `test/browser_live.js` | the end-to-end scenario: the protocol, then a headless Chromium on the page |
 | `deploy/linuxcnc-millweb.service` | systemd: LinuxCNC with millweb at boot |
 
 ## Running it on a machine
@@ -91,12 +95,13 @@ JSON over the WebSocket at `/ws`.
 - `estop` {on} (any browser), `power` {on};
 - `home` / `unhome` {axis | all};
 - `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop`;
-- `mdi` {cmd};
+- `mdi` {cmd, wait} (wait: the reply when the line is done);
 - `cycle` {action: start | pause | resume | step | stop, line};
 - `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
 - `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text]};
+- `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
 
 ## Safety, as built
@@ -104,6 +109,7 @@ JSON over the WebSocket at `/ws`.
 - **The E-STOP chain is hardware**: stmbl's fault inputs and the drives' quick stop. The page's E-STOP only asks LinuxCNC for `STATE_ESTOP`, and any browser, watching or not, may press it.
 - **One browser has control** at a time, the others watch. Control goes away when its browser disconnects. `REMOTE_ENABLE_PIN` forbids remote control at the machine, and `TOKEN` asks for a password.
 - **Continuous jogging needs a keep-alive:** a message at least every 300 ms, or millweb stops the jog. A lost connection stops it at once.
+- **E-STOP, Stop and jog stop never wait** behind another command (a tool measurement takes 30 s): they go to LinuxCNC from their own thread on their own command channel. After a Stop or an E-STOP, a running sequence (tool setter, probe, a multi-point move) sends nothing more.
 - **Checks before LinuxCNC:** commands are checked (E-STOP, machine on, homed, idle) first, and LinuxCNC checks everything again.
 - **Probe moves stay inside the soft limits.** LinuxCNC refuses a G38 move whose end lies beyond them, so millweb shortens the travel to what's left.
 - **Program files** stay inside the program folder: base names only, G-code extensions only.
@@ -120,28 +126,84 @@ JSON over the WebSocket at `/ws`.
 
 ## Testing
 
-**`make test`** runs the protocol against `server/tests/fake_linuxcnc.py`:
+| Make target | What | Time | Needs |
+|---|---|---|---|
+| `make test` | unit tests: millweb against `server/tests/fake_linuxcnc.py` | 5 s | Python |
+| `make test-gui-sim` | every page and control of the console on its simulated machine | 4 min | node, Playwright |
+| `make test-backend` | the protocol case by case on real LinuxCNC (`test/sim`) | 7 min | LinuxCNC, a non-root user |
+| `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
+| `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
+| `make check-all` | the first four | 15 min | |
+
+`K=word` runs only the cases whose name contains it, `SHOTS=dir` keeps a
+screenshot of each failed GUI case: `make test-gui-sim K=offsets SHOTS=/tmp/shots`.
+Each suite prints `PASS`/`FAIL` per case, the failed checks, and for a
+failed backend case the machine's last events.
+
+**The harness** (`test/harness.py`) copies `test/sim` to a temporary
+directory, sets millweb as its display on a free port, starts LinuxCNC
+headless, and stops it by stopping millweb (LinuxCNC follows its display).
+`--ini-set SECTION.KEY=VALUE` changes the INI, `--keep` keeps the directory;
+`harness.py -- CMD` runs CMD with `MILLWEB_PORT` and `MILLWEB_DIR` set.
+
+**Unit tests** (`make test`, a stand-in LinuxCNC; moves finish at once):
 - `hello` and the static files (no path traversal);
-- the control lease, and E-STOP from a watching browser;
-- E-STOP, power, homing, MDI, G10 L20 and the overrides;
-- the jog deadman;
-- the tool table (backup, unique numbers), program names, upload and load, probing.
+- the control lease, E-STOP from a watching browser, releasing control;
+- E-STOP, power (off reads back as `STATE_ESTOP_RESET`), homing, MDI, G10 L20, overrides;
+- the jog deadman; the tool table, program names, upload, load, probing, `T0` unloading;
+- `ping`, `events`, unknown ops, bad JSON, a crashing handler (still a reply);
+- E-STOP and Stop answered at once while a tool measurement waits, and the measurement sends nothing more;
+- `TOKEN`, `ON_CONTROL_LOSS = hold`, `REMOTE_ENABLE_PIN` and `AIR_PIN` (a stand-in `hal`).
 
-**`make test-live`** runs `test/run_live.py`, about 50 checks against real LinuxCNC on `test/sim`, with millweb as its display:
-- the INI's name and coordinates;
-- the lease, power and homing;
-- MDI and the DRO, G10 L20 / L2, increment and continuous jogs (the deadman stops it);
-- upload and load; the interpreter's preview (the tool change, arcs as segments, G54 coordinates);
-- the run to the end: the tool change, M3;
-- probing at the stock top (machine Z −195, on the tool tip with its length offset);
-- the tool table, M6, the tool setter (length 50.000);
-- a second browser that watches, can't send MDI, and can press E-STOP.
+**Backend suite** (`make test-backend`, 48 cases on real LinuxCNC). Each case
+starts from the same machine: E-STOP reset, on, homed, idle, G54 and G55 at
+their test values, G92 clear, overrides 100 %, spindle and coolant off, the
+tool at a safe height.
+- **Connection:** `hello` (the INI's name, coordinates, limits, pins), `ping`, `events`, unknown ops, bad JSON and wrong types, a message over 8 MB (only that connection closes), state diffs to every browser.
+- **HTTP:** the console's files, `HEAD`, 404, five path-traversal attempts, `POST` refused.
+- **Control:** take, refuse, force, release; a disconnect drops it while the program carries on; a watching browser is refused twelve kinds of command, may read programs and press E-STOP.
+- **Machine:** E-STOP and power and what they block; homing per axis and all; unhomed blocks MDI and jogs.
+- **Jogging:** increments on every axis both ways; continuous with keep-alives stopped by `jog_stop`; the deadman; a lost connection.
+- **Urgent commands:** E-STOP and Stop answered within a second during a tool measurement, which then sends nothing more; MDI with `wait`.
+- **MDI:** moves in G54 and machine coordinates, F, too long or empty lines, interpreter errors as events; refused while another runs.
+- **Programs:** save, list, get, load with the interpreter's preview, delete (not the loaded one); file names stay in the program folder (eight bad names); 7 MB refused; a program with an error previews with it.
+- **Cycles:** run to the end (tool change, M3, M8, events); pause, resume, stop, start again; single block; run from a line; refused unhomed or off.
+- **Overrides, spindle, coolant, options:** all four overrides and their limits; feed override 50 % takes twice as long; CW, CCW, stop, at speed; flood, mist, air; M1 and block delete in a program.
+- **Offsets:** G10 L20 per axis, G55, G10 L2 per axis, G92 and clearing it.
+- **Tools:** save with a backup, unique numbers, bad entries, a table edited on disk; M6 and its length offset; the tool setter (50.000 mm).
+- **Probing:** Z surface with and without a length offset, the retract from the trip point; the touch plate sets Z from the trip point; nothing to touch; unsupported cycles; the soft limit.
+- **Other INIs**, each on its own LinuxCNC: `ON_CONTROL_LOSS = hold` (holds a running program, leaves an idle one), `TOKEN`, `REMOTE_ENABLE_PIN` (a HAL key switch drops control, E-STOP still works), `AIR_PIN`.
 
-Then `test/browser_live.js` (Playwright, headless Chromium) uses the page's own controls:
-- take control, E-STOP reset, machine on, home all;
-- MDI, with the DRO following;
-- a jog from the pad;
-- a wizard's program saved and loaded on the machine, the File page and its preflight;
-- no script errors.
+**GUI suite, simulated** (`make test-gui-sim`, 32 cases; `index.html` from
+disk, each case on a fresh page): boot; every page, remembered across a
+reload, `#hash`; cycle start, hold, resume, single block, stop, run to the
+end, run from a line, M1, confirm before start, the feed-hold lift; E-STOP and
+power by button and F1/F2 and what they block; homing; DRO modes, ZERO, SET
+(dialog, Esc, cancel), zero all, go to zero, park; MDI (moves, G55, T M6, M3,
+M4, M5, M7, M8, M9, G10, beyond the travel, history, Ctrl+M); jog increments,
+continuous, keyboard, soft limit, rate; overrides and reset; spindle and
+coolant; the File page (preflight, load, Edit); the three wizards; Offsets
+(edit, use, set here, G92, touch plate); Tools (select, load, add, delete,
+edit, measure); Probe (all cycles, apply, the tool setter); Dynamics (pcomp
+switches, readouts, four plots drawn, re-measure); Status (filter, clear,
+pins, stats); Settings (inches, decimals, exaggeration, switches); the 3D
+view (cameras, colours, layers, orbiting); no sideways scrolling at phone and
+tablet widths; over HTTP without millweb (the simulation after 2.5 s) and
+with `?sim`. Any script error fails the case.
 
-`--shot FILE` / `--browser FILE` take screenshots.
+**GUI suite, live** (`make test-gui-live`, 15 cases on real LinuxCNC, each
+from the backend suite's starting state): connecting (LIVE, the INI's name,
+pins, tool table); taking control while a second browser watches, is refused
+MDI, presses E-STOP, takes over; E-STOP, power and homing; MDI with the DRO,
+machine coordinates and modal codes; pad and keyboard jogs and a continuous
+jog the keep-alive sustains; ZERO, SET, zero all, go to zero, park, and a move
+beyond the travel refused; the Offsets page; the Tools page down to
+`tool.tbl` and the tool setter; probing with T99 and applying it; the File
+page from the machine's interpreter, load, cycle buttons, run from a line to
+the end; a wizard's program saved and loaded; overrides, spindle, coolant, M1
+and block delete as the machine reports them; changes made by another browser
+showing; no script errors on any page; finally millweb stopping (OFFLINE).
+
+**End-to-end** (`make test-live`): about 50 checks through one session, then
+`test/browser_live.js` on the page. `--shot FILE` / `--browser FILE` take
+screenshots.

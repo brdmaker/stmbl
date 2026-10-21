@@ -112,6 +112,11 @@ class Machine:
         self.s = linuxcnc.stat()        # the poller's
         self.ws = linuxcnc.stat()       # the worker's
         self.c = linuxcnc.command()
+        # E-STOP, stop and jog stop come from their own thread, on their own
+        # channel, so they never wait behind a long command (DEBUGNOTES)
+        self.cu = linuxcnc.command()
+        self.us = linuxcnc.stat()
+        self.stops = 0                  # counts stops: a sequence that sees it change gives up
         self.e = linuxcnc.error_channel()
         self.lock = threading.Lock()
         coords = (cfg.get("TRAJ", "COORDINATES") or cfg.get("KINS", "COORDINATES") or "X Y Z").replace(" ", "").upper()
@@ -306,7 +311,12 @@ class Machine:
             return "a program or MDI is running"
         return None
 
-    def mdi(self, text, wait=False, timeout=60.0):
+    def mdi(self, text, wait=False, timeout=60.0, since=None):
+        """One MDI line; with wait, until it is done. `since`: the stop count
+        the calling sequence started at; after a stop it sends nothing more."""
+        since = self.stops if since is None else since
+        if self.stops != since:
+            return "stopped"
         err = self._ready()
         if err:
             return err
@@ -316,23 +326,36 @@ class Machine:
             time.sleep(0.05)
             if not self._wait_idle(timeout):
                 return "timed out: " + text
+            if self.stops != since:
+                return "stopped"
         return None
 
     # -------------------------------------------------------------- commands
-    def _wait_state(self, pred, timeout=2.0):
+    def _wait_state(self, pred, timeout=2.0, s=None):
+        s = s or self.ws
         t = time.time() + timeout
         while time.time() < t:
-            self.ws.poll()
-            if pred(self.ws.task_state):
+            s.poll()
+            if pred(s.task_state):
                 return True
             time.sleep(0.02)
         return False
 
+    # urgent (their own thread): E-STOP, stop, jog stop
     def cmd_estop(self, on):
         lc = self.lc
-        self.c.state(lc.STATE_ESTOP if on else lc.STATE_ESTOP_RESET)
-        if not on and not self._wait_state(lambda s: s != lc.STATE_ESTOP):
+        if on:
+            self.stops += 1
+            self.cu.state(lc.STATE_ESTOP)
+            return None
+        self.cu.state(lc.STATE_ESTOP_RESET)
+        if not self._wait_state(lambda s: s != lc.STATE_ESTOP, s=self.us):
             return "E-STOP is still active (the hardware chain?)"
+        return None
+
+    def cmd_stop(self):
+        self.stops += 1
+        self.cu.abort()
         return None
 
     def cmd_power(self, on):
@@ -341,7 +364,8 @@ class Machine:
         if on and self.ws.task_state == lc.STATE_ESTOP:
             return "E-STOP is active"
         self.c.state(lc.STATE_ON if on else lc.STATE_OFF)
-        if not self._wait_state(lambda s: s == (lc.STATE_ON if on else lc.STATE_OFF)):
+        # off reads back as STATE_ESTOP_RESET, not STATE_OFF (DEBUGNOTES)
+        if not self._wait_state(lambda s: s == lc.STATE_ON if on else s != lc.STATE_ON):
             return "LinuxCNC didn't switch the machine %s" % ("on" if on else "off")
         return None
 
@@ -393,15 +417,14 @@ class Machine:
 
     def cmd_jog_stop(self, axis=None):
         for a in ([("XYZ".index(axis.upper()))] if axis else list(self.jog_active)):
-            self.c.jog(self.lc.JOG_STOP, False, a)
+            self.cu.jog(self.lc.JOG_STOP, False, a)
             self.jog_active.pop(a, None)
         return None
 
     def cmd_cycle(self, action, line=0):
         lc = self.lc
         if action == "stop":
-            self.c.abort()
-            return None
+            return self.cmd_stop()
         if action == "pause":
             self.c.auto(lc.AUTO_PAUSE)
             return None
@@ -488,7 +511,8 @@ class Machine:
         return self.mdi("G92.1", wait=True, timeout=5)
 
     def cmd_tool_load(self, t):
-        return self.mdi("T%d M6 G43" % int(t), wait=True, timeout=120)
+        # T0: an empty spindle; G43 would keep the old tool's offset (DEBUGNOTES)
+        return self.mdi("T%d M6 %s" % (int(t), "G43" if int(t) else "G49"), wait=True, timeout=120)
 
     def tools(self):
         return parse_tool_table(self.tool_file)
@@ -518,13 +542,14 @@ class Machine:
         t = self.ws.tool_in_spindle
         if t <= 0:
             return "no tool in the spindle"
+        since = self.stops
         for line in ("G49", "G53 G0 Z0", "G53 G0 X%.4f Y%.4f" % (x, y), "G53 G0 Z%.4f" % zab):
-            err = self.mdi(line, wait=True, timeout=120)
+            err = self.mdi(line, wait=True, timeout=120, since=since)
             if err:
                 return err
         travel = self._travel_down(travel)
         for line in ("G91 G38.2 Z-%.4f F300" % travel, "G90"):
-            err = self.mdi(line, wait=True, timeout=120)
+            err = self.mdi(line, wait=True, timeout=120, since=since)
             if err:
                 return err
         tripped, pos = self._probed()
@@ -536,7 +561,7 @@ class Machine:
         for tl in tools:
             if tl["t"] == t:
                 tl["z"] = length
-        self.mdi("G53 G0 Z0", wait=True)
+        self.mdi("G53 G0 Z0", wait=True, since=since)
         err = self.cmd_tools_save(tools)
         if not err:
             self.mdi("G43", wait=True)
@@ -547,21 +572,27 @@ class Machine:
         if op not in ("z", "plate"):
             return "the %s cycle is not in the backend yet (Z surface and touch plate are)" % op
         travel = self._travel_down(travel)
+        since = self.stops
         for line in ("G91 G38.2 Z-%.4f F%.1f" % (travel, float(feed)), "G90"):
-            err = self.mdi(line, wait=True, timeout=120)
+            err = self.mdi(line, wait=True, timeout=120, since=since)
             if err:
                 return err
         tripped, pm = self._probed()
         if not tripped:
             return "the probe didn't trip within %.1f mm" % float(travel)
-        self.ws.poll()
-        pm[2] -= self.ws.tool_offset[2]  # the tool tip, as the DRO's machine Z
+        s = self.ws
+        s.poll()
+        # motion stops a little past the trip point (DEBUGNOTES): offsets and
+        # the retract go from where it tripped, not from where it stopped
+        back = float(clearance) + pm[2] - s.position[2]
+        pm[2] -= s.tool_offset[2]  # the tool tip, as the DRO's machine Z
         res = {"mach": [round(v, 4) for v in pm]}
         if op == "plate":
-            err = self.mdi("G10 L20 P0 Z%.4f" % float(plate), wait=True)
+            z = pm[2] - s.g92_offset[2] - float(plate)
+            err = self.mdi("G10 L2 P%d Z%.4f" % (max(1, s.g5x_index), z), wait=True, since=since)
             if err:
                 return err
-        self.mdi("G91 G0 Z%.4f" % float(clearance), wait=True)
+        self.mdi("G91 G0 Z%.4f" % back, wait=True, since=since)
         self.mdi("G90", wait=True)
         return res
 

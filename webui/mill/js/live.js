@@ -240,8 +240,12 @@ const Live = (() => {
   L.offset = (i, a, v) => act("offset", { index: i, [a]: v }, "G10 L2");
   L.g92clear = () => act("g92_clear", {}, "G92.1");
   L.moveTo = async (points, label, feed) => {
+    for (const q of points) {  // LinuxCNC checks too; this names the move that won't fit
+      const m = toMach(q);
+      if (!inside(m)) { msg(`${label}: beyond the travel (machine ${m.x.toFixed(1)}, ${m.y.toFixed(1)}, ${m.z.toFixed(1)})`, "warn"); return false; }
+    }
     for (const q of points) {
-      const r = await act("mdi", { cmd: `G${feed ? 1 : 0} X${q.x.toFixed(4)} Y${q.y.toFixed(4)} Z${q.z.toFixed(4)}${feed ? " F" + feed : ""}` }, label);
+      const r = await act("mdi", { cmd: `G${feed ? 1 : 0} X${q.x.toFixed(4)} Y${q.y.toFixed(4)} Z${q.z.toFixed(4)}${feed ? " F" + feed : ""}`, wait: true }, label);
       if (!r.ok) return false;
     }
     return true;

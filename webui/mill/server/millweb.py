@@ -61,6 +61,7 @@ class Hub:
         self.events = []             # (time, lvl, text)
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="millweb-cmd")
         self.ppool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="millweb-preview")
+        self.upool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="millweb-urgent")
         self.state = {}
         self.slow_state = {}
         self.program = None          # the last preview sent
@@ -121,11 +122,13 @@ class Hub:
                 await self.lose_control(c)
             self.event("info", "Browser left: %s" % c.name)
 
-    async def lose_control(self, c):
+    async def lose_control(self, c, released=False):
         self.control = None
-        await self.run(self.m.cmd_jog_stop)
+        await self.urgent(self.m.cmd_jog_stop)
         self.jog_seen.clear()
-        if self.on_loss == "hold" and self.state.get("run") == "run":
+        if released:
+            self.event("info", "%s released control" % c.name)
+        elif self.on_loss == "hold" and self.state.get("run") == "run":
             await self.run(self.m.cmd_cycle, "pause")
             self.event("warn", "The controlling browser went away: feed hold")
         else:
@@ -135,6 +138,11 @@ class Hub:
     async def run(self, fn, *a, **kw):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.pool, lambda: fn(*a, **kw))
+
+    async def urgent(self, fn, *a, **kw):
+        """E-STOP, stop, jog stop: not behind a command that is waiting."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.upool, lambda: fn(*a, **kw))
 
     # ------------------------------------------------------------ messages
     async def on_message(self, c, msg):
@@ -151,7 +159,7 @@ class Hub:
             if op == "control":
                 return await reply(await self.op_control(c, msg))
             if op == "estop":                      # anyone may stop the machine
-                err = await self.run(self.m.cmd_estop, bool(msg.get("on", True)))
+                err = await self.urgent(self.m.cmd_estop, bool(msg.get("on", True)))
                 if msg.get("on", True):
                     self.event("bad", "E-STOP from %s" % c.name)
                 return await reply(err)
@@ -175,8 +183,11 @@ class Hub:
             if isinstance(res, dict):
                 return await reply(None, **res)
             return await reply(res)
-        except (ValueError, KeyError, TypeError, OSError) as e:
-            return await reply(str(e))
+        except (ValueError, KeyError, TypeError, IndexError, OSError) as e:
+            return await reply(str(e) or type(e).__name__)
+        except Exception as e:  # a bug: say so, keep serving
+            self.event("bad", "millweb: %s failed: %r" % (op, e))
+            return await reply("internal error: %r" % e)
 
     async def op_control(self, c, msg):
         if msg.get("take", True):
@@ -191,13 +202,16 @@ class Hub:
             self.control = c.id
             self.event("info", "%s has control" % c.name)
         elif self.control == c.id:
-            await self.lose_control(c)
+            await self.lose_control(c, released=True)
             return None
         self.broadcast({"t": "control", "holder": self.control})
         return None
 
     async def op_ping(self, c, m):
         return {"time": time.time()}
+
+    async def op_events(self, c, m):
+        return {"events": [{"time": t, "lvl": l, "text": x} for t, l, x in self.events[-max(1, int(m.get("n", 300))):]]}
 
     async def op_power(self, c, m):
         err = await self.run(self.m.cmd_power, bool(m.get("on", True)))
@@ -222,18 +236,21 @@ class Hub:
     async def op_jog_stop(self, c, m):
         a = m.get("axis")
         self.jog_seen.pop(str(a).lower(), None) if a else self.jog_seen.clear()
-        return await self.run(self.m.cmd_jog_stop, a)
+        return await self.urgent(self.m.cmd_jog_stop, a)
 
     async def op_mdi(self, c, m):
         text = str(m.get("cmd", "")).strip()
         if not text or len(text) > 256:
             return "an MDI line: 1 to 256 characters"
         self.event("info", "MDI: %s" % text)
-        return await self.run(self.m.mdi, text)
+        return await self.run(self.m.mdi, text, bool(m.get("wait")))  # wait: reply when done
 
     async def op_cycle(self, c, m):
         act = m.get("action", "start")
-        err = await self.run(self.m.cmd_cycle, act, int(m.get("line", 0) or 0))
+        if act == "stop":
+            err = await self.urgent(self.m.cmd_stop)
+        else:
+            err = await self.run(self.m.cmd_cycle, act, int(m.get("line", 0) or 0))
         if not err:
             self.event("ok" if act in ("start", "resume") else "info",
                        {"start": "Cycle start" + (" from line %s" % m.get("line") if m.get("line") else ""), "pause": "Feed hold",
@@ -396,7 +413,7 @@ class Hub:
             for a, seen in list(self.jog_seen.items()):
                 if time.time() - seen > JOG_DEADMAN:
                     self.jog_seen.pop(a, None)
-                    await self.run(self.m.cmd_jog_stop, a)
+                    await self.urgent(self.m.cmd_jog_stop, a)
                     self.event("warn", "Jog %s stopped: no keep-alive from the browser" % a.upper())
             await asyncio.sleep(max(0.0, period - (time.time() - t0)))
 

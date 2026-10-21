@@ -1764,3 +1764,83 @@ Entry format:
 - Symptom: a client that waited for run != "run" after MDI went on while the
   machine still moved.
 - Fix:     wait for interp "idle" (the live test does); run is "mdi" during MDI.
+
+## 2026-10-21  LinuxCNC: "machine off" reads back as STATE_ESTOP_RESET
+- Area:    `webui/mill/server/machine.py` (cmd_power)
+- Status:  Fixed
+- Symptom: switching the machine off answered "LinuxCNC didn't switch the
+  machine off", though it was off.
+- Cause:   after `state(STATE_OFF)` stat.task_state reads STATE_ESTOP_RESET
+  (2), never STATE_OFF (3); millweb waited for STATE_OFF.
+- Fix:     off means `task_state != STATE_ON`; the fake LinuxCNC now models it.
+
+## 2026-10-21  `T0 M6 G43` keeps the previous tool's length offset
+- Area:    `webui/mill/server/machine.py` (cmd_tool_load)
+- Status:  Fixed
+- Symptom: after unloading (T0), the DRO still subtracted the old tool's length.
+- Cause:   with tool 0 in the spindle LinuxCNC leaves G43's offset as it was.
+- Fix:     `T0 M6 G49` for an empty spindle.
+
+## 2026-10-21  Probing: motion stops past the trip point
+- Area:    `webui/mill/server/machine.py` (cmd_probe)
+- Status:  Fixed
+- Symptom: touch plate set G54 Z 25 µm low; the retract ended 25 µm short.
+- Cause:   at F300 the axis stops a little after the probe trips (the
+  stop ramp and a servo period); G10 L20 and the relative retract worked from
+  where it stopped.
+- Fix:     both from stat.probed_position: G10 L2 with the trip point, the
+  retract by clearance + (trip − stop). The setter already used the trip point.
+
+## 2026-10-21  millweb: E-STOP and Stop waited behind long commands
+- Area:    `webui/mill/server/millweb.py`, `machine.py`
+- Status:  Fixed
+- Symptom: during a tool measurement (~30 s) a browser's E-STOP or Stop got
+  no answer until it finished; after Stop the measurement went on moving.
+- Cause:   every command ran in one worker thread; sequences only waited for
+  the interpreter to go idle, which an abort also does.
+- Fix:     E-STOP, Stop and jog stop run in their own thread on their own
+  `linuxcnc.command()`; a stop counter ends any sequence (`mdi(..., since=)`
+  returns "stopped"). Unit and backend tests check both.
+
+## 2026-10-21  Console (live): multi-point moves refused after the first line
+- Area:    `webui/mill/js/live.js` (moveTo)
+- Status:  Fixed
+- Symptom: Go to zero / Park on the machine: "a program or MDI is running".
+- Cause:   each point went as its own MDI without waiting for the one before.
+- Fix:     `mdi` takes `wait` (reply when done); moveTo waits per point and
+  checks the travel first, as the simulation does.
+
+## 2026-10-21  Console (live): the Dynamics page stopped the render loop
+- Area:    `webui/mill/js/app.js` (renderUi, frame)
+- Status:  Fixed
+- Symptom: opening Dynamics on a live machine froze the DRO and the 3D view.
+- Cause:   live mode has no power estimate (pTot null); `pTot.toFixed` threw
+  inside requestAnimationFrame's callback, which then never asked again.
+- Fix:     guard pTot; frame() catches and logs a render error and keeps going.
+
+## 2026-10-21  Tests: loading a HAL component twice aborts LinuxCNC silently
+- Area:    `webui/mill/test/backend_suite.py`, `harness.py`
+- Status:  Note
+- Symptom: a test profile's LinuxCNC exited at once with an empty log.
+- Cause:   the extra HAL lines loaded `and2`, which mill.hal already loads;
+  the linuxcnc script's own log file is deleted on exit.
+- Fix:     another component (`or2`). To see why, run `linuxcnc` by hand in
+  the kept directory (`--keep`).
+
+## 2026-10-21  millweb: a program aborted by an error reports "done"
+- Area:    `webui/mill/server/machine.py` (status), `millweb.py`
+- Status:  Open
+- Symptom: run-from-line onto an arc ("Radius to end of arc differs") showed
+  DONE and the event "Program finished".
+- Cause:   run is "done" when the interpreter goes idle after running in auto;
+  stat has no flag for an abort by error, and errors arrive on the slower
+  error channel.
+- Fix:     not yet; the error itself is in the log as a fault.
+
+## 2026-10-21  Tests: a 7 MB text over the WebSocket is over 8 MB as JSON
+- Area:    `webui/mill/test/backend_suite.py`
+- Status:  Note
+- Symptom: a "too large" upload test got no reply.
+- Cause:   newlines double in JSON; the frame passed the 8 MB limit and the
+  server closed the connection (as designed).
+- Fix:     the test sends 7 MB without escapes, and checks the close separately.

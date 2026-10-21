@@ -252,6 +252,7 @@ function showPage(id) {
   try { localStorage.setItem("pmc.page", id); } catch (e) { /* storage blocked */ }
 }
 $("nav").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) showPage(b.dataset.p); });
+addEventListener("hashchange", () => { const p = location.hash.slice(1); if (paneIds[p] && p !== st.page) showPage(p); });
 
 // ============================================================ DRO
 $("dro").innerHTML = ["x", "y", "z"].map((a) => `
@@ -331,7 +332,7 @@ $("b-stop").addEventListener("click", stopAll);
 function stopAll() {
   if (LIVE) return LIVE.cycle("stop");
   const was = st.run;
-  setRun("idle"); st.motion = null; st.t = 0; st.seg = 0;
+  st.motion = null; st.t = 0; st.seg = 0; setRun("idle");
   if (was !== "idle" && was !== "done") msg("Stopped. The program is back at its first line.", "info");
 }
 $("b-runfrom").addEventListener("click", () => startCycle(st.selLine));
@@ -929,11 +930,14 @@ $("pins").innerHTML = `<thead><tr><th>Pin</th><th class="n">Value</th></tr></the
 // ============================================================ main loop
 let last = performance.now(), slow = 0;
 function frame(now) {
+  try { tick(now); } catch (e) { console.error(e); }
+  requestAnimationFrame(frame);
+}
+function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (LIVE) {  // the machine is real: live.js keeps st up to date
     const r = LIVE.step(dt);
     present(dt, { ...st.pos }, r.seg, r.moving, r.cutting, r.pTot);
-    requestAnimationFrame(frame);
     return;
   }
   const mo = st.motion, running = st.run === "run" || st.run === "step";
@@ -996,7 +1000,6 @@ function frame(now) {
   st.bus += ((moving && seg && seg.rapid && u > .9 ? 352 : 323 + Math.random() * 3) - st.bus) * Math.min(1, dt * 6);
 
   present(dt, tip, seg, moving, cutting, pTot);
-  requestAnimationFrame(frame);
 }
 
 // the 3D view every frame, the panels at 20 Hz
@@ -1055,10 +1058,10 @@ function renderUi(tip, seg, moving, pTot) {
     $("gl-fe").textContent = `${st.fe[1].toFixed(1)} / ${st.fe[2].toFixed(1)} µm`;
     $("gl-yaw").textContent = st.yaw.toFixed(1) + " µrad";
     $("gl-pill").textContent = st.on ? "LINKED" : "DOWN"; $("gl-pill").className = "pill " + (st.on ? "ok" : "off");
-    $("pw-bus").textContent = Math.round(st.bus) + " V"; $("pw-p").textContent = pTot.toFixed(2) + " kW";
+    $("pw-bus").textContent = Math.round(st.bus) + " V"; $("pw-p").textContent = pTot == null ? "—" : pTot.toFixed(2) + " kW";
     $("pw-ch").textContent = st.bus > 345 ? Math.round((st.bus - 340) * 40) + " W" : "0 W";
     $("pw-fs").textContent = Math.round(st.quota * 100) + " %";
-    $("pw-bar").firstChild.style.width = Math.min(100, pTot / 3.2 * 100) + "%";
+    $("pw-bar").firstChild.style.width = Math.min(100, (pTot || 0) / 3.2 * 100) + "%";
     $("pw-pill").textContent = st.quota < 1 ? "LIMITING FEED" : "IN QUOTA"; $("pw-pill").className = "pill " + (st.quota < 1 ? "warn" : "ok");
     plotLine("pl-err", st.errHist, 60, C.accent, "µm"); plotLine("pl-yaw", st.yawHist, 30, C.ok, "µrad"); plotBeam(clamp(mach.x, 0, 1000));
     plotSpectrum(st.spindle.rpm, st.spindle.load / 100, moving);
