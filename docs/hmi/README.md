@@ -58,35 +58,59 @@ Link meshes would come from the robot's STEP files, the way
 
 ## Mill console (`mill.html`)
 
-A concept operator screen for a gantry milling machine on stmbl drives and
-LinuxCNC (the portal of `host/portal`), published at
-https://claude.ai/artifact/UuyHMUutm91XVcraCHsXmr. One HTML file, no
-libraries; open it from disk. Everything in it is simulated: an OP1 program
-(face, pocket at two depths, contour, four holes) plays back with its
-G-code, DRO and spindle.
+A concept operator console for a gantry milling machine on stmbl drives and
+LinuxCNC (the portal of `host/portal`), in the spirit of QtDragon but its
+own design. Published at https://claude.ai/artifact/UuyHMUutm91XVcraCHsXmr;
+one HTML file with three.js r128 from cdnjs. Everything is simulated in the
+page.
 
-The idea it shows: the operator sees the machine's physics, not just
-positions.
-- **Toolpath:** coloured by the path error the dynamics model predicts at
-  each corner, or by feed. The 3D view orbits and zooms.
-- **Dynamics:** the command conditioning's parts as switches, the head's
-  modes at the current X, the added delay, and path error now and p99.
-- **Gantry link and power:** Y1/Y2 following error and the bridge's yaw;
-  DC bus and chopper.
-- **Calibration:** the machine model dynwiz measured, and its last verify.
-- **Vibration:** the spindle current's spectrum, with the tooth-pass
-  frequency against the head's modes (chatter shows there first).
+**MAIN**
+- **3D view:** the machine itself, modelled after the portal:
+  - the frame on its feet, the table with T-slots, the Y rails, magnet tracks and scales;
+  - the bridge with its Y motor coils, the X carriage, the Z ram, spindle and tool;
+  - the tool setter, and the stock in its fixture at the G54 offset.
+- **What it draws:** the program's toolpath (coloured by the predicted path error, by feed or by tool), the trail of the cut, chips, coolant nozzles and the travel limits.
+- **Deflection ×N:** shows the head's lag and the bridge's yaw exaggerated.
+- **Cameras:** ISO, TOP, FRONT, SIDE, PART and FOLLOW, plus free orbit.
+- **Below the view:** the G-code (click a line to run from it), MDI with history, and a jog pad with increments, CONT and the keyboard.
+
+**The control column** stays on every page:
+- the DRO in G5x, machine or distance to go, with homed lamps and ZERO / SET (touch off) / REF per axis;
+- the modal G-codes;
+- spindle (CW / CCW / stop, at speed, load) and coolant (flood, mist, air);
+- feed, rapid, spindle and max-velocity overrides;
+- cycle start, feed hold (lifting Z 5 mm), single block and stop.
+
+**The other pages**
+
+| Page | What |
+|---|---|
+| FILE | The programs, and a preflight per program: travel against the soft limits, tools against the table, time, predicted path error p99, the code |
+| WIZARDS | Facing, bolt circle and circular pocket: they write G-code and load it |
+| OFFSETS | G54–G59.3 and G92, editable; set from the position; touch-plate Z |
+| TOOLS | The tool table, editable; load (M6), measure on the setter, add, delete |
+| PROBE | Z surface, corner, edges, bore and boss centre, edge angle, tool setter; probe parameters; set the offset from the result |
+| DYNAMICS | pcomp's parts, the head's mode along the bridge, the gantry link and yaw, the spindle spectrum, the drives, power and quota, the dynwiz model |
+| STATUS | The event log with a filter, machine counters, a HAL pin watch |
+| SETTINGS | Units, decimals, deflection exaggeration, keyboard jog, M1, block delete, lift on hold, confirm start, the keys |
+
+The program runs with tool changes, M3 / M8, an M1 optional stop and a
+spindle-at-speed interlock. E-STOP (F1) and machine on (F2) gate
+everything.
 
 | Panel | Source |
 |---|---|
-| DRO, following error bars | `joint.N.pos-fb`, `joint.N.f-error`; G5x from `stat` |
-| Spindle, load, overrides | `spindle.0.*`, the spindle drive's current; `halui` feed / spindle / rapid override |
-| Colour by path error | pcomp's model (`[PCOMP]`) evaluated on the program's preview (the corner's acceleration over the head's mode) |
+| DRO, following error bars, homed | `joint.N.pos-fb`, `joint.N.f-error`, `stat.homed`; G5x / G92 from `stat` |
+| Spindle, load, overrides | `spindle.0.*`, the spindle drive's current; `halui` feed / rapid / spindle / max-velocity override |
+| 3D machine | the joints' positions; the head's deflection and the yaw from pcomp's model and `gantry0.yaw` |
+| Path colour | pcomp's model (`[PCOMP]`) on the program's preview |
 | Command conditioning | `pcomp.0.shaper/defl/shrink/jerk-ms`, `.fx/.fy-*`, `.delay` |
-| Gantry link | `gantry0.yaw`, `.active`, `.r_vel` on the Y drives, Y1/Y2 `f-error` |
+| Gantry link | `gantry0.yaw`, `.active`, `.r_vel` on the Y drives; Y1/Y2 `f-error` |
 | Power | `stmbl-*.power`, the bus voltage, `powerquota.0.*` |
 | Drives | each drive's current, following error, HV temperature, power, fault |
-| Calibration | `dynwiz.json` (the session), `dynwiz run` from the button |
-| Vibration | an FFT of the spindle drive's current (a HAL sampler at the servo rate, or the drive's own scope) |
+| Model | `dynwiz.json`; the button runs `dynwiz run` |
+| Vibration | an FFT of the spindle drive's current (a HAL sampler, or the drive's scope) |
+| Probe, tool setter | `motion.probe-input`, G38.x cycles as in QtDragon's probe screens |
 
-Built for real it would be a QtVCP screen like `linuxcnc/arm6hmi`.
+Built for real it would be a QtVCP screen like `linuxcnc/arm6hmi`, with the
+machine drawn by `linuxcnc/vis3d`.
