@@ -190,8 +190,8 @@ def step_mass(c):
             else:
                 out("  %-3s %.4f A per m/s^2 (no Kf: [DYNWIZ] KF_%s)" % (k, fit["k_a"], k.upper()))
             if osc:
-                out("      -> the current oscillates, %.2f A at %.0f Hz: the loop is at its limit. Lower conf0.vel_bw "
-                    "(or raise conf0.cur_bw); see README, Oscillation" % (osc["amp"], osc["f"]))
+                out("      -> the current oscillates, %.2f A at %.0f Hz: the loop is at its limit. Lower conf0.vel_bw, on a gantry use the gantry link "
+                    "(docs/motion_control.md), or raise conf0.cur_bw; see README, Oscillation" % (osc["amp"], osc["f"]))
             res["motors"][k] = mo
         if tot:
             res["axes"][axis] = tot

@@ -33,6 +33,11 @@
  *                                   through a diode bridge with source
  *                                   resistance [ohm]; a brake chopper that
  *                                   switches on above VON [V] into RCH [ohm]
+ *   glink DELAY [EVERY] | glink off the Y drives' gantry link: their gantry0
+ *                                   components exchange position error and
+ *                                   velocity, arriving DELAY rt cycles (200 us)
+ *                                   later, sampled every EVERY cycles
+ *                                   (shared/comps/gantry.c)
  *   home X Y                        start position [mm]
  *
  * Script commands (plus the portal lines above):

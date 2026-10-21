@@ -8,6 +8,7 @@ How to get accuracy at speed out of stmbl drives under LinuxCNC. It covers two d
 - [Drive settings](#drive-settings)
 - [Tuning procedure](#tuning-procedure)
 - [pcomp: model-based command conditioning](#pcomp-model-based-command-conditioning)
+- [Gantry-aware control](#gantry-aware-control)
 - [Measuring the machine](#measuring-the-machine)
 - [Testing in simulation](#testing-in-simulation)
 - [Results](#results)
@@ -128,6 +129,55 @@ SERVO_TAU2 = 0
 ```
 
 The model only has to be roughly right: with all frequencies 10 % off the result lost about 10 %.
+
+## Gantry-aware control
+
+Two Y drives move one bridge, each with its own scale and loop, tuned for half the moving mass. The bridge has two modes:
+- **Common:** Y1 and Y2 together. Each motor moves its share of the mass, as tuned.
+- **Yaw:** Y1 against Y2. Each motor moves only `2 J / L²`, a quarter or less of its share (laser3015: 18 of 73 kg; pcbdrill: 4.7 of 21.5 kg).
+
+In the yaw each velocity loop is therefore four times as fast as tuned. Unless guide friction damps it, it meets the current loop: Y1 and Y2 fight at 160–235 Hz, at up to 10 A. A single drive can't tell the two modes apart.
+
+**The gantry link** (`shared/comps/gantry.c`) lets it. The two Y drives exchange their position error and velocity, and each feeds its pid a blend of its own and the other's:
+
+```
+v' = v + (1 - r_vel)/2 (v_other - v)      e' = e + (1 - r_pos)/2 (e_other - e)
+```
+
+- **The common mode** (the mean) is unchanged.
+- **The yaw** gets `r_vel` times the velocity gain. With `r_vel ≈ m_yaw / m_side` its loop is tuned for its own inertia.
+- **`r_pos`** (default 1) keeps the yaw's position stiffness, which holds the bridge square.
+- **Errors, not positions,** are exchanged, so the two scales' offsets don't matter.
+
+```
+load gantry
+gantry0.rt_prio = 7
+gantry0.cmd = reslimit0.pos_out
+gantry0.pos_in = fb_switch0.pos_fb
+gantry0.vel_in = vel1.vel
+pid0.pos_fb = gantry0.pos_out
+pid0.vel_fb = gantry0.vel_out
+gantry0.en = fault0.en_pid
+gantry0.r_vel = 0.4
+```
+
+In the simulator (`glink DELAY EVERY` in a portal file; `machine/retrofit/*_glink.portal`, at the default gains):
+
+| machine | without the link | with it (`glink 3 2`) |
+|---|---|---|
+| laser3015 | Y1/Y2 ±4 A at 200 Hz, rack 85 urad | 1.0 A (friction), rack 7–10 urad |
+| cmm | 10 A at 208 Hz, rack 118 urad | 0.01 A, rack 2.4 urad |
+| pcbdrill | 7 A at 227 Hz after reversing | 0.00 A |
+| laser3015, vel_bw 1000 | SAT_ERROR | stable (r_vel 0.5) |
+
+- **Stability rule:** keep the yaw's velocity bandwidth `vel_bw · r_vel / (m_yaw / m_side)` below about 1.8 × `cur_bw`.
+- **The link must be fast:** at most about 1 ms. At 2 ms the fight starts to return; at 3 ms, as a relay through LinuxCNC and smart-serial would take, it is back in full (`tests/portal_gantry_delay.test`).
+- **So it has to be drive to drive.** The intended transport is classic CAN between the two Y drives: stmbl v4's P10 has CAN1, and needs a transceiver board (can-support branch). An 8-byte frame each way every 400 µs is 68 % of 1 Mbit/s, with about 600 µs latency. That transport isn't written yet: without a link (`rx_ok` 0) the component passes the feedback through unchanged.
+- **Until then:** `conf0.cur_bw = 2000` or a lower vel_bw (`machine/retrofit/README.md`). dynwiz detects the fight.
+
+**What doesn't help:**
+- **The pid's inertia split** (`j_mot`/`j_sys`/`j_lpf`) can't tell the modes apart.
+- **A per-side load-split lead in pcomp:** the stiff Y drives already hold the carriage's quasi-static load split, and the rack that is left is dynamic (DEBUGNOTES).
 
 ## Measuring the machine
 

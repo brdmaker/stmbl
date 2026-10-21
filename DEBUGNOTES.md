@@ -1422,7 +1422,9 @@ Entry format:
 
 ## 2026-10-21  Gantry: Y1 and Y2 fight at 160-235 Hz in the bridge's yaw
 - Area:    gantry drive tuning (`conf0.vel_bw`, `conf0.cur_bw`), `host/portal/machine/retrofit`
-- Status:  Workaround (per machine: cur_bw 2000 or a lower vel_bw)
+- Status:  Fixed in simulation with the gantry link (`shared/comps/gantry.c`);
+  Workaround on hardware until the drive-to-drive link exists (cur_bw 2000
+  or a lower vel_bw)
 - Symptom: Y1 and Y2 currents opposite, +-4 to +-7 A at 160-235 Hz, while
   moving (laser3015, cmm) or after reversing at slow speed (pcbdrill); with
   one Y motor, against the bridge's twist (dispenser). Masses, modes, the
@@ -1435,8 +1437,12 @@ Entry format:
   laser: 11.5 A).
 - Fix:     `conf0.cur_bw = 2000`, or `conf0.vel_bw` 200-300. dynwiz's
   `mass` and `cogging` steps detect it (a sustained line in the current)
-  and `write` proposes vel_bw x 0.6. Open: a gantry-aware loop (yaw
-  controlled with its own gain, or cross-coupling).
+  and `write` proposes vel_bw x 0.6. The real fix: the gantry link (next
+  entries): the two Y drives exchange position error and velocity, and
+  each feeds its pid the yaw at r_vel ~ m_yaw / m_side of the velocity
+  gain. The fight is gone at the default gains on laser3015, cmm and
+  pcbdrill (cmm: 10 A at 208 Hz -> 0.01 A, rack 118 -> 2.4 urad), and
+  vel_bw can double. `host/portal/tests/portal_gantry*.test`.
 
 ## 2026-10-21  Brake chopper above the drives' max_dc_volt never helps
 - Area:    `host/portal` `bus` lines, real supplies
@@ -1479,3 +1485,30 @@ Entry format:
   "function 'sampler.1' not found".
 - Cause:   depth is per instance; an instance without one isn't created.
 - Fix:     `depth=20000,20000`.
+
+## 2026-10-21  Gantry link: the partner's data must arrive within ~1 ms
+- Area:    `shared/comps/gantry.c`, `host/portal` (`glink DELAY EVERY`)
+- Status:  Known
+- Symptom: with the link's latency at 2 ms the fight came back at the
+  bridge's middle; at 3 ms (a relay through LinuxCNC and smart-serial at
+  1 kHz) it is as bad as without, SAT_ERROR at 4 ms.
+- Cause:   the partner's velocity feeds the fast loop, where the fight is
+  (200 Hz: 2 ms is 144 degrees).
+- Fix:     a drive-to-drive link, not LinuxCNC: classic CAN between the two
+  Y drives (stmbl v4 P10: CAN1 without a transceiver, can-support branch),
+  an 8-byte frame each way every 400 us (68 % of 1 Mbit/s), ~600 us
+  latency: simulated as `glink 3 2`, stable. Stability with the link: the
+  yaw's velocity bandwidth vel_bw r_vel / (m_yaw / m_side) up to about
+  1.8 cur_bw.
+
+## 2026-10-21  Gantry: what didn't help (inertia split, load-split lead)
+- Area:    `pid0.j_mot / j_sys / j_lpf`, pcomp
+- Status:  Note
+- Symptom/Cause: (1) the pid's frequency split of the inertia (j_mot = the
+  yaw's mass, j_sys the rest, above j_lpf only j_mot) can't tell the yaw
+  from the common mode, and its low-pass sits at the speed loop's crossover:
+  worse, POS_ERROR. (2) A per-side lead in pcomp for the carriage's load
+  split (Y1/Y2 apart by G (X - x0)/L a): rack grew with either sign. The
+  stiff Y drives already hold the quasi-static split (16 urad at 1 g with
+  the carriage off-centre); the rack left is dynamic.
+- Fix:     none needed; the gantry link instead. Removed from pcomp.

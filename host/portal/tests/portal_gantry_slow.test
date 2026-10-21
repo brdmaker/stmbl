@@ -1,0 +1,21 @@
+# The gantry link on slow passes, where the fight showed without it: the
+# laser (200 Hz, +-4 A), the CMM on air bearings (208 Hz, 10 A, a 118 urad
+# racking bridge) and the PCB driller (227 Hz after reversing), all three at
+# the default gains with the link (machine/retrofit/*_glink.portal).
+@program portal/portal_sim
+@args portal/machine/retrofit/cmm_glink.portal
+run 0.05
+lcnc 1
+run 0.3
+move 0.8 250 350
+run 0.3
+mark
+move 4 250 650
+run 0.2
+move 4 250 350
+print max_cur_y1 max_cur_y2 max_rack fault_code
+@expect portal.max_cur_y1 < 1
+@expect portal.max_cur_y2 < 1
+@expect portal.max_rack < 10
+@expect portal.fault_code == 0
+@reject ^ERROR

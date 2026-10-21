@@ -145,6 +145,52 @@ static int nums(const char *s, double *v, int max) {
   return n;
 }
 
+// the gantry link (portal line glink DELAY [EVERY]): Y1's and Y2's gantry0
+// components exchange position error and velocity, each arriving DELAY rt
+// cycles later, sampled every EVERY rt cycles (a drive-to-drive CAN link:
+// 2 1 or 2 2 = 2.5 kHz frames; relayed by LinuxCNC over smart-serial at
+// 1 kHz: about 10 5)
+#define GL_RING 64
+static struct {
+  int on, delay, every, head;
+  float *tx_e[2], *tx_v[2], *rx_e[2], *rx_v[2], *ok[2];
+  float ring[GL_RING][2][2];  // [tick][side][err, vel]
+} gl;
+
+static int glink_open(int delay, int every) {
+  int s[2] = {PP_Y1, PP_Y2};
+  for(int i = 0; i < 2; i++) {
+    pt_drive *d = &pt_drv[s[i]];
+    if(!d->on || !(gl.tx_e[i] = d->pin("gantry0.err_tx")) || !(gl.tx_v[i] = d->pin("gantry0.vel_tx")) ||
+       !(gl.rx_e[i] = d->pin("gantry0.err_rx")) || !(gl.rx_v[i] = d->pin("gantry0.vel_rx")) || !(gl.ok[i] = d->pin("gantry0.rx_ok"))) {
+      fprintf(stderr, "portalcore: glink: drive %s has no gantry0 (load it in its config)\n", i ? "y2" : "y1");
+      return 0;
+    }
+  }
+  gl.on = 1, gl.delay = delay < 1 ? 1 : delay >= GL_RING ? GL_RING - 1 : delay;
+  gl.every = every < 1 ? 1 : every;
+  memset(gl.ring, 0, sizeof(gl.ring));
+  return 1;
+}
+
+static void glink_step(void) {
+  if(!gl.on) {
+    return;
+  }
+  gl.head = (gl.head + 1) % GL_RING;
+  for(int i = 0; i < 2; i++) {
+    gl.ring[gl.head][i][0] = *gl.tx_e[i], gl.ring[gl.head][i][1] = *gl.tx_v[i];
+  }
+  if(pt_ticks % gl.every) {  // between samples: hold
+    return;
+  }
+  const int old = (gl.head - gl.delay + GL_RING) % GL_RING;  // what the other side sent DELAY cycles ago
+  for(int i = 0; i < 2; i++) {
+    *gl.rx_e[i] = gl.ring[old][1 - i][0], *gl.rx_v[i] = gl.ring[old][1 - i][1];
+    *gl.ok[i] = 1.0f;
+  }
+}
+
 int ptcore_line(char *line) {
   char kw[16];
   double v[8];
@@ -228,6 +274,15 @@ int ptcore_line(char *line) {
     pt_B.on = 1, pt_B.C = v[0] * 1e-6, pt_B.vrms = v[1], pt_B.rsrc = v[2], pt_B.freq = 50.0;
     pt_B.v_on = n == 5 ? v[3] : 0.0, pt_B.r_ch = n == 5 ? v[4] : 0.0;
     pt_B.v = pt_B.v_max = pt_B.v_min = v[1] * M_SQRT2;  // precharged
+  } else if(!strcmp(kw, "glink") && (n == 1 || n == 2)) {  // DELAY [EVERY] [rt cycles]: the Y drives' gantry link
+    return glink_open((int)v[0], n == 2 ? (int)v[1] : 1);
+  } else if(!strcmp(kw, "glink") && n == 0 && strstr(p, "off")) {
+    gl.on = 0;
+    for(int i = 0; i < 2; i++) {
+      if(gl.ok[i]) {
+        *gl.ok[i] = 0.0f;
+      }
+    }
   } else if(!strcmp(kw, "home") && n == 2) {
     ptcore_home(v[0], v[1]);
   } else {
@@ -354,6 +409,7 @@ void ptcore_tick(int servo) {
     F[k] = *d->te_int / PT_RT * g;
     p_drives += *d->p_in;
   }
+  glink_step();
   if(pt_B.on) {
     bus_step(p_drives);
   }

@@ -43,6 +43,10 @@ loop fixes it.
 `tests/portal_retrofit_fight.test` and dynwiz's `test_untuned_detected`
 put the old settings back to show it.
 
+## The gantry link variants
+
+`laser3015_glink.portal`, `cmm_glink.portal` and `pcbdrill_glink.portal` keep the default gains (cur_bw 1000, vel_bw 500). Their Y drives load `gantry` (`*_y_glink.conf`) and exchange position error and velocity over the simulated link (`glink 3 2`). The fights are gone without any detuning. See `docs/motion_control.md`, Gantry-aware control, and `../../tests/portal_gantry*.test`.
+
 ## Running them
 
 ```sh
