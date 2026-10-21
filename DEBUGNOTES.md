@@ -1678,3 +1678,25 @@ Entry format:
   (~10 % of the back-EMF) at speed: dead-time loss or psi a little high.
   Regression: the hardware soak with encmon loaded (soak.py records
   encmon_max_ratio / encmon_max_timer_s).
+
+## 2026-10-21  LinuxCNC 2.9.10 and hm2_spix on the bench
+- Area:    Pi 4 + Mesa 7C81 (sserial_p5p6_x8 firmware), `hwtest/burnin/stmbl.ini`
+- Status:  Note
+- Symptom: upgraded 2.9.1 -> 2.9.10 (apt, linuxcnc.org; 2.9.1 is gone from
+  the repo, the upgrade is one-way). sserialterm and stmbl_sim rebuilt.
+  hm2_rpspi on 2.9.10: full suite 33/33, drive rt max 165 us (as on 2.9.1).
+  hm2_spix:
+  - spiclk_rate=50000 refused ("outside acceptable range (7..50000 kHz)"),
+    hostmot2 does not load, LinuxCNC stops (errors only in
+    ~/linuxcnc_debug.txt).
+  - 41666 for both: "MISO input is bit-shifted by one bit. SPI read clock
+    frequency probably too high", no board.
+  - 41666 write / 31250 read and 35714 work.
+  - Pi side, steady state (tmax cleared, 10 s, two runs each): servo thread
+    67-72 us (max 175-192) at 35.7 MHz against hm2_rpspi 74-76 us (max
+    190-270) at 31.25 MHz; hm2 write 24 against 28 us, read 34 against 36.
+- Cause:   card/cabling limit on reads; hm2_spix's queueing gains ~5-10 %
+  on a Pi 4.
+- Fix:     DRIVER = hm2_spix, DRIVER_PARAMS = spiclk_rate=35714
+  spiclk_rate_rd=31250 (one step below each limit, as its manual advises).
+  Test: hwtest/suite "Pi side" timing test (host_* measurements).
