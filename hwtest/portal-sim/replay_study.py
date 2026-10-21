@@ -7,9 +7,10 @@ bench.py does.
 
     replay_study.py SAMPLES [--geom path_geom.json] [--portal FILE] [--variants 0,5]
 
-The servo variant's tau2 (2.15e-5 s^2) is calibrated on a circle: R20 at
-0.5 m/s with the rest of the conditioning on, until the tool's mean radius
-is 20 mm (host/portal/tests/portal_pcomp.test).
+The servo variant's tau2 (2.15e-5 s^2) was calibrated on a circle (R20 at
+0.5 m/s, the rest of the conditioning on, until the tool's mean radius is
+20 mm) for drives without vel_int0.mode 1 / vel1.bc 1. With them (the
+machine configs now) the drives don't lag and tau2 is ~0.
 
 The planner's commands are the recorded ones, so the cycle time is the
 same as LinuxCNC's (the shaper adds its delay, ~30 ms, once).

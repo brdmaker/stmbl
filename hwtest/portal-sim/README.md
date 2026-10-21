@@ -4,6 +4,8 @@ LinuxCNC 2.9 drives the simulated portal from `host/portal`:
 - a 1 × 1 m gantry on Baldor ironless linear motors (Y1, Y2: LMCF08F; X: LMCF08E), each on a simulated stmbl drive in the servo thread;
 - the frame on its feet, the bridge racking, the tool head on springs (28–55 Hz), and the DC bus from 230 V mains.
 
+The whole picture (the drive settings, tuning, measuring the machine, testing): [docs/motion_control.md](../../docs/motion_control.md).
+
 LinuxCNC sees a trivkins XYY gantry (joint 0 = X, joints 1 and 2 = Y) with absolute scales.
 
 | File | What |

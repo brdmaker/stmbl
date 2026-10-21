@@ -5,6 +5,8 @@ A 1 × 1 m gantry with linear motors.
 - **X:** the carriage, an LMCF08E on the bridge.
 - **Head:** the tool head on the carriage.
 
+The whole picture (the drive settings, tuning, measuring the machine, testing): [docs/motion_control.md](../../docs/motion_control.md).
+
 Each drive is a copy of the real drive code (`libstmbl_drive.so`, as in `host/arm`). The mechanics are a planar multibody model with the parts per-axis tuning doesn't see:
 
 - **The frame** (600 kg) stands on leveling feet: springs and dampers to the floor in x, y and yaw (modes 12 / 10 / 14 Hz). Every motor force pushes the frame back. The model gives the frame's motion and the force on the floor.

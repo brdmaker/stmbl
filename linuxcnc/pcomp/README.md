@@ -2,6 +2,8 @@
 
 A LinuxCNC realtime component between motion and the drives. It shapes the planner's X, Y commands with a model of the machine, so that the **tool point**, not the carriage, follows the program at high acceleration. The code is `shared/pcomp/pcomp.c`, the same file `host/portal/portal_sim` uses. The why and the numbers are in `hwtest/portal-sim/README.md`.
 
+The whole picture (the drive settings, tuning, measuring the machine, testing): [docs/motion_control.md](../../docs/motion_control.md).
+
 What it does each servo period:
 1. **ZV input shaper** at the head's modes. The x mode is fixed; the y mode is the model's at the carriage's X (the bridge bends most at mid-span). The same filter goes on both axes, so the path keeps its shape.
 2. **A moving average** (`jerk-ms`, 20 ms), so LinuxCNC's acceleration steps become ramps.
