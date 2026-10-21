@@ -83,6 +83,9 @@ test_ssq: tests/test_ssq.c ../shared/sserial_q.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_ssq.c -lm
 
 # shared/sscon.c: the console over smart-serial (unit tests)
+test_cur_offset: tests/test_cur_offset.c ../shared/cur_offset.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_cur_offset.c -lm
+
 test_sscon: tests/test_sscon.c ../shared/sscon.c ../shared/sscon.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_sscon.c ../shared/sscon.c
 
@@ -101,9 +104,10 @@ test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq test_sscon test_bootloader test_bip test_stmblcan
+check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan
 	@./test_ssq
 	@./test_sscon
+	@./test_cur_offset
 	@./test_bootloader
 	@./test_bip
 	@./test_stmblcan

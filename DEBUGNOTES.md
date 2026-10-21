@@ -1701,25 +1701,22 @@ Entry format:
   spiclk_rate_rd=31250 (one step below each limit, as its manual advises).
   Test: hwtest/suite "Pi side" timing test (host_* measurements).
 
-## 2026-10-21  Align phasing: the rotor drifts when align lets go (bench axis)
-- Area:    `shared/comps/fb_switch.c` (phase_mode 0), the burn-in axis
-- Status:  Open (align only; probe, the default, unaffected)
+## 2026-10-21  Align phasing: the rotor drifts when align lets go (current offset)
+- Area:    `stm32f303/src/comps/io.c` (current offsets), `shared/cur_offset.h`
+- Status:  Fixed (to be confirmed on the bench)
 - Symptom: after LinuxCNC 2.9.10 / hm2_spix, the phasing suite's align
   cases failed at most positions: swing 0.3-0.7 mm, check move error up to
   0.8 mm, some fault 17 (check the wrong way). Probe and brake cases fine.
 - Cause:   not LinuxCNC, hm2_spix, the Mesa firmware or the drive firmware
-  (A/B of each: align failed with every one). A capture of the hand-over
-  from align to its check (`phasing.py --capture-phasing`): align holds the
-  rotor still at 1 A; when it ends, the current drops to 0 for the field
-  turn to the check angle, and the rotor runs 0.425 mm on its own in 0.1 s
-  with no current at all, then stops. That drift is the swing: the drive
-  re-zeroes at the new position, LinuxCNC (motor position without the
-  re-zero) sees it as following error, and a check may read the wrong way.
-  Something on the axis pushes the rotor, depending on the position; the
-  runs after a 2.7 h soak (warm axis, less friction to hold it) showed it
-  most, earlier runs hardly. Probe phasing never holds and releases.
-  `--index-jump` shows align's angle itself is fine (-8..+13 deg).
-- Fix:     the align check now starts at phase_cur / 8 and grows
-  (drive_phasing_align_gentle.test): gentler, but not the drift. Ideas:
-  ramp align's current down instead of dropping it; or keep the field
-  while the check turns. Use probe phasing (default).
+  (A/B of each). A capture of align's hand-over to its check: with zero
+  current commanded the bare motor (nothing coupled) ran 0.425 mm (15 deg)
+  and stopped. The F3 calibrates its current offsets once at HV power-up;
+  with the bridge off it read ~0.09 A (id -0.08, iq +0.05): commanding 0 A
+  then drives a real 0.09 A DC, a fixed field the frictionless rotor rolls
+  to. Probe phasing never holds and releases at 0 A. Drift grows with
+  time/temperature (worse after a 2.7 h soak). `--index-jump` shows
+  align's angle itself is fine (-8..+13 deg).
+- Fix:     the F3 trims its offsets while the bridge is off (after 0.1 s,
+  tau 1 s, readings above 0.5 A ignored): `shared/cur_offset.h`,
+  `host/tests/test_cur_offset.c`. Also the align check starts at
+  phase_cur / 8 and grows (drive_phasing_align_gentle.test).

@@ -7,6 +7,7 @@
 #include "stm32f3xx_hal.h"
 #include "f3hw.h"
 #include "common.h"
+#include "cur_offset.h"
 
 HAL_COMP(io);
 
@@ -67,6 +68,7 @@ struct io_ctx_t {
   float overcurrent_error;
   float fault_pin_error;
   uint32_t offset_count;
+  cur_offset_t coff;  // offsets follow drift while the bridge is off
   uint32_t hv_temp;
   uint32_t mot_temp;
   uint32_t fault;
@@ -160,6 +162,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //   ADC34_COMMON->CCR |= ADC34_CCR_MDMA_1;
 
   ctx->offset_count      = 0;
+  ctx->coff.off_time     = 0.0;
   ctx->u_offset          = 0.0;
   ctx->v_offset          = 0.0;
   ctx->w_offset          = 0.0;
@@ -224,6 +227,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(iw)       = -AMP((float)(a12 & 0xFFFF) / 5.0, SHUNT_GAIN) + ctx->w_offset;  // 1u
     PIN(iu)       = -AMP((float)(a12 >> 16) / 5.0, SHUNT_GAIN) + ctx->u_offset;
     PIN(iv)       = -AMP((float)(a34 & 0xFFFF) / 5.0, SHUNT_GAIN) + ctx->v_offset;
+    {  // with the bridge off the readings are offset error: trim it (cur_offset.h)
+      float i[3]   = {PIN(iu), PIN(iv), PIN(iw)};
+      float off[3] = {ctx->u_offset, ctx->v_offset, ctx->w_offset};
+      cur_offset_track(&ctx->coff, PIN(hv_en) > 0.0, i, off, 3, period, 0.1, 1.0, 0.5);
+      ctx->u_offset = off[0];
+      ctx->v_offset = off[1];
+      ctx->w_offset = off[2];
+    }
     PIN(w)        = VOLT(adc_12_buf[5] & 0xFFFF) * 0.05 + PIN(w) * 0.95;  // 0.6u
     PIN(v)        = VOLT(adc_12_buf[5] >> 16) * 0.05 + PIN(v) * 0.95;
     PIN(u)        = VOLT(adc_34_buf[5] & 0xFFFF) * 0.05 + PIN(u) * 0.95;

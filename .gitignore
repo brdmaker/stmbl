@@ -33,6 +33,7 @@ host/stmbl_host
 host/test_quota
 host/test_ssq
 host/test_sscon
+host/test_cur_offset
 host/test_bootloader
 host/test_bip
 host/test_stmblcan
