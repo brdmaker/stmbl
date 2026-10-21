@@ -23,6 +23,7 @@ import argparse
 import csv
 import datetime
 import json
+import math
 import os
 import re
 import signal
@@ -69,6 +70,24 @@ class Suite:
             out = "timeout"
         self.note("$ %s\n%s" % (" ; ".join(cmds), out.strip()))
         return out
+
+    def index_jump(self):
+        """com_fb's step where it switched to the absolute angle [deg
+        electrical], the motion of the samples around it taken out."""
+        csv = os.path.join(self.dir, "index-%d.csv" % len(self.rows))
+        r = subprocess.run([CLI, "-d", self.a.usb, "-t", "0.5", "--capture", csv, "--no-arm", "--capture-timeout", "5"],
+                           capture_output=True, timeout=60)
+        self.note("index capture: %r" % (r.stdout + r.stderr)[-200:])
+        if r.returncode != 0 or not os.path.exists(csv):
+            return None  # the move did not cross the index
+        d = [[float(x) for x in l.split(",")] for l in open(csv).read().split()[1:]]
+        m = lambda v: math.remainder(v, 2.0 * math.pi)
+        k = next((i for i in range(2, len(d) - 2) if d[i - 1][2] > 2.5 >= d[i][2]), None)
+        if k is None:
+            return None
+        before = m(d[k - 1][1] - d[k - 2][1])  # the motion per sample
+        after = m(d[k + 2][1] - d[k + 1][1])
+        return math.degrees(m(d[k][1] - d[k - 1][1] - 0.5 * (before + after)))
 
     def pins(self, *names):
         out = self.cli(*names)
@@ -148,7 +167,20 @@ class Suite:
             row.update(result="FAIL", why="HAL session did not come up")
             return row
         # phase: enable and watch until the drive is enabled or faults
+        if a.capture_phasing:
+            # the phase itself: the encoder's own angle (does the rotor move?),
+            # the positions fb_switch reports, the drive's state
+            self.cli("scope0.nch = 4", "scope0.ch0 = enc_fb0.pos", "scope0.ch1 = fb_switch0.pos_fb",
+                     "scope0.ch2 = fb_switch0.mot_fb_no_offset", "scope0.ch3 = fault0.state", "scope0.div = 10",
+                     "scope0.trig = fault0.state", "scope0.edge = 0", "scope0.level = 0.5", "scope0.pre = 0.05",
+                     "scope0.mode = 0", "scopearm")
         r = self.worker("phase", a.phase_timeout)
+        if a.capture_phasing:
+            time.sleep(1.0)
+            csv = os.path.join(self.dir, "phase-%d-%s.csv" % (len(self.rows), kind))
+            out = subprocess.run([CLI, "-d", a.usb, "-t", "0.5", "--capture", csv, "--no-arm", "--capture-timeout", "5"],
+                                 capture_output=True, timeout=60)
+            self.note("phase capture: %r" % (out.stdout + out.stderr)[-200:])
         st = self.pins("fault0.state", "fault0.fault", "fb_switch0.phase_fail", "fb_switch0.phase_amp",
                        "fb_switch0.phase_len", "fb_switch0.current_com_pos")
         row.update(swing_mm=r.get("swing"), phase_s=r.get("time"), state=st.get("fault0.state"),
@@ -172,7 +204,16 @@ class Suite:
             time.sleep(0.5)
         # angle check: hold torque at rest, then a move out and back
         hold = self.pins("pid0.torque_cmd").get("pid0.torque_cmd")
+        if a.index_jump:
+            # the angle phasing found against the absolute one: when the move
+            # crosses the encoder's index, fb_switch takes the calibrated angle
+            # (current_com_pos 4 -> 1); com_fb's jump there is the phasing error
+            self.cli("scope0.nch = 2", "scope0.ch0 = fb_switch0.com_fb", "scope0.ch1 = fb_switch0.current_com_pos",
+                     "scope0.div = 1", "scope0.trig = fb_switch0.current_com_pos", "scope0.edge = 1",
+                     "scope0.level = 2.5", "scope0.pre = 0.5", "scope0.mode = 0", "scopearm")
         m = self.worker("move", a.check_move, a.check_vel)
+        if a.index_jump:
+            row["index_jump_deg"] = self.index_jump()
         st2 = self.pins("fault0.state", "fault0.fault")
         row.update(hold_nm=hold, move_err_mm=m.get("max_err"), after_fault=st2.get("fault0.fault"))
         good = "error" not in m and st2.get("fault0.state") == 1 and (m.get("max_err") or 1e9) <= a.max_error
@@ -197,9 +238,10 @@ class Suite:
             for kind in kinds:
                 row = self.case(pos, kind)
                 self.rows.append(row)
-                print("%s pos %+6.2f mm %-6s %-13s swing %s mm, phasing %s s, fault %s/%s, move error %s mm %s" % (
+                print("%s pos %+6.2f mm %-6s %-13s swing %s mm, phasing %s s, fault %s/%s, move error %s mm%s %s" % (
                     now(), pos, kind, row.get("result"), fmt(row.get("swing_mm")), fmt(row.get("phase_s"), 1),
                     fmt(row.get("fault"), 0), fmt(row.get("phase_fail"), 0), fmt(row.get("move_err_mm")),
+                    (", index jump %s deg" % fmt(row.get("index_jump_deg"), 1)) if "index_jump_deg" in row else "",
                     ("(" + row["why"] + ")") if row.get("why") else ""), flush=True)
                 self.report()
             pos += a.step  # the last case moved the rotor on
@@ -208,7 +250,7 @@ class Suite:
 
     def report(self, final=False):
         keys = ["pos_mm", "case", "result", "swing_mm", "phase_s", "state", "fault", "phase_fail", "amp", "len_s",
-                "com_pos", "hold_nm", "move_err_mm", "after_fault", "why"]
+                "com_pos", "hold_nm", "move_err_mm", "index_jump_deg", "after_fault", "why"]
         with open(os.path.join(self.dir, "cases.csv"), "w", newline="") as f:
             w = csv.DictWriter(f, keys, extrasaction="ignore")
             w.writeheader()
@@ -255,6 +297,10 @@ def main():
     p.add_argument("--max-error", type=float, default=0.3, help="mm, during the check move")
     p.add_argument("--check-move", type=float, default=5.0, help="mm out and back")
     p.add_argument("--check-vel", type=float, default=20.0, help="mm/s")
+    p.add_argument("--capture-phasing", action="store_true",
+                   help="capture the encoder angle and the reported positions during each phase (phase-N-kind.csv)")
+    p.add_argument("--index-jump", action="store_true",
+                   help="capture the angle step at the encoder index during the check move (the phasing error)")
     p.add_argument("--max-pos-error", type=float, default=1.0, help="drive's fault0.max_pos_error during the suite [rad]")
     p.add_argument("--phase-timeout", type=float, default=20.0, help="s")
     a = p.parse_args()

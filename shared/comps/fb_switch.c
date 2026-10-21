@@ -339,7 +339,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
             // the field was at phase_start_pos; from here it follows mot_pos
             ctx->com_offset += mod((ctx->phase_start_pos - mot_pos) * PIN(polecount) / PIN(mot_polecount));
             ctx->probe_angle = 0.0;
-            check_start(ctx, mot_pos, PIN(phase_cur) / 2.0, PIN(phase_pulse));
+            // the check starts small and grows as the probe does: a fixed
+            // phase_cur / 2 threw a low-friction rotor ~0.5 mm (DEBUGNOTES)
+            check_start(ctx, mot_pos, PIN(phase_cur) / 8.0, PIN(phase_pulse));
           }
         break;
 
@@ -389,7 +391,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
                 ctx->current_com_pos = 8;
               } else if(ctx->check_plus > m || ctx->check_minus < -m) {
                 phasing_done(ctx, pins, mot_pos, PIN(phase_mode) <= 0.0);
-              } else if(ctx->probe_len < max_len) {  // nothing moved: longer pulses
+              } else if(ctx->probe_amp < PIN(phase_cur)) {  // nothing moved: stronger
+                check_start(ctx, mot_pos, MIN(ctx->probe_amp * 2.0, PIN(phase_cur)), ctx->probe_len);
+              } else if(ctx->probe_len < max_len) {  // then longer pulses
                 check_start(ctx, mot_pos, ctx->probe_amp, MIN(ctx->probe_len * 4.0, max_len));
               } else {
                 PIN(phase_error) = 1.0;  // blocked: cannot tell

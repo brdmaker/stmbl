@@ -1,0 +1,82 @@
+# Align phasing (phase_mode 0) on the bench motor with little friction (a
+# warm axis): its check after the alignment used a fixed phase_cur / 2
+# pulse, which threw the rotor about half a millimetre on the bench (2026-10-21,
+# phasing suite after a soak: swing 0.3-0.7 mm, LinuxCNC saw it as
+# following error). The check now starts at phase_cur / 8 and grows, as
+# the probe's does. The rotor may move to align, not run away.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 60
+fb_switch0.phase_mode = 0
+hv0.sim_f = 0.004
+enc_fb0.sim_boot_zero = 1
+hv0.sim_upos = 0.3
+hv0.sim_pos = 0.3
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+run 0.1
+hv0.sim_upos
+fault0.state
+@expect fault0.state == 1
+# align ends at ~0.30 rad (samples 1-5); the check's push after it: 0.392
+# with the fixed phase_cur / 2 pulse, 0.338 now
+@expect max hv0.sim_upos[6:30] < 0.36
