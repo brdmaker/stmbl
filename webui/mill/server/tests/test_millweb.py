@@ -772,6 +772,32 @@ class DriveOps(Base):
         self.assertIsNotNone(self.hub.links["X"].fd)
         m = await self.until(ws, lambda m: m["t"] == "drv")
         self.assertEqual(m["drives"][0]["n"], "X")
+class Workspace(Base):
+    INI_EXTRA = "WORKSPACE_X = 100 200\n"
+
+    async def test_jog_workspace(self):
+        """[MILLWEB] WORKSPACE_X: jogs stay inside it, programs may go beyond."""
+        ws = await self.client()
+        await self.call(ws, "control", take=True)
+        for op, kw in (("estop", {"on": False}), ("power", {"on": True}), ("home", {"axis": "all"})):
+            await self.call(ws, op, **kw)
+        lc.M.pos[0] = 150.0
+        r = await self.call(ws, "jog", axis="x", dir=1, inc=100, rate=600)  # shortened to the edge
+        self.assertTrue(r["ok"], r)
+        self.assertAlmostEqual(lc.M.pos[0], 200.0)
+        r = await self.call(ws, "jog", axis="x", dir=1, inc=1, rate=600)  # at the edge: refused
+        self.assertFalse(r["ok"])
+        self.assertIn("workspace", r["err"])
+        r = await self.call(ws, "jog", axis="x", dir=-1, inc=0, rate=600)  # continuous: to the other edge
+        self.assertTrue(r["ok"], r)
+        self.assertAlmostEqual(lc.M.pos[0], 100.0)
+        self.assertTrue((await self.call(ws, "jog_stop", axis="x"))["ok"])
+        lc.M.pos[0] = 50.0  # outside (a program took it there): only back towards it
+        self.assertFalse((await self.call(ws, "jog", axis="x", dir=-1, inc=1, rate=600))["ok"])
+        self.assertTrue((await self.call(ws, "jog", axis="x", dir=1, inc=1, rate=600))["ok"])
+        self.assertAlmostEqual(lc.M.pos[0], 51.0)
+        # Y has no workspace: the soft limits only, as before
+        self.assertTrue((await self.call(ws, "jog", axis="y", dir=-1, inc=0.1, rate=600))["ok"])
         await ws.close()
 
 

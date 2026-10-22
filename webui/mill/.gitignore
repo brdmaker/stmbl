@@ -1,3 +1,5 @@
 __pycache__/
 # test/sim's programs are part of the test config (the repository ignores *.ngc)
 !test/sim/nc_files/*.ngc
+# LinuxCNC keeps a backup of the parameter file
+*.var.bak
