@@ -8,15 +8,25 @@ The console's gantry mill (X Y Y Z) with **X on the real stmbl drive** (the
 cd webui/mill/bench && linuxcnc mill.ini     # then http://<host>:8080/
 ```
 
-**The X axis moves.** It homes where it stands; its travel is -300..300 mm
-from there (the burn-in axis), at up to 500 mm/s and 1000 mm/s². G54 puts a
-program's X 0..120 at machine X -60..60 (`bench.var`); the toolsetter is at
-machine X 250.
+**The X axis moves.** Homing moves every axis:
+
+| Axis | Homing |
+|---|---|
+| Z (simulated) | first: up onto a switch at Z 0, then to Z -5 |
+| Y, Y2 (simulated) | together (a gantry): onto switches at Y 1000, then to Y 990 |
+| X (real) | last: creeps at 3 mm/s to the encoder's index (at most one revolution, 10 mm), which is X 0; repeatable to ~2 counts |
+
+The simulated switches are `sim_home_switch` on the joints' raw positions.
+X's travel is -300..300 mm (the burn-in axis), at up to 500 mm/s and 1000
+mm/s². Jogs stay inside the workspace (`WORKSPACE_X/Y/Z` in `mill.ini`: X
+-100..100, Y 400..600, Z -195..0); programs may use the whole travel. G54
+puts a program's X 0..120 at machine X -60..60 (`bench.var`); the
+toolsetter is at machine X 250.
 
 | File | |
 |---|---|
 | `mill.ini` | `test/sim/mill.ini` with X as the real joint, `[HOSTMOT2]` as `hwtest/burnin` (hm2_spix), the drive in the Dynamics page (`DRIVE = X ...current power fault`) |
-| `mill.hal` | hostmot2 + the drive on joint 0, the watchdog E-stop latch; joints 1-3, the probe and the tool changer simulated |
+| `mill.hal` | hostmot2 + the drive on joint 0 (index homing: `joint.0.index-enable` <=> `stbl.0.0.index_enable`), the watchdog E-stop latch; joints 1-3 with home switches, the probe and the tool changer simulated |
 | `phasing_ferror.hal` | a larger following error while the drive autophases (`hwtest/burnin`) |
 | `bench.var`, `tool.tbl` | `test/sim`'s, G54 X moved to -60 |
 
