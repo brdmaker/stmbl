@@ -246,12 +246,22 @@ function showPage(id) {
   st.page = id;
   $$("#nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.p === id ? "page" : "false"));
   for (const [k, v] of Object.entries(paneIds)) $(v).hidden = k !== id;
-  if (id === "main") requestAnimationFrame(resize3d);
+  placeViewer(id);
   if (id === "file") renderFiles();
   if (id === "off") renderOffsets();
   if (id === "tool") renderTools();
   if (id === "wiz") fillToolSelects();
   try { localStorage.setItem("pmc.page", id); } catch (e) { /* storage blocked */ }
+}
+// the one 3D view: on MAIN, and on PROBE below the cycles (the same scene, moved)
+const viewerHome = { parent: $("viewer").parentNode, next: $("viewer").nextSibling };
+function placeViewer(id) {
+  const v = $("viewer");
+  if (id === "probe" && v.parentNode !== $("probe-view")) {
+    $("probe-view").appendChild(v);
+    if (R && !R.camAnim) setCam("part");  // close on the stock: where probing happens
+  } else if (id === "main" && v.parentNode !== viewerHome.parent) viewerHome.parent.insertBefore(v, viewerHome.next);
+  if (id === "main" || id === "probe") requestAnimationFrame(resize3d);
 }
 $("nav").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) showPage(b.dataset.p); });
 addEventListener("hashchange", () => { const p = location.hash.slice(1); if (paneIds[p] && p !== st.page) showPage(p); });

@@ -493,6 +493,16 @@ test("tools page: select, load, add, delete, edit, measure", async (t) => {
 });
 
 // ------------------------------------------------------------ PROBE
+test("probe page: the 3D view below the cycles; back on MAIN after", async (t) => {
+  await t.nav("probe");
+  t.check(await t.until(() => document.getElementById("viewer").parentNode.id === "probe-view"), "the view is on the probe page");
+  t.check(await t.until(() => { const c = document.getElementById("scene"); return c.width > 300 && c.height > 250; }), "at a usable size");
+  t.check(await t.until(() => document.querySelector('[data-cam="part"]').getAttribute("aria-pressed") === "true"), "close on the stock (PART)");
+  await t.nav("tool");
+  await t.nav("main");
+  t.check(await t.until(() => document.getElementById("viewer").parentNode.id === "p-main" && document.getElementById("scene").width > 300), "back on MAIN, full size");
+});
+
 test("probe page: cycles need the probe; results; apply", async (t) => {
   await stop(t);
   await t.nav("probe");
