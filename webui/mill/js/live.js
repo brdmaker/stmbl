@@ -442,7 +442,7 @@ const Live = (() => {
     e.stopImmediatePropagation();
     if (b.dataset.up) return openDir(L.dir.includes("/") ? L.dir.slice(0, L.dir.lastIndexOf("/")) : "");
     if (b.dataset.dir !== undefined) {
-      if (e.target.closest("[data-open]")) return openDir(b.dataset.dir);
+      if (e.target.closest("[data-open]") || (L.sel && L.sel.kind === "dir" && L.sel.path === b.dataset.dir)) return openDir(b.dataset.dir);  // Open, or a second tap (no double-click on a tablet)
       L.sel = { kind: "dir", path: b.dataset.dir };
       $$("#files .file").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       $("fl-rename").disabled = $("fl-delete").disabled = false;

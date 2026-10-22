@@ -2069,3 +2069,26 @@ Entry format:
   lets go of it for a while. A pin read is a prefix match on the drive
   ("fault0.en" prints five pins): millweb asks full names and parses every
   "name [<= source] = value" line it sees, whoever asked.
+
+## 2026-10-22  Tablets: double-tap zoom, text selection, squeezed panels
+- Area:    webui/mill/index.html (CSS), js/app.js, test/gui/tablet_suite.js
+- Status:  Fixed (iPad Safari itself not tested here: no WebKit)
+- Symptom: (iPad report) a quick second tap zoomed the page; taps on some
+  buttons selected text. The tablet survey also found: held sideways
+  (1080x746) the Program and MDI panels squeezed to 72 px each, Preflight
+  under MDI's Send; the scope's mode buttons squeezed to 2 px high; the
+  header on two rows with E-STOP alone on the second; upright, the header
+  (and its E-STOP) scrolled out of sight; 26-64 controls per page under
+  30 px.
+- Cause:   no touch-action (Safari double-tap zoom applies to buttons too);
+  text selectable everywhere; grid/flex items with min-height 0 inside a
+  fixed-height page shrink instead of letting the page scroll.
+- Fix:     `* { touch-action: manipulation }`, `user-select: none` on the
+  body (text kept in G-code, inputs, logs, the drive console), no
+  contextmenu on the jog pad; `.lower` min-height auto and the Debug tabs
+  `flex: none` in one column; a one-row header at 961-1440 px; a floating
+  E-STOP when the header's is out of sight; larger targets under
+  `(pointer: coarse)`. tablet_suite.js checks it at 12 sizes; the same
+  suite run on the previous version fails on every page.
+- Note:    Chromium's iPad emulation doesn't do Safari's double-tap zoom,
+  so the suite checks the CSS that prevents it, not the zoom itself.

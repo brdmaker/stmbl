@@ -2,6 +2,7 @@
 #
 #   make test           millweb against a stand-in LinuxCNC (~5 s)
 #   make test-gui-sim   the console's every page and control, simulated, in headless Chromium (~4 min)
+#   make test-gui-tablet every page at iPad and Android tablet sizes, by touch (~2 min)
 #   make test-backend   the protocol case by case against real LinuxCNC (test/sim; ~7 min)
 #   make test-gui-live  the console on real LinuxCNC through its own controls (~3 min)
 #   make test-live      the end-to-end scenario: protocol, then the page (~1 min)
@@ -33,6 +34,9 @@ test:
 test-gui-sim:
 	node test/gui/sim_suite.js $(SEL)
 
+test-gui-tablet:
+	node test/gui/tablet_suite.js $(SEL)
+
 test-backend:
 	python3 test/backend_suite.py $(if $(K),-k "$(K)",)
 
@@ -58,7 +62,7 @@ PORT ?= 8080
 serve-test:
 	python3 test/harness.py --serve --port $(PORT) $(if $(STRESS),--stress-files,)
 
-check-all: test test-gui-sim test-backend test-gui-live
+check-all: test test-gui-sim test-gui-tablet test-backend test-gui-live
 
 sim:
 	@bash -c '$(RIP) cd test/sim && linuxcnc mill.ini'

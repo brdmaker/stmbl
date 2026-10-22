@@ -68,7 +68,7 @@ async function run(opts) {
   }
   for (const c of sel) {
     const vp = c.opts.viewport || opts.viewport || { width: 1600, height: 1000 };
-    const ctx = await browser.newContext({ viewport: vp });
+    const ctx = await browser.newContext({ viewport: vp, ...(c.opts.context || opts.context || {}) });  // context: e.g. hasTouch, isMobile
     const page = await ctx.newPage();
     const t = helpers(page, ctx, o);
     page.on("pageerror", (e) => t.errors.push(String(e)));

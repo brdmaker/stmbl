@@ -362,7 +362,7 @@ function updateChips() {
   set("ch-mode", "ok", LIVE ? ({ auto: "AUTO", mdi: "MDI", manual: "MANUAL" }[st.lmode] || "MANUAL") : st.page === "probe" ? "PROBE" : st.motion === prog && st.run !== "idle" ? "AUTO" : st.motion ? "MDI" : "MANUAL");
   set("ch-run", st.run === "run" ? "run" : st.run === "hold" || st.run === "step" ? "warn" : st.run === "done" ? "ok" : "", { idle: "IDLE", run: "RUNNING", hold: "FEED HOLD", step: "SINGLE BLOCK", done: "DONE" }[st.run]);
   $("b-power").setAttribute("aria-pressed", String(st.on));
-  $("b-estop").setAttribute("aria-pressed", String(st.estop));
+  $("b-estop").setAttribute("aria-pressed", String(st.estop)); $("b-estop2").setAttribute("aria-pressed", String(st.estop));
   ["x", "y", "z"].forEach((a) => $("h-" + a).classList.toggle("on", st.homed[a]));
 }
 function toggleEstop() {
@@ -379,6 +379,11 @@ function togglePower() {
   msg(st.on ? "Machine on: drives enabled, gantry link up (0.6 ms)" : "Machine off: drives disabled", st.on ? "ok" : "info"); updateChips();
 }
 $("b-estop").addEventListener("click", toggleEstop);
+// a second E-STOP, floating, whenever the header's is scrolled out of sight (a tablet in portrait scrolls the page)
+$("b-estop2").addEventListener("click", toggleEstop);
+if ("IntersectionObserver" in window) new IntersectionObserver((es) => { $("b-estop2").hidden = es[0].intersectionRatio > 0.6; }, { threshold: [0, 0.6, 1] }).observe($("b-estop"));
+// a held jog button: no long-press menu
+$("jogpad").addEventListener("contextmenu", (e) => e.preventDefault());
 $("b-power").addEventListener("click", togglePower);
 
 // ============================================================ spindle, coolant, overrides
@@ -402,7 +407,7 @@ $$("[data-reset]").forEach((b) => b.addEventListener("click", () => { const i = 
 // ============================================================ program view
 let lastLine = 0;
 function renderProgram() {
-  $("h-prog").textContent = prog.name;
+  $("h-prog").textContent = prog.name; $("h-prog").title = prog.name;  // shortened with … on a narrow header
   $("pg-sub").textContent = `${(prog.nlines || prog.lines.length).toLocaleString("en-US")} lines · ${[...prog.tools].map((t) => "T" + t).join(" ")}`;
   renderListing();
   st.selLine = 0; $("b-runfrom").disabled = true; $("b-runfrom").textContent = "Run from line";

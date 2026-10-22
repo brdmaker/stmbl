@@ -180,6 +180,15 @@ needs control.
 - A new workpiece goes to the work zero, a new fixture onto the table under it.
 
 
+## On a tablet
+
+The console is laid out for tablets as well as desktops, tested at the usual
+iPad (mini, 10.2", Air, Pro 11" and 12.9") and 10" Android sizes, both ways
+round (`make test-gui-tablet`):
+- **Held sideways** (961–1440 px): the three columns as on a desktop, the header on one row with the E-STOP at its right end (the status chips wrap among themselves, the program name shortens, the clock goes below 1280 px), a lower nav rail on short screens. The main page scrolls to show the program and MDI at full height.
+- **Upright** (up to 960 px): one column, the nav as a row, the page scrolls. When the header's E-STOP scrolls out of sight a **floating E-STOP** appears at the bottom right.
+- **Touch:** controls are at least 30 px (larger buttons, segments, inputs and sliders on a touch screen). A quick second tap doesn't zoom (`touch-action: manipulation`; pinch zoom still works), and taps or holds on controls don't select text or open the callout (a held jog button did on an iPad). G-code, inputs, the event log and the drive console stay selectable. A second tap on a selected folder opens it (no double-click on a tablet).
+
 ## Safety, as built
 
 - **The E-STOP chain is hardware**: stmbl's fault inputs and the drives' quick stop. The page's E-STOP only asks LinuxCNC for `STATE_ESTOP`, and any browser, watching or not, may press it.
@@ -209,12 +218,13 @@ needs control.
 |---|---|---|---|
 | `make test` | unit tests: millweb against `server/tests/fake_linuxcnc.py` | 5 s | Python |
 | `make test-gui-sim` | every page and control of the console on its simulated machine | 4 min | node, Playwright |
+| `make test-gui-tablet` | every page at iPad and Android tablet sizes, both ways round, as a touch screen: nothing to scroll sideways, every control tappable and 30 px or more, the header and E-STOP, touch CSS (`TABLET_URL=` for a machine) | 2 min | node, Playwright |
 | `make test-backend` | the protocol case by case on real LinuxCNC (`test/sim`) | 7 min | LinuxCNC, a non-root user |
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
 | `make test-drive` | the Drives tab on LinuxCNC with a simulated stmbl drive on X (`harness.py --drive`: `stmbl_sim` closing joint 0's loop, `sserialterm`) | 1 min | all of the above, `stmbl_sim.so` and `sserialterm.so` installed |
-| `make check-all` | the first four | 15 min | |
+| `make check-all` | unit, simulated, tablet, backend and live GUI suites | 17 min | |
 
 **On a small board** (LinuxCNC installed from packages, little RAM): the harness
 takes a run-in-place tree from `LINUXCNC=path` (or `~/linuxcnc-2.9`), else the

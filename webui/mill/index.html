@@ -276,6 +276,10 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .drv-quick { flex-wrap: wrap; gap: 4px; }
 @media (max-width: 1100px) { .drv-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1100px) { .scope-grid { grid-template-columns: minmax(0, 1fr); } }
+.scope-side > * { flex-shrink: 0; }
+/* one column: a Debug tab as tall as what it holds, the page scrolls (else its panels are squeezed) */
+@media (max-width: 1100px) { #dbg-scope, #dbg-drives { flex: none; } }
+@media (max-width: 960px) { #dbg-hal { flex: none; } }
 .hal-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; min-height: 0; flex: 1; }
 .hal-grid > .panel { min-height: 0; }
 .hal-browse #hal-q { flex: 1; min-width: 160px; }
@@ -329,13 +333,67 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 .dialog h3 { margin: 0; font: 12px var(--f-display); letter-spacing: .1em; }
 .dialog input { background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 8px; font: 16px var(--f-mono); }
 
+/* ---------- touch screens (tablets)
+   No double-tap zoom (iPad Safari zooms on a quick second tap, also on a
+   button); pinch zoom and scrolling stay. Taps and holds on controls don't
+   select text or open the callout (a held jog button did); text stays
+   selectable where it is worth copying. */
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+* { touch-action: manipulation; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .scope-read { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.estop-float { position: fixed; right: max(14px, env(safe-area-inset-right, 0px)); bottom: max(14px, env(safe-area-inset-bottom, 0px)); width: 84px; height: 56px; z-index: 15;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .55); font-size: 11px; }
+@media (pointer: coarse) {
+  .btn { min-height: 36px; }
+  .btn.sm { min-height: 32px; padding: 5px 10px; }
+  .seg button { min-height: 34px; min-width: 36px; padding: 6px 11px; }
+  .chip button { min-height: 30px; padding: 4px 8px; }
+  .hal-row { min-height: 34px; }
+  .file { min-height: 44px; }
+  input:not([type=range]):not([type=checkbox]):not([type=radio]), select { min-height: 36px; }
+  .dialog .btn { min-height: 44px; }
+  .axis .acts button { min-height: 30px; padding: 5px 9px; font-size: 9.5px; }
+  [role=tab] { min-height: 34px; }
+  .hal-g summary { padding: 8px 4px; }
+  .ovr label { grid-template-columns: 54px 1fr 44px 42px; }
+  .ovr button { min-height: 32px; }
+  #fl-crumbs button { min-height: 32px; padding: 4px 8px; }
+  input[type=range] { min-height: 32px; }  /* more to put a finger on */
+}
+/* a tablet held sideways (961-1440 px): the header on one row, the E-STOP at its right end;
+   the status chips wrap among themselves, the program name shortens */
+@media (min-width: 961px) and (max-width: 1440px) {
+  .head { flex-wrap: nowrap; }
+  .chips { flex: 0 1 auto; min-width: 150px; }
+  .prog-name { flex: 1 1 110px; min-width: 70px; }
+  .prog-name .num { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+  .spacer { display: none; }
+  .times { flex-wrap: nowrap; flex-shrink: 0; }
+  .head > button { flex-shrink: 0; }
+}
+@media (max-width: 1280px) { .times > div:last-child { display: none; } }  /* the clock: a tablet shows its own */
+/* short landscape screens (a tablet held sideways): a lower header and nav rail */
+@media (max-height: 860px) and (min-width: 961px) {
+  .head { padding: 5px 10px; row-gap: 6px; }
+  .nav { gap: 2px; padding: 4px; }
+  .nav button { padding: 6px 2px 5px; gap: 2px; }
+  .nav button svg { width: 19px; height: 19px; }
+}
+
 @media (max-width: 1280px) {
   .app { grid-template-columns: 72px minmax(0, 1fr) 330px; }
-  .lower { grid-template-columns: minmax(0, 1fr); }
+  .lower { grid-template-columns: minmax(0, 1fr); min-height: auto; }  /* program and MDI one above the other at full height: the page scrolls */
+  .brand span { display: none; }
+  .nav button { letter-spacing: .02em; }  /* DYNAMICS fits the narrower rail */
+  .chips { gap: 4px; }
+  .chip-st { padding: 3px 7px; letter-spacing: .06em; }
+  .times { gap: 10px; }
   .view-main { grid-template-rows: minmax(320px, 56vh) auto; overflow: auto; }
 }
 @media (max-width: 960px) {
   html, body { height: auto; }
+  body { padding-bottom: 84px; }  /* room to scroll the last controls out from under the floating E-STOP */
   .app { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto auto;
     grid-template-areas: "head" "nav" "page" "ctl" "foot"; }
   .nav { flex-direction: row; overflow-x: auto; }
@@ -412,6 +470,7 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
     <button class="power" id="b-control" hidden title="One browser controls the machine; the others watch">TAKE<br>CONTROL</button>
     <button class="power" id="b-power" aria-pressed="false" title="Machine on/off (F2)">MACHINE<br>ON</button>
     <button class="estop" id="b-estop" aria-pressed="false" title="E-STOP (F1)">E-STOP</button>
+    <button class="estop estop-float" id="b-estop2" aria-pressed="false" title="E-STOP (F1): the header's is out of sight" hidden>E-STOP</button>
   </header>
 
   <nav class="nav" id="nav" aria-label="Pages"></nav>
