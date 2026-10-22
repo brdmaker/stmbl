@@ -157,6 +157,14 @@ class Machine:
         self.drives = [d.split() for d in cfg.all("MILLWEB", "DRIVE")]  # name current [power] [fault]
         self.sig = {k: cfg.get("MILLWEB", k) for k in ("SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN")}
         self.pcomp = cfg.get("MILLWEB", "PCOMP", "pcomp.0")
+        # [MILLWEB] WORKSPACE_X = min max (machine): jogs stay inside it
+        # (programs and MDI may use the whole travel); none: the soft limits
+        self.workspace = {}
+        for a in "XYZ":
+            v = (cfg.get("MILLWEB", "WORKSPACE_" + a) or "").split()
+            if len(v) == 2:
+                lo, hi = sorted(float(x) for x in v)
+                self.workspace[a] = (lo, hi)
         self.last_run = "idle"
         self.wcs_unknown = False
         self.notes = []                 # for the event log, from the worker thread
@@ -176,7 +184,8 @@ class Machine:
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,
                 "toolsetter": bool(self.toolsetter), "pcomp": self._pin_exists(self.pcomp + ".shaper"),
-                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max}
+                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max,
+                "workspace": {a: {"min": lo, "max": hi} for a, (lo, hi) in self.workspace.items()}}
 
     def _pin_exists(self, name):
         if not self.hal or not name:
@@ -452,6 +461,19 @@ class Machine:
             self.c.teleop_enable(1)
             self.c.wait_complete(1.0)
         vel = abs(rate) / 60.0
+        box = self.workspace.get(axis.upper())
+        if box:
+            # inside the workspace only: an increment is shortened to its edge,
+            # a continuous jog is an increment to the edge (jog_stop and the
+            # deadman still stop it); from outside, only back towards it
+            p = self.ws.actual_position[a]
+            room = (box[1] - p) if direction > 0 else (p - box[0])
+            if room <= 0.001:
+                return "at the edge of the workspace (%s %g..%g)" % (axis.upper(), box[0], box[1])
+            self.c.jog(lc.JOG_INCREMENT, False, a, vel * (1 if direction > 0 else -1), room if inc <= 0 else min(inc, room))
+            if inc <= 0:
+                self.jog_active[a] = True
+            return None
         if inc > 0:
             self.c.jog(lc.JOG_INCREMENT, False, a, vel * (1 if direction > 0 else -1), inc)
         else:

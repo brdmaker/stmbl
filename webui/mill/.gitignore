@@ -1,1 +1,3 @@
 __pycache__/
+# LinuxCNC keeps a backup of the parameter file
+*.var.bak

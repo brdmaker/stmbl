@@ -71,6 +71,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `PIN` (repeat) | | HAL pins for the Status page's watch |
 | `DRIVE` (repeat) | | `NAME CURRENT_PIN [POWER_PIN] [FAULT_PIN]` for the Dynamics page's drive table |
 | `SPINDLE_LOAD_PIN`, `BUS_PIN`, `YAW_PIN`, `CONTOUR_PIN`, `AT_SPEED_PIN`, `AIR_PIN` | | the Dynamics page's live values; `AIR_PIN`: a bit the Air button sets |
+| `WORKSPACE_X`, `WORKSPACE_Y`, `WORKSPACE_Z` | | `min max` (machine): jogs stay inside this box (an increment is shortened to its edge, a continuous jog stops there; from outside only back towards it); programs and MDI still have the whole travel. None: the soft limits |
 | `PCOMP` | pcomp.0 | pcomp's HAL prefix; its switches are on the Dynamics page when it is loaded |
 | `[DISPLAY] MAX_FEED_OVERRIDE`, `MAX_SPINDLE_OVERRIDE`, `MIN_SPINDLE_OVERRIDE` | 1.0, 1.0, 0.5 | the sliders' ranges: LinuxCNC clamps the overrides to these (and still reads back the value asked for) |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
