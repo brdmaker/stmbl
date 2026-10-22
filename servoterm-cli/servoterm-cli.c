@@ -39,6 +39,14 @@
  *                  drive resets and its bootloader copies the image. Over
  *                  USB in seconds; over the smart-serial console (sserialterm)
  *                  at ~1 kB/s. --no-apply stops before fwapply.
+ *     --wizard  the setup wizard (setup/, docs/setup_wizard.md): sets up the
+ *               drive and its motor step by step. --session FILE keeps
+ *               its progress (default stmbl-setup-session.txt; run again
+ *               to resume), --answers FILE answers from a file, --redo
+ *               STEP repeats a step and what follows, --wizard-step STEP
+ *               runs one step, --out DIR for backups / config / report,
+ *               --time-scale N for the simulator's --speed N, -v shows
+ *               the drive's text
  *     SCRIPT    file of commands to send; if omitted (and no --dump/--load),
  *               reads stdin
  *
@@ -70,6 +78,14 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "setup/su_cli_ui.h"
+#include "setup/su_steps.h"
+#include "setup_api.h"
+
+#ifndef SETUP_GIT
+#define SETUP_GIT ""
+#endif
 
 #define SCOPE_CHANNELS 8
 #define SCOPE_MARKER 0xFF
@@ -1198,6 +1214,41 @@ static int fw_update(int fd, const char *path, int apply) {
   return 0;
 }
 
+// --wizard: the setup wizard, on its own link (setup/su_link.c)
+static int wizard_main(const char *dev, const char *session, const char *answers, const char *redo,
+                       const char *one, const char *out_dir, double time_scale, int verbose) {
+  su_cli_t *cli = su_cli_new(answers, verbose);
+  if(!cli) {
+    fprintf(stderr, "servoterm-cli: cannot read answers file %s\n", answers);
+    return 1;
+  }
+  char err[256];
+  su_link_t *link = su_link_open(dev, err, sizeof(err));
+  if(!link) {
+    fprintf(stderr, "servoterm-cli: %s\n", err);
+    su_cli_free(cli);
+    return 1;
+  }
+  su_state_t *st = su_state_new();
+  if(su_state_load(st, session) == 0) {
+    fprintf(stderr, "servoterm-cli: resuming the session in %s\n", session);
+  }
+  su_wizard_t w = {link, su_cli_ui(cli), st, session, out_dir, STMBL_SETUP_API, SETUP_GIT, time_scale};
+  if(redo) {
+    su_wizard_redo(&w, redo);
+  }
+  su_result_t r = one ? su_wizard_step(&w, one) : su_wizard_run(&w);
+  if(r == SU_ABORTED) {
+    fprintf(stderr, "\nStopped. The session is in %s: run the wizard again to go on.\n", session);
+  } else if(r == SU_FAIL) {
+    fprintf(stderr, "\nThe step failed (above). Fix it and run the wizard again: it repeats that step.\n");
+  }
+  su_state_free(st);
+  su_link_close(link);
+  su_cli_free(cli);
+  return r == SU_OK ? 0 : 1;
+}
+
 static void usage(void) {
   fprintf(stderr,
           "usage: servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]\n"
@@ -1206,6 +1257,8 @@ static void usage(void) {
           "                     [--autotune [--autotune-comp COMP] [--autotune-timeout SEC]]\n"
           "                     [--capture FILE [--no-arm] [--capture-timeout SEC]]\n"
           "                     [--update IMAGE [--no-apply]]\n"
+          "                     [--wizard [--session FILE] [--answers FILE] [--redo STEP]\n"
+          "                      [--wizard-step STEP] [--out DIR] [--time-scale N] [-v]]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -1231,9 +1284,33 @@ int main(int argc, char **argv) {
   double capture_timeout     = 60.0;
   const char *update_path    = NULL;  // --update: in-band firmware update
   int update_apply           = 1;
+  int wizard                 = 0;  // --wizard: the setup wizard
+  const char *wiz_session    = "stmbl-setup-session.txt";
+  const char *wiz_answers    = NULL;
+  const char *wiz_redo       = NULL;
+  const char *wiz_step       = NULL;
+  const char *wiz_out        = ".";
+  double wiz_scale           = 1.0;
+  int verbose                = 0;
 
   for(int i = 1; i < argc; i++) {
-    if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
+    if(strcmp(argv[i], "--wizard") == 0) {
+      wizard = 1;
+    } else if(strcmp(argv[i], "--session") == 0 && i + 1 < argc) {
+      wiz_session = argv[++i];
+    } else if(strcmp(argv[i], "--answers") == 0 && i + 1 < argc) {
+      wiz_answers = argv[++i];
+    } else if(strcmp(argv[i], "--redo") == 0 && i + 1 < argc) {
+      wiz_redo = argv[++i];
+    } else if(strcmp(argv[i], "--wizard-step") == 0 && i + 1 < argc) {
+      wiz_step = argv[++i];
+    } else if(strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
+      wiz_out = argv[++i];
+    } else if(strcmp(argv[i], "--time-scale") == 0 && i + 1 < argc) {
+      wiz_scale = atof(argv[++i]);
+    } else if(strcmp(argv[i], "-v") == 0) {
+      verbose = 1;
+    } else if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
       scope_cfg = argv[++i];
     } else if(strcmp(argv[i], "--step") == 0 && i + 1 < argc) {
       send_step = atoi(argv[++i]);
@@ -1282,6 +1359,10 @@ int main(int argc, char **argv) {
     } else {
       script = argv[i];
     }
+  }
+
+  if(wizard) {
+    return wizard_main(dev, wiz_session, wiz_answers, wiz_redo, wiz_step, wiz_out, wiz_scale, verbose);
   }
 
   // -C "pin:gain,pin:gain,...": up to 8 channels, in order wave0..wave7.

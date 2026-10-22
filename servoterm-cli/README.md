@@ -142,3 +142,17 @@ How it runs:
 Speed: over USB, seconds; over smart-serial, ~350 B/s (~15 min for the
 whole application). See `../docs/sserial_bootloader.md`, also for the
 recovery path (`sserialboot` and LinuxCNC's `setsserial flash`).
+
+## Setup wizard (`--wizard`)
+
+Sets up a drive and its motor step by step: firmware check, config
+backup, supply, nameplate, feedback, wiring help, then it measures the
+motor on the drive (encoder resolution by hand, `id_pmsm`, `id_mot`,
+`id_pid`), sets the limits and the command link, checks the final config
+and saves it with a report.
+```sh
+servoterm-cli -d /dev/ttyACM0 --wizard                 # resumes from stmbl-setup-session.txt
+servoterm-cli -d /dev/ttyACM0 --wizard --redo tuning   # repeat a step and what follows
+```
+The code is a library in `setup/` (a GUI can use it); `make check` runs
+its unit tests. See `../docs/setup_wizard.md`.

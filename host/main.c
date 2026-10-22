@@ -378,14 +378,18 @@ static int serve(void) {
 }
 
 // Drive mode, in real time: the console is on a pty, and time advances by
-// itself at 1 ms per ms. Nothing plays LinuxCNC, so the drive shows a command
-// error, as a real drive does with LinuxCNC not running.
-static int drive_realtime(void) {
+// itself at 1 ms per ms (speed ms per ms with --speed: tests of long
+// procedures such as the setup wizard's identification). Nothing plays
+// LinuxCNC, so the drive shows a command error, as a real drive does with
+// LinuxCNC not running.
+static int drive_realtime(int speed) {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
   for(;;) {
-    for(int i = 0; i < RT_PER_NRT; i++) {
-      drive_tick();
+    for(int s = 0; s < speed; s++) {
+      for(int i = 0; i < RT_PER_NRT; i++) {
+        drive_tick();
+      }
     }
     t.tv_nsec += 1000000;
     if(t.tv_nsec >= 1000000000) {
@@ -406,6 +410,7 @@ static void usage(void) {
           "                (with --pty, flashsaveconf writes back to CONF)\n"
           "  --sim FILE    sim-only settings, parsed after host/sim_board.txt\n"
           "  --pty LINK    real time, console on a pty symlinked at LINK;\n"
+          "  --speed N     with --pty: N ms of drive time per ms (default 1)\n"
           "                without it, SCRIPT drives the clock (step/run)\n");
 }
 
@@ -419,6 +424,7 @@ int main(int argc, char **argv) {
   const char *sim    = NULL;
   const char *pty    = NULL;
   int do_serve       = 0;
+  int speed          = 1;
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "--serve") == 0) {
       do_serve = 1;
@@ -426,6 +432,9 @@ int main(int argc, char **argv) {
       conf = argv[++i];
     } else if(strcmp(argv[i], "--sim") == 0 && i + 1 < argc) {
       sim = argv[++i];
+    } else if(strcmp(argv[i], "--speed") == 0 && i + 1 < argc) {
+      speed = atoi(argv[++i]);
+      speed = speed < 1 ? 1 : speed;
     } else if(strcmp(argv[i], "--pty") == 0 && i + 1 < argc) {
       pty = argv[++i];
     } else if(argv[i][0] == '-' && argv[i][1]) {
@@ -464,7 +473,7 @@ int main(int argc, char **argv) {
       }
       drive_boot();
       fprintf(stderr, "simulated drive on %s\n", pty);
-      return drive_realtime();
+      return drive_realtime(speed);
     }
     drive_boot();
   }

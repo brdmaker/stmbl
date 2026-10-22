@@ -1,0 +1,21 @@
+# The simulated encoder (hw/enc_fb.c) with its own resolution (sim_res,
+# 2000 lines = 8000 counts) and the drive's timer wrapping at
+# conf0.mot_fb_res, turned by hand (hv0.sim_turn, 1 rev/s). With the timer
+# at 65536 the index counts ("cnt = N", indexprint, as on the drive) differ
+# by exactly the encoder's counts per revolution: what the setup wizard
+# measures (the burn-in config's mot_fb_rev counts a forward turn down:
+# 64732, 56732, 48732), and turned back they come back up.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+enc_fb0.sim_res = 8000
+conf0.mot_fb_res = 65536
+enc_fb0.indexprint = 1
+run 0.2
+hv0.sim_turn = 19
+run 3.5
+hv0.sim_dist
+hv0.sim_turn = -13
+run 2.5
+@match ^cnt = 64732$
+@match ^cnt = 56732$
+@match ^cnt = 48732$
+@expect hv0.sim_dist ~ 19 0.01

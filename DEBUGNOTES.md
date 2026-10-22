@@ -1722,3 +1722,103 @@ Entry format:
   phase_cur / 8 and grows (drive_phasing_align_gentle.test).
   Bench, v0.9.18-356: offset reading with the bridge off 0.09 -> ~0.01 A;
   phasing suite 36/36 (align swing <= 0.018 mm, move error <= 0.115 mm).
+
+## 2026-10-18  idpmsm: pole pairs wrong on heavy rotors
+- Area:    `shared/comps/idpmsm.c` (state 2.2)
+- Status:  Fixed
+- Symptom: setup wizard over 35 simulated motors: 5 got 9-12 pole pairs
+  (syn_spindle, syn_servo_2kw, manutec_r15_1, p50b, weiler_x).
+- Cause:   the rotating field started at full test_vel; a rotor heavy for
+  the test current can't pull in and swings; pp was a filtered ratio of
+  instantaneous speeds, biased by the swinging.
+- Fix:     the field ramps up over 1 s; pp = the field's travel / the
+  rotor's over the last 2 s. All 35 right.
+
+## 2026-10-18  idpmsm: the flux step spun light motors to the voltage limit
+- Area:    `shared/comps/idpmsm.c` (state 3.2), `conf/template/id_pmsm.txt`
+- Status:  Fixed
+- Symptom: manutec_r15_1 (j 3.5e-4, 0.8 A) ran up to 700 rad/s (6700 rpm)
+  during the psi measurement; with a wrong conf0.polecount it kept being
+  driven with no current command.
+- Cause:   (1) the speed loop was a slow integrator (error limited to
+  test_vel / 100): huge overshoot. (2) id_pmsm left hv0.vel on the normal
+  commutation chain, scaled by conf0.polecount (still a guess there): the
+  F3 advanced the angle by it between packets and spun the field itself.
+- Fix:     bang-bang: test_cur below test_vel, no current until 0.7
+  test_vel; psi = the integral of uq - r iq over the rotor's travel while
+  coasting (vel1 reads ~1 % high while slowing: 2 % in psi). The template
+  sets hv0.vel = 0. drive_id_pmsm.test: psi -1.3 % (2 % tolerance).
+
+## 2026-10-18  idm: micro motors saturate; inertia high with heavy friction
+- Area:    `shared/comps/idm.c`, the setup wizard's mechanical step
+- Status:  Workaround (inertia), Fixed (micro motors)
+- Symptom: syn_micro (j 4e-7) faulted SAT_ERROR in id_mot. Light motors with
+  friction large against the inertia's torque read j 1.3-7x high.
+- Cause:   idm's adaptive inertia (which sets the loop gains) had a floor
+  of 5e-6: gains 12x too high. At idm's 25 rad/s the friction's sign
+  changes often and the least-squares fit puts the misfit into j.
+- Fix:     floor 1e-7 and the wizard starts the inertia low; the wizard runs
+  idm twice, the second time at 30 % of peak torque for the first (high)
+  estimate and faster: within 25 % except fanuc_b05_6000 (2.3x) and
+  sgmph_01a1 (2.4x), kept as TODO in host/tests/run_wizard_sim.py.
+
+## 2026-10-18  The console prints pins with 6 decimals
+- Area:    `shared/hal.c` (hal_print_pin: %f)
+- Status:  Workaround
+- Symptom: a micro motor's inertia (4e-7) read as 0.000000; 4.4e-5 as
+  0.000044 (2 significant digits).
+- Cause:   %f.
+- Fix:     new console command `getf <pin>` (%.9g), used by the setup
+  wizard. The normal print is unchanged (servoterm and scripts read it).
+
+## 2026-10-18  idpmsm: inductance high when L/R is a few rt cycles
+- Area:    `shared/comps/idpmsm.c` (L step)
+- Status:  Known
+- Symptom: r2aa04003f (L/R 55 us) L 2.7x high, sr60_4 (40 us) +15 %.
+- Cause:   the square-wave L step resolves the current slope over a few
+  5 kHz samples; with L/R near the period the slope isn't linear.
+- Fix:     none yet; the wizard warns when L/R < 50 us.
+
+## 2026-10-18  setup wizard: notes
+- Area:    `servoterm-cli/setup/`, docs/setup_wizard.md
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     Gotchas found building it: idpmsm resets r/l/psi/pp to defaults
+  when disabled (state 0): read results before disabling. A pin query
+  prints every pin with that prefix (conf0.r also prints conf0.rt_prio):
+  match the whole name. The scope stream (term0.send_step) fills the
+  buffers while the wizard waits for the user: it sets send_step = 0. The
+  host simulator's sim_board links the simulated motor to conf0, so
+  identification tests need a --sim file with fixed values.
+
+## 2026-10-18  A vertical axis drops while the holding brake closes
+- Area:    `shared/comps/fault.c` (mot_brake, en_out)
+- Status:  Fixed
+- Symptom: burn-in axis, a 50 ms brake, 0.5 Nm hanging load: disabled at
+  standstill it fell 18.7 rad (3 turns) before the brake gripped.
+- Cause:   the outputs went off in the same cycle as the brake command;
+  brakes take tens of ms to grip.
+- Fix:     fault0.brake_time: the brake grips while the quick stop (or the
+  dynamic brake) still holds the axis, then the outputs go off. Default 0
+  (old behaviour); the setup wizard sets it and raises it until there is no
+  sag. tests/ebrake/estop_brake_time.test.
+
+## 2026-10-18  fb_switch0.pos_fb stands still while the drive is disabled
+- Area:    `shared/comps/fb_switch.c` (fault0.en_fb)
+- Status:  Known
+- Symptom: the wizard's brake step saw no movement with the drive off
+  although the axis fell 3 rad.
+- Cause:   fb_switch only updates with en_fb.
+- Fix:     read the feedback's own pin (enc_fb0.pos, res0.pos, ...) to watch
+  a disabled axis.
+
+## 2026-10-18  "The motor moves when enabled" doesn't prove the brake releases
+- Area:    setup wizard, brake step
+- Status:  Note
+- Symptom: a brake on the wrong output (never released) passed a 0.3 rad
+  move test.
+- Cause:   the motor's peak torque (3x rated) is above a typical brake's
+  (1.5x rated): it drags the closed brake.
+- Fix:     the release test is by hand with the drive off and
+  fault0.brake_release = 1: the shaft must turn freely.
