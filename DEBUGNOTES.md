@@ -1953,3 +1953,13 @@ Entry format:
   5220), logging it; `st.wcs_ok` false meanwhile, and the page's DRO says
   "G5x?". Repaired within 1.5 s of homing in every case tried. Root cause in
   LinuxCNC's task start-up not chased further.
+
+## 2026-10-22  webui/mill: test/sim's program was never committed (*.ngc ignored)
+- Area:    `.gitignore` (`*.ngc`), `webui/mill/.gitignore`, `webui/mill/test/sim/nc_files/`
+- Status:  Fixed
+- Symptom: in a fresh clone of claude/mill-webui, three suites failed: no
+  `bracket-op1.ngc` in test/sim/nc_files (the directory wasn't in the branch).
+- Cause:   the root .gitignore ignores `*.ngc`; `git add -A` skipped the file
+  silently, and every run here used the working tree's copy.
+- Fix:     `!test/sim/nc_files/*.ngc` in webui/mill/.gitignore; the program
+  committed. Check new test data with `git status --ignored`.

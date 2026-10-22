@@ -1,1 +1,3 @@
 __pycache__/
+# test/sim's programs are part of the test config (the repository ignores *.ngc)
+!test/sim/nc_files/*.ngc
