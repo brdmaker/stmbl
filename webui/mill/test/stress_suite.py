@@ -277,9 +277,12 @@ def write_programs(d):
     nc = os.path.join(d, "nc_files")
     for name, kind, n in PROGRAMS:
         subprocess.run([sys.executable, os.path.join(HERE, "bigcode.py"), kind, str(n), os.path.join(nc, name)], check=True)
-    chips = os.path.join(harness.LINUXCNC, "nc_files", "3D_Chips.ngc")
-    if os.path.exists(chips):
-        shutil.copy(chips, nc)
+    # LinuxCNC's own example: a run-in-place tree, or the installed package
+    for chips in (os.path.join(harness.LINUXCNC, "nc_files", "3D_Chips.ngc"),
+                  "/usr/share/doc/linuxcnc/examples/nc_files/3D_Chips.ngc"):
+        if os.path.exists(chips):
+            shutil.copy(chips, nc)
+            break
 
 
 async def run(m, cases, verbose, no_browser):

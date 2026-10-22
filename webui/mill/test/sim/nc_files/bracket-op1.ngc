@@ -1,0 +1,43 @@
+(bracket-op1.ngc: test fixture for webui/mill's suites: backend_suite.py)
+(a bracket in G54: X 0..120, a T3 change, spindle and flood on, ends at Z30)
+G21 G90 G17 G40 G49 G54 G94
+T3 M6
+G43 H3
+S8000 M3
+M8
+G0 X0 Y0 Z30
+G0 Z5
+(face)
+G1 Z-0.5 F600
+G1 X120 F1200
+G1 Y10
+G1 X0
+G1 Y20
+G1 X120
+G0 Z5
+(pocket)
+G0 X40 Y8
+G1 Z-3 F300
+G1 X80 F1000
+G1 Y14
+G1 X40
+G1 Y8
+G0 Z5
+(contour)
+G0 X0 Y0
+G1 Z-6 F300
+G1 X120 F900
+G1 Y28
+G1 X0
+G1 Y0
+G0 Z5
+(drill)
+G0 X20 Y14
+G81 R2 Z-8 F200
+X60
+X100
+G80
+G0 Z30
+M9
+M5
+M2

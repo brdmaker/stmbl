@@ -26,6 +26,8 @@ sim/sim
 sim/plot
 stmblx
 *.ngc
+# test fixtures (webui/mill suites)
+!webui/mill/test/sim/nc_files/*.ngc
 
 # host simulation build
 host/gen

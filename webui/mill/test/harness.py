@@ -22,6 +22,9 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
 LINUXCNC = os.environ.get("LINUXCNC", "/home/user/linuxcnc-2.9")
+# a run-in-place tree's environment; nothing for an installed LinuxCNC
+RIP = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; " % (LINUXCNC, LINUXCNC)
+       if os.path.exists(os.path.join(LINUXCNC, "scripts", "rip-environment")) else "")
 
 
 def free_port():
@@ -79,6 +82,9 @@ class Machine:
             raise SystemExit("a millweb is already running: stop that LinuxCNC first")
         self.dir = tempfile.mkdtemp(prefix="millweb-test.")
         shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
+        # [DISPLAY] PROGRAM_PREFIX = nc_files: git keeps no empty folder, a
+        # fresh checkout has none
+        os.makedirs(os.path.join(self.dir, "nc_files"), exist_ok=True)
         p = os.path.join(self.dir, "mill.ini")
         ini = open(p).read()
         # millweb through a wrapper that keeps its output (LinuxCNC's own log
@@ -98,8 +104,7 @@ class Machine:
         if self.hal_extra:
             with open(os.path.join(self.dir, "mill.hal"), "a") as f:
                 f.write("\n" + self.hal_extra + "\n")
-        sh = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1"
-              % (LINUXCNC, LINUXCNC, self.dir))
+        sh = RIP + "cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1" % self.dir
         self.proc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
         t = time.time() + 90
         while time.time() < t:
@@ -118,13 +123,13 @@ class Machine:
     @staticmethod
     def lcnc_env():
         """This environment plus LinuxCNC's (PATH, PYTHONPATH, ... from rip-environment)."""
-        sh = "export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; env -0" % (LINUXCNC, LINUXCNC)
+        sh = RIP + "env -0"
         out = subprocess.run(["bash", "-c", sh], capture_output=True, timeout=20).stdout
         return dict(kv.split("=", 1) for kv in out.decode().split("\0") if "=" in kv)
 
     def halcmd(self, *args):
         """halcmd in this LinuxCNC's environment; its output."""
-        sh = "export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; exec halcmd \"$@\"" % (LINUXCNC, LINUXCNC)
+        sh = RIP + "exec halcmd \"$@\""
         return subprocess.run(["bash", "-c", sh, "halcmd"] + [str(a) for a in args], capture_output=True, text=True,
                               timeout=20).stdout
 

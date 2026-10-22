@@ -3,6 +3,7 @@ control lease, the jog deadman, offsets, tools and programs.
 python3 -m unittest discover -s webui/mill/server/tests"""
 import asyncio
 import json
+import importlib.util
 import os
 import shutil
 import sys
@@ -348,11 +349,18 @@ class Protocol(Base):
         self.assertEqual(r["nlines"], 25000)
         r = await self.call(ws, "program_lines", name="long.ngc", start=24999, count=5000)
         self.assertEqual(r["lines"], ["G1 X24999", "G1 X25000"])
-        # the preview: a child process; without LinuxCNC's gcode module it says so
+        # the preview: a child process; without LinuxCNC's gcode module it says
+        # so, with it (LinuxCNC installed, as on a controller) it is the path
         r = await self.call(ws, "program_get", name="long.ngc")
         pg = r["program"]
-        self.assertEqual((pg["nlines"], pg["line0"], len(pg["lines"]), pg["path"]), (25000, 1, 2000, []))
-        self.assertIn("gcode module", pg["error"])
+        self.assertEqual((pg["nlines"], pg["line0"], len(pg["lines"])), (25000, 1, 2000))
+        if importlib.util.find_spec("gcode") is None:
+            self.assertEqual(pg["path"], [])
+            self.assertIn("gcode module", pg["error"])
+        else:
+            self.assertTrue(pg["path"], "no preview path with the gcode module")
+            # the interpreter may still say the file has no M2 (it has none)
+            self.assertNotIn("gcode module", pg.get("error") or "")
         await ws.close()
 
 
