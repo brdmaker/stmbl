@@ -92,6 +92,7 @@ test("cycle: stop, start, feed hold, resume, single block", async (t) => {
 
 test("cycle: runs to the end; progress, time, events", async (t) => {
   await stop(t);
+  await t.ev(() => { st.m1 = false; });  // the jump to the end would stop at OP1's M1 (as it should)
   await t.click("#b-start");
   await t.until(() => st.run === "run");
   await ffwd(t, await t.ev(() => prog.total - 0.4));
@@ -609,29 +610,80 @@ test("3D view: cameras, colours, layers", async (t) => {
     await t.click(`[data-col="${col}"]`);
     t.check(await t.ev((c) => st.color === c, col), `colour by ${col}`);
   }
-  // the workpiece: solid, see-through, hidden, solid again
-  for (const [state, label, opacity, shown] of [["glass", "workpiece · see-through", 0.28, true], [false, "workpiece", 1, false], [true, "workpiece", 1, true]]) {
-    await t.click('[data-show="work"]');
-    t.check(await t.until(([st_, label, opacity, shown]) => st.show.work === st_ && document.querySelector('[data-show="work"]').textContent === label
-      && Math.abs(R.mat.stock.opacity - opacity) < 1e-9 && R.mat.stock.transparent === (opacity < 1) && R.work.every((m) => m.visible === shown), [state, label, opacity, shown]),
-      `workpiece: ${label}${state === false ? " (hidden)" : ""}`);
+  // fixtures and workpiece: solid, see-through, hidden, solid again (the vise is a fixture, the stock the workpiece)
+  const look = (id) => t.ev((id) => { const n = setup.nodes.get(id); return [n.node.visible, n.material.transparent, +n.material.opacity.toFixed(2)]; }, id);
+  for (const [k, id, name] of [["fix", "vise", "fixtures"], ["work", "stock", "workpiece"]]) {
+    for (const [label, want] of [[name + " · see-through", [true, true, 0.28]], [name, [false, false, 1]], [name, [true, false, 1]]]) {
+      await t.click(`[data-show="${k}"]`);
+      t.check(await t.until(([k, label]) => document.querySelector(`[data-show="${k}"]`).textContent === label, [k, label]) && JSON.stringify(await look(id)) === JSON.stringify(want),
+        `${name}: ${label} ${JSON.stringify(await look(id))}`);
+    }
   }
-  await t.click('[data-show="work"]'); await t.click('[data-show="work"]');  // hidden, for the check below
+  await t.click('[data-show="work"]'); await t.click('[data-show="work"]');  // the workpiece hidden
+  t.check(await t.until(() => !setup.nodes.get("stock").node.visible && setup.nodes.get("vise").node.visible && R.triad.visible), "workpiece hidden: the vise and the work origin stay");
+  await t.click('[data-show="work"]');
+  t.check(await t.until(() => setup.nodes.get("stock").node.visible), "workpiece on again");
   for (const k of ["machine", "path", "limits", "defl"]) {
     const was = await t.ev((k) => st.show[k], k);
     await t.click(`[data-show="${k}"]`);
     t.check(await t.ev(([k, w]) => st.show[k] === !w && document.querySelector(`[data-show="${k}"]`).getAttribute("aria-pressed") === String(!w), [k, was]), `layer ${k}`);
+    await t.click(`[data-show="${k}"]`);
   }
-  // the workpiece hidden: stock and vise gone from the scene, not the G54 origin
-  t.check(await t.until(() => !st.show.work && R.work.length === 4 && R.work.every((m) => !m.visible) && R.fixture.visible && R.fixture.children.some((c) => c.visible)), "workpiece off: stock and vise hidden, the origin stays");
-  await t.click('[data-show="work"]');
-  t.check(await t.until(() => R.work.every((m) => m.visible)), "workpiece on again");
   const box = await t.page.locator("#scene").boundingBox();
   await t.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await t.page.mouse.down();
   await t.page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2 + 30, { steps: 5 });
   await t.page.mouse.up();
   t.check(await t.ev(() => [...document.querySelectorAll("[data-cam]")].every((b) => b.getAttribute("aria-pressed") === "false")), "orbiting by hand leaves the presets");
+});
+
+test("3D view: select a fixture or the workpiece by clicking; its panel moves, turns, hides, removes", async (t) => {
+  await t.click('[data-cam="part"]');
+  await t.sleep(1300);
+  // a point of an object on the screen (its bounding box's centre, nudged)
+  const onScreen = (id, dy = 0) => t.ev(([id, dy]) => {
+    const v = new THREE.Vector3(); new THREE.Box3().setFromObject(setup.nodes.get(id).node).getCenter(v); v.y += dy; v.project(R.cam);
+    const r = document.getElementById("scene").getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+  }, [id, dy]);
+  let [x, y] = await onScreen("stock");
+  await t.page.mouse.click(x, y);
+  t.check(await t.until(() => setup.sel === "stock" && !document.getElementById("objpanel").hidden), "click the stock: selected, its panel");
+  t.check((await t.text("#ob-name")).startsWith("Stock") && (await t.page.inputValue("#ob-role")) === "workpiece" && (await t.page.inputValue("#ob-frame")) === "work", "panel: name, workpiece, in the work offset");
+  t.check(await t.ev(() => !!R.selBox && setup.nodes.get("stock").material.emissiveIntensity > 0), "highlighted, with a box around it");
+  [x, y] = await onScreen("vise", -50);
+  await t.page.mouse.click(x, y);
+  t.check(await t.until(() => setup.sel === "vise") && (await t.page.inputValue("#ob-role")) === "fixture", "click the vise: the fixture selected");
+  // move it, turn it, see-through
+  const nodeX = () => t.ev(() => setup.nodes.get("vise").node.position.x);
+  const x0 = await nodeX();
+  await t.page.fill("#ob-x", "15"); await t.page.press("#ob-x", "Tab");
+  t.check(await t.until((x0) => Math.abs(setup.nodes.get("vise").node.position.x - x0 - 15) < 1e-6, x0), "X 15: it moves 15 mm");
+  await t.click("#ob-turn");
+  t.check(await t.ev(() => objOf("vise").rot[2] === 90 && Math.abs(setup.nodes.get("vise").node.rotation.z - Math.PI / 2) < 1e-6) && (await t.page.inputValue("#ob-rz")) === "90", "Turn 90°");
+  await t.click('#ob-look button[data-look="glass"]');
+  t.check(JSON.stringify(await t.ev(() => { const m = setup.nodes.get("vise").material; return [m.transparent, +m.opacity.toFixed(2)]; })) === "[true,0.28]", "see-through, this one");
+  // a frame change keeps it in place
+  const before = await t.ev(() => setup.nodes.get("vise").node.position.toArray());
+  await t.page.selectOption("#ob-frame", "machine");
+  const after = await t.ev(() => setup.nodes.get("vise").node.position.toArray());
+  t.check(before.every((v, i) => Math.abs(v - after[i]) < 1e-6) && (await t.page.inputValue("#ob-x")) !== "15", "placed in machine: the same place, machine numbers");
+  // the helpers
+  await t.click("#ob-table");
+  t.check(await t.until(() => Math.abs(new THREE.Box3().setFromObject(setup.nodes.get("vise").node).min.z) < 1e-3), "On the table: its bottom on the table");
+  await t.click('[data-show="work"]'); await t.click('[data-show="work"]');
+  await t.ev(() => selectObject("stock"));
+  await t.page.fill("#ob-z", "-7"); await t.page.press("#ob-z", "Tab");
+  await t.click("#ob-zero");
+  t.check(await t.until(() => { const b = new THREE.Box3().setFromObject(setup.nodes.get("stock").node), o = off(); return Math.abs(b.max.z - (o.z + ZTOP)) < 1e-3 && Math.abs(b.min.x - o.x) < 1e-3 && Math.abs(b.min.y - o.y) < 1e-3; }), "Top at work zero: the stock's top at Z0, its corner at X0 Y0");
+  // remove (asks), and clicking empty space deselects
+  await t.ev(() => selectObject("vise"));
+  await t.click("#ob-del");
+  await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => !setup.objects.some((o) => o.id === "vise") && !setup.nodes.has("vise") && document.getElementById("objpanel").hidden), "Remove: the vise gone from the setup");
+  const box = await t.page.locator("#scene").boundingBox();
+  await t.ev(() => selectObject("stock"));
+  await t.page.mouse.click(box.x + 20, box.y + box.height - 60);
+  t.check(await t.until(() => setup.sel === null), "a click on empty space: nothing selected");
 });
 
 test("keyboard: Ctrl+R, Esc holds then stops, Esc closes a dialog", async (t) => {

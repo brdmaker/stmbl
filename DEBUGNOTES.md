@@ -1963,3 +1963,16 @@ Entry format:
   silently, and every run here used the working tree's copy.
 - Fix:     `!test/sim/nc_files/*.ngc` in webui/mill/.gitignore; the program
   committed. Check new test data with `git status --ignored`.
+
+## 2026-10-22  Console (simulation): a slow frame stepped over M1
+- Area:    `webui/mill/js/app.js` (tick)
+- Status:  Fixed
+- Symptom: "M1 optional stop holds" failed 2 runs in 4 once the 3D view
+  drew more; the simulated program ran through its M1.
+- Cause:   M3, M5, M8, M9 and M1 were applied only for the segment a frame
+  landed on (tool changes for every one passed). A frame step longer than
+  an M-code's 50 ms segment jumped over it: frame-rate dependent, so a slow
+  tablet would skip an M1 too.
+- Fix:     every segment passed in the frame is applied; an M1 stops the
+  program at its line whatever the step. Tests that jump the program clock
+  past M1 now switch it off first.

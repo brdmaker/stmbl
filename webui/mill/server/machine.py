@@ -5,6 +5,8 @@ module (`linuxcnc`, and `hal` for pins); tests pass a stand-in.
 Machines in mm (linear units 1). Axes X Y Z; a gantry's second Y joint is
 shown as Y2 (from [TRAJ] COORDINATES / [KINS]).
 """
+import json
+import math
 import os
 import re
 import shutil
@@ -114,6 +116,60 @@ def parse_var_offsets(path):
     return [[vals.get(5221 + 20 * i + k, 0.0) for k in range(3)] for i in range(9)]
 
 
+DEFAULT_SETUP = [
+    {"id": "vise", "name": "Vise", "role": "fixture", "src": "builtin:vise", "frame": "work",
+     "pos": [0.0, 0.0, -25.0], "rot": [0.0, 0.0, 0.0], "scale": 1.0, "look": "solid"},
+    {"id": "stock", "name": "Stock 120 x 80 x 25", "role": "workpiece", "src": "builtin:stock", "frame": "work",
+     "pos": [0.0, 0.0, 0.0], "rot": [0.0, 0.0, 0.0], "scale": 1.0, "look": "solid"},
+]
+
+
+def model_check(name, data):
+    """None when data looks like the STL or OBJ its name says, else why not."""
+    if name.lower().endswith(".stl"):
+        if len(data) >= 84 and len(data) == 84 + 50 * int.from_bytes(data[80:84], "little"):
+            return None  # binary STL: header, count, 50 bytes a triangle
+        head = data[:2048].decode("latin-1").lower()
+        if head.lstrip().startswith("solid") and "facet" in data[:1 << 20].decode("latin-1").lower():
+            return None  # ASCII STL
+        return "not an STL file (neither binary nor ASCII)"
+    text = data[:1 << 20].decode("latin-1")
+    if re.search(r"(?m)^v\s+[-+\d.eE]+\s+[-+\d.eE]+\s+[-+\d.eE]+", text) and re.search(r"(?m)^f\s", data.decode("latin-1")):
+        return None
+    return "not an OBJ file (no vertices or faces)"
+
+
+def setup_check(objects, model_path):
+    """The setup's objects, checked and normalised: raises ValueError with the reason."""
+    if not isinstance(objects, list) or len(objects) > 64:
+        raise ValueError("the setup: a list of at most 64 objects")
+    out, ids = [], set()
+    for o in objects:
+        if not isinstance(o, dict):
+            raise ValueError("a setup object is a dictionary")
+        src = str(o.get("src", ""))
+        if src.startswith("model:"):
+            if not os.path.isfile(model_path(src[6:])):
+                raise ValueError("no such model: %s" % src[6:])
+        elif src not in ("builtin:vise", "builtin:stock"):
+            raise ValueError("an object's src: builtin:vise, builtin:stock or model:<path>")
+        num = lambda v, lim: max(-lim, min(lim, float(v))) if math.isfinite(float(v)) else 0.0  # noqa: E731
+        c = {"id": str(o.get("id", ""))[:40] or "o%d" % len(out), "name": str(o.get("name", ""))[:80],
+             "role": o.get("role") if o.get("role") in ("fixture", "workpiece") else "fixture", "src": src,
+             "frame": o.get("frame") if o.get("frame") in ("work", "machine") else "work",
+             "pos": [num(v, 10000) for v in list(o.get("pos", (0, 0, 0)))[:3]],
+             "rot": [num(v, 360) for v in list(o.get("rot", (0, 0, 0)))[:3]],
+             "scale": max(0.001, min(1000.0, float(o.get("scale", 1)))),
+             "look": o.get("look") if o.get("look") in ("solid", "glass", "hidden") else "solid"}
+        if len(c["pos"]) != 3 or len(c["rot"]) != 3:
+            raise ValueError("pos and rot: three numbers each")
+        if c["id"] in ids:
+            raise ValueError("object ids must be unique")
+        ids.add(c["id"])
+        out.append(c)
+    return out
+
+
 class Machine:
     """The LinuxCNC end: status(), events(), and the commands (in one worker
     thread: they may wait for LinuxCNC)."""
@@ -142,6 +198,7 @@ class Machine:
         for j, a in enumerate(coords):
             self.joints.setdefault(a, []).append(j)
         self.nc_dir = cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
+        self.setup_file = cfg.file("MILLWEB", "SETUP") or os.path.join(cfg.dir, "millweb-setup.json")
         self.tool_file = cfg.file("EMCIO", "TOOL_TABLE") or os.path.join(cfg.dir, "tool.tbl")
         self.var_file = cfg.file("RS274NGC", "PARAMETER_FILE") or os.path.join(cfg.dir, "linuxcnc.var")
         self.offsets = parse_var_offsets(self.var_file)
@@ -643,19 +700,25 @@ class Machine:
     # programs: paths relative to the program folder ("parts/op1.ngc"), in it only
     PART = re.compile(r"^[\w\- ][\w.\- ]*$")  # a file or folder name: no "..", nothing hidden
     PROGRAM = re.compile(r"\.(ngc|nc|tap|gcode)$", re.I)
+    MODEL = re.compile(r"\.(stl|obj)$", re.I)  # 3D models of fixtures and workpieces
     MAX_DEPTH, MAX_ENTRIES = 8, 5000
+    MAX_MODEL = 5 * 1024 * 1024
 
-    def _safe(self, name, folder=False):
-        """The absolute path of a program (or, folder=True, a folder; "" is the
-        program folder itself), from its path in the program folder."""
+    def _safe(self, name, folder=False, kind="program"):
+        """The absolute path of a program (kind "model": a 3D model; "file":
+        either; folder=True: a folder, "" the program folder itself), from its
+        path in the program folder."""
         rel = str(name).replace("\\", "/").strip("/")
         parts = [p for p in rel.split("/") if p] if rel else []
         if not folder and not parts:
             raise ValueError("no program name")
         if len(parts) > self.MAX_DEPTH or any(not self.PART.match(p) or len(p) > 120 for p in parts):
             raise ValueError("names: letters, digits, space . _ - (not starting with a dot), folders separated by /")
-        if not folder and not self.PROGRAM.search(parts[-1]):
-            raise ValueError("programs end in .ngc, .nc, .tap or .gcode")
+        if not folder:
+            ok = {"program": (self.PROGRAM,), "model": (self.MODEL,), "file": (self.PROGRAM, self.MODEL)}[kind]
+            if not any(r.search(parts[-1]) for r in ok):
+                raise ValueError({"program": "programs end in .ngc, .nc, .tap or .gcode", "model": "3D models: .stl or .obj",
+                                  "file": "programs (.ngc .nc .tap .gcode) or 3D models (.stl .obj)"}[kind])
         root = os.path.realpath(self.nc_dir)
         full = os.path.join(root, *parts)
         real = os.path.realpath(full)
@@ -670,8 +733,9 @@ class Machine:
         return os.path.relpath(real, root).replace(os.sep, "/") if real.startswith(root + os.sep) else os.path.basename(path)
 
     def programs(self):
-        """Every program in the program folder and its folders (hidden ones and
-        links out of it left out): files [{name, size, mtime}], dirs [name]."""
+        """Every program and 3D model in the program folder and its folders
+        (hidden ones and links out of it left out): files [{name, size,
+        mtime, kind: program | model}], dirs [name]."""
         files, dirs = [], []
         root = os.path.realpath(self.nc_dir)
         for top, dnames, fnames in os.walk(root):
@@ -681,12 +745,13 @@ class Machine:
             rel = "" if top == root else os.path.relpath(top, root).replace(os.sep, "/") + "/"
             dirs += [rel + d for d in dnames]
             for n in sorted(fnames):
-                if self.PART.match(n) and self.PROGRAM.search(n):
+                kind = "program" if self.PROGRAM.search(n) else "model" if self.MODEL.search(n) else None
+                if self.PART.match(n) and kind:
                     try:
                         st = os.stat(os.path.join(top, n))
                     except OSError:
                         continue
-                    files.append({"name": rel + n, "size": st.st_size, "mtime": int(st.st_mtime)})
+                    files.append({"name": rel + n, "size": st.st_size, "mtime": int(st.st_mtime), "kind": kind})
             if len(files) + len(dirs) > self.MAX_ENTRIES:
                 break
         return files, dirs
@@ -713,11 +778,15 @@ class Machine:
         return None
 
     def cmd_program_delete(self, name):
-        p = self._safe(name)
+        """A program or a 3D model."""
+        p = self._safe(name, kind="file")
         if self._loaded() == os.path.realpath(p):
             return "that program is loaded"
         if not os.path.isfile(p):
-            return "no such program"
+            return "no such file"
+        used = self._in_setup(p)
+        if used:
+            return "the 3D setup uses it (%s): remove it there first" % used
         os.remove(p)
         return None
 
@@ -725,7 +794,12 @@ class Machine:
         """A program or a folder to a new name or place (in the program folder);
         a program keeps a program's extension."""
         folder = os.path.isdir(self._safe(name, folder=True))
-        src, dst = self._safe(name, folder), self._safe(to, folder)
+        src, dst = self._safe(name, folder, "file"), self._safe(to, folder, "file")
+        if not folder and bool(self.MODEL.search(src)) != bool(self.MODEL.search(dst)):
+            return "a program stays a program, a model a model (keep the extension)"
+        used = self._in_setup(src)
+        if used:
+            return "the 3D setup uses %s: remove it there first" % used
         if src == os.path.realpath(self.nc_dir):
             return "not the program folder itself"
         if not os.path.exists(src):
@@ -740,6 +814,58 @@ class Machine:
         if loaded and (loaded == os.path.realpath(src) or loaded.startswith(os.path.realpath(src) + os.sep)):
             return "the loaded program is " + ("in it" if folder else "that one")
         os.rename(src, dst)
+        return None
+
+    # 3D models and the setup (what stands on the table, for the 3D view)
+    def cmd_model_save(self, name, data, overwrite=True):
+        p = self._safe(name, kind="model")
+        if len(data) > self.MAX_MODEL:
+            return "too large: 3D models up to %d MB" % (self.MAX_MODEL >> 20)
+        err = model_check(name, data)
+        if err:
+            return err
+        if not os.path.isdir(os.path.dirname(p)):
+            return "no such folder"
+        if not overwrite and os.path.exists(p):
+            return "a model of that name is there already"
+        with open(p + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(p + ".tmp", p)
+        return None
+
+    def model_read(self, name):
+        p = self._safe(name, kind="model")
+        with open(p, "rb") as f:
+            return f.read(), int(os.stat(p).st_mtime)
+
+    def setup(self):
+        """The objects in the 3D view (setup_check's form); the built-in vise
+        and stock when there is no setup file yet."""
+        try:
+            with open(self.setup_file) as f:
+                return json.load(f)["objects"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return [dict(o) for o in DEFAULT_SETUP]
+
+    def cmd_setup_save(self, objects):
+        objects = setup_check(objects, lambda n: self._safe(n, kind="model"))
+        with open(self.setup_file + ".tmp", "w") as f:
+            json.dump({"objects": objects}, f, indent=1)
+        os.replace(self.setup_file + ".tmp", self.setup_file)
+        return None
+
+    def _in_setup(self, path):
+        """The setup's object that uses this model (or a model in this folder), or None."""
+        real = os.path.realpath(path)
+        for o in self.setup():
+            src = o.get("src", "")
+            if src.startswith("model:"):
+                try:
+                    m = os.path.realpath(self._safe(src[6:], kind="model"))
+                except ValueError:
+                    continue
+                if m == real or m.startswith(real + os.sep):
+                    return o.get("name") or src[6:]
         return None
 
     def cmd_folder_create(self, name):

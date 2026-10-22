@@ -591,6 +591,26 @@ async def _(t):
     t.refused(await b.call("folder_create", name="x"), "a watching browser can't", "control")
 
 
+@case("3D models and the setup")
+async def _(t):
+    import base64
+    import struct
+    a = t.a
+    stl = b"\0" * 80 + struct.pack("<I", 1) + struct.pack("<12f", 0, 0, 1, 0, 0, 0, 30, 0, 0, 0, 20, 0) + b"\0\0"
+    t.ok(await a.call("model_save", name="clamp.stl", data=base64.b64encode(stl).decode()), "save an STL")
+    t.check(any(f["name"] == "clamp.stl" and f["kind"] == "model" for f in (await a.call("files"))["files"]), "listed as a model")
+    r = await a.call("model_get", name="clamp.stl")
+    t.check(r["ok"] and base64.b64decode(r["data"]) == stl, "read back")
+    objs = a.last("setup")["objects"]
+    mk = a.mark()
+    new = objs + [{"id": "clamp", "name": "clamp", "role": "fixture", "src": "model:clamp.stl", "frame": "machine", "pos": [400, 400, -234], "rot": [0, 0, 0], "scale": 1, "look": "solid"}]
+    t.ok(await a.call("setup_save", objects=new), "the setup with it")
+    t.check(await a.until(lambda c: c.since(mk, lambda m: m["t"] == "setup" and any(o["id"] == "clamp" for o in m["objects"])), 3), "broadcast")
+    t.refused(await a.call("program_delete", name="clamp.stl"), "deleting a model in the setup", "3D setup")
+    t.ok(await a.call("setup_save", objects=objs), "the setup without it")
+    t.ok(await a.call("program_delete", name="clamp.stl"), "then deleted")
+
+
 @case("programs: too large is refused; a bad program previews with its error")
 async def _(t):
     a = t.a

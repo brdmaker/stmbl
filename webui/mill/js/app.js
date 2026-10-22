@@ -47,7 +47,7 @@ const st = {
   cool: { flood: false, mist: false, air: false },
   ovr: { feed: 1, rapid: .5, spin: 1, maxv: 1 },
   dro: "work", units: "mm", dec: 3, exag: 200, kbd: true, m1: true, bd: false, lift: true, confirm: false,
-  show: { machine: true, work: true, path: true, limits: false, defl: false }, color: "err",
+  show: { machine: true, fix: true, work: true, path: true, limits: false, defl: false }, color: "err",
   jogInc: 1, jogRate: 2000,
   err: 0, errHist: [], yawHist: [], errs: [], p99: 0, yaw: 0, fe: [0, 0, 0, 0], bus: 325, quota: 1,
   pc: { shaper: true, defl: true, shrink: true, jerk: true },
@@ -729,14 +729,10 @@ function init3d() {
   }
   // tool setter
   machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
-  // the stock in its fixture (placed from the work offset)
-  const fixture = new THREE.Group(); scene.add(fixture);
-  fixture.add(box(STOCK.w + 70, STOCK.l + 40, 14, mat.vise, STOCK.w / 2, STOCK.l / 2, 7));
-  fixture.add(box(STOCK.w + 70, 22, 34, mat.vise, STOCK.w / 2, -12, 17)); fixture.add(box(STOCK.w + 70, 22, 34, mat.vise, STOCK.w / 2, STOCK.l + 12, 17));
-  const stockMesh = box(STOCK.w, STOCK.l, STOCK.h, mat.stock, STOCK.w / 2, STOCK.l / 2, 14 + STOCK.h / 2); fixture.add(stockMesh);
-  const work = [...fixture.children];  // the stock and the vise: the "workpiece" switch (not the origin below)
-  // the work origin: on the stock's top front-left corner
-  const triad = new THREE.Group(); fixture.add(triad);
+  // what stands on the table: fixtures and workpieces (setup3d.js; the vise and the stock by default)
+  const objGroup = new THREE.Group(); scene.add(objGroup);
+  // the work origin (G5x + G92): the stock's top front-left corner by default
+  const triad = new THREE.Group(); scene.add(triad);
   for (const [d, c] of [[[1, 0, 0], 0xff4d5e], [[0, 1, 0], 0x5fe0a0], [[0, 0, 1], 0x4cc9ff]]) triad.add(new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0, 0, 0), 40, c, 9, 5));
 
   // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
@@ -779,7 +775,7 @@ function init3d() {
   const sparkGeo = new THREE.BufferGeometry(); sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
   scene.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
 
-  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, fixture, work, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
+  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
   buildTool(); rebuildPath(); setCam("iso", true);
   new ResizeObserver(resize3d).observe($("viewer"));
   resize3d();
@@ -817,10 +813,7 @@ function rebuildPath() {
   R.pathGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   R.pathGeo.computeBoundingSphere();
   R.pathSegs = S; pathDone = -2; colorPath(true);
-  // the stock's top is the work Z0 of the G54 setup; the fixture sits under it
-  const top = o.z + g.z + ZTOP;
-  R.fixture.position.set(o.x + g.x, o.y + g.y, top - 14 - STOCK.h);
-  R.fixture.rotation.z = st.rot * Math.PI / 180;
+  placeObjects();  // the setup's objects and the origin follow the work offset
   R.trailLen = 0; R.trailGeo.setDrawRange(0, 0);
 }
 function colorPath(all) {
@@ -873,10 +866,11 @@ $$("[data-col]").forEach((b) => b.addEventListener("click", () => {
 }));
 $$("[data-show]").forEach((b) => b.addEventListener("click", () => {
   const k = b.dataset.show;
-  // the workpiece: solid, see-through ("glass"), hidden; the others on and off
-  st.show[k] = k === "work" ? (st.show.work === true ? "glass" : st.show.work === "glass" ? false : true) : !st.show[k];
+  // fixtures, workpiece: solid, see-through ("glass"), hidden; the others on and off
+  const cyc = k === "work" || k === "fix";
+  st.show[k] = cyc ? (st.show[k] === true ? "glass" : st.show[k] === "glass" ? false : true) : !st.show[k];
   b.setAttribute("aria-pressed", String(!!st.show[k]));
-  if (k === "work") b.textContent = st.show.work === "glass" ? "workpiece · see-through" : "workpiece";
+  if (cyc) { b.textContent = (k === "fix" ? "fixtures" : "workpiece") + (st.show[k] === "glass" ? " · see-through" : ""); applyLooks(); }
 }));
 
 function update3d(dt, tip, moving, cutting) {
@@ -891,12 +885,7 @@ function update3d(dt, tip, moving, cutting) {
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
   R.machine.visible = st.show.machine;
-  for (const m of R.work) m.visible = !!st.show.work;
-  const glass = st.show.work === "glass";
-  if (R.workGlass !== glass) {  // see-through: the toolpath shows through the stock, its edges still drawn
-    R.workGlass = glass;
-    for (const m of [R.mat.stock, R.mat.vise]) { m.transparent = glass; m.opacity = glass ? 0.28 : 1; m.depthWrite = !glass; m.needsUpdate = true; }
-  }
+
   R.pathLine.visible = st.show.path; R.trail.visible = st.show.path;
   R.limits.visible = st.show.limits;
   R.coolant.visible = st.cool.flood || st.cool.mist;
@@ -1013,16 +1002,19 @@ function tick(now) {
     }
     let i = st.seg; while (i < mo.segs.length - 1 && mo.segs[i].t0 + mo.segs[i].t <= st.t) i++;
     if (i !== st.seg && mo === prog) {
+      // every segment passed this frame, not only the one landed on: a slow frame can step over a short one
       for (let j = st.seg + 1; j <= i; j++) {
-        const s = mo.segs[j - 1];
-        if (s.k === "tc") { st.tool = s.tool; buildTool(); msg(`T${s.tool} M6: ${(toolOf(s.tool) || { c: "" }).c}`, "info"); }
+        const p = mo.segs[j - 1], s = mo.segs[j];
+        if (p.k === "tc") { st.tool = p.tool; buildTool(); msg(`T${p.tool} M6: ${(toolOf(p.tool) || { c: "" }).c}`, "info"); }
+        if (s.k === "m3") { const m = prog.lines[s.line - 1].match(/S(\d+)/); spindle(1, m ? +m[1] : 12000); }
+        if (s.k === "m5") spindle(0);
+        if (s.k === "m8") setCool("flood", true);
+        if (s.k === "m9") setCool("flood", false);
+        if (s.k === "m1" && st.m1 && st.run === "run") {  // stops here, whatever the frame's step
+          setRun("hold"); msg("M1 optional stop: check the part, then Cycle start", "warn");
+          i = j; st.t = Math.min(st.t, s.t0 + s.t); break;
+        }
       }
-      const s = mo.segs[i];
-      if (s.k === "m3") { const m = prog.lines[s.line - 1].match(/S(\d+)/); spindle(1, m ? +m[1] : 12000); }
-      if (s.k === "m5") spindle(0);
-      if (s.k === "m8") setCool("flood", true);
-      if (s.k === "m9") setCool("flood", false);
-      if (s.k === "m1" && st.m1 && st.run === "run") { setRun("hold"); msg("M1 optional stop: check the part, then Cycle start", "warn"); }
       if (st.run === "step" && i >= stepTarget) setRun("hold");
     }
     st.seg = i; seg = mo.segs[i];
@@ -1148,7 +1140,7 @@ function renderUi(tip, seg, moving, pTot) {
 // the console, whichever machine it shows
 function bootCommon() {
   renderProgram(); renderMdi(); fillToolSelects(); renderEvents();
-  init3d();
+  init3d(); buildObjects();
   let startPage = "main"; try { startPage = localStorage.getItem("pmc.page") || "main"; } catch (e) { /* storage blocked */ }
   if (location.hash && paneIds[location.hash.slice(1)]) startPage = location.hash.slice(1);
   showPage(paneIds[startPage] ? startPage : "main");

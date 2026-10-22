@@ -17,6 +17,8 @@ every 300 ms or they stop.
 """
 import argparse
 import asyncio
+import base64
+import binascii
 import concurrent.futures
 import datetime
 import json
@@ -110,6 +112,7 @@ class Hub:
         await ws.send_json(self.tools_msg())
         await ws.send_json(self.offsets_msg())
         await ws.send_json(self.files_msg())
+        await ws.send_json(self.setup_msg())
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -177,7 +180,7 @@ class Hub:
                 if a in self.jog_seen:
                     self.jog_seen[a] = time.time()
                     return await reply()
-            if op in ("files", "program_get", "program_lines", "ping", "events"):
+            if op in ("files", "program_get", "program_lines", "model_get", "ping", "events"):
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -374,6 +377,30 @@ class Hub:
             self.broadcast(self.files_msg())
         return err
 
+    async def op_model_save(self, c, m):
+        """A 3D model (STL or OBJ) uploaded: {name, data (base64), overwrite}."""
+        try:
+            data = base64.b64decode(str(m.get("data", "")), validate=True)
+        except (ValueError, binascii.Error):
+            return "the model's data isn't base64"
+        err = await self.run(self.m.cmd_model_save, m["name"], data, bool(m.get("overwrite", True)))
+        if not err:
+            self.event("ok", "Saved %s (%.1f MB)" % (m["name"], len(data) / 1e6))
+            self.broadcast(self.files_msg())
+        return err
+
+    async def op_model_get(self, c, m):
+        loop = asyncio.get_event_loop()
+        data, mtime = await loop.run_in_executor(self.ppool, self.m.model_read, m["name"])
+        return {"name": m["name"], "mtime": mtime, "data": base64.b64encode(data).decode()}
+
+    async def op_setup_save(self, c, m):
+        """The objects on the table for the 3D view: every browser gets them."""
+        err = await self.run(self.m.cmd_setup_save, m["objects"])
+        if not err:
+            self.broadcast(self.setup_msg())
+        return err
+
     async def op_folder_create(self, c, m):
         err = await self.run(self.m.cmd_folder_create, m["name"])
         if not err:
@@ -401,6 +428,9 @@ class Hub:
         return await self.run(self.m.cmd_pcomp, m["k"], m["v"])
 
     # ------------------------------------------------------------ data
+    def setup_msg(self):
+        return {"t": "setup", "objects": self.m.setup()}
+
     def files_msg(self):
         files, dirs = self.m.programs()
         return {"t": "files", "files": files, "dirs": dirs}

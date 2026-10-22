@@ -326,6 +326,53 @@ test("file page: upload, folders, rename and move, delete", async (t) => {
   t.check(await t.msgHas("loaded"), `the loaded program (${loaded}) can't be deleted`);
 });
 
+// a binary STL of a box: 12 triangles
+function stlBox(w, d, h) {
+  const v = [[0, 0, 0], [w, 0, 0], [w, d, 0], [0, d, 0], [0, 0, h], [w, 0, h], [w, d, h], [0, d, h]];
+  const f = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
+  const b = Buffer.alloc(84 + 50 * f.length); b.writeUInt32LE(f.length, 80);
+  f.forEach((t, i) => t.forEach((k, j) => v[k].forEach((c, a) => b.writeFloatLE(c, 84 + i * 50 + 12 + j * 12 + a * 4))));
+  return b;
+}
+
+test("3D models: upload, add to the setup, select and move in the view, saved on the machine", async (t) => {
+  await take(t);
+  await t.nav("file");
+  const setupFile = () => JSON.parse(fs.readFileSync(path.join(DIR, "millweb-setup.json"), "utf8")).objects;
+  await t.page.setInputFiles("#fl-input", [{ name: "part blank.stl", mimeType: "model/stl", buffer: stlBox(60, 40, 20) }]);
+  t.check(await t.until(() => [...document.querySelectorAll("#files .file.model b")].some((b) => b.textContent === "part blank.stl")), "uploaded: listed as a 3D model");
+  t.check(fs.readFileSync(path.join(DIR, "nc_files", "part blank.stl")).length === 84 + 50 * 12, "on the machine, byte for byte");
+  t.check(await t.until(() => /60\.0 × 40\.0 × 20\.0 mm/.test(document.getElementById("fl-cards").textContent) && /Triangles\s*12/.test(document.getElementById("fl-cards").textContent)), "its size and triangles");
+  await t.click('#fl-cards [data-addsel="workpiece"]');
+  t.check(await t.until(() => st.page === "main" && setup.objects.some((o) => o.src === "model:part blank.stl") && setup.sel && objOf(setup.sel).src === "model:part blank.stl", null, 10000), "added as a workpiece: on MAIN, selected");
+  t.check(await t.until(() => { const n = [...setup.nodes.values()].find((x) => x.node.userData.objId === setup.sel); if (!n) return false;
+    const b = new THREE.Box3().setFromObject(n.node), o = off(); return Math.abs(b.max.z - (o.z + st.g92.z + ZTOP)) < 1e-3 && Math.abs(b.min.x - o.x - st.g92.x) < 1e-3; }, null, 10000), "placed: its top at work Z0, its corner at X0 Y0");
+  t.check(await t.until(() => true, null, 100) && await (async () => { for (let k = 0; k < 40; k++) { try { if (setupFile().some((o) => o.src === "model:part blank.stl")) return true; } catch (e) { /* not yet */ } await t.sleep(100); } return false; })(), "the machine's setup has it");
+  const id = await t.ev(() => setup.sel);
+  await t.page.fill("#ob-y", "12.5"); await t.page.press("#ob-y", "Tab");
+  t.check(await (async () => { for (let k = 0; k < 40; k++) { const o = setupFile().find((o) => o.id === id); if (o && o.pos[1] === 12.5) return true; await t.sleep(100); } return false; })(), "Y 12.5 in the panel: saved on the machine");
+  // a second browser sees the same setup
+  const p2 = await t.ctx.browser().newPage();
+  try {
+    await p2.goto(BASE + "#main");
+    t.check(await p2.waitForFunction((id) => typeof setup !== "undefined" && setup.nodes.has(id) && objOf(id).pos[1] === 12.5, id, { timeout: 15000 }).then(() => true, () => false), "another browser: the model, where it was put");
+  } finally { await p2.close(); }
+  // used in the setup: the file can't go
+  await t.nav("file");
+  await t.click('#files .file.model b');
+  await t.click("#fl-delete"); await t.click('#dlg-form [type="submit"]');
+  t.check(await t.msgHas("3D setup"), "deleting it while the setup uses it: refused");
+  // out of the setup, then deleted
+  await t.nav("main");
+  await t.ev((id) => selectObject(id), id);
+  await t.click("#ob-del"); await t.click('#dlg-form [type="submit"]');
+  t.check(await (async () => { for (let k = 0; k < 40; k++) { if (!setupFile().some((o) => o.id === id)) return true; await t.sleep(100); } return false; })(), "removed from the setup on the machine");
+  await t.nav("file");
+  await t.click('#files .file.model b');
+  await t.click("#fl-delete"); await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => !document.querySelector("#files .file.model")) && !fs.existsSync(path.join(DIR, "nc_files", "part blank.stl")), "then deleted");
+});
+
 test("wizard: its program is saved on the machine and loaded", async (t) => {
   await take(t);
   await t.nav("wiz");

@@ -52,6 +52,7 @@ const Live = (() => {
       case "tools": return tools(m.tools);
       case "offsets": return offsets(m);
       case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
+      case "setup": lastSetup = m.objects; return setupLoad(m.objects);
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
       case "reply": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p(m); } return; }
@@ -301,6 +302,19 @@ const Live = (() => {
     if (t === st.tool) { msg("Unload the tool before deleting it.", "warn"); return; }
     st.tools = st.tools.filter((x) => x.t !== t); renderTools(); L.toolsSave();
   };
+  const modelBufs = new Map();  // path -> {mtime, buf}
+  L.modelGet = async (path) => {
+    const f = files.find((x) => x.name === path), c = modelBufs.get(path);
+    if (c && f && c.mtime === f.mtime) return c.buf;
+    const r = await act("model_get", { name: path }, "3D model " + path);
+    if (!r.ok) return null;
+    const bin = atob(r.data), buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    modelBufs.set(path, { mtime: r.mtime, buf: buf.buffer });
+    return buf.buffer;
+  };
+  let lastSetup = null;  // the machine's: back to it when a change can't be saved
+  L.setupSave = (objects) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o) }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup); });
   L.toolMeasure = () => act("tool_measure", {}, "Tool setter");
   L.probe = async (op) => {
     const name = op === "plate" ? "Touch plate Z" : (probeOps.find((o) => o[0] === op) || [op, op])[1];
@@ -364,7 +378,9 @@ const Live = (() => {
       (d ? `<button class="file dir" data-up="1"><span><b>..</b><br><span class="muted">up a folder</span></span><span></span><span></span></button>` : "") +
       sub.map((x) => { const n = files.filter((f) => f.name.startsWith(x + "/")).length;
         return `<button class="file dir" data-dir="${esc(x)}" aria-pressed="${sel("dir", x)}"><span><b>${esc(baseName(x))}/</b><br><span class="muted">${n} program${n === 1 ? "" : "s"}</span></span><span></span><span class="btn sm" data-open="1">Open</span></button>`; }).join("") +
-      here.map(([f, i]) => `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
+      here.map(([f, i]) => f.kind === "model"
+        ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${(f.size / 1024).toFixed(1)} kB${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span></span></button>`
+        : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
       `<p class="note">No programs in ${d ? esc(d) : esc(info ? info.nc_dir : "the program folder")}. Upload some, or drop them here.</p>`;
     if (L.sel && !(L.sel.kind === "dir" ? dirs.includes(L.sel.path) : files.some((f) => f.name === L.sel.path))) L.sel = null;
     if (!L.sel && inDir(prog.name, d) && files.some((f) => f.name === prog.name)) L.sel = { kind: "file", path: prog.name, auto: true };  // the loaded one
@@ -375,12 +391,14 @@ const Live = (() => {
       else $$("#files .file").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.i !== undefined && +b.dataset.i === i)));
     }
   };
+  const inSetup = (path) => setup.objects.some((o) => o.src === "model:" + path);
   L.selectFile = async (i) => {
     if (!files[i]) return;
     fileSel = i; L.sel = { kind: "file", path: files[i].name };
     $$("#files .file").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.i !== undefined && +b.dataset.i === fileSel)));
     $("fl-rename").disabled = $("fl-delete").disabled = false;
     const name = files[i].name;
+    if (files[i].kind === "model") return modelPreflight(name);
     const r = await send("program_get", { name });
     if (r.ok && files[fileSel] && files[fileSel].name === name) renderPreflight(toProgram(r.program));
   };
@@ -398,10 +416,33 @@ const Live = (() => {
       $("fl-rename").disabled = $("fl-delete").disabled = false;
       return;
     }
-    const i = +b.dataset.i;
-    if (e.target.closest(".btn") && files[i] && files[i].name !== prog.name) act("program_load", { name: files[i].name }, "Load");
+    const i = +b.dataset.i, add = e.target.closest("[data-add]");
+    if (add && files[i]) return addModel(files[i].name, add.dataset.add);
+    if (e.target.closest(".btn") && files[i] && files[i].kind !== "model" && files[i].name !== prog.name) act("program_load", { name: files[i].name }, "Load");
     L.selectFile(i);
   }, true);
+  // a 3D model: its size and triangles where a program's preflight goes
+  async function modelPreflight(name) {
+    $("fl-name").textContent = name;
+    $("fl-cards").innerHTML = `<div class="card"><h3>3D model <span class="pill info">READING</span></h3></div>`; $("fl-code").textContent = "";
+    const buf = await L.modelGet(name);
+    if (!buf || !L.sel || L.sel.path !== name) return;
+    let g; try { g = parseModel(name, buf); } catch (e) { $("fl-cards").innerHTML = `<div class="card"><h3>3D model <span class="pill bad">UNREADABLE</span></h3><p class="note">${esc(e.message)}</p></div>`; return; }
+    setup.geoms.set(name, g);
+    const m = modelInfo(g), big = Math.max(...m.size);
+    $("fl-cards").innerHTML = `<div class="card"><h3>3D model <span class="pill ${inSetup(name) ? "ok" : "info"}">${inSetup(name) ? "IN THE SETUP" : "NOT IN THE SETUP"}</span></h3><dl class="kv">
+      <dt>Size X × Y × Z</dt><dd>${m.size.map((v) => v.toFixed(1)).join(" × ")} mm</dd><dt>Triangles</dt><dd>${m.tris.toLocaleString("en-US")}</dd></dl>
+      ${big < 5 ? `<p class="note">Under 5 mm across: drawn in inches? Set its scale to 25.4 in the 3D view.</p>` : ""}
+      <div class="row"><button class="btn sm" data-addsel="fixture">Add as fixture</button><button class="btn sm" data-addsel="workpiece">Add as workpiece</button></div></div>`;
+    $("fl-code").textContent = "Added to the setup it appears in the 3D view: a workpiece with its top at work Z0 and its front-left corner at X0 Y0, a fixture on the table under the work zero. Click it there to move, turn, scale or hide it.";
+  }
+  $("fl-cards").addEventListener("click", (e) => { const b = e.target.closest("[data-addsel]"); if (b && LIVE && L.sel) addModel(L.sel.path, b.dataset.addsel); });
+  function addModel(path, role) {
+    if (holder !== me) { msg("Take control to change the 3D setup", "warn"); return; }
+    const id = setupAddModel(path, role);
+    msg(`${path} added as a ${role}: in the 3D view`, "ok");
+    showPage("main"); setTimeout(() => selectObject(id), 600);
+  }
   $("files").addEventListener("dblclick", (e) => { const b = e.target.closest(".file.dir"); if (LIVE && b && b.dataset.dir) openDir(b.dataset.dir); });
   $("fl-crumbs").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b) openDir(b.dataset.go); });
   const here = (n) => (L.dir ? L.dir + "/" : "") + n;
@@ -435,13 +476,22 @@ const Live = (() => {
   const confirmP = (title, note) => new Promise((res) => ask(title, note, "", () => res(true), "confirm", () => res(false)));
   async function upload(list) {
     for (const f of list) {
-      if (!/\.(ngc|nc|tap|gcode)$/i.test(f.name)) { msg(`${f.name}: not a G-code program (.ngc .nc .tap .gcode)`, "warn"); continue; }
-      if (f.size > 6 * 1024 * 1024) { msg(`${f.name}: ${(f.size / 1048576).toFixed(1)} MB; uploads stop at 6 MB: copy it into the program folder`, "warn"); continue; }
+      const model = /\.(stl|obj)$/i.test(f.name);
+      if (!model && !/\.(ngc|nc|tap|gcode)$/i.test(f.name)) { msg(`${f.name}: not a G-code program (.ngc .nc .tap .gcode) or a 3D model (.stl .obj)`, "warn"); continue; }
+      const lim = model ? 5 : 6;
+      if (f.size > lim * 1024 * 1024) { msg(`${f.name}: ${(f.size / 1048576).toFixed(1)} MB; ${model ? "3D models" : "uploads"} stop at ${lim} MB: copy it into the program folder`, "warn"); continue; }
       const name = here(f.name.replace(/[^\w.\- ]/g, "_"));
-      if (files.some((x) => x.name === name) && !(await confirmP(`Replace ${name}?`, "A program of that name is there already."))) continue;
-      const r = await act("program_save", { name, text: await f.text() }, "Upload " + f.name);
+      if (files.some((x) => x.name === name) && !(await confirmP(`Replace ${name}?`, "A file of that name is there already."))) continue;
+      const r = model ? await act("model_save", { name, data: b64(await f.arrayBuffer()) }, "Upload " + f.name)
+        : await act("program_save", { name, text: await f.text() }, "Upload " + f.name);
+      if (r.ok && model) modelBufs.delete(name);
       if (r.ok) { msg(`Uploaded ${name}`, "ok"); L.sel = { kind: "file", path: name }; }
     }
+  }
+  function b64(buf) {
+    const u = new Uint8Array(buf); let s = "";
+    for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768));
+    return btoa(s);
   }
   $("fl-upload").addEventListener("click", () => $("fl-input").click());
   $("fl-input").addEventListener("change", (e) => { upload([...e.target.files]); e.target.value = ""; });

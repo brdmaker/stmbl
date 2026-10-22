@@ -24,6 +24,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 |---|---|
 | `index.html` | the console's markup and style |
 | `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
+| `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
 | `millweb` | the backend's launcher: LinuxCNC's display program |
 | `server/millweb.py` | the hub: browsers, control lease, jog deadman, status diffs, events, previews |
@@ -73,6 +74,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `SPINDLE_LOAD_PIN`, `BUS_PIN`, `YAW_PIN`, `CONTOUR_PIN`, `AT_SPEED_PIN`, `AIR_PIN` | | the Dynamics page's live values; `AIR_PIN`: a bit the Air button sets |
 | `PCOMP` | pcomp.0 | pcomp's HAL prefix; its switches are on the Dynamics page when it is loaded |
 | `[DISPLAY] MAX_FEED_OVERRIDE`, `MAX_SPINDLE_OVERRIDE`, `MIN_SPINDLE_OVERRIDE` | 1.0, 1.0, 0.5 | the sliders' ranges: LinuxCNC clamps the overrides to these (and still reads back the value asked for) |
+| `SETUP` | `millweb-setup.json` beside the INI | the 3D setup (fixtures and workpieces in the view) |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
@@ -88,7 +90,8 @@ JSON over the WebSocket at `/ws`.
 | `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
 | `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
 | `program` | when a program is loaded | name; `nlines` and the first 2000 `lines` (from `line0`); `path`: `[kind, x, y, z, feed, line, tool]` per segment, each from where the one before ended (`start`), from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates; `stats` over every move: `moves`, `shown`, `stride` (past `PREVIEW_SEGS` the drawn path merges neighbouring moves), `ext` (travel), `cut` and `rapid` lengths, `time`, `tools`; `error`, `truncated` |
-| `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder (`files` with their paths, `dirs`) |
+| `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder (`files` with their paths and `kind`: program or model, `dirs`) |
+| `setup` | on connect, on change | the 3D setup's `objects` |
 | `control` | on change | who has control |
 | `ev` | as they happen | `{time, lvl, text}`: LinuxCNC's error channel, state changes, commands |
 | `reply` | to each request | `{id, ok, err}`, plus a result (probe, tool setter, preview) |
@@ -104,7 +107,9 @@ JSON over the WebSocket at `/ws`.
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
 - `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`);
-- `program_rename` {name, to}: a program or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
+- `program_rename` {name, to}: a program, model or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
+- `model_save` {name, data (base64), overwrite}, `model_get` {name}: 3D models (`.stl`, `.obj`);
+- `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
@@ -116,6 +121,19 @@ else `[DISPLAY] PROGRAM_PREFIX`) a folder at a time, with the path above it:
 - **Upload**: the button, or G-code files dropped on the list, into the folder shown. Asks before replacing a program. Up to 6 MB each; larger ones go into the program folder directly (network share, USB).
 - **New folder**, **Rename / move** (a new name, or a path such as `jobs/acme/op1.ngc`; a program keeps its extension), **Delete** (asks first; a folder only when empty).
 - Selecting a program shows its preflight; **Load** opens it in LinuxCNC.
+- **3D models** of fixtures and workpieces (STL binary or ASCII, OBJ; up to 5 MB) upload the same way. Selecting one shows its size and triangle count; **+ fixture** / **+ workpiece** adds it to the 3D setup. A model the setup uses can't be deleted, renamed or moved.
+
+## The 3D setup
+
+What stands on the table in the 3D view: the built-in vise and stock by default, and
+models from the program folder. millweb keeps it (`[MILLWEB] SETUP`, default
+`millweb-setup.json` beside the INI), so every browser shows the same; changing it
+needs control.
+- **Click** an object in the view to select it (a drag still orbits): it lights up, and its panel shows its **role** (fixture or workpiece), where it is **placed in** (the work offset: it moves with G5x, G92 and the rotation; or the machine), its position, rotation (X, Y, Z in degrees) and **scale** (25.4 for a model drawn in inches).
+- **Top at work zero** puts its top at work Z0 and its front-left corner at X0 Y0; **On the table** sets its bottom on the table; **Turn 90°**, **Tip 90°**; **Remove**.
+- Each object is solid, see-through or hidden; the **fixtures** and **workpiece** buttons above the view do the same for all of them at once.
+- A new workpiece goes to the work zero, a new fixture onto the table under it.
+
 
 ## Safety, as built
 

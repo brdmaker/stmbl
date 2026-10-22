@@ -109,6 +109,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .probe-view { flex: 1 1 auto; min-height: 320px; display: flex; }
 .probe-view > .viewer { flex: 1; min-height: 320px; }
 .viewer canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+.objpanel { position: absolute; top: 46px; right: 8px; width: 290px; max-width: calc(100% - 16px); max-height: calc(100% - 100px); overflow: auto; z-index: 2; background: rgba(12, 18, 26, .92); border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; display: grid; gap: 6px; font-size: 12px; }
+.objpanel .ob-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.objpanel .ob-head b { font-family: var(--f-mono); overflow-wrap: anywhere; }
+.objpanel .ob-src { font-family: var(--f-mono); font-size: 11px; overflow-wrap: anywhere; }
+.objpanel .ob-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 6px; }
+.objpanel .ob-grid label { display: grid; gap: 2px; font-size: 11px; color: var(--ink-dim); }
+.objpanel .ob-grid label:nth-child(-n+2) { grid-column: span 3; grid-template-columns: 70px 1fr; align-items: center; }
+.objpanel input, .objpanel select { width: 100%; min-width: 0; }
+.objpanel .seg { display: flex; }
+.objpanel .seg button { flex: 1; }
 .hud { position: absolute; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 .hud.tl { top: 8px; left: 8px; right: 8px; }
@@ -222,6 +232,7 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); text-align: left; }
 .file[aria-pressed="true"] { border-color: var(--accent); }
 .file.dir b { color: var(--accent); }
+.file .adds { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .file-tools { margin-bottom: 8px; }
 .file-tools .grow { flex: 1; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-family: var(--f-mono); font-size: 12px; }
@@ -312,7 +323,26 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
         <div class="hud tl">
           <div class="chip" role="group" aria-label="Camera"><button data-cam="iso" aria-pressed="true">ISO</button><button data-cam="top" aria-pressed="false">TOP</button><button data-cam="front" aria-pressed="false">FRONT</button><button data-cam="side" aria-pressed="false">SIDE</button><button data-cam="part" aria-pressed="false">PART</button><button data-cam="follow" aria-pressed="false">FOLLOW</button></div>
           <div class="chip" role="group" aria-label="Path colour">Path <button data-col="err" aria-pressed="true">error</button><button data-col="feed" aria-pressed="false">feed</button><button data-col="op" aria-pressed="false">tool</button></div>
-          <div class="chip" role="group" aria-label="Show"><button data-show="machine" aria-pressed="true">machine</button><button data-show="work" aria-pressed="true" title="The stock and its vise: solid, see-through, hidden (the G54 origin stays)">workpiece</button><button data-show="path" aria-pressed="true">path</button><button data-show="limits" aria-pressed="false">limits</button><button data-show="defl" aria-pressed="false" id="defl-btn">deflection ×200</button></div>
+          <div class="chip" role="group" aria-label="Show"><button data-show="machine" aria-pressed="true">machine</button><button data-show="fix" aria-pressed="true" title="Fixtures: solid, see-through, hidden">fixtures</button><button data-show="work" aria-pressed="true" title="Workpieces: solid, see-through, hidden (the work origin stays)">workpiece</button><button data-show="path" aria-pressed="true">path</button><button data-show="limits" aria-pressed="false">limits</button><button data-show="defl" aria-pressed="false" id="defl-btn">deflection ×200</button></div>
+        </div>
+        <div class="objpanel" id="objpanel" hidden>
+          <div class="ob-head"><b id="ob-name">—</b><button class="btn sm" id="ob-close" title="Deselect">×</button></div>
+          <div class="muted ob-src" id="ob-src"></div>
+          <div class="ob-grid">
+            <label>Role<select id="ob-role"><option value="fixture">fixture</option><option value="workpiece">workpiece</option></select></label>
+            <label>Placed in<select id="ob-frame"><option value="work">work offset</option><option value="machine">machine</option></select></label>
+            <label>X<input id="ob-x" type="number" step="1"></label><label>Y<input id="ob-y" type="number" step="1"></label><label>Z<input id="ob-z" type="number" step="1"></label>
+            <label>Rot X°<input id="ob-rx" type="number" step="90"></label><label>Rot Y°<input id="ob-ry" type="number" step="90"></label><label>Rot Z°<input id="ob-rz" type="number" step="15"></label>
+            <label>Scale<input id="ob-scale" type="number" step="0.1" min="0.001" title="1: the model in mm; 25.4: a model drawn in inches"></label>
+          </div>
+          <div class="seg" id="ob-look" role="group" aria-label="Look"><button data-look="solid">solid</button><button data-look="glass">see-through</button><button data-look="hidden">hidden</button></div>
+          <div class="row">
+            <button class="btn sm" id="ob-zero" title="Its top at work Z0, its front-left corner at X0 Y0">Top at work zero</button>
+            <button class="btn sm" id="ob-table" title="Its bottom on the machine table">On the table</button>
+            <button class="btn sm" id="ob-turn" title="Turn 90° about Z">Turn 90°</button>
+            <button class="btn sm" id="ob-flip" title="Tip 90° about X">Tip 90°</button>
+            <button class="btn sm" id="ob-del">Remove</button>
+          </div>
         </div>
         <div class="hud bl">
           <div class="chip legend" id="legend"><span>0</span><span class="ramp"></span><span id="leg-b">60 µm</span></div>
@@ -357,8 +387,8 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
         <div class="row file-tools" id="fl-tools" hidden>
           <nav class="crumbs" id="fl-crumbs" aria-label="Folder"></nav>
           <span class="grow"></span>
-          <button class="btn sm accent" id="fl-upload" title="G-code files from this computer into this folder (or drop them on the list)">Upload</button>
-          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode" hidden>
+          <button class="btn sm accent" id="fl-upload" title="G-code programs and 3D models (STL, OBJ) from this computer into this folder (or drop them on the list)">Upload</button>
+          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode,.stl,.obj" hidden>
           <button class="btn sm" id="fl-mkdir">New folder</button>
           <button class="btn sm" id="fl-rename" disabled>Rename / move</button>
           <button class="btn sm" id="fl-delete" disabled>Delete</button>
@@ -622,6 +652,7 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 <script src="vendor/three/three.min.js"></script>
 <script src="vendor/three/OrbitControls.js"></script>
 <script src="js/app.js"></script>
+<script src="js/setup3d.js"></script>
 <script src="js/live.js"></script>
 
 </body>

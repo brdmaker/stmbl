@@ -347,6 +347,64 @@ class Protocol(Base):
         self.assertNotIn("link", (await self.call(ws, "files"))["dirs"])
         await ws.close()
 
+    async def test_models_and_setup(self):
+        import base64
+        import struct
+        ws = await self.client()
+        await self.ready(ws)
+        nc = os.path.join(self.d, "nc")
+        ok = lambda r: self.assertTrue(r["ok"], r)  # noqa: E731
+        # the default setup: the built-in vise and stock, before anything is saved
+        st = await self.until(ws, lambda m: m["t"] == "setup")
+        self.assertEqual([o["src"] for o in st["objects"]], ["builtin:vise", "builtin:stock"])
+        # a binary STL (one triangle), an ASCII STL, an OBJ
+        stl = b"\0" * 80 + struct.pack("<I", 1) + struct.pack("<12f", 0, 0, 1, 0, 0, 0, 10, 0, 0, 0, 20, 0) + b"\0\0"
+        ascii_stl = b"solid x\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid x\n"
+        obj = b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
+        ok(await self.call(ws, "folder_create", name="fixtures"))
+        for name, data in (("fixtures/plate.stl", stl), ("a.stl", ascii_stl), ("b.obj", obj)):
+            ok(await self.call(ws, "model_save", name=name, data=base64.b64encode(data).decode()))
+        self.assertIn("not an STL", (await self.call(ws, "model_save", name="bad.stl", data=base64.b64encode(b"hello").decode()))["err"])
+        self.assertIn("not an OBJ", (await self.call(ws, "model_save", name="bad.obj", data=base64.b64encode(b"hello").decode()))["err"])
+        self.assertIn("base64", (await self.call(ws, "model_save", name="c.stl", data="!!"))["err"])
+        self.assertIn("3D models", (await self.call(ws, "model_save", name="c.ngc", data=base64.b64encode(stl).decode()))["err"])
+        self.assertIn("up to 5 MB", (await self.call(ws, "model_save", name="big.stl", data=base64.b64encode(b"\0" * (5 * 1024 * 1024 + 1)).decode()))["err"])
+        files = (await self.call(ws, "files"))["files"]
+        self.assertEqual({f["name"]: f["kind"] for f in files if f["kind"] == "model"}, {"fixtures/plate.stl": "model", "a.stl": "model", "b.obj": "model"})
+        r = await self.call(ws, "model_get", name="fixtures/plate.stl")
+        self.assertEqual(base64.b64decode(r["data"]), stl)
+        # the setup: saved, broadcast, checked
+        objs = st["objects"] + [{"id": "p", "name": "plate", "role": "fixture", "src": "model:fixtures/plate.stl", "frame": "machine",
+                                 "pos": [500, 500, -234], "rot": [0, 0, 90], "scale": 1, "look": "glass", "extra": "dropped"}]
+        ok(await self.call(ws, "setup_save", objects=objs))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 3)
+        self.assertEqual(st["objects"][2]["look"], "glass")
+        self.assertNotIn("extra", st["objects"][2])
+        saved = json.load(open(os.path.join(self.d, "millweb-setup.json")))
+        self.assertEqual(saved["objects"][2]["src"], "model:fixtures/plate.stl")
+        for bad, why in (([{"src": "model:nope.stl"}], "no such model"), ([{"src": "file:/etc/passwd"}], "src"),
+                         ([{"src": "model:../x.stl"}], "names"), ([{"src": "builtin:vise", "id": "a"}, {"src": "builtin:stock", "id": "a"}], "unique"),
+                         ("x", "a list"), ([{"src": "builtin:vise", "pos": [1, 2]}], "three numbers")):
+            r = await self.call(ws, "setup_save", objects=bad)
+            self.assertFalse(r["ok"], bad)
+            self.assertIn(why, r["err"])
+        # a model in the setup can't be deleted or moved, nor its folder renamed
+        self.assertIn("3D setup", (await self.call(ws, "program_delete", name="fixtures/plate.stl"))["err"])
+        self.assertIn("3D setup", (await self.call(ws, "program_rename", name="fixtures/plate.stl", to="p.stl"))["err"])
+        self.assertIn("3D setup", (await self.call(ws, "program_rename", name="fixtures", to="fx"))["err"])
+        self.assertIn("extension", (await self.call(ws, "program_rename", name="a.stl", to="a.ngc"))["err"])
+        ok(await self.call(ws, "program_rename", name="a.stl", to="fixtures/a2.stl"))
+        ok(await self.call(ws, "program_delete", name="b.obj"))
+        ok(await self.call(ws, "setup_save", objects=objs[:2]))
+        ok(await self.call(ws, "program_delete", name="fixtures/plate.stl"))
+        self.assertFalse(os.path.exists(os.path.join(nc, "fixtures", "plate.stl")))
+        # a watching browser reads models and the setup, changes nothing
+        b = await self.client()
+        self.assertTrue((await self.call(b, "model_get", name="fixtures/a2.stl"))["ok"])
+        self.assertIn("control", (await self.call(b, "setup_save", objects=[]))["err"])
+        await b.close()
+        await ws.close()
+
     async def test_tool_zero_unloads(self):
         ws = await self.client()
         await self.ready(ws)
