@@ -509,8 +509,10 @@ class Hub:
                "pockets": [t["t"] for t in tl], "max_segs": self.pv_segs, "timeout": self.pv_timeout,
                "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0)}
         head, ptext = {"error": None, "truncated": None, "stats": None, "lines": 0, "start": [0, 0, 0]}, "[]"
+        nice = int(self.cfg.num("MILLWEB", "PREVIEW_NICE", 10))
         proc = await asyncio.create_subprocess_exec(sys.executable, preview.__file__, stdin=asyncio.subprocess.PIPE,
-                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                    preexec_fn=(lambda: os.nice(nice)) if nice > 0 else None)
         try:
             out, err = await asyncio.wait_for(proc.communicate(json.dumps(req).encode()), self.pv_timeout + 30)
         except asyncio.TimeoutError:
@@ -666,6 +668,8 @@ async def amain(args):
     server = await srv.serve(host, port)
     print("millweb: http%s://%s:%d/ (%s)" % ("s" if srv.ssl else "", host, port, cfg.path), flush=True)
     hub.event("info", "millweb %s up on port %d" % (VERSION, port))
+    if getattr(args, "pinned", None):
+        hub.event("info", args.pinned)
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -679,6 +683,29 @@ async def amain(args):
     server.close()
 
 
+def cpu_list(text):
+    """"0", "0,2", "0-1" -> {0}, {0, 2}, {0, 1}."""
+    out = set()
+    for part in str(text).replace(" ", "").split(","):
+        if part:
+            a, _, b = part.partition("-")
+            out.update(range(int(a), int(b or a) + 1))
+    return out
+
+
+def pin(cfg):
+    """[MILLWEB] CPUS: millweb, its threads and its preview processes on these
+    cores only, off LinuxCNC's real-time one. Before any thread starts."""
+    cpus = cfg.get("MILLWEB", "CPUS")
+    if not cpus:
+        return None
+    try:
+        os.sched_setaffinity(0, cpu_list(cpus))
+        return "millweb on CPU %s" % ",".join(map(str, sorted(os.sched_getaffinity(0))))
+    except (ValueError, OSError) as e:
+        return "[MILLWEB] CPUS = %s: %s" % (cpus, e)
+
+
 def main():
     ap = argparse.ArgumentParser(prog="millweb", description="Browser console backend for LinuxCNC")
     ap.add_argument("-ini", "--ini", dest="ini", default=os.environ.get("INI_FILE_NAME"))
@@ -687,6 +714,7 @@ def main():
     args, _ = ap.parse_known_args()
     if not args.ini:
         ap.error("the machine's INI file: -ini FILE (or INI_FILE_NAME)")
+    args.pinned = pin(machine_mod.Config(args.ini))
     asyncio.run(amain(args))
 
 

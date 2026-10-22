@@ -46,6 +46,8 @@ function helpers(page, ctx, opt) {
     async msgHas(s, ms = 4000) { return t.until((s) => document.getElementById("msg").textContent.includes(s), s, ms); },
     // the DRO's value for an axis, as a number ("−" is the console's minus)
     dro: (a) => page.textContent("#d-" + a).then((s) => +s.replace("−", "-").trim()),
+    skipped: null,
+    skip(why) { t.skipped = why; },  // a case that can't run here: return t.skip("why")
   };
   return t;
 }
@@ -58,6 +60,12 @@ async function run(opts) {
   const browser = await chromium.launch({ headless: !o.headed, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
   const results = [];
   const t0 = Date.now();
+  if (opts.warmup && sel.length) {  // the browser's first page is slow on a small computer: not a case's time
+    const ctx = await browser.newContext(), page = await ctx.newPage(), w0 = Date.now();
+    try { await opts.warmup(page); console.log(`(warm-up: the first page in ${((Date.now() - w0) / 1000).toFixed(1)} s)`); }
+    catch (e) { console.log("(warm-up: " + String(e).split("\n")[0] + ")"); }
+    await ctx.close();
+  }
   for (const c of sel) {
     const vp = c.opts.viewport || opts.viewport || { width: 1600, height: 1000 };
     const ctx = await browser.newContext({ viewport: vp });
@@ -74,7 +82,8 @@ async function run(opts) {
     if (err) t.fails.push(String(err.stack || err).split("\n").slice(0, 3).join(" | "));
     if (t.errors.length && !c.opts.allowErrors) { t.fails.push("script errors: " + t.errors.join(" | ")); console.log("    FAIL script errors:\n      " + t.errors.slice(0, 5).join("\n      ")); }
     const ok = !t.fails.length;
-    console.log(`${ok ? "PASS" : "FAIL"} ${c.name.padEnd(64)} ${((Date.now() - s0) / 1000).toFixed(1).padStart(5)}s`);
+    console.log(`${ok ? (t.skipped ? "SKIP" : "PASS") : "FAIL"} ${c.name.padEnd(64)} ${((Date.now() - s0) / 1000).toFixed(1).padStart(5)}s`);
+    if (ok && t.skipped) console.log("    " + t.skipped);
     if (!ok) {
       if (err) console.log("    " + String(err.message || err).split("\n")[0]);
       if (o.shots) {
@@ -85,13 +94,14 @@ async function run(opts) {
       const m = await page.textContent("#msg").catch(() => "");
       if (m) console.log("    last message: " + m.trim());
     }
-    results.push({ name: c.name, ok });
+    results.push({ name: c.name, ok, skipped: ok && !!t.skipped });
     if (opts.after) await opts.after(t, c).catch(() => {});
     await ctx.close();
   }
   await browser.close();
   const bad = results.filter((r) => !r.ok);
-  console.log(`\n${results.length - bad.length}/${results.length} cases passed in ${Math.round((Date.now() - t0) / 1000)} s`);
+  const sk = results.filter((r) => r.skipped).length;
+  console.log(`\n${results.length - bad.length - sk}/${results.length - sk} cases passed${sk ? `, ${sk} skipped` : ""} in ${Math.round((Date.now() - t0) / 1000)} s`);
   bad.forEach((r) => console.log("  FAIL " + r.name));
   return bad.length ? 1 : 0;
 }

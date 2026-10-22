@@ -444,18 +444,24 @@ class Protocol(Base):
         ws = await self.client()
         p = os.path.join(self.d, "nc", "long.ngc")
         with open(p, "w") as f:
-            f.write("".join("G1 X%d\n" % i for i in range(1, 25001)))
+            f.write("".join("G1 X%d\n" % i for i in range(1, 25001)) + "M2\n")
         r = await self.call(ws, "program_lines", name="long.ngc", start=23999, count=3)  # a watcher may read
         self.assertTrue(r["ok"], r)
         self.assertEqual(r["lines"], ["G1 X23999", "G1 X24000", "G1 X24001"])
-        self.assertEqual(r["nlines"], 25000)
+        self.assertEqual(r["nlines"], 25001)
         r = await self.call(ws, "program_lines", name="long.ngc", start=24999, count=5000)
-        self.assertEqual(r["lines"], ["G1 X24999", "G1 X25000"])
-        # the preview: a child process; without LinuxCNC's gcode module it says so
+        self.assertEqual(r["lines"], ["G1 X24999", "G1 X25000", "M2"])
+        # the preview: a child process. Without LinuxCNC's gcode module it says
+        # so; with it (an installed LinuxCNC) it reads the program
         r = await self.call(ws, "program_get", name="long.ngc")
         pg = r["program"]
-        self.assertEqual((pg["nlines"], pg["line0"], len(pg["lines"]), pg["path"]), (25000, 1, 2000, []))
-        self.assertIn("gcode module", pg["error"])
+        self.assertEqual((pg["nlines"], pg["line0"], len(pg["lines"])), (25001, 1, 2000))
+        if pg["error"] and "gcode module" in pg["error"]:
+            self.assertEqual(pg["path"], [])
+        else:
+            self.assertIsNone(pg["error"], pg["error"])
+            self.assertEqual(pg["stats"]["moves"], 24999)  # the first G1 only sets where it starts
+            self.assertEqual(pg["stats"]["ext"]["x"], [1, 25000])
         await ws.close()
 
 

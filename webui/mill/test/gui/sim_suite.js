@@ -50,6 +50,30 @@ test("boot: the simulation, held mid-cut", async (t) => {
   t.check((await t.attr("#cl-flood", "aria-pressed")) === "true", "flood on");
 });
 
+test("loading screen: shown while the console loads, gone after", async (t) => {
+  let release; const held = new Promise((r) => (release = r));
+  await t.page.route("**/js/app.js", async (route) => { await held; route.continue(); });  // a slow start
+  const nav = t.page.goto(URL);
+  await t.page.waitForSelector("#boot");
+  await t.sleep(300);
+  t.check(!(await t.hidden("#boot")) && (await t.text("#boot-msg")) === "Loading the console…", "while loading: the loading screen, saying so");
+  t.check(await t.ev(() => getComputedStyle(document.querySelector(".boot-bar i")).animationName === "bootbar"), "its bar moving");
+  release(); await nav;
+  t.check(await t.until(() => !document.getElementById("boot") && typeof st !== "undefined" && st.run === "hold"), "started: gone, the console there");
+}, { open: false });
+
+test("loading screen: offline, the web fonts fail and the console still starts", async (t) => {
+  await t.page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
+  await t.page.goto(URL);
+  t.check(await t.until(() => !document.getElementById("boot") && typeof st !== "undefined" && st.run === "hold"), "no fonts: the loading screen gone, the console there");
+}, { open: false, allowErrors: true });
+
+test("loading screen: a script that doesn't load is said, not spun", async (t) => {
+  await t.page.route("**/js/app.js", (route) => route.abort());
+  await t.page.goto(URL);
+  t.check(await t.until(() => document.getElementById("boot").classList.contains("failed") && /didn't start.*app\.js/.test(document.getElementById("boot-msg").textContent)), "the loading screen: the console didn't start, which file");
+}, { open: false, allowErrors: true });
+
 test("navigation: every page; remembered; #hash", async (t) => {
   for (const p of PAGES) {
     await t.nav(p);
@@ -732,12 +756,14 @@ async function serve() {
   return server.address().port;
 }
 
-test("over HTTP with no millweb: the simulation after 2.5 s", async (t) => {
+test("over HTTP with no millweb: the simulation after 6 s", async (t) => {
   const port = await serve();
   await t.page.goto(`http://127.0.0.1:${port}/`);
   await t.sleep(1000);
   t.check(await t.ev(() => st.run !== "hold"), "waits for a machine first");
-  t.check(await t.until(() => st.run === "hold" && document.getElementById("msg").textContent.includes("No machine answered"), null, 6000), "then the simulation, saying why");
+  t.check(/Connecting to 127\.0\.0\.1/.test(await t.text("#boot-msg")), "the loading screen: connecting");
+  t.check(await t.until(() => st.run === "hold" && document.getElementById("msg").textContent.includes("No machine answered"), null, 9000), "then the simulation, saying why");
+  t.check(await t.until(() => !document.getElementById("boot")), "the loading screen gone");
   t.check(await t.ev(() => LIVE === null), "not live");
 }, { open: false, allowErrors: true });
 

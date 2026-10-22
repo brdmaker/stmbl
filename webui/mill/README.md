@@ -7,7 +7,9 @@ network.
 
 The console runs two ways:
 - **Live:** served by `millweb`, it shows the real machine and drives it.
-- **Simulated:** opened from disk, with `?sim`, or when no millweb answers within 2.5 s. It runs a built-in machine and program, for demos and training.
+- **Simulated:** opened from disk, with `?sim`, or when no millweb answers within 6 s (if one answers later, the page reloads into it). It runs a built-in machine and program, for demos and training.
+
+Until it has drawn, the page shows a loading screen saying what it is doing (loading, connecting to the machine), or which file didn't load.
 
 ```sh
 make -C webui/mill demo        # the console alone, simulated: http://localhost:8000/
@@ -75,6 +77,8 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `PCOMP` | pcomp.0 | pcomp's HAL prefix; its switches are on the Dynamics page when it is loaded |
 | `[DISPLAY] MAX_FEED_OVERRIDE`, `MAX_SPINDLE_OVERRIDE`, `MIN_SPINDLE_OVERRIDE` | 1.0, 1.0, 0.5 | the sliders' ranges: LinuxCNC clamps the overrides to these (and still reads back the value asked for) |
 | `SETUP` | `millweb-setup.json` beside the INI | the 3D setup (fixtures and workpieces in the view) |
+| `CPUS` | | millweb, its threads and its preview processes on these cores only (`0`, `0,1`, `0-1`): keep them off LinuxCNC's real-time core |
+| `PREVIEW_NICE` | 10 | the preview process's niceness (lower priority than millweb and LinuxCNC) |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
@@ -170,6 +174,34 @@ needs control.
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
 | `make check-all` | the first four | 15 min | |
 
+**On a small board** (LinuxCNC installed from packages, little RAM): the harness
+takes a run-in-place tree from `LINUXCNC=path` (or `~/linuxcnc-2.9`), else the
+installed `linuxcnc` on PATH. The stress suite finds LinuxCNC's `3D_Chips.ngc` in
+the tree, `/usr/share/linuxcnc/ncfiles` or `~/linuxcnc/nc_files` (else that case
+is skipped), and reads its million-line program a line at a time.
+The suites' temporary machines go where `TMPDIR` points (the stress programs are
+~45 MB): set it off a small `/tmp` tmpfs. millweb itself doesn't stage uploads in
+`/tmp`; it writes them beside their final name in the program folder.
+
+**The heavy suites from another computer.** Chromium and the stress programs are
+too much for a small board next to LinuxCNC. Run the test machine on the board and
+the suites on a PC:
+
+```sh
+# on the board: the test machine (test/sim) on the network; STRESS=1 writes the
+# stress programs there too (generated on the board: nothing big crosses the network)
+make -C webui/mill serve-test PORT=8080 STRESS=1        # Ctrl-C stops it
+# on the PC (node, Playwright, Chromium; no LinuxCNC needed)
+make -C webui/mill test-gui-live REMOTE=board:8080
+make -C webui/mill test-stress   REMOTE=board:8080
+```
+
+Remote, the suites check the machine's files through the protocol instead of on
+disk, skip the case that would stop millweb, clean up what earlier runs left on the
+board, and refuse any machine but the test one (`PORTAL-M sim`): they take control,
+home, jog and run programs. The light suites (`make test`, `make test-backend`)
+run on the board itself.
+
 `K=word` runs only the cases whose name contains it, `SHOTS=dir` keeps a
 screenshot of each failed GUI case: `make test-gui-sim K=offsets SHOTS=/tmp/shots`.
 Each suite prints `PASS`/`FAIL` per case, the failed checks, and for a
@@ -223,7 +255,7 @@ edit, measure); Probe (all cycles, apply, the tool setter); Dynamics (pcomp
 switches, readouts, four plots drawn, re-measure); Status (filter, clear,
 pins, stats); Settings (inches, decimals, exaggeration, switches); the 3D
 view (cameras, colours, layers, orbiting); no sideways scrolling at phone and
-tablet widths; over HTTP without millweb (the simulation after 2.5 s) and
+tablet widths; the loading screen (shown while loading, a failed script named); over HTTP without millweb (the simulation after 6 s) and
 with `?sim`. Any script error fails the case.
 
 **GUI suite, live** (`make test-gui-live`, 15 cases on real LinuxCNC, each

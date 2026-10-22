@@ -1146,6 +1146,11 @@ function bootCommon() {
   showPage(paneIds[startPage] ? startPage : "main");
   setCam("iso", true);
   requestAnimationFrame(frame);
+  requestAnimationFrame(() => requestAnimationFrame(hideBoot));  // after the first frame is drawn
+}
+function hideBoot() {
+  const b = $("boot"); if (!b) return;  // the console has drawn: it started, whatever was said before
+  b.classList.add("done"); setTimeout(() => b.remove(), 400);
 }
 // the simulated machine: opens mid-cut (the pocket's second depth), held for
 // inspection, so every panel shows a working machine

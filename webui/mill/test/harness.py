@@ -3,6 +3,7 @@
 temporary directory, started headless, stopped by stopping millweb.
 
     python3 harness.py [--ini-set SECTION.KEY=VALUE ...] [--keep] -- CMD ARGS...
+    python3 harness.py --serve [--port 8080] [--stress-files]     (for suites run from another computer)
 
 runs CMD in LinuxCNC's environment with MILLWEB_PORT (and MILLWEB_DIR, the
 config's directory) and exits with its status. As a module: `with Machine() as m:`
@@ -21,7 +22,26 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
-LINUXCNC = os.environ.get("LINUXCNC", "/home/user/linuxcnc-2.9")
+def _find_linuxcnc():
+    """A run-in-place tree (LINUXCNC=path, or ~/linuxcnc-2.9), else "": an installed LinuxCNC on PATH."""
+    if "LINUXCNC" in os.environ:
+        return os.environ["LINUXCNC"]
+    for d in (os.path.expanduser("~/linuxcnc-2.9"), "/home/user/linuxcnc-2.9"):
+        if os.path.exists(os.path.join(d, "scripts", "rip-environment")):
+            return d
+    return ""
+
+
+LINUXCNC = _find_linuxcnc()
+# the shell lines that give LinuxCNC's environment: a run-in-place tree's, or nothing (installed)
+RIP = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; " % (LINUXCNC, LINUXCNC)
+       if LINUXCNC and os.path.exists(os.path.join(LINUXCNC, "scripts", "rip-environment")) else "")
+
+
+def sample_dirs():
+    """Where LinuxCNC's own sample programs are: the tree's, the package's, the user's."""
+    return [d for d in (os.path.join(LINUXCNC, "nc_files") if LINUXCNC else "", "/usr/share/linuxcnc/ncfiles",
+                        "/usr/share/doc/linuxcnc/examples/nc_files", os.path.expanduser("~/linuxcnc/nc_files")) if d and os.path.isdir(d)]
 
 
 def free_port():
@@ -66,9 +86,10 @@ def millweb_pids():
 
 
 class Machine:
-    def __init__(self, ini_set=(), keep=False, hal_extra=""):
+    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1"):
         self.ini_set, self.keep, self.hal_extra = list(ini_set), keep, hal_extra
-        self.port = free_port()
+        self.port = port or free_port()
+        self.host = host
         self.dir = None
         self.proc = None
 
@@ -89,7 +110,7 @@ class Machine:
         os.chmod(wrap, 0o755)
         ini = set_ini(ini, "DISPLAY", "DISPLAY", wrap)
         ini = set_ini(ini, "MILLWEB", "PORT", str(self.port))
-        ini = set_ini(ini, "MILLWEB", "HOST", "127.0.0.1")
+        ini = set_ini(ini, "MILLWEB", "HOST", self.host)
         for item in self.ini_set:
             k, v = item.split("=", 1)
             sec, key = k.split(".", 1)
@@ -98,8 +119,7 @@ class Machine:
         if self.hal_extra:
             with open(os.path.join(self.dir, "mill.hal"), "a") as f:
                 f.write("\n" + self.hal_extra + "\n")
-        sh = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1"
-              % (LINUXCNC, LINUXCNC, self.dir))
+        sh = RIP + "cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1" % self.dir
         self.proc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
         t = time.time() + 90
         while time.time() < t:
@@ -117,14 +137,14 @@ class Machine:
 
     @staticmethod
     def lcnc_env():
-        """This environment plus LinuxCNC's (PATH, PYTHONPATH, ... from rip-environment)."""
-        sh = "export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; env -0" % (LINUXCNC, LINUXCNC)
+        """This environment plus LinuxCNC's (a run-in-place tree's rip-environment; installed: as it is)."""
+        sh = RIP + "env -0"
         out = subprocess.run(["bash", "-c", sh], capture_output=True, timeout=20).stdout
         return dict(kv.split("=", 1) for kv in out.decode().split("\0") if "=" in kv)
 
     def halcmd(self, *args):
         """halcmd in this LinuxCNC's environment; its output."""
-        sh = "export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null; exec halcmd \"$@\"" % (LINUXCNC, LINUXCNC)
+        sh = RIP + "exec halcmd \"$@\""
         return subprocess.run(["bash", "-c", sh, "halcmd"] + [str(a) for a in args], capture_output=True, text=True,
                               timeout=20).stdout
 
@@ -152,15 +172,42 @@ class Machine:
         return False
 
 
+def serve(a):
+    """The test machine for suites run from another computer: on the network,
+    until Ctrl-C (or SIGTERM)."""
+    stop = []
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *x: stop.append(1))
+    with Machine(a.ini_set, a.keep, port=a.port, host="0.0.0.0") as m:
+        if a.stress_files:  # written here, so nothing big goes over the network
+            import stress_suite
+            print("writing the stress suite's programs ...", flush=True)
+            stress_suite.write_programs(m.dir)
+        ip = socket.gethostbyname(socket.gethostname())
+        print("the test machine (test/sim) on http://%s:%d/ (%s)\n"
+              "from another computer:  make test-gui-live REMOTE=<this host>:%d   make test-stress REMOTE=<this host>:%d\n"
+              "Ctrl-C stops it" % (ip, m.port, m.dir, m.port, m.port), flush=True)
+        while not stop and m.proc.poll() is None:
+            time.sleep(0.5)
+        if m.proc.poll() is not None:
+            print("LinuxCNC stopped", flush=True)
+    sys.exit(0 if m.clean_exit else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ini-set", action="append", default=[], help="SECTION.KEY=VALUE in the test INI")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--serve", action="store_true", help="serve the test machine on the network for suites run elsewhere")
+    ap.add_argument("--port", type=int, default=8080, help="--serve's port")
+    ap.add_argument("--stress-files", action="store_true", help="--serve: write the stress suite's programs too")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args()
+    if a.serve:
+        return serve(a)
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
     if not cmd:
-        ap.error("a command to run: -- CMD ARGS")
+        ap.error("a command to run: -- CMD ARGS (or --serve)")
     with Machine(a.ini_set, a.keep) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
         env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)

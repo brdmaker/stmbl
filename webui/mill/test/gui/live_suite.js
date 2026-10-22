@@ -2,16 +2,38 @@
 // own controls. Each case starts from the same machine (wsclient.baseline:
 // on, homed, idle, G54 at its test values, nobody in control).
 //   python3 test/harness.py -- node test/gui/live_suite.js [-k WORD]... [--shots DIR]
-// (the harness starts LinuxCNC and sets MILLWEB_PORT and MILLWEB_DIR)
+// (the harness starts LinuxCNC and sets MILLWEB_PORT and MILLWEB_DIR), or from
+// another computer against a board running `harness.py --serve`:
+//   MILLWEB_REMOTE=board:8080 node test/gui/live_suite.js
+// Remote, the machine's files are checked through the protocol instead of on
+// disk, and the case that stops millweb is skipped.
 const fs = require("fs");
 const path = require("path");
 const { test, run } = require("./runner");
 const { Client } = require("./wsclient");
 
-const PORT = +process.env.MILLWEB_PORT;
-const DIR = process.env.MILLWEB_DIR;
-if (!PORT) { console.error("MILLWEB_PORT: run through test/harness.py"); process.exit(2); }
-const BASE = `http://127.0.0.1:${PORT}/`;
+const REMOTE = process.env.MILLWEB_REMOTE || "";
+const HOST = REMOTE ? REMOTE.replace(/:\d+$/, "") : "127.0.0.1";
+const PORT = REMOTE ? +(REMOTE.match(/:(\d+)$/) || [0, 8080])[1] : +process.env.MILLWEB_PORT;
+const DIR = REMOTE ? null : process.env.MILLWEB_DIR;
+if (!PORT) { console.error("MILLWEB_PORT: run through test/harness.py (or MILLWEB_REMOTE=host:port)"); process.exit(2); }
+const BASE = `http://${HOST}:${PORT}/`;
+// the machine's files: on disk beside us, or through the protocol from another computer
+const onMachine = {
+  async files() { return (await M.call("files")); },
+  async exists(rel) { if (DIR) return fs.existsSync(path.join(DIR, "nc_files", rel)); const r = await this.files(); return r.files.some((f) => f.name === rel) || r.dirs.includes(rel); },
+  async text(rel) {
+    if (DIR) return fs.readFileSync(path.join(DIR, "nc_files", rel), "utf8");
+    const r = await M.call("program_lines", { name: rel, start: 1, count: 5000 }); return r.ok ? r.lines.join("\n") + "\n" : "";
+  },
+  async size(rel) { if (DIR) return fs.statSync(path.join(DIR, "nc_files", rel)).size; const f = (await this.files()).files.find((x) => x.name === rel); return f ? f.size : -1; },
+  async toolTable() {  // tool.tbl, or the table as millweb writes it
+    if (DIR) return fs.readFileSync(path.join(DIR, "tool.tbl"), "utf8");
+    const z = (v) => (v >= 0 ? "+" : "-") + Math.abs(v).toFixed(4);
+    return M.last.tools.tools.map((t) => `T${t.t} P${t.p} D${t.d.toFixed(4)} Z${z(t.z)} ;${t.c}`).join("\n") + "\n";
+  },
+  async setup() { return DIR ? JSON.parse(fs.readFileSync(path.join(DIR, "millweb-setup.json"), "utf8")).objects : M.last.setup.objects; },
+};
 let M = null;  // the suite's own protocol client
 
 const near = (a, b, tol = 1e-3) => Math.abs(a - b) < tol;
@@ -33,10 +55,11 @@ const logHas = (t, s, ms = 5000) => t.until((s) => events.some((e) => e.text.inc
 
 // ------------------------------------------------------------ connecting, control
 test("connects: LIVE, the machine's name, tables from the INI", async (t) => {
+  t.check(await t.until(() => !document.getElementById("boot")), "the loading screen gone");
   t.check((await t.text("#ch-link")).includes("LIVE"), "chip: LIVE");
   t.check((await t.text(".brand b")) === "PORTAL-M SIM", "the machine's name");
   t.check((await t.text(".brand span")).startsWith("XYYZ · LinuxCNC · millweb"), "coordinates, millweb version");
-  t.check((await t.text("#f-src")) === `live · 127.0.0.1:${PORT}`, "footer: live");
+  t.check((await t.text("#f-src")) === `live · ${HOST}:${PORT}`, "footer: live");
   t.check((await t.text("#b-control")).includes("TAKE"), "nobody has control: TAKE CONTROL");
   t.check((await t.text("#ch-on")).includes("MACHINE ON") && (await t.text("#ch-home")) === "HOMED", "the machine's state");
   t.check(await t.ev(() => TRAVEL.z[0] === -215 && TRAVEL.x[1] === 1000), "travel from the INI");
@@ -186,19 +209,19 @@ test("offsets page: the machine's table, edit, use G55, G92 clear", async (t) =>
 test("tools page: add, edit, delete reach tool.tbl; load; measure", async (t) => {
   await take(t);
   await t.nav("tool");
-  const tbl = () => fs.readFileSync(path.join(DIR, "tool.tbl"), "utf8");
+  const tbl = () => onMachine.toolTable();
   await t.click("#tl-add");
   t.check(await t.until(() => st.tools.some((x) => x.t === 13)), "T13 added");
   await t.sleep(1200);
-  t.check(/^T13 P13 D8\.0000 Z\+50\.0000 ;new tool$/m.test(tbl()), "...in tool.tbl");
+  t.check(/^T13 P13 D8\.0000 Z\+50\.0000 ;new tool$/m.test(await tbl()), "...in tool.tbl");
   await t.page.fill('#tool-t input[aria-label="T13 diameter"]', "9");
   await t.page.press('#tool-t input[aria-label="T13 diameter"]', "Tab");
   await t.sleep(1200);
-  t.check(/^T13 P13 D9\.0000/m.test(tbl()), "edited diameter in tool.tbl");
+  t.check(/^T13 P13 D9\.0000/m.test(await tbl()), "edited diameter in tool.tbl");
   await t.click('#tool-t tr[data-t="13"] td:first-child');
   await t.click("#tl-del");
   await t.sleep(1200);
-  t.check(!/^T13/m.test(tbl()), "deleted from tool.tbl");
+  t.check(!/^T13/m.test(await tbl()), "deleted from tool.tbl");
   await t.click('#tool-t tr[data-t="3"] td:first-child');
   await t.click("#tl-load");
   t.check(await M.until((s) => s.tool === 3 && near(s.tlo, 48.13), 20000), "T3 M6 G43 on the machine");
@@ -262,10 +285,18 @@ test("file page: the machine's programs, preflight, load, run with the cycle but
   t.check(await t.until(() => document.getElementById("ch-run").textContent === "DONE"), "DONE");
 });
 
+// a board keeps its files between runs (the harness starts each run afresh): a case's own leftovers go first
+async function cleanUp(names, dirs = []) {
+  await M.call("control", { take: true, force: true });
+  for (const n of names) await M.call("program_delete", { name: n });
+  for (const d of dirs) await M.call("folder_delete", { name: d });
+  await M.call("control", { take: false });
+}
+
 test("file page: upload, folders, rename and move, delete", async (t) => {
+  await cleanUp(["uploaded one.ngc", "moved.ngc", "jobs/dropped.ngc", "jobs/renamed.ngc", ...Array.from({ length: 14 }, (_, i) => `many/p${String(i).padStart(2, "0")}.ngc`)], ["jobs", "many"]);
   await take(t);
   await t.nav("file");
-  const nc = (...p) => path.join(DIR, "nc_files", ...p);
   const rows = () => t.ev(() => [...document.querySelectorAll("#files .file b")].map((b) => b.textContent));
   const dlg = async (value, ok = true) => {  // answer the console's dialog
     await t.page.waitForSelector("#dlg:not([hidden])");
@@ -273,16 +304,34 @@ test("file page: upload, folders, rename and move, delete", async (t) => {
     await t.click(ok ? '#dlg-form [type="submit"]' : "#dlg-cancel");
   };
   t.check(!(await t.hidden("#fl-tools")) && (await t.text("#fl-crumbs")) === "programs", "the tools, at the program folder");
+  // a long folder: every row stays clickable (the list scrolls; it once ran under the next panel)
+  await M.call("control", { take: true, force: true });
+  await M.call("folder_create", { name: "many" });
+  for (let i = 0; i < 14; i++) await M.call("program_save", { name: `many/p${String(i).padStart(2, "0")}.ngc`, text: "M2" });
+  await M.call("control", { take: false });
+  await take(t);
+  await t.click('#files .file[data-dir="many"] [data-open]');
+  await t.until(() => document.querySelectorAll("#files .file").length === 15);
+  const covered = await t.ev(() => [...document.querySelectorAll("#files .file")].filter((r) => {
+    r.scrollIntoView({ block: "center" }); const b = r.getBoundingClientRect(), e = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    return !(e && r.contains(e)); }).length);
+  t.check(covered === 0, `a folder of 14: every row clickable (${covered} covered)`);
+  await t.click('#files .file[data-up]');
+  await M.call("control", { take: true, force: true });
+  for (let i = 0; i < 14; i++) await M.call("program_delete", { name: `many/p${String(i).padStart(2, "0")}.ngc` });
+  await M.call("folder_delete", { name: "many" });
+  await M.call("control", { take: false });
+  await take(t);
   // upload with the button
   await t.page.setInputFiles("#fl-input", [{ name: "uploaded one.ngc", mimeType: "text/plain", buffer: Buffer.from("G0 X5 Y5 Z5\nG1 X15 F600\nM2\n") }]);
   t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "uploaded one.ngc")), "uploaded: listed");
-  t.check(fs.readFileSync(nc("uploaded one.ngc"), "utf8").startsWith("G0 X5 Y5 Z5"), "on the machine");
+  t.check((await onMachine.text("uploaded one.ngc")).startsWith("G0 X5 Y5 Z5"), "on the machine");
   t.check(await t.until(() => document.getElementById("fl-name").textContent === "uploaded one.ngc"), "selected, with its preflight");
   // the same name again: asks first; Cancel keeps the old one
   await t.page.setInputFiles("#fl-input", [{ name: "uploaded one.ngc", mimeType: "text/plain", buffer: Buffer.from("M2\n") }]);
   await dlg(null, false);
   await t.sleep(500);
-  t.check(fs.readFileSync(nc("uploaded one.ngc"), "utf8").startsWith("G0 X5"), "replace? Cancel: unchanged");
+  t.check((await onMachine.text("uploaded one.ngc")).startsWith("G0 X5"), "replace? Cancel: unchanged");
   // too large, and not G-code
   await t.page.setInputFiles("#fl-input", [{ name: "huge.ngc", mimeType: "text/plain", buffer: Buffer.alloc(7 * 1024 * 1024, 65) }]);
   t.check(await t.msgHas("uploads stop at 6 MB"), "7 MB: refused, says why");
@@ -299,7 +348,7 @@ test("file page: upload, folders, rename and move, delete", async (t) => {
     document.getElementById("files").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
   });
   t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "dropped.ngc")), "dropped into jobs/");
-  t.check(fs.existsSync(nc("jobs", "dropped.ngc")), "...on the machine");
+  t.check(await onMachine.exists("jobs/dropped.ngc"), "...on the machine");
   // rename (it keeps its extension), then move it up
   await t.click('#files .file[data-i] b');
   await t.click("#fl-rename");
@@ -308,22 +357,23 @@ test("file page: upload, folders, rename and move, delete", async (t) => {
   await t.click("#fl-rename");
   await dlg("moved.ngc");
   t.check(await t.until(() => document.getElementById("fl-crumbs").textContent === "programs" && [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "moved.ngc")), "moved to the program folder; the page follows");
-  t.check(fs.existsSync(nc("moved.ngc")) && !fs.existsSync(nc("jobs", "renamed.ngc")), "...on disk");
+  t.check(await onMachine.exists("moved.ngc") && !(await onMachine.exists("jobs/renamed.ngc")), "...on the machine");
   // delete: asks; the empty folder too; the loaded program can't be
   await t.click("#fl-delete");
   await dlg(null);
-  t.check(await t.until(() => ![...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "moved.ngc")) && !fs.existsSync(nc("moved.ngc")), "deleted after asking");
+  t.check(await t.until(() => ![...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "moved.ngc")) && !(await onMachine.exists("moved.ngc")), "deleted after asking");
   await t.click('#files .file[data-dir="jobs"] b');
   t.check(!(await t.page.isDisabled("#fl-delete")), "a folder selected");
   await t.click("#fl-delete");
   await dlg(null);
-  t.check(await t.until(() => !document.querySelector('#files .file[data-dir="jobs"]')) && !fs.existsSync(nc("jobs")), "the empty folder deleted");
+  t.check(await t.until(() => !document.querySelector('#files .file[data-dir="jobs"]')) && !(await onMachine.exists("jobs")), "the empty folder deleted");
   await t.click('#files .file[data-i] b');
   const loaded = await t.ev(() => prog.name);
   await t.ev((n) => { const i = [...document.querySelectorAll("#files .file[data-i]")].findIndex((b) => b.querySelector("b").textContent === n); if (i >= 0) document.querySelectorAll("#files .file[data-i]")[i].click(); }, loaded);
   await t.click("#fl-delete");
   await dlg(null);
   t.check(await t.msgHas("loaded"), `the loaded program (${loaded}) can't be deleted`);
+  await cleanUp(["uploaded one.ngc"]);
 });
 
 // a binary STL of a box: 12 triangles
@@ -336,21 +386,22 @@ function stlBox(w, d, h) {
 }
 
 test("3D models: upload, add to the setup, select and move in the view, saved on the machine", async (t) => {
+  await cleanUp(["part blank.stl"]);
   await take(t);
   await t.nav("file");
-  const setupFile = () => JSON.parse(fs.readFileSync(path.join(DIR, "millweb-setup.json"), "utf8")).objects;
+  const setupFile = () => onMachine.setup();
   await t.page.setInputFiles("#fl-input", [{ name: "part blank.stl", mimeType: "model/stl", buffer: stlBox(60, 40, 20) }]);
   t.check(await t.until(() => [...document.querySelectorAll("#files .file.model b")].some((b) => b.textContent === "part blank.stl")), "uploaded: listed as a 3D model");
-  t.check(fs.readFileSync(path.join(DIR, "nc_files", "part blank.stl")).length === 84 + 50 * 12, "on the machine, byte for byte");
+  t.check(await onMachine.size("part blank.stl") === 84 + 50 * 12, "on the machine, the whole file");
   t.check(await t.until(() => /60\.0 × 40\.0 × 20\.0 mm/.test(document.getElementById("fl-cards").textContent) && /Triangles\s*12/.test(document.getElementById("fl-cards").textContent)), "its size and triangles");
   await t.click('#fl-cards [data-addsel="workpiece"]');
   t.check(await t.until(() => st.page === "main" && setup.objects.some((o) => o.src === "model:part blank.stl") && setup.sel && objOf(setup.sel).src === "model:part blank.stl", null, 10000), "added as a workpiece: on MAIN, selected");
   t.check(await t.until(() => { const n = [...setup.nodes.values()].find((x) => x.node.userData.objId === setup.sel); if (!n) return false;
     const b = new THREE.Box3().setFromObject(n.node), o = off(); return Math.abs(b.max.z - (o.z + st.g92.z + ZTOP)) < 1e-3 && Math.abs(b.min.x - o.x - st.g92.x) < 1e-3; }, null, 10000), "placed: its top at work Z0, its corner at X0 Y0");
-  t.check(await t.until(() => true, null, 100) && await (async () => { for (let k = 0; k < 40; k++) { try { if (setupFile().some((o) => o.src === "model:part blank.stl")) return true; } catch (e) { /* not yet */ } await t.sleep(100); } return false; })(), "the machine's setup has it");
+  t.check(await t.until(() => true, null, 100) && await (async () => { for (let k = 0; k < 40; k++) { try { if ((await setupFile()).some((o) => o.src === "model:part blank.stl")) return true; } catch (e) { /* not yet */ } await t.sleep(100); } return false; })(), "the machine's setup has it");
   const id = await t.ev(() => setup.sel);
   await t.page.fill("#ob-y", "12.5"); await t.page.press("#ob-y", "Tab");
-  t.check(await (async () => { for (let k = 0; k < 40; k++) { const o = setupFile().find((o) => o.id === id); if (o && o.pos[1] === 12.5) return true; await t.sleep(100); } return false; })(), "Y 12.5 in the panel: saved on the machine");
+  t.check(await (async () => { for (let k = 0; k < 40; k++) { const o = (await setupFile()).find((o) => o.id === id); if (o && o.pos[1] === 12.5) return true; await t.sleep(100); } return false; })(), "Y 12.5 in the panel: saved on the machine");
   // a second browser sees the same setup
   const p2 = await t.ctx.browser().newPage();
   try {
@@ -366,20 +417,21 @@ test("3D models: upload, add to the setup, select and move in the view, saved on
   await t.nav("main");
   await t.ev((id) => selectObject(id), id);
   await t.click("#ob-del"); await t.click('#dlg-form [type="submit"]');
-  t.check(await (async () => { for (let k = 0; k < 40; k++) { if (!setupFile().some((o) => o.id === id)) return true; await t.sleep(100); } return false; })(), "removed from the setup on the machine");
+  t.check(await (async () => { for (let k = 0; k < 40; k++) { if (!(await setupFile()).some((o) => o.id === id)) return true; await t.sleep(100); } return false; })(), "removed from the setup on the machine");
   await t.nav("file");
   await t.click('#files .file.model b');
   await t.click("#fl-delete"); await t.click('#dlg-form [type="submit"]');
-  t.check(await t.until(() => !document.querySelector("#files .file.model")) && !fs.existsSync(path.join(DIR, "nc_files", "part blank.stl")), "then deleted");
+  t.check(await t.until(() => !document.querySelector("#files .file.model")) && !(await onMachine.exists("part blank.stl")), "then deleted");
 });
 
 test("wizard: its program is saved on the machine and loaded", async (t) => {
+  await cleanUp(["BOLTCIRCLE_5x_R28.ngc"]);
   await take(t);
   await t.nav("wiz");
   await t.page.fill("#bc-n", "5");
   await t.click("#bc-go");
   t.check(await t.until(() => document.getElementById("h-prog").textContent === "BOLTCIRCLE_5x_R28.ngc"), "loaded on the machine");
-  t.check(fs.existsSync(path.join(DIR, "nc_files", "BOLTCIRCLE_5x_R28.ngc")), "saved in the program folder");
+  t.check(await onMachine.exists("BOLTCIRCLE_5x_R28.ngc"), "saved in the program folder");
   t.check(await M.until((s) => (s.file || "").endsWith("BOLTCIRCLE_5x_R28.ngc")), "LinuxCNC has it open");
   t.check(await t.until(() => prog.server && prog.segs.filter((s) => s.k === "tc").length === 1), "the preview from LinuxCNC's interpreter");
 });
@@ -404,7 +456,8 @@ test("overrides, spindle, coolant, M1/block delete reach the machine", async (t)
   await t.click("#sp-stop");
   t.check(await M.until((s) => s.spin.dir === 0), "spindle stop");
   await t.click("#cl-flood");
-  t.check(await M.until((s) => s.flood) && (await t.attr("#cl-flood", "aria-pressed")) === "true", "flood on");
+  // the machine first, then the page: its own connection may hear it a moment later
+  t.check(await M.until((s) => s.flood) && await t.until(() => document.getElementById("cl-flood").getAttribute("aria-pressed") === "true"), "flood on");
   await t.click("#cl-mist");
   t.check(await M.until((s) => s.mist), "mist on");
   await t.click("#cl-flood");
@@ -443,6 +496,7 @@ test("no script errors on any page", async (t) => {
 
 // last: millweb goes away
 test("millweb stops: OFFLINE, and the page says so", async (t) => {
+  if (REMOTE) return t.skip("remote: this would stop the board's millweb (and LinuxCNC with it)");
   const pids = fs.readdirSync("/proc").filter((p) => /^\d+$/.test(p)).filter((p) => {
     try { return fs.readFileSync(`/proc/${p}/cmdline`, "utf8").split("\0").some((c) => c.endsWith("webui/mill/millweb")); } catch (e) { return false; }
   });
@@ -453,9 +507,18 @@ test("millweb stops: OFFLINE, and the page says so", async (t) => {
 }, { allowErrors: true });
 
 (async () => {
-  M = await Client.open(PORT);
+  M = await Client.open(PORT, HOST);
+  // these tests take control, home, jog and run programs: only on the test machine (test/sim)
+  if (M.hello.machine.name !== "PORTAL-M sim") {
+    console.log(`refusing: ${HOST}:${PORT} is "${M.hello.machine.name}", not the test machine (test/sim, "PORTAL-M sim"); these tests move it`);
+    process.exit(2);
+  }
   const rc = await run({
     viewport: { width: 1600, height: 1000 },
+    warmup: async (page) => {
+      await page.goto(BASE + "#main");
+      await page.waitForFunction(() => document.getElementById("ch-link").textContent.includes("LIVE"), null, { timeout: 90000 });
+    },
     open: async (t, c) => {
       if (!M.closed) await M.baseline();
       await t.page.goto(BASE + "#main");

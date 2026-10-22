@@ -1,10 +1,10 @@
 // The console with a million-line program while the machine runs it (from
 // stress_suite.py, which loaded it and started it from line 500 000).
-//   node test/gui/stress_page.js PORT
+//   node test/gui/stress_page.js PORT [HOST]
 const { chromium } = require("playwright");
 
 (async () => {
-  const port = process.argv[2];
+  const port = process.argv[2], host = process.argv[3] || "127.0.0.1";
   const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const errors = [];
@@ -14,7 +14,7 @@ const { chromium } = require("playwright");
   const check = (c, what) => { console.log((c ? "ok   " : "FAIL ") + what); if (!c) failed++; };
   const until = (fn, ms, arg) => page.waitForFunction(fn, arg, { timeout: ms, polling: 100 }).then(() => true, () => false);
   const t0 = Date.now();
-  await page.goto(`http://127.0.0.1:${port}/#main`);
+  await page.goto(`http://${host}:${port}/#main`);
   const shown = await until(() => typeof prog !== "undefined" && prog.name === "surface-1m.ngc" && prog.segs.length > 1000, 60000);
   check(shown, `the program drawn ${((Date.now() - t0) / 1000).toFixed(1)} s after opening the page`);
   if (!shown) console.log("     page state: " + JSON.stringify(await page.evaluate(() => ({ name: prog.name, segs: prog.segs.length, live: !!LIVE, msg: document.getElementById("msg").textContent }))) + " errors: " + errors.join(" | "));
@@ -50,8 +50,7 @@ const { chromium } = require("playwright");
   check(heap < 600, `JS heap ${heap.toFixed(0)} MB`);
   // the File page: the preflight from every move
   await page.click('#nav button[data-p="file"]');
-  const i = await page.evaluate(() => [...document.querySelectorAll("#files .file b")].findIndex((b) => b.textContent === "surface-1m.ngc"));
-  await page.click(`#files .file[data-i="${i}"] b`);
+  await page.locator("#files .file b", { hasText: /^surface-1m\.ngc$/ }).click();  // by name: the folder may hold more
   check(await until(() => /Moves.*1,0\d\d,\d\d\d.*every \d+th point/.test(document.getElementById("fl-cards").textContent), 60000), "preflight: every move counted, the drawn points named");
   check((await page.textContent("#fl-cards")).includes("FITS"), "...and it fits");
   check(errors.length === 0, "no script errors" + (errors.length ? ": " + errors.join(" | ") : ""));

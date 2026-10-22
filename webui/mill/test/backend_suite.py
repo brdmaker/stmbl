@@ -89,7 +89,7 @@ class T:
                           "%s: refused%s (%s)" % (what, " with '%s'" % text if text else "", r.get("err")))
 
     async def open(self):
-        c = await C.open(self.port)
+        c = await C.open(self.port, getattr(self.m, "host", "127.0.0.1"))
         self.extra.append(c)
         return c
 

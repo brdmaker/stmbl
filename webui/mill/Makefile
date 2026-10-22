@@ -7,6 +7,11 @@
 #   make test-live      the end-to-end scenario: protocol, then the page (~1 min)
 #   make test-stress    large programs (a million lines ...) through every layer (~10 min)
 #   make check-all      all of them
+#
+# The heavy suites from another computer (a PC with Chromium against a small board):
+#   on the board:  make serve-test [PORT=8080] [STRESS=1]   the test machine on the network
+#   on the PC:     make test-gui-live REMOTE=board:8080     make test-stress REMOTE=board:8080
+# (the board's own suites stay light there: make test test-backend)
 #   make sim            LinuxCNC on test/sim with millweb: http://localhost:8080/
 #   make demo           the console alone (simulated): http://localhost:8000/
 #
@@ -31,13 +36,21 @@ test-backend:
 	python3 test/backend_suite.py $(if $(K),-k "$(K)",)
 
 test-gui-live:
+ifdef REMOTE
+	MILLWEB_REMOTE=$(REMOTE) node test/gui/live_suite.js $(SEL)
+else
 	python3 test/harness.py -- node test/gui/live_suite.js $(SEL)
+endif
 
 test-live:
 	python3 test/run_live.py --browser
 
 test-stress:
-	python3 test/stress_suite.py $(if $(K),-k "$(K)",)
+	python3 test/stress_suite.py $(if $(K),-k "$(K)",) $(if $(REMOTE),--remote $(REMOTE),)
+
+PORT ?= 8080
+serve-test:
+	python3 test/harness.py --serve --port $(PORT) $(if $(STRESS),--stress-files,)
 
 check-all: test test-gui-sim test-backend test-gui-live
 
@@ -47,4 +60,4 @@ sim:
 demo:
 	python3 -m http.server -d . 8000
 
-.PHONY: test test-gui-sim test-backend test-gui-live test-live test-stress check-all sim demo
+.PHONY: test test-gui-sim test-backend test-gui-live test-live test-stress serve-test check-all sim demo

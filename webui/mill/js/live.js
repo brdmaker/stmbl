@@ -485,7 +485,11 @@ const Live = (() => {
       const r = model ? await act("model_save", { name, data: b64(await f.arrayBuffer()) }, "Upload " + f.name)
         : await act("program_save", { name, text: await f.text() }, "Upload " + f.name);
       if (r.ok && model) modelBufs.delete(name);
-      if (r.ok) { msg(`Uploaded ${name}`, "ok"); L.sel = { kind: "file", path: name }; }
+      if (r.ok) {
+        msg(`Uploaded ${name}`, "ok"); L.sel = { kind: "file", path: name };
+        const i = files.findIndex((x) => x.name === name);  // the file list may have come before this reply
+        if (i >= 0 && st.page === "file") { L.renderFiles(); L.selectFile(i); }
+      }
     }
   }
   function b64(buf) {
@@ -506,16 +510,25 @@ const Live = (() => {
 // ------------------------------------------------------------ boot: live when millweb serves the page
 (function boot() {
   const want = /^https?:$/.test(location.protocol) && !/[?&]sim(=|&|$)/.test(location.search);
-  if (!want) { bootSim(); return; }
+  if (!want) { bootMsg("Starting the simulation…"); bootSim(); return; }
   let booted = false;
+  bootMsg(`Connecting to ${location.host}…`);
+  // a cold browser on a small computer can take seconds: wait 6 s before showing the simulation
   const fallback = setTimeout(() => {
     if (booted) return;
     booted = true;
+    bootMsg("No machine answered: starting the simulation…");
     bootSim("No machine answered at " + location.host + ": this is the simulation (add ?sim to skip the wait).");
-  }, 2500);
+  }, 6000);
   Live.connect(() => {
-    if (booted) return;
+    if (booted) {  // the machine answered after all: show it (once; not if it keeps coming and going)
+      let again = false; try { again = sessionStorage.getItem("pmc.relive") === "1"; sessionStorage.setItem("pmc.relive", "1"); } catch (e) { again = true; }
+      if (!again) location.reload();
+      return;
+    }
+    try { sessionStorage.removeItem("pmc.relive"); } catch (e) { /* storage blocked */ }
     booted = true; clearTimeout(fallback);
+    bootMsg(`Connected to ${location.host}: loading the machine…`);
     LIVE = Live.L;
     prog = Live.emptyProgram(); library.length = 0;
     st.on = false; st.estop = true; st.run = "idle"; st.motion = null; st.spindle.dir = 0; st.spindle.rpm = 0;

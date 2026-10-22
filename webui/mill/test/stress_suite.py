@@ -13,11 +13,13 @@ moves, run-from-line a million lines in, and the page in Chromium.
 """
 import argparse
 import asyncio
+import itertools
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 
@@ -46,6 +48,10 @@ def case(name):
     return deco
 
 
+class Skip(Exception):
+    """A case that can't run here, and says why."""
+
+
 class Pinger:
     """Pings every 100 ms from a second browser: the server's worst answer time."""
 
@@ -67,6 +73,27 @@ class Pinger:
     async def __aexit__(self, *a):
         self.task.cancel()
         await self.c.close()
+
+
+class Remote:
+    """A board serving the test machine (harness.py --serve), seen from here."""
+
+    def __init__(self, hostport):
+        self.host, _, port = hostport.rpartition(":")
+        self.host, self.port, self.dir, self.remote = self.host or hostport, int(port or 8080), None, True
+
+
+async def alive(t):
+    """millweb still there: its process here, or its answer from a board."""
+    if not getattr(t.m, "remote", False):
+        return bool(harness.millweb_pids())
+    try:
+        c = await C.open(t.port, t.m.host)
+        r = await c.call("ping", timeout=20)
+        await c.close()
+        return r.get("ok", False)
+    except OSError:
+        return False
 
 
 def rss():
@@ -93,13 +120,13 @@ async def get(t, name):
     pg = r["program"]
     mb = len(json.dumps(pg)) / 1e6
     st = pg.get("stats") or {}
-    print("    %-18s %6.1f s  %5.1f MB  %8s moves, %6d drawn (every %d)  %s lines  ping worst %.2f s  RSS %d MB" % (
+    print("    %-18s %6.1f s  %5.1f MB  %8s moves, %6d drawn (every %d)  %s lines  ping worst %.2f s  RSS %s MB" % (
         name, dt, mb, "{:,}".format(st.get("moves", 0)), st.get("shown", 0), st.get("stride", 0),
-        "{:,}".format(pg.get("nlines", 0)), p.worst, rss()), flush=True)
+        "{:,}".format(pg.get("nlines", 0)), p.worst, rss() if not getattr(t.m, "remote", False) else "–"), flush=True)
     return pg, dt, mb, p.worst
 
 
-def check_preview(t, pg, mb, worst, moves_min, ext=None):
+async def check_preview(t, pg, mb, worst, moves_min, ext=None):
     st = pg.get("stats") or {}
     t.check(pg.get("error") is None, "no interpreter error (%s)" % pg.get("error"))
     t.check(st.get("moves", 0) >= moves_min, "every move counted (%s ≥ %s)" % (st.get("moves"), moves_min))
@@ -112,15 +139,19 @@ def check_preview(t, pg, mb, worst, moves_min, ext=None):
         for a, (lo, hi) in ext.items():
             e = st.get("ext", {}).get(a, [None, None])
             t.check(e[0] is not None and near(e[0], lo, 0.05) and near(e[1], hi, 0.05), "%s travel %r ≈ [%s, %s]" % (a.upper(), e, lo, hi))
-    t.check(bool(harness.millweb_pids()), "millweb still running")
+    t.check(await alive(t), "millweb still running")
 
 
 # ======================================================================= previews
 
 @case("3D_Chips.ngc (LinuxCNC's own, inches): previews in mm")
 async def _(t):
+    there = (any(f["name"] == "3D_Chips.ngc" for f in (await t.a.call("files"))["files"]) if t.dir is None
+             else os.path.exists(os.path.join(t.dir, "nc_files", "3D_Chips.ngc")))
+    if not there:
+        raise Skip("LinuxCNC's 3D_Chips.ngc not found (%s)" % (", ".join(harness.sample_dirs()) or "no sample folders"))
     pg, dt, mb, worst = await get(t, "3D_Chips.ngc")
-    check_preview(t, pg, mb, worst, 4000)
+    await check_preview(t, pg, mb, worst, 4000)
     e = pg["stats"]["ext"]
     t.check(e["x"][1] - e["x"][0] > 50, "inches came out as mm (X span %.1f mm)" % (e["x"][1] - e["x"][0]))
     t.check(dt < 10, "in %.1f s" % dt)
@@ -129,7 +160,7 @@ async def _(t):
 @case("surface-1m: a million lines of 3D finishing")
 async def _(t):
     pg, dt, mb, worst = await get(t, "surface-1m.ngc")
-    check_preview(t, pg, mb, worst, 990000, {"x": (0, 120), "y": (0, 80)})
+    await check_preview(t, pg, mb, worst, 990000, {"x": (0, 120), "y": (0, 80)})
     st = pg["stats"]
     t.check(st["stride"] >= 8, "drawn: every %dth point" % st["stride"])
     t.check(pg["nlines"] == 1001661 and len(pg["lines"]) == 2000 and pg["line0"] == 1, "the first 2000 of 1 001 661 lines")
@@ -143,14 +174,14 @@ async def _(t):
 @case("adaptive-300k: arcs at several depths")
 async def _(t):
     pg, dt, mb, worst = await get(t, "adaptive-300k.ngc")
-    check_preview(t, pg, mb, worst, 300000, {"x": (10, 107.6)})
+    await check_preview(t, pg, mb, worst, 300000, {"x": (10, 107.6)})
     t.check(pg["stats"]["ext"]["z"][0] >= -20.01, "deepest Z −20")
 
 
 @case("drill-20k: 20 000 G83 peck cycles")
 async def _(t):
     pg, dt, mb, worst = await get(t, "drill-20k.ngc")
-    check_preview(t, pg, mb, worst, 20000 * 5, {"x": (2, 117.523), "y": (2, 77.688)})  # a 0.664 mm pitch
+    await check_preview(t, pg, mb, worst, 20000 * 5, {"x": (2, 117.523), "y": (2, 77.688)})  # a 0.664 mm pitch
     t.check(pg["stats"]["ext"]["z"][0] >= -6.01, "holes to Z−6")
     t.check(pg["truncated"] is None and dt < 60, "the whole program in %.0f s" % dt)
 
@@ -163,7 +194,7 @@ async def _(t):
     t.check(st.get("moves", 0) >= 2000000 or pg.get("truncated"), "all 2 000 000 moves, or stopped at the time limit (%s)" % pg.get("truncated"))
     t.check(st.get("shown", 0) <= 100000 and mb < 8, "a bounded path (%d, %.1f MB)" % (st.get("shown", 0), mb))
     t.check(worst < 0.5, "the server answers meanwhile: worst ping %.2f s" % worst)
-    t.check(bool(harness.millweb_pids()), "millweb still running")
+    t.check(await alive(t), "millweb still running")
 
 
 # ======================================================================= listing, loading
@@ -174,7 +205,10 @@ async def _(t):
         t0 = time.time()
         r = await t.a.call("program_lines", name="surface-1m.ngc", start=start, count=2000)
         dt = time.time() - t0
-        want = open(os.path.join(t.dir, "nc_files", "surface-1m.ngc")).read().splitlines()[start - 1:start + 1999] if start == 500000 else None
+        want = None
+        if start == 500000:  # line by line: the whole file at once is more RAM than a small board has
+            with open(local_copy(t, "surface-1m.ngc")) as f:
+                want = [ln.rstrip("\n") for ln in itertools.islice(f, start - 1, start + 1999)]
         t.check(r["ok"] and r["nlines"] == 1001661, "lines from %d (%.2f s)" % (start, dt))
         if want is not None:
             t.check(r["lines"] == want, "the right lines")
@@ -260,7 +294,7 @@ async def _(t):
     t.ok(await t.a.call("cycle", action="start", line=500000), "the machine runs from line 500 000")
     t.check(await t.a.until(lambda c: c.st["line"] >= 500000, 120), "at line %d" % t.a.st["line"])
     env = dict(os.environ, NODE_PATH=os.environ.get("NODE_PATH", "/opt/node22/lib/node_modules"))
-    p = await asyncio.create_subprocess_exec("node", os.path.join(HERE, "gui", "stress_page.js"), str(t.port), env=env,
+    p = await asyncio.create_subprocess_exec("node", os.path.join(HERE, "gui", "stress_page.js"), str(t.port), getattr(t.m, "host", "127.0.0.1"), env=env,
                                              stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     out, _ = await asyncio.wait_for(p.communicate(), 600)
     for line in out.decode().splitlines():
@@ -277,13 +311,37 @@ def write_programs(d):
     nc = os.path.join(d, "nc_files")
     for name, kind, n in PROGRAMS:
         subprocess.run([sys.executable, os.path.join(HERE, "bigcode.py"), kind, str(n), os.path.join(nc, name)], check=True)
-    chips = os.path.join(harness.LINUXCNC, "nc_files", "3D_Chips.ngc")
-    if os.path.exists(chips):
-        shutil.copy(chips, nc)
+    for d in harness.sample_dirs():  # LinuxCNC's own real-world program, where it's installed
+        if os.path.exists(os.path.join(d, "3D_Chips.ngc")):
+            shutil.copy(os.path.join(d, "3D_Chips.ngc"), nc)
+            break
+
+
+def local_copy(t, name):
+    """The program as the machine has it: there (local), or made again here
+    (bigcode.py is deterministic) when the machine is a board."""
+    if t.dir is not None:
+        return os.path.join(t.dir, "nc_files", name)
+    d = os.path.join(tempfile.gettempdir(), "millweb-stress-copies")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, name)
+    if not os.path.exists(p):
+        kind, n = next((k, n) for nm, k, n in PROGRAMS if nm == name)
+        subprocess.run([sys.executable, os.path.join(HERE, "bigcode.py"), kind, str(n), p], check=True)
+    return p
 
 
 async def run(m, cases, verbose, no_browser):
-    a = await C.open(m.port)
+    a = await C.open(m.port, getattr(m, "host", "127.0.0.1"))
+    if a.hello["machine"]["name"] != "PORTAL-M sim":  # these cases run programs: only on the test machine
+        print("refusing: %s:%d is %r, not the test machine (test/sim)" % (getattr(m, "host", "?"), m.port, a.hello["machine"]["name"]))
+        return [("the test machine", False)]
+    if getattr(m, "remote", False):
+        have = {f["name"] for f in (await a.call("files"))["files"]}
+        missing = [nm for nm, _, _ in PROGRAMS if nm not in have]
+        if missing:
+            print("the board has no %s: start it with  harness.py --serve --stress-files" % ", ".join(missing))
+            return [("the stress programs on the board", False)]
     t = T(m, a, verbose)
     t.no_browser = no_browser
     results = []
@@ -295,6 +353,9 @@ async def run(m, cases, verbose, no_browser):
         try:
             await asyncio.wait_for(baseline(t), 120)
             await asyncio.wait_for(fn(t), 900)
+        except Skip as e:
+            print("SKIP %-66s %s" % (name, e), flush=True)
+            continue
         except Failed as e:
             err = str(e)
         except Exception:
@@ -302,15 +363,16 @@ async def run(m, cases, verbose, no_browser):
         if err:
             t.fails.append(err)
             print("    " + err.replace("\n", "\n    "))
-        if not harness.millweb_pids():
+        up = await alive(t)
+        if not up:
             t.fails.append("millweb died")
         ok = not t.fails
         print("%s %-66s %6.1fs" % ("PASS" if ok else "FAIL", name, time.time() - t0), flush=True)
         results.append((name, ok))
-        if not harness.millweb_pids():
+        if not up:
             break
         if t.a.closed:
-            t.a = a = await C.open(m.port)
+            t.a = a = await C.open(m.port, getattr(m, "host", "127.0.0.1"))
     await a.close()
     return results
 
@@ -321,15 +383,20 @@ def main():
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--remote", default=os.environ.get("MILLWEB_REMOTE"), help="HOST:PORT of a board serving the test machine (harness.py --serve --stress-files)")
     args = ap.parse_args()
     cases = [c for c in CASES if not args.k or any(k.lower() in c[0].lower() for k in args.k)]
     t0 = time.time()
-    with harness.Machine(keep=args.keep) as m:
-        print("writing the programs ...", flush=True)
-        write_programs(m.dir)
+    if args.remote:
+        m = Remote(args.remote)
         results = asyncio.run(run(m, cases, args.verbose, args.no_browser))
+    else:
+        with harness.Machine(keep=args.keep) as m:
+            print("writing the programs ...", flush=True)
+            write_programs(m.dir)
+            results = asyncio.run(run(m, cases, args.verbose, args.no_browser))
     bad = [n for n, ok in results if not ok]
-    if not m.clean_exit:
+    if not getattr(m, "remote", False) and not m.clean_exit:
         bad.append("LinuxCNC stops when millweb does")
     print("\n%d/%d cases passed in %.0f s" % (len(results) - len(bad), len(results), time.time() - t0))
     for n in bad:

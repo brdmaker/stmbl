@@ -1,10 +1,10 @@
 // A protocol client for the live GUI suite: puts the machine in a known
 // state between cases and reads what the server says, beside the page.
 class Client {
-  static open(port) {
+  static open(port, host = "127.0.0.1") {
     return new Promise((resolve, reject) => {
       const c = new Client();
-      c.ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      c.ws = new WebSocket(`ws://${host}:${port}/ws`);
       c.ws.onmessage = (e) => c.on(JSON.parse(e.data));
       c.ws.onerror = (e) => reject(e);
       c.ws.onclose = () => { c.closed = true; };
@@ -51,7 +51,8 @@ class Client {
     await this.call("coolant", { k: "flood", on: false });
     await this.call("coolant", { k: "mist", on: false });
     await this.call("opt", { m1: false, bd: false });
-    await this.mdi("G90 G92.1");
+    if (this.st.tool) await this.mdi("T0 M6 G49");  // an empty spindle (a board keeps its tool between runs)
+    await this.mdi("G90 G92.1 G49");
     await must("offset", { index: 0, x: 440, y: 460, z: -195 });
     await must("offset", { index: 1, x: 640, y: 460, z: -195 });
     await must("wcs", { index: 0 });

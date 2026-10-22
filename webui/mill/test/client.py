@@ -17,8 +17,8 @@ class C:
         self.closed = False
 
     @classmethod
-    async def open(cls, port):
-        c = cls(await wsserver.connect("127.0.0.1", port))
+    async def open(cls, port, host="127.0.0.1"):
+        c = cls(await wsserver.connect(host, port))
         c.hello = await c.ws.recv_json(10)
         c.task = asyncio.ensure_future(c.reader())
         return c

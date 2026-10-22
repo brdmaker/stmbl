@@ -1976,3 +1976,57 @@ Entry format:
 - Fix:     every segment passed in the frame is applied; an M1 stops the
   program at its line whatever the step. Tests that jump the program clock
   past M1 now switch it off first.
+
+## 2026-10-22  Suites on the target board: installed LinuxCNC, RAM, gcode present
+- Area:    `webui/mill/test/harness.py`, `stress_suite.py`, `server/tests/test_millweb.py`
+- Status:  Fixed
+- Symptom: (board report) the harness always sourced $LINUXCNC/scripts/rip-
+  environment and the stress suite looked for $LINUXCNC/nc_files/3D_Chips.ngc,
+  neither of which an installed LinuxCNC has; a unit test needed the gcode
+  module absent; the stress suite read the million-line file in one go.
+- Fix:     run-in-place tree only when it has rip-environment, else the
+  installed linuxcnc on PATH; 3D_Chips.ngc from the tree, the package's
+  ncfiles or ~/linuxcnc/nc_files, else that case is skipped; the unit test
+  accepts both (with gcode it checks the parsed program, which then needed
+  its M2); the listing check reads lines with islice.
+
+## 2026-10-22  File page: a long folder ran under the next panel
+- Area:    `webui/mill/index.html` (.files, .page-pane > .panel)
+- Status:  Fixed
+- Symptom: with ~9 programs, clicks on the lower rows went to the Preflight
+  panel's heading (Playwright: "<h2> ... intercepts pointer events").
+- Cause:   page panels are flex items that shrink; the list overflowed its
+  panel and lay under the next one.
+- Fix:     page panels don't shrink (the page scrolls); the list scrolls inside
+  itself past ~half the screen. The live GUI suite checks a folder of 14.
+
+## 2026-10-22  Remote test runs: a board keeps its state between runs
+- Area:    `webui/mill/test/gui/live_suite.js`, `wsclient.js`
+- Status:  Note
+- Symptom: a second remote run of the live GUI suite failed: an upload asked
+  "Replace?", and the DRO was off by a tool length.
+- Cause:   the harness starts every local run afresh; a served board keeps its
+  files and LinuxCNC its loaded tool.
+- Fix:     cases delete their own leftovers first; the baseline unloads the
+  tool. Also found: an upload's file-list broadcast can arrive before its
+  reply, so the page now selects the upload itself.
+
+## 2026-10-22  The first page on a Pi took 16 s; the live suite's first case failed
+- Area:    `webui/mill/index.html` (loading screen), `js/live.js` (boot), `test/gui/runner.js`, `live_suite.js`
+- Status:  Fixed
+- Symptom: (board report) "connects" failed every time: its first page
+  needed 16.4 s to show LIVE with the machine on, against a 15 s limit; a
+  second page took 3.5 s. millweb answered a connection in 10-20 ms and the
+  page's 750 KB came in 0.6 s: the time was Chromium's first start on the Pi.
+- Fix:     the suites warm the browser with one page before the first case
+  (its time printed), and give a page 30 s. The console shows a loading
+  screen until its first frame (what it is doing; which file failed if a
+  script didn't load). The page also waited only 2.5 s for a machine before
+  falling back to the simulation, which a cold browser could miss: 6 s now,
+  and if the machine answers after the fallback the page reloads once into it.
+- Found:   the loading screen's first version caught resource errors too: offline
+  (no Google Fonts) it marked itself failed and stayed over a console that had
+  started. Only scripts count now, and the first drawn frame always removes it.
+- Also:    "flood on" in the live suite failed now and then: it read the
+  page's button the moment the suite's own connection saw flood on; the page
+  hears it over its own connection a moment later. It waits for the page now.
