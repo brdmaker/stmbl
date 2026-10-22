@@ -15,6 +15,7 @@ sys.path.insert(0, HERE)
 import fake_linuxcnc as lc  # noqa: E402
 import machine  # noqa: E402
 import preview  # noqa: E402
+import sampler  # noqa: E402
 import millweb  # noqa: E402
 import wsserver  # noqa: E402
 
@@ -78,7 +79,7 @@ class Base(unittest.IsolatedAsyncioTestCase):
         self.hub = millweb.Hub(self.m, cfg, asyncio.Event())
         self.srv = await wsserver.Server(millweb.WEBROOT, self.hub.handle).serve("127.0.0.1", 0)
         self.port = self.srv.sockets[0].getsockname()[1]
-        self.tasks = [asyncio.ensure_future(self.hub.poll_loop()), asyncio.ensure_future(self.hub.slow_loop())]
+        self.tasks = [asyncio.ensure_future(self.hub.poll_loop()), asyncio.ensure_future(self.hub.slow_loop()), asyncio.ensure_future(self.hub.hal_loop())]
         await asyncio.sleep(0.1)
 
     async def asyncTearDown(self):
@@ -501,6 +502,146 @@ class Decimation(unittest.TestCase):
         self.assertAlmostEqual(c.lo_ext[2], -6.0, 6)
         for a, b in zip(c.segs, c.segs[1:]):
             self.assertEqual(a[4:7], b[1:4])
+
+
+class HalShow(unittest.TestCase):
+    """The HAL page's data: halcmd's show output parsed."""
+
+    def test_parse_halcmd(self):
+        pins = ("motmod float OUT 0 joint.0.motor-pos-cmd ==> j0\n"
+                "motmod float IN 0 joint.0.motor-pos-fb <== j0\n"
+                "iocontrol bit   IN FALSE iocontrol.0.emc-enable-in <== estop-loop\n"
+                "motmod float IN 0 motion.analog-in-00\n")
+        sigs = ("float  0  j0 <== joint.0.motor-pos-cmd ==> joint.0.motor-pos-fb\n"
+                "bit    FALSE  estop-loop ==> iocontrol.0.emc-enable-in <== iocontrol.0.user-enable-out\n")
+        params = "motmod s32   RW 66844 motion-command-handler.tmax\n"
+        d = machine.parse_halcmd(pins, sigs, params)
+        self.assertEqual(d["pins"][0], ["joint.0.motor-pos-cmd", "float", "OUT", "motmod", "0", "j0"])
+        self.assertEqual(d["pins"][3][5], "")  # unconnected
+        self.assertEqual(d["sigs"][1], ["estop-loop", "bit", "FALSE", "iocontrol.0.user-enable-out", ["iocontrol.0.emc-enable-in"]])
+        self.assertEqual(d["params"][0], ["motion-command-handler.tmax", "s32", "RW", "motmod", "66844"])
+
+
+class HalPage(Base):
+    async def asyncSetUp(self):
+        self.HAL = FakeHal({"joint.0.f-error": 0.25, "motion.analog-in-00": 0.0, "key": True})
+        self.HAL.get_info_pins = lambda: [{"NAME": "joint.0.f-error", "VALUE": 0.25, "DIRECTION": 32, "TYPE": 2},
+                                          {"NAME": "motion.analog-in-00", "VALUE": 0.0, "DIRECTION": 16, "TYPE": 2}]
+        self.HAL.get_info_signals = lambda: [{"NAME": "j0", "VALUE": 0.0, "DRIVER": "joint.0.motor-pos-cmd", "TYPE": 2}]
+        self.HAL.get_info_params = lambda: [{"NAME": "x.tmax", "VALUE": 5, "DIRECTION": 192}]
+        await super().asyncSetUp()
+
+    async def test_list_watch_and_no_setting_by_default(self):
+        ws = await self.client()  # a watching browser may look
+        r = await self.call(ws, "hal_list")
+        self.assertTrue(r["ok"], r)
+        self.assertIn(["joint.0.f-error", "float", "OUT", "", 0.25, ""], r["pins"])
+        self.assertEqual(r["sigs"][0][3], "joint.0.motor-pos-cmd")
+        self.assertEqual(r["params"][0][:3], ["x.tmax", "s32", "RW"])
+        r = await self.call(ws, "hal_watch", names=["joint.0.f-error", "nope"])
+        self.assertEqual(r["values"], {"joint.0.f-error": 0.25, "nope": None})
+        self.HAL.pins["joint.0.f-error"] = 0.5
+        await self.until(ws, lambda m: m["t"] == "hal" and m["v"]["joint.0.f-error"] == 0.5)
+        self.assertEqual((await self.call(ws, "hal_values", names=["key"]))["values"], {"key": True})
+        self.assertFalse(ws.hello["machine"]["hal_write"])
+        await self.call(ws, "control", take=True)
+        self.assertIn("HAL_WRITE", (await self.call(ws, "hal_set", name="motion.analog-in-00", value="1", kind="pin"))["err"])
+        await self.call(ws, "hal_watch", names=[])
+        self.assertNotIn(ws.hello["you"], self.hub.hal_watch)
+        await ws.close()
+
+
+class Sampler(unittest.TestCase):
+    """The scope's sampling loop with a getter of its own."""
+
+    def test_rate_frames_and_values(self):
+        frames, t0 = [], [None]
+        import math
+        import struct
+        import time
+
+        def get(name):
+            if t0[0] is None:
+                t0[0] = time.perf_counter()
+            if name == "bad":
+                raise NameError(name)
+            return True if name == "bit" else math.sin(time.perf_counter() - t0[0])
+        sampler.sample_loop(get, ["a", "bit", "bad"], 1000.0, lambda h, d: frames.append((h, d)), duration=0.5)
+        n = sum(h["n"] for h, _ in frames)
+        self.assertGreater(n, 450)
+        self.assertLess(n, 520)
+        self.assertGreater(len(frames), 7)  # a frame every 50 ms
+        h, d = frames[2]
+        self.assertEqual(len(d), h["n"] * 3 * 4)
+        rows = list(struct.iter_unpack("<3f", d))
+        self.assertEqual(rows[0][1], 1.0)                  # a bit as 1
+        self.assertTrue(math.isnan(rows[0][2]))           # a pin that can't be read: NaN, the others go on
+        self.assertTrue(0 < rows[-1][0] < 1)
+        self.assertAlmostEqual(frames[-2][0]["rate"], 1000, delta=60)
+
+
+class Scope(Base):
+    """scope_start: the sampler's frames to the browser; views for everyone."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        fake = os.path.join(self.d, "fake_sampler.py")
+        open(fake, "w").write(
+            "import sys, json, struct\nsys.path.insert(0, %r)\nimport sampler\n"
+            "req = json.loads(sys.stdin.readline())\nout = sys.stdout.buffer\n"
+            "def write(h, d):\n    h = (json.dumps(h) + '\\n').encode(); out.write(struct.pack('<I', len(h) + len(d)) + h + d); out.flush()\n"
+            "sampler.sample_loop(lambda n: 2.5, req['names'], req['rate'], write)\n" % os.path.dirname(HERE))
+        self.hub.sampler_cmd = [sys.executable, fake]
+
+    async def test_scope_streams_and_stops(self):
+        import base64
+        import struct
+        ws = await self.client()  # watching is enough: the scope only reads
+        r = await self.call(ws, "scope_start", names=["a", "b"], rate=500)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["rate"], 500)
+        m = await self.until(ws, lambda m: m["t"] == "scope" and m["n"] > 0)
+        self.assertEqual(m["names"], ["a", "b"])
+        self.assertEqual(struct.unpack("<2f", base64.b64decode(m["d"])[:8]), (2.5, 2.5))
+        self.assertEqual((await self.call(ws, "scope_start", names=[]))["err"], "the scope needs a channel")
+        proc = self.hub.scopes[ws.hello["you"]]
+        await self.call(ws, "scope_stop")
+        self.assertNotIn(ws.hello["you"], self.hub.scopes)
+        self.assertIsNotNone(proc.returncode)
+        # two at most; a browser that goes away stops its own
+        others = [await self.client() for _ in range(3)]
+        for o in others[:2]:
+            self.assertTrue((await self.call(o, "scope_start", names=["a"]))["ok"])
+        self.assertIn("two scopes", (await self.call(others[2], "scope_start", names=["a"]))["err"])
+        await others[0].close()
+        for _ in range(50):
+            if len(self.hub.scopes) == 1:
+                break
+            await asyncio.sleep(0.05)
+        self.assertEqual(len(self.hub.scopes), 1)
+        self.assertTrue((await self.call(others[2], "scope_start", names=["a"]))["ok"])
+        for o in others[1:]:
+            await self.call(o, "scope_stop")
+            await o.close()
+        await ws.close()
+
+    async def test_views_saved_for_everyone(self):
+        a, b = await self.client(), await self.client()
+        await self.until(a, lambda m: m["t"] == "views" and m["views"] == [])
+        v = {"name": " axes ", "watch": [{"kind": "sig", "name": "j0"}, {"kind": "bogus", "name": "x"}, {"name": ""}], "scope": {"ch": [{"name": "j0"}], "rate": 1000}}
+        r = await self.call(a, "views_save", views=[v])
+        self.assertTrue(r["ok"], r)
+        m = await self.until(b, lambda m: m["t"] == "views" and m["views"])
+        self.assertEqual(m["views"], [{"name": "axes", "watch": [{"kind": "sig", "name": "j0"}, {"kind": "pin", "name": "x"}], "scope": {"ch": [{"name": "j0"}], "rate": 1000}}])
+        self.assertEqual(self.m.views(), m["views"])
+        self.assertIn("a view has a name", (await self.call(a, "views_save", views=[{"name": "  "}]))["err"])
+        self.assertIn("too large", (await self.call(a, "views_save", views=[{"name": "x", "scope": {"s": "y" * 9000}}]))["err"])
+        self.assertIn("at most 64", (await self.call(a, "views_save", views=[{"name": str(i)} for i in range(65)]))["err"])
+        self.assertEqual(len(self.m.views()), 1)  # the bad ones changed nothing
+        c = await self.client()
+        await self.until(c, lambda m: m["t"] == "views" and m["views"] and m["views"][0]["name"] == "axes")
+        for w in (a, b, c):
+            await w.close()
 
 
 class Token(Base):

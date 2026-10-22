@@ -27,10 +27,13 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `index.html` | the console's markup and style |
 | `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
+| `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
+| `js/scope.js` | the Debug page's scope (triggering, drawing, cursor), its tabs and saved views |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
 | `millweb` | the backend's launcher: LinuxCNC's display program |
 | `server/millweb.py` | the hub: browsers, control lease, jog deadman, status diffs, events, previews |
 | `server/machine.py` | LinuxCNC: status, commands, tool table, offsets, programs, probing |
+| `server/sampler.py` | the scope's sampler: HAL values at a steady rate, in a process of its own |
 | `server/preview.py` | a program's toolpath from LinuxCNC's interpreter (the `gcode` module, as AXIS previews) |
 | `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
 | `server/tests/` | unit tests against `fake_linuxcnc.py` |
@@ -79,6 +82,9 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `SETUP` | `millweb-setup.json` beside the INI | the 3D setup (fixtures and workpieces in the view) |
 | `CPUS` | | millweb, its threads and its preview processes on these cores only (`0`, `0,1`, `0-1`): keep them off LinuxCNC's real-time core |
 | `PREVIEW_NICE` | 10 | the preview process's niceness (lower priority than millweb and LinuxCNC) |
+| `HAL_HZ` | 10 | the Debug page's watch rate |
+| `HAL_WRITE` | no | `yes`: the Debug page can set unconnected input pins, writable parameters and undriven signals |
+| `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
@@ -113,6 +119,9 @@ JSON over the WebSocket at `/ws`.
 - `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`);
 - `program_rename` {name, to}: a program, model or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
 - `model_save` {name, data (base64), overwrite}, `model_get` {name}: 3D models (`.stl`, `.obj`);
+- `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
+- `scope_start` {names (≤ 8), rate (10–2000 Hz)}, `scope_stop`: then `scope` messages every 50 ms, `{names, n, rate (measured), missed (late samples), t0, d}` with `d` the n×channels samples as base64 little-endian float32, row by row (two browsers may scope at once);
+- `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
@@ -126,6 +135,26 @@ else `[DISPLAY] PROGRAM_PREFIX`) a folder at a time, with the path above it:
 - **New folder**, **Rename / move** (a new name, or a path such as `jobs/acme/op1.ngc`; a program keeps its extension), **Delete** (asks first; a folder only when empty).
 - Selecting a program shows its preflight; **Load** opens it in LinuxCNC.
 - **3D models** of fixtures and workpieces (STL binary or ASCII, OBJ; up to 5 MB) upload the same way. Selecting one shows its size and triangle count; **+ fixture** / **+ workpiece** adds it to the 3D setup. A model the setup uses can't be deleted, renamed or moved.
+
+## The Debug page
+
+HAL debugging in the browser, as LinuxCNC's `halshow`, `halmeter` and `halscope`, on two tabs with saved views above them.
+
+**HAL tab**
+- **Left:** every pin, signal and parameter, grouped by component, with a filter (name, component or signal). Each shows its type, direction, value (the rows on screen refresh once a second) and what it is linked to. **Refresh** reads the HAL again.
+- **Click** one to watch it: on the right its value comes 10 times a second (`[MILLWEB] HAL_HZ`), bits as lights, numbers with a trend of the last 20 s. Below, its details: a pin's signal with that signal's driver and readers, a signal's driver and readers, each a link. The watch list is kept in the browser; it streams only while the page is open. **∿** puts a watched one on the scope.
+- **Setting values** (`halcmd setp` / `sets`) is off. With `[MILLWEB] HAL_WRITE = yes` and control taken, an unconnected input pin, a writable parameter or a signal nothing drives can be set; each change is in the event log with who made it. It changes the running machine: a debugging aid, not for production.
+
+**Scope tab**
+- Up to 8 channels (pins, signals or parameters), sampled at 100–2000 Hz, 1 ms to 2 s a division. Each channel has its colour, units per division and the value at the middle line; **auto** sets them from what is shown (the first capture does it by itself).
+- **Modes:** *auto* (a screen even without a trigger), *normal* (only on a trigger), *single* (one capture, then stop), *roll* (a moving strip). The trigger is a channel crossing a level, rising or falling, at a position on the screen.
+- **Cursor:** hover the screen for the time from the trigger and each channel's value.
+- The scope runs on when you change tab or page: arm a single capture, go and jog, come back to it. **Stop** stops it, and it stops when the browser goes.
+- **How it samples:** millweb starts `server/sampler.py`, a process per scoping browser that reads the values with the `hal` module at the rate set, and streams them to the browser, which does the triggering and drawing. It runs in userspace. It is steady to a fraction of a millisecond, and the info line shows the measured rate and late samples. It is not halscope's real-time sampling, which is locked to the servo thread: for events within a servo period, use halscope.
+
+**Views** keep the watch list and the scope's set-up under a name. **Save view** saves the current ones (an existing name is replaced); a click on a view, or **Alt+1…9**, opens it; **×** deletes it. On a machine they are kept for every browser (`[MILLWEB] DEBUG_VIEWS`, no control needed: they don't touch the machine); in the simulation they are kept in this browser.
+
+The structure comes from `halcmd show` (millweb runs in LinuxCNC's environment), the values from the `hal` module.
 
 ## The 3D setup
 

@@ -238,11 +238,13 @@ const pages = [
   ["probe", "PROBE", '<circle cx="12" cy="17" r="3"/><path d="M12 14V3M8 6h8"/>'],
   ["dyn", "DYNAMICS", '<path d="M2 12h3l2-6 3 12 3-9 2 5 2-2h5"/>'],
   ["stat", "STATUS", '<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17v.5"/>'],
+  ["debug", "DEBUG", '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="18" r="2"/><path d="M8 6h4v12H8M12 12h4"/>'],
   ["set", "SETTINGS", '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>'],
 ];
 $("nav").innerHTML = pages.map(([id, l, icon]) => `<button data-p="${id}" aria-current="${id === "main" ? "page" : "false"}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>${l}${id === "stat" ? '<span class="badge" id="nav-stat-badge"></span>' : ""}</button>`).join("");
-const paneIds = { main: "p-main", file: "p-file", wiz: "p-wiz", off: "p-off", tool: "p-tool", probe: "p-probe", dyn: "p-dyn", stat: "p-stat", set: "p-set" };
+const paneIds = { main: "p-main", file: "p-file", wiz: "p-wiz", off: "p-off", tool: "p-tool", probe: "p-probe", dyn: "p-dyn", stat: "p-stat", debug: "p-debug", set: "p-set" };
 function showPage(id) {
+  if (st.page === "debug" && id !== "debug" && typeof halSrc === "function") halSrc().watch([]);  // the watch list streams only while seen; a running scope goes on (arm it, go and jog, come back)
   st.page = id;
   $$("#nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.p === id ? "page" : "false"));
   for (const [k, v] of Object.entries(paneIds)) $(v).hidden = k !== id;
@@ -251,6 +253,7 @@ function showPage(id) {
   if (id === "off") renderOffsets();
   if (id === "tool") renderTools();
   if (id === "wiz") fillToolSelects();
+  if (id === "debug") { if (!hal.data) halLoad(); else { halWatchSend(); renderHalList(); renderHalWatch(); } renderHalDetail(); debugTab(dbgTab); renderViews(); }
   try { localStorage.setItem("pmc.page", id); } catch (e) { /* storage blocked */ }
 }
 // the one 3D view: on MAIN, and on PROBE below the cycles (the same scene, moved)

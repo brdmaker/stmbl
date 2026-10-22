@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 
@@ -170,6 +171,36 @@ def setup_check(objects, model_path):
     return out
 
 
+HAL_TYPES = {1: "bit", 2: "float", 3: "s32", 4: "u32"}
+HAL_DIRS = {16: "IN", 32: "OUT", 48: "IO", 64: "RO", 192: "RW"}
+
+
+def parse_halcmd(pins_text, sigs_text, params_text):
+    """`halcmd -s show pin / sig / param` into {pins, sigs, params}:
+    pins [name, type, dir, owner, value, signal or ""], sigs [name, type,
+    value, driver or "", readers], params [name, type, dir, owner, value]."""
+    pins, sigs, params = [], [], []
+    for line in pins_text.splitlines():
+        w = line.split()
+        if len(w) >= 5:
+            pins.append([w[4], w[1], w[2], w[0], w[3], w[6] if len(w) >= 7 and w[5] in ("<==", "==>", "<=>") else ""])
+    for line in sigs_text.splitlines():
+        w = line.split()
+        if len(w) >= 3:
+            driver, readers = "", []
+            for arrow, pin in zip(w[3::2], w[4::2]):
+                if arrow == "<==":
+                    driver = pin
+                else:
+                    readers.append(pin)
+            sigs.append([w[2], w[0], w[1], driver, readers])
+    for line in params_text.splitlines():
+        w = line.split()
+        if len(w) >= 5:
+            params.append([w[4], w[1], w[2], w[0], w[3]])
+    return {"pins": pins, "sigs": sigs, "params": params}
+
+
 class Machine:
     """The LinuxCNC end: status(), events(), and the commands (in one worker
     thread: they may wait for LinuxCNC)."""
@@ -199,6 +230,7 @@ class Machine:
             self.joints.setdefault(a, []).append(j)
         self.nc_dir = cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
         self.setup_file = cfg.file("MILLWEB", "SETUP") or os.path.join(cfg.dir, "millweb-setup.json")
+        self.views_file = cfg.file("MILLWEB", "DEBUG_VIEWS") or os.path.join(cfg.dir, "debug-views.json")
         self.tool_file = cfg.file("EMCIO", "TOOL_TABLE") or os.path.join(cfg.dir, "tool.tbl")
         self.var_file = cfg.file("RS274NGC", "PARAMETER_FILE") or os.path.join(cfg.dir, "linuxcnc.var")
         self.offsets = parse_var_offsets(self.var_file)
@@ -233,7 +265,8 @@ class Machine:
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,
                 "toolsetter": bool(self.toolsetter), "pcomp": self._pin_exists(self.pcomp + ".shaper"),
-                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max}
+                "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max,
+                "hal_write": (cfg.get("MILLWEB", "HAL_WRITE", "no") or "no").lower() in ("yes", "1", "true")}
 
     def _pin_exists(self, name):
         if not self.hal or not name:
@@ -898,6 +931,80 @@ class Machine:
         self._mode(self.lc.MODE_AUTO)
         self.c.program_open(p)
         self.c.wait_complete(5.0)
+        return None
+
+    # HAL, for the HAL page (halshow, halmeter)
+    def hal_list(self):
+        """Every pin, signal and parameter with its links (halcmd show), or
+        without links from the hal module when halcmd isn't there."""
+        try:
+            run = lambda what: subprocess.run(["halcmd", "-s", "show", what], capture_output=True, text=True, timeout=10).stdout  # noqa: E731
+            out = parse_halcmd(run("pin"), run("sig"), run("param"))
+            if out["pins"]:
+                return out
+        except (OSError, subprocess.SubprocessError):
+            pass
+        if not self.hal or not hasattr(self.hal, "get_info_pins"):
+            raise ValueError("HAL isn't available to millweb")
+        v = lambda x: self._fmt(x)  # noqa: E731
+        return {"pins": [[p["NAME"], HAL_TYPES.get(p["TYPE"], "?"), HAL_DIRS.get(p["DIRECTION"], "?"), "", v(p["VALUE"]), ""] for p in self.hal.get_info_pins()],
+                "sigs": [[g["NAME"], HAL_TYPES.get(g["TYPE"], "?"), v(g["VALUE"]), g.get("DRIVER") or "", []] for g in self.hal.get_info_signals()],
+                "params": [[q["NAME"], "bit" if isinstance(q["VALUE"], bool) else "float" if isinstance(q["VALUE"], float) else "s32",
+                            HAL_DIRS.get(q["DIRECTION"], "?"), "", v(q["VALUE"])] for q in self.hal.get_info_params()]}
+
+    @staticmethod
+    def _fmt(v):
+        return v if isinstance(v, bool) else round(v, 6) if isinstance(v, float) else v
+
+    def hal_values(self, names):
+        """{name: value} for pins, signals or parameters (None: no such item)."""
+        out = {}
+        for n in names:
+            try:
+                out[n] = self._fmt(self.hal.get_value(n))
+            except Exception:
+                out[n] = None
+        return out
+
+    def cmd_hal_set(self, name, value, kind):
+        """setp / sets with [MILLWEB] HAL_WRITE = yes: an unconnected input
+        pin, a writable parameter, or a signal without a driver."""
+        if (self.cfg.get("MILLWEB", "HAL_WRITE", "no") or "no").lower() not in ("yes", "1", "true"):
+            return "setting HAL values is off ([MILLWEB] HAL_WRITE = yes turns it on)"
+        name, value = str(name), str(value).strip()
+        if not re.match(r"^[\w.\-]+$", name) or not re.match(r"^[-+\w.]+$", value):
+            return "a HAL name and a plain value"
+        cmd = {"pin": "setp", "param": "setp", "sig": "sets"}.get(kind)
+        if not cmd:
+            return "pin, param or sig"
+        r = subprocess.run(["halcmd", cmd, name, value], capture_output=True, text=True, timeout=10)
+        return (r.stderr or r.stdout).strip() or "halcmd %s failed" % cmd if r.returncode else None
+
+    # the Debug page's saved views (watch lists and scope set-ups), for every browser
+    def views(self):
+        try:
+            with open(self.views_file) as f:
+                return json.load(f)["views"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+
+    def cmd_views_save(self, views):
+        if not isinstance(views, list) or len(views) > 64:
+            raise ValueError("views: a list of at most 64")
+        clean = []
+        for v in views:
+            if not isinstance(v, dict) or not str(v.get("name", "")).strip():
+                raise ValueError("a view has a name")
+            watch = [{"kind": w.get("kind") if w.get("kind") in ("pin", "sig", "param") else "pin", "name": str(w.get("name", ""))[:120]}
+                     for w in (v.get("watch") or [])[:64] if isinstance(w, dict) and w.get("name")]
+            scope = v.get("scope") if isinstance(v.get("scope"), dict) else {}
+            text = json.dumps(scope)
+            if len(text) > 8000:
+                raise ValueError("a view's scope set-up is too large")
+            clean.append({"name": str(v["name"]).strip()[:60], "watch": watch, "scope": json.loads(text)})
+        with open(self.views_file + ".tmp", "w") as f:
+            json.dump({"views": clean}, f, indent=1)
+        os.replace(self.views_file + ".tmp", self.views_file)
         return None
 
     def cmd_pcomp(self, k, v):

@@ -9,7 +9,7 @@ const { test, run } = require("./runner");
 
 const MILL = path.resolve(__dirname, "../..");
 const URL = "file://" + path.join(MILL, "index.html");
-const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "set"];
+const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "set"];
 
 // ------------------------------------------------------------ helpers
 const idle = (t, ms = 15000) => t.until(() => (st.run === "idle" || st.run === "done") && !st.motion, null, ms);
@@ -596,6 +596,104 @@ test("status page: events, filter, clear, pins, stats", async (t) => {
   await t.click("#b-estop");
   await t.nav("stat");
   t.check(await t.until(() => document.querySelector("#events li").className === "bad"), "a new fault at the top");
+});
+
+test("Debug page, HAL tab (simulation): its pins, filter, watch, trend, remembered", async (t) => {
+  await t.ev(() => localStorage.removeItem("pmc.halwatch"));
+  await t.nav("debug");
+  t.check(await t.until(() => /11 pins/.test(document.getElementById("hal-count").textContent)), "the simulation's 11 pins");
+  await t.page.fill("#hal-q", "spindle");
+  t.check(await t.until(() => document.querySelectorAll("#hal-list .hal-row").length === 2), "filter: spindle.0.speed-in, spindle.0.at-speed");
+  await t.click('.hal-row[data-name="spindle.0.speed-in"]');
+  await t.click('.hal-row[data-name="spindle.0.at-speed"]');
+  t.check(await t.until(() => hal.watch.length === 2 && document.querySelectorAll("#hal-watch tbody tr").length === 2), "both watched");
+  t.check(await t.until(() => +document.getElementById("hw-v-0").textContent > 250 && hal.hist.get("spindle.0.speed-in").length > 5), "the value moves in, with its trend (rev/s)");
+  t.check(await t.until(() => document.getElementById("hw-led-1") && document.getElementById("hw-led-1").classList.contains("on")), "a bit as a light: at speed");
+  t.check(await t.until(() => +document.querySelector('.hal-row[data-name="spindle.0.speed-in"] .v').textContent > 250, null, 3000), "the list's rows refresh too");
+  t.check((await t.text("#hal-detail")).includes("spindle.0.at-speed"), "details of the last one clicked");
+  t.check(!(await t.ev(() => !!document.querySelector("#hal-watch [data-set]"))), "the simulation's pins can't be set");
+  await t.click('#hal-watch [data-rm="0"]');
+  t.check(await t.ev(() => hal.watch.length === 1 && hal.watch[0].name === "spindle.0.at-speed"), "×: no longer watched");
+  await t.page.reload();
+  await t.page.waitForFunction(() => typeof st !== "undefined" && st.page === "debug" && hal.watch.length === 1);
+  t.check(await t.until(() => document.querySelectorAll("#hal-watch tbody tr").length === 1), "the watch list remembered across a reload");
+  await t.click("#hal-clear");
+  t.check(await t.ev(() => hal.watch.length === 0), "Clear");
+});
+
+test("Debug page, scope (simulation): channels, auto, roll, a trigger, cursor, single", async (t) => {
+  await stop(t);
+  await mdi(t, "M5");
+  await t.until(() => st.spindle.rpm < 600, null, 15000);  // from rest: a rising edge to come
+  await t.ev(() => { localStorage.removeItem("pmc.halwatch"); localStorage.removeItem("pmc.views"); });
+  await t.nav("debug");
+  await t.page.fill("#hal-q", "spindle.0.speed");
+  await t.click('.hal-row[data-name="spindle.0.speed-in"]');
+  t.check(await t.until(() => document.querySelector('#hal-watch [data-scope="0"]')), "a watched number has a scope button");
+  await t.click('#hal-watch [data-scope="0"]');
+  t.check(await t.ev(() => scope.ch.length === 1 && scope.ch[0].name === "spindle.0.speed-in"), "∿: on the scope");
+  await t.click('#dbg-tab button[data-t="scope"]');
+  t.check(await t.ev(() => !document.getElementById("dbg-scope").hidden && document.getElementById("dbg-hal").hidden), "the Scope tab");
+  await t.page.fill("#sc-add", "motion.current-vel");
+  await t.click("#sc-add-btn");
+  t.check(await t.ev(() => scope.ch.length === 2 && document.querySelectorAll("#sc-ch [data-i]").length === 2 && scope.ch[0].color !== scope.ch[1].color), "a second channel by name, its own colour");
+  await t.click("#sc-run");
+  t.check(await t.until(() => scope.state === "RUNNING" && scope.disp && scope.disp.data[0].length === 1000, null, 4000), "auto: no edge, a screen anyway (100 ms/div at 1 kHz: 1000 samples)");
+  t.check(await t.ev(() => /samples\/s/.test(document.getElementById("sc-info").textContent) && document.querySelector('#dbg-tab [data-t="scope"]').textContent.includes("●")), "rate shown, the tab says it runs");
+  await t.click('#sc-mode button[data-m="roll"]');
+  t.check(await t.until(() => scope.state === "ROLL" && scope.disp && scope.disp.trig === null), "roll");
+  // a rising edge through 50 rev/s on the spindle: start it from another page while the scope waits
+  await t.click('#sc-mode button[data-m="normal"]');
+  await t.page.selectOption("#sc-src", "0"); await t.page.fill("#sc-level", "50"); await t.page.press("#sc-level", "Tab");
+  t.check(await t.until(() => scope.state === "WAITING FOR TRIGGER"), "normal: waits for the edge");
+  await mdi(t, "M3 S9000");
+  await t.nav("debug");
+  t.check(await t.until(() => scope.disp && scope.disp.trig === 200, null, 8000), "triggered while on another page: the edge at 20 % " + await t.ev(() => JSON.stringify({ st: scope.state, run: scope.running, mode: scope.mode, trig: scope.trig, total: scope.total, armed: scope.armedAt, from: scope.searchFrom, disp: scope.disp && scope.disp.trig, rpm: st.spindle.rpm, last: scope.ring[0][(scope.total - 1) % scope.size] })));
+  t.check(await t.ev(() => { const a = scope.disp.data[0]; return a[150] < 50 && a[400] >= 50; }), "below the level before, above after");
+  t.check(await t.ev(() => scope.ch[0].scale > 0 && scope.ch[0].auto === false), "scaled on the first capture");
+  const box = await t.page.locator("#sc-cv").boundingBox();
+  await t.page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2);
+  t.check(/^t \+\d/.test(await t.text("#sc-read")) && (await t.text("#sc-read")).includes("spindle.0.speed-in"), "the cursor: time after the trigger, the values");
+  await t.click('#sc-mode button[data-m="single"]');
+  await mdi(t, "M5");
+  t.check(await t.until(() => st.spindle.rpm < 600, null, 15000), "the spindle down below the level (no rising edge otherwise)");
+  await t.nav("debug");
+  if (!(await t.ev(() => scope.running))) await t.click("#sc-run");
+  await mdi(t, "M3 S9000"); await t.nav("debug");
+  t.check(await t.until(() => !scope.running && scope.state === "STOPPED" && scope.disp.trig === 200, null, 8000), "single: one capture, then stopped");
+  await mdi(t, "M5");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Debug page, views: save, open with a click and Alt+1, delete, remembered", async (t) => {
+  await t.nav("debug");
+  await t.click('#dbg-tab button[data-t="scope"]');
+  await t.ev(() => { localStorage.removeItem("pmc.views"); viewsLoad([]); hal.watch = [{ kind: "pin", name: "spindle.0.speed-in" }]; renderHalWatch(); scope.ch = []; scopeAdd("spindle.0.speed-in"); scopeAdd("motion.current-vel"); });
+  t.check(await t.ev(() => scope.ch.length === 2 && hal.watch.length === 1), "a set-up");
+  await t.page.selectOption("#sc-tdiv", "0.01");
+  await t.click("#dbg-save");
+  await t.page.fill("#dlg-in", "spindle");
+  await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => views.length === 1 && document.querySelector('#dbg-views .view[aria-current="true"]')), "saved, and the current view");
+  t.check(await t.ev(() => JSON.parse(localStorage.getItem("pmc.views"))[0].scope.ch.length === 2), "kept in this browser");
+  await t.ev(() => { hal.watch = []; renderHalWatch(); scope.ch = []; scope.tdiv = 0.1; renderScopeSide(); });
+  await t.click("#dbg-save");
+  await t.page.fill("#dlg-in", "empty");
+  await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => views.length === 2 && document.querySelectorAll("#dbg-views .view").length === 2), "a second view");
+  await t.click('#dbg-views [data-view="0"]');
+  t.check(await t.until(() => scope.ch.length === 2 && hal.watch.length === 1 && scope.tdiv === 0.01 && document.getElementById("sc-tdiv").value === "0.01"), "click: the watch list and the scope back");
+  await t.page.keyboard.press("Alt+2");
+  t.check(await t.until(() => scope.ch.length === 0 && hal.watch.length === 0), "Alt+2: the empty one");
+  await t.page.keyboard.press("Alt+1");
+  t.check(await t.until(() => scope.ch.length === 2 && hal.watch.length === 1), "Alt+1");
+  await t.page.reload();
+  await t.page.waitForFunction(() => typeof st !== "undefined" && st.page === "debug");
+  t.check(await t.until(() => document.querySelectorAll("#dbg-views .view").length === 2), "remembered across a reload");
+  await t.click('#dbg-views [data-vdel="1"]');
+  await t.click('#dlg-form [type=submit]');
+  t.check(await t.until(() => views.length === 1 && views[0].name === "spindle"), "×: deleted, after asking");
+  await t.ev(() => { localStorage.removeItem("pmc.views"); localStorage.removeItem("pmc.halwatch"); });
 });
 
 test("settings: units, decimals, exaggeration, switches", async (t) => {

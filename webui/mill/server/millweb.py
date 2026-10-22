@@ -74,6 +74,9 @@ class Hub:
         self.pv_segs = int(cfg.num("MILLWEB", "PREVIEW_SEGS", 100000))
         self.pv_timeout = cfg.num("MILLWEB", "PREVIEW_TIMEOUT", 120.0)
         self.resyncing = False
+        self.hal_watch = {}          # client id -> HAL names it watches
+        self.scopes = {}             # client id -> its sampler process
+        self.sampler_cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "sampler.py")]
         self.line_index = {}         # path -> (mtime, size, byte offset of every 1000th line, lines)
         self.program_file = None
         self.jog_seen = {}           # axis -> time of the last continuous-jog message
@@ -113,6 +116,7 @@ class Hub:
         await ws.send_json(self.offsets_msg())
         await ws.send_json(self.files_msg())
         await ws.send_json(self.setup_msg())
+        await ws.send_json({"t": "views", "views": self.m.views()})
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -129,6 +133,8 @@ class Hub:
                     asyncio.ensure_future(self.on_message(c, msg))
         finally:
             del self.clients[c.id]
+            self.hal_watch.pop(c.id, None)
+            await self.scope_stop(c.id)
             if self.control == c.id:
                 await self.lose_control(c)
             self.event("info", "Browser left: %s" % c.name)
@@ -180,7 +186,8 @@ class Hub:
                 if a in self.jog_seen:
                     self.jog_seen[a] = time.time()
                     return await reply()
-            if op in ("files", "program_get", "program_lines", "model_get", "ping", "events"):
+            if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
+                      "scope_start", "scope_stop", "views_save", "ping", "events"):  # reading, and the Debug page's own
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -393,6 +400,101 @@ class Hub:
         loop = asyncio.get_event_loop()
         data, mtime = await loop.run_in_executor(self.ppool, self.m.model_read, m["name"])
         return {"name": m["name"], "mtime": mtime, "data": base64.b64encode(data).decode()}
+
+    async def op_hal_list(self, c, m):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.ppool, self.m.hal_list)
+
+    async def op_hal_watch(self, c, m):
+        """This browser's watch list: its values come as "hal" messages at HAL_HZ."""
+        names = [str(n) for n in (m.get("names") or [])][:128]
+        if names:
+            self.hal_watch[c.id] = names
+        else:
+            self.hal_watch.pop(c.id, None)
+        return {"values": self.m.hal_values(names)} if names and self.m.hal else None
+
+    async def op_hal_values(self, c, m):
+        """Once: the values of these (the HAL page's rows on screen)."""
+        return {"values": self.m.hal_values([str(n) for n in (m.get("names") or [])][:1000]) if self.m.hal else {}}
+
+    async def op_hal_set(self, c, m):
+        err = await self.run(self.m.cmd_hal_set, m["name"], m["value"], m.get("kind", "pin"))
+        if not err:
+            self.event("warn", "HAL: %s %s = %s (by %s)" % ("sets" if m.get("kind") == "sig" else "setp", m["name"], m["value"], c.name))
+        return err
+
+    async def hal_loop(self):
+        """The watched HAL values, to each browser that watches some."""
+        period = 1.0 / max(1.0, self.cfg.num("MILLWEB", "HAL_HZ", 10.0))
+        while not (self.quit and self.quit.is_set()):
+            if self.hal_watch and self.m.hal:
+                for cid, names in list(self.hal_watch.items()):
+                    c = self.clients.get(cid)
+                    if c is None:
+                        self.hal_watch.pop(cid, None)
+                        continue
+                    asyncio.ensure_future(c.ws.send(json.dumps({"t": "hal", "v": self.m.hal_values(names)}, separators=(",", ":"))))
+            await asyncio.sleep(period)
+
+    # the scope: a sampler process per browser that scopes (two at most)
+    async def op_scope_start(self, c, m):
+        names = [str(n) for n in (m.get("names") or [])][:8]
+        if not names:
+            return "the scope needs a channel"
+        await self.scope_stop(c.id)
+        if len(self.scopes) >= 2:
+            return "two scopes run already (another browser's)"
+        rate = max(10.0, min(2000.0, float(m.get("rate", 1000))))
+        proc = await asyncio.create_subprocess_exec(*self.sampler_cmd, stdin=asyncio.subprocess.PIPE,
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        proc.stdin.write((json.dumps({"names": names, "rate": rate}) + "\n").encode())
+        await proc.stdin.drain()
+        self.scopes[c.id] = proc
+        asyncio.ensure_future(self.scope_relay(c, proc, names))
+        return {"names": names, "rate": rate}
+
+    async def scope_relay(self, c, proc, names):
+        """The sampler's frames to its browser, as {"t": "scope", n, rate, missed, t0, d (base64 float32)}."""
+        import struct
+        try:
+            while True:
+                head = await proc.stdout.readexactly(4)
+                body = await proc.stdout.readexactly(struct.unpack("<I", head)[0])
+                line, _, data = body.partition(b"\n")
+                h = json.loads(line)
+                msg = dict(h, t="scope", names=names, d=base64.b64encode(data).decode())
+                await c.ws.send(json.dumps(msg, separators=(",", ":")))
+                if h.get("error"):
+                    break
+        except (asyncio.IncompleteReadError, ConnectionError, ValueError):
+            pass
+        finally:
+            if self.scopes.get(c.id) is proc:
+                await self.scope_stop(c.id)
+
+    async def scope_stop(self, cid):
+        """SIGTERM, not SIGKILL: a sampler killed inside hal.get_value leaves HAL's
+        mutex locked and every HAL user hung (see sampler.py)."""
+        proc = self.scopes.pop(cid, None)
+        if proc and proc.returncode is None:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), 3)
+            except asyncio.TimeoutError:
+                self.event("warn", "Scope: the sampler didn't stop, killed")
+                proc.kill()
+                await proc.wait()
+
+    async def op_scope_stop(self, c, m):
+        await self.scope_stop(c.id)
+
+    async def op_views_save(self, c, m):
+        """The Debug page's views: saved for every browser (no control needed: they don't touch the machine)."""
+        err = await self.run(self.m.cmd_views_save, m["views"])
+        if not err:
+            self.broadcast({"t": "views", "views": self.m.views()})
+        return err
 
     async def op_setup_save(self, c, m):
         """The objects on the table for the 3D view: every browser gets them."""
@@ -676,7 +778,7 @@ async def amain(args):
             loop.add_signal_handler(sig, quit_event.set)
         except NotImplementedError:
             pass
-    tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop())]
+    tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop())]
     await quit_event.wait()
     for t in tasks:
         t.cancel()

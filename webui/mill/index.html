@@ -228,6 +228,53 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .op { border: 1px solid var(--line-hi); background: var(--panel-2); border-radius: 5px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-dim); }
 .op svg { width: 64px; height: 44px; }
 .op[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: var(--accent-dim); }
+.dbg-bar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.dbg-label { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-left: 8px; }
+.dbg-views { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.dbg-views .view { display: inline-flex; align-items: center; border: 1px solid var(--line-hi); border-radius: 12px; overflow: hidden; }
+.dbg-views .view button { background: none; border: 0; color: var(--ink); padding: 2px 9px; cursor: pointer; font-size: 12px; }
+.dbg-views .view[aria-current="true"] { border-color: var(--accent); background: var(--accent-dim); }
+.dbg-views .view .x { color: var(--ink-faint); padding: 2px 7px 2px 2px; }
+.dbg-views .note { margin: 0; }
+.dbg-tab { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.dbg-tab[hidden] { display: none; }
+.scope-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 8px; }
+.scope-main { min-height: 380px; }
+.scope-main .grow { flex: 1; }
+.scope-wrap { position: relative; flex: 1; min-height: 320px; background: #05080c; border: 1px solid var(--line); border-radius: 4px; }
+.scope-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+.scope-read { position: absolute; right: 8px; top: 8px; font: 11.5px/1.5 var(--f-mono); background: rgba(5, 8, 12, .85); padding: 4px 8px; border-radius: 4px; pointer-events: none; white-space: pre; }
+.scope-read:empty { display: none; }
+.scope-side #sc-add { flex: 1; min-width: 0; }
+.scope-side .form label { min-width: 0; }
+#sc-ch { display: flex; flex-direction: column; gap: 6px; }
+.sc-chan { border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 4px; padding: 5px 7px; display: flex; flex-direction: column; gap: 4px; }
+.sc-chan .h { display: flex; align-items: center; gap: 4px; }
+.sc-chan .h b { flex: 1; min-width: 0; font: 500 12px var(--f-mono); color: var(--c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-chan .r { display: flex; gap: 10px; }
+.sc-chan .r label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-faint); flex: 1; min-width: 0; }
+.sc-chan .r input, #sc-add { width: 100%; min-width: 0; background: var(--panel); border: 1px solid var(--line-hi); border-radius: 4px; padding: 3px 6px; font: 12px var(--f-mono); color: var(--ink); }
+#sc-ch .note { margin: 0; }
+@media (max-width: 1100px) { .scope-grid { grid-template-columns: minmax(0, 1fr); } }
+.hal-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; min-height: 0; flex: 1; }
+.hal-grid > .panel { min-height: 0; }
+.hal-browse #hal-q { flex: 1; min-width: 160px; }
+.hal-list { overflow: auto; min-height: 200px; max-height: calc(100vh - 230px); font: 12px/1.45 var(--f-mono); }
+.hal-g summary { cursor: pointer; padding: 3px 4px; color: var(--ink); }
+.hal-g summary .muted { font-size: 11px; }
+.hal-row { display: grid; grid-template-columns: minmax(0, 2.2fr) 88px minmax(60px, .8fr) minmax(0, 1.4fr) 16px; gap: 8px; padding: 2px 6px 2px 18px; cursor: pointer; border-radius: 3px; align-items: center; }
+.hal-row:hover { background: var(--panel-2); }
+.hal-row.sel { background: var(--accent-dim); }
+.hal-row .n { overflow-wrap: anywhere; }
+.hal-row .t, .hal-row .l { color: var(--ink-faint); font-size: 11px; overflow-wrap: anywhere; }
+.hal-row .v { text-align: right; }
+.hal-row .w { color: var(--accent); text-align: center; }
+.hal-watch td.num { font-size: 11.5px; overflow-wrap: anywhere; }
+.hal-watch td.acts { white-space: nowrap; text-align: right; }
+.hal-watch .led { margin-right: 6px; }
+canvas.spark { width: 140px; height: 26px; display: block; }
+.hal-detail .lnk { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0 4px 0 0; text-decoration: underline dotted; }
+@media (max-width: 960px) { .hal-grid { grid-template-columns: minmax(0, 1fr); } .hal-list { max-height: 60vh; } .hal-row { grid-template-columns: minmax(0, 1fr) 70px 70px 16px; } .hal-row .l { display: none; } }
 .files { display: grid; gap: 6px; max-height: min(52vh, 560px); overflow: auto; overscroll-behavior: contain; }  /* a long folder scrolls in its list */
 .page-pane:not(.view-main) > .panel { flex-shrink: 0; }  /* a page's panels keep their size; the page scrolls (else one overlaps the next) */
 .file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); text-align: left; }
@@ -529,6 +576,65 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
       <div class="probe-view" id="probe-view"></div><!-- the 3D view comes here on this page -->
     </section>
 
+    <!-- DEBUG: HAL (halshow, halmeter), the scope (halscope), saved views -->
+    <section class="page-pane" id="p-debug" hidden>
+      <div class="panel dbg-bar">
+        <div class="seg" id="dbg-tab" role="tablist"><button data-t="hal" aria-pressed="true">HAL</button><button data-t="scope" aria-pressed="false">Scope</button></div>
+        <span class="dbg-label">Views</span>
+        <div class="dbg-views" id="dbg-views"></div>
+        <button class="btn sm" id="dbg-save" title="The watch list and the scope's set-up, under a name, for every browser">Save view</button>
+      </div>
+      <div class="dbg-tab" id="dbg-hal">
+      <div class="hal-grid">
+        <div class="panel hal-browse">
+          <h2>HAL <small id="hal-count">—</small></h2>
+          <div class="row">
+            <input id="hal-q" type="search" placeholder="filter: name, component or signal" aria-label="Filter" autocomplete="off">
+            <div class="seg" id="hal-kind" role="group" aria-label="Show"><button data-k="pin" aria-pressed="true">pins</button><button data-k="sig" aria-pressed="false">signals</button><button data-k="param" aria-pressed="false">params</button></div>
+            <button class="btn sm" id="hal-refresh" title="Read the HAL again (new links, new components)">Refresh</button>
+          </div>
+          <div class="hal-list" id="hal-list"></div>
+        </div>
+        <div class="panel hal-side">
+          <h2>Watch <small>10 times a second</small><button class="btn sm" id="hal-clear" style="margin-left:auto">Clear</button></h2>
+          <div class="wrapx"><table class="t hal-watch" id="hal-watch"></table></div>
+          <div class="hal-detail" id="hal-detail"></div>
+        </div>
+      </div>
+      </div>
+      <div class="dbg-tab scope-grid" id="dbg-scope" hidden>
+        <div class="panel scope-main">
+          <div class="row">
+            <button class="btn sm accent" id="sc-run">Run</button>
+            <span class="pill off" id="sc-state">STOPPED</span>
+            <span class="muted" id="sc-info"></span>
+            <span class="grow"></span>
+            <button class="btn sm" id="sc-autoall" title="Every channel's scale and offset from what is shown">Auto scale</button>
+          </div>
+          <div class="scope-wrap"><canvas id="sc-cv" aria-label="Scope"></canvas><div class="scope-read" id="sc-read"></div></div>
+        </div>
+        <div class="panel scope-side">
+          <h2>Channels <small>up to 8</small></h2>
+          <div id="sc-ch"></div>
+          <div class="row"><input id="sc-add" list="sc-names" placeholder="a pin, signal or parameter" autocomplete="off"><datalist id="sc-names"></datalist><button class="btn sm" id="sc-add-btn">Add</button></div>
+          <h2>Time</h2>
+          <div class="form">
+            <label>Sample rate<select id="sc-rate"><option>100</option><option>250</option><option>500</option><option selected>1000</option><option>2000</option></select></label>
+            <label>Time / div<select id="sc-tdiv"><option value="0.001">1 ms</option><option value="0.002">2 ms</option><option value="0.005">5 ms</option><option value="0.01">10 ms</option><option value="0.02">20 ms</option><option value="0.05">50 ms</option><option value="0.1" selected>100 ms</option><option value="0.2">200 ms</option><option value="0.5">500 ms</option><option value="1">1 s</option><option value="2">2 s</option></select></label>
+          </div>
+          <h2>Trigger</h2>
+          <div class="seg" id="sc-mode" role="group" aria-label="Mode"><button data-m="auto" aria-pressed="true">auto</button><button data-m="normal" aria-pressed="false">normal</button><button data-m="single" aria-pressed="false">single</button><button data-m="roll" aria-pressed="false">roll</button></div>
+          <div class="form">
+            <label>Source<select id="sc-src"></select></label>
+            <label>Edge<select id="sc-edge"><option value="rise">rising</option><option value="fall">falling</option></select></label>
+            <label>Level<input id="sc-level" type="number" step="any" value="0"></label>
+            <label>Position<input id="sc-pos" type="range" min="0" max="100" value="20"></label>
+          </div>
+          <p class="note">millweb samples in a process of its own, at the rate set (steady to a fraction of a millisecond; the info line says how steady). That is not halscope's real-time sampling, locked to the servo thread.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- DYNAMICS -->
     <section class="page-pane" id="p-dyn" hidden>
       <div class="cards">
@@ -688,6 +794,8 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 <script src="vendor/three/OrbitControls.js"></script>
 <script src="js/app.js"></script>
 <script src="js/setup3d.js"></script>
+<script src="js/hal.js"></script>
+<script src="js/scope.js"></script>
 <script src="js/live.js"></script>
 
 </body>

@@ -475,6 +475,67 @@ test("overrides, spindle, coolant, M1/block delete reach the machine", async (t)
   t.check(await M.until((s) => !s.m1 && !s.bd), "both off");
 });
 
+test("Debug page, HAL tab: the machine's HAL, links, a watch that follows a jog", async (t) => {
+  await t.ev(() => localStorage.removeItem("pmc.halwatch"));
+  await take(t);
+  await t.nav("debug");
+  t.check(await t.until(() => /^\d{3,} pins · \d+ signals · \d+ parameters$/.test(document.getElementById("hal-count").textContent), null, 15000), `listed: ${await t.text("#hal-count")}`);
+  await t.page.fill("#hal-q", "joint.0.motor-pos");
+  t.check(await t.until(() => document.querySelectorAll("#hal-list .hal-row").length === 2), "filter: motor-pos-cmd and -fb");
+  await t.click('.hal-row[data-name="joint.0.motor-pos-fb"]');
+  t.check(await t.until(() => /Signal\s*j0/.test(document.getElementById("hal-detail").textContent) && /Its driver\s*joint\.0\.motor-pos-cmd/.test(document.getElementById("hal-detail").textContent)), "details: its signal j0, driven by motor-pos-cmd");
+  await t.click('#hal-detail [data-go="j0"]');
+  t.check(await t.until(() => hal.sel.kind === "sig" && /Read by.*joint\.0\.motor-pos-fb/.test(document.getElementById("hal-detail").textContent)), "the signal: driver and readers, and it's watched");
+  const x0 = await t.ev(() => hal.last["joint.0.motor-pos-fb"]);
+  await t.nav("main"); await t.click("#st-jog"); await t.click('#jog-inc button[data-v="10"]');
+  await t.page.dispatchEvent('#jogpad button[data-j="x+"]', "pointerdown");
+  await t.nav("debug");
+  t.check(await t.until((x0) => Math.abs(hal.last["joint.0.motor-pos-fb"] - x0 - 10) < 1e-3, x0), "jog X+10: the watched pin follows");
+  t.check(await t.until(() => hal.hist.get("joint.0.motor-pos-fb").length > 5), "and its trend fills");
+  t.check(!(await t.ev(() => !!document.querySelector("#hal-watch [data-set]"))), "no Set: HAL_WRITE is off");
+  await t.click('#hal-kind button[data-k="param"]'); await t.page.fill("#hal-q", "tmax");
+  t.check(await t.until(() => document.querySelectorAll("#hal-list .hal-row").length > 2), "parameters: the thread timings");
+  await t.click("#hal-clear");
+});
+
+test("Debug page, scope: a jog captured on a trigger; a view shared with another browser", async (t) => {
+  await M.call("views_save", { views: [] });
+  await take(t);
+  await t.nav("debug");
+  await t.click('#dbg-tab button[data-t="scope"]');
+  await t.ev(() => { scope.ch = []; scopeChanged(); });
+  await t.page.fill("#sc-add", "joint.0.motor-pos-fb"); await t.click("#sc-add-btn");
+  await t.page.fill("#sc-add", "motion.in-position"); await t.click("#sc-add-btn");
+  const x0 = (await M.call("hal_values", { names: ["joint.0.motor-pos-fb"] })).values["joint.0.motor-pos-fb"];
+  await t.page.selectOption("#sc-tdiv", "0.1");
+  await t.click('#sc-mode button[data-m="single"]');
+  await t.page.fill("#sc-level", String(x0 + 5)); await t.page.press("#sc-level", "Tab");
+  await t.click("#sc-run");
+  t.check(await t.until(() => scope.state === "WAITING FOR TRIGGER" && scope.total > 500, null, 5000), "single: waiting, samples coming in");
+  t.check(await t.until(() => /^\d+ samples\/s/.test(document.getElementById("sc-info").textContent) && Math.abs(parseInt(document.getElementById("sc-info").textContent) - 1000) < 80), `the sampler's rate: ${await t.text("#sc-info")}`);
+  await t.nav("main"); await t.click("#st-jog"); await t.click('#jog-inc button[data-v="10"]');
+  await t.page.dispatchEvent('#jogpad button[data-j="x+"]', "pointerdown");
+  await M.idle();
+  await t.nav("debug");
+  t.check(await t.until(() => !scope.running && scope.disp && scope.disp.trig === 200, null, 8000), "one capture, stopped");
+  t.check(await t.ev((x0) => { const a = scope.disp.data[0]; return a[0] < x0 + 5 && a[199] < x0 + 5 && a[200] >= x0 + 5 && a[999] > a[200]; }, x0), "X through the level at the trigger, moving on");
+  t.check(await t.ev(() => scope.disp.data[1].every((v) => v === 0 || v === 1)), "a bit channel: 0 and 1");
+  await t.click("#dbg-save");
+  await t.page.fill("#dlg-in", "x jog");
+  await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => views.length === 1 && views[0].scope.ch.length === 2), "saved on the machine");
+  const p2 = await t.ctx.browser().newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await p2.goto(BASE + "#debug");
+    t.check(await p2.waitForFunction(() => typeof views !== "undefined" && document.querySelectorAll("#dbg-views .view").length === 1, null, { timeout: 15000 }).then(() => true, () => false), "another browser has the view");
+    await p2.keyboard.press("Alt+1");
+    t.check(await p2.waitForFunction(() => scope.ch.length === 2 && scope.ch[0].name === "joint.0.motor-pos-fb" && scope.mode === "single", null, { timeout: 5000 }).then(() => true, () => false), "Alt+1 there: the same scope set-up");
+  } finally { await p2.close(); }
+  await t.click('#dbg-views [data-vdel="0"]'); await t.click('#dlg-form [type=submit]');
+  t.check(await t.until(() => views.length === 0), "deleted");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("the machine changed by another browser shows here", async (t) => {
   await M.call("control", { take: true, force: true });
   await M.mdi("G0 X77 Y66 Z12");
@@ -490,7 +551,7 @@ test("the machine changed by another browser shows here", async (t) => {
 });
 
 test("no script errors on any page", async (t) => {
-  for (const p of ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "set"]) { await t.nav(p); await t.sleep(400); }
+  for (const p of ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "set"]) { await t.nav(p); await t.sleep(400); }
   t.check(t.errors.length === 0, "none");
 });
 

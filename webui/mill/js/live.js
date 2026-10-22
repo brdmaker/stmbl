@@ -53,6 +53,9 @@ const Live = (() => {
       case "offsets": return offsets(m);
       case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
       case "setup": lastSetup = m.objects; return setupLoad(m.objects);
+      case "hal": if (st.page === "debug") halShow(m.v); return;
+      case "scope": return scopeIn(m);
+      case "views": return viewsLoad(m.views);
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
       case "reply": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p(m); } return; }
@@ -76,6 +79,7 @@ const Live = (() => {
     }
     linkChip(); controlUi();
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
+    else if (st.page === "debug") halWatchSend();  // reconnected: the watch again
     msg(`Connected to ${info.name}`, "ok");
   }
   function state(m) {
@@ -202,6 +206,7 @@ const Live = (() => {
     b.innerHTML = mine ? "IN<br>CONTROL" : holder ? "WATCHING<br>TAKE OVER" : "TAKE<br>CONTROL";
     b.setAttribute("aria-pressed", String(mine));
     b.title = mine ? "This browser controls the machine. Click to hand it back." : holder ? "Another browser controls the machine." : "Nobody controls the machine.";
+    if (st.page === "debug" && typeof renderHalWatch === "function") { hal.writable = L.halWritable(); renderHalWatch(); }
   }
   $("b-control").addEventListener("click", () => {
     if (holder === me) { act("control", { take: false }); return; }
@@ -315,6 +320,23 @@ const Live = (() => {
   };
   let lastSetup = null;  // the machine's: back to it when a change can't be saved
   L.setupSave = (objects) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o) }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup); });
+  // the Debug page's HAL tab: the machine's HAL
+  L.hal = {
+    list: async () => { const r = await send("hal_list"); if (!r.ok) throw new Error(r.err); return { pins: r.pins, sigs: r.sigs, params: r.params }; },
+    watch: async (names) => { const r = await send("hal_watch", { names }); if (r.ok && r.values) halShow(r.values); return r; },
+    set: (name, value, kind) => send("hal_set", { name, value, kind }),
+    values: async (names) => { const r = await send("hal_values", { names }); return r.ok ? r.values : {}; },
+  };
+  // the scope: millweb's sampler streams "scope" frames (float32, base64)
+  L.scope = { start: (names, rate) => send("scope_start", { names, rate }), stop: () => send("scope_stop") };
+  function scopeIn(m) {
+    if (m.error) { scope.info = m.error; scopeStop(); scopeStateUi(); return; }
+    const bin = atob(m.d || ""), b = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+    scopeData(m.n, new Float32Array(b.buffer), m.rate, m.missed);
+  }
+  L.viewsSave = (views) => send("views_save", { views });
+  L.halWritable = () => !!(info && info.hal_write) && holder === me;
   L.toolMeasure = () => act("tool_measure", {}, "Tool setter");
   L.probe = async (op) => {
     const name = op === "plate" ? "Touch plate Z" : (probeOps.find((o) => o[0] === op) || [op, op])[1];

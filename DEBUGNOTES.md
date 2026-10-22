@@ -2030,3 +2030,24 @@ Entry format:
 - Also:    "flood on" in the live suite failed now and then: it read the
   page's button the moment the suite's own connection saw flood on; the page
   hears it over its own connection a moment later. It waits for the page now.
+
+## 2026-10-22  Debug page scope: a killed sampler hung all of HAL
+- Area:    webui/mill (millweb scope, server/sampler.py)
+- Status:  Fixed
+- Symptom: after a few scope start/stops, millweb stopped answering (page
+  loads timed out), `halcmd` hung even under `timeout`, and LinuxCNC didn't
+  shut down. Needed kill -9 of rtapi_app/linuxcncsvr and `ipcrm` of the
+  lcnc shared memory.
+- Cause:   millweb stopped the sampler with SIGKILL. `hal.get_value` holds
+  HAL's mutex in shared memory; a process killed inside it never releases
+  it, and every HAL user then spins on it. The killed process's HAL
+  component also stays registered.
+- Fix:     the sampler takes SIGTERM as a flag (the get in progress finishes),
+  leaves its loop and calls `comp.exit()`; millweb sends SIGTERM and waits
+  3 s, killing only as a last resort (logged). The backend suite starts and
+  stops an 8-channel 2 kHz scope 30 times, then checks HAL answers and no
+  `millweb-scope-*` component is left. The same applies to any HAL user:
+  never SIGKILL one that may be inside a HAL call (millweb's own `halcmd`
+  calls are killed only after a 10 s timeout).
+- Also:    the sampler's frame header had a "t" (time) that the relay's
+  {"t": "scope"} overwrote; it is "t0" now.

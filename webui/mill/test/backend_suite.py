@@ -58,6 +58,7 @@ PROFILES = {
     "default": dict(),
     "hold": dict(ini_set=["MILLWEB.ON_CONTROL_LOSS=hold"]),
     "token": dict(ini_set=["MILLWEB.TOKEN=s3cret"]),
+    "halwrite": dict(ini_set=["MILLWEB.HAL_WRITE=yes"]),
     "remote": dict(ini_set=["MILLWEB.REMOTE_ENABLE_PIN=remote-key.in0", "MILLWEB.AIR_PIN=air.in0"],
                    hal_extra="loadrt or2 names=remote-key,air\nsetp remote-key.in0 1"),
 }
@@ -970,6 +971,98 @@ async def _(t):
 
 
 # ======================================================================= other INIs
+
+@case("HAL: list with links, watch at 10 Hz, values; no setting by default")
+async def _(t):
+    b = await t.open()  # a watching browser may look
+    r = await b.call("hal_list")
+    t.check(r["ok"] and len(r["pins"]) > 300 and len(r["sigs"]) >= 10 and len(r["params"]) > 10, "pins, signals, params (%s)" % [len(r.get(k, [])) for k in ("pins", "sigs", "params")])
+    pin = next((p for p in r["pins"] if p[0] == "joint.0.motor-pos-cmd"), None)
+    t.check(pin and pin[1:4] == ["float", "OUT", "motmod"] and pin[5] == "j0", "a pin: type, direction, component, its signal (%r)" % pin)
+    sig = next((g for g in r["sigs"] if g[0] == "j0"), None)
+    t.check(sig and sig[3] == "joint.0.motor-pos-cmd" and "joint.0.motor-pos-fb" in sig[4], "a signal: driver, readers (%r)" % sig)
+    mk = b.mark()
+    r = await b.call("hal_watch", names=["joint.0.motor-pos-fb", "j0", "motion-controller.tmax", "no.such.pin"])
+    t.check(r["ok"] and r["values"]["no.such.pin"] is None and isinstance(r["values"]["j0"], float), "watch: values at once (%r)" % r.get("values"))
+    await t.mdi("G0 X40")
+    await asyncio.sleep(1.0)
+    n = len([m for m in b.msgs[mk:] if m["t"] == "hal"])
+    t.check(7 <= n <= 14, "about 10 'hal' messages a second (%d)" % n)
+    last = [m for m in b.msgs[mk:] if m["t"] == "hal"][-1]["v"]
+    t.check(near(last["joint.0.motor-pos-fb"], 480, 0.01), "the value follows the machine (%s)" % last["joint.0.motor-pos-fb"])
+    t.check(b.hello["machine"]["hal_write"] is False, "hello: HAL writes off")
+    t.refused(await t.a.call("hal_set", name="motion.analog-in-00", value="1"), "setting without HAL_WRITE", "HAL_WRITE")
+    await b.call("hal_watch", names=[])
+    mk = b.mark()
+    await asyncio.sleep(0.5)
+    t.check(not [m for m in b.msgs[mk:] if m["t"] == "hal"], "an empty watch: no more 'hal' messages")
+
+
+@case("scope: the sampler streams at the rate asked, follows a move, stops; views for every browser")
+async def _(t):
+    import base64
+    import struct
+    b = await t.open()  # a watching browser may scope
+    await t.mdi("G0 X0")
+    r = await b.call("scope_start", names=["joint.0.motor-pos-fb", "motion.in-position", "no.such.pin"], rate=1000)
+    t.ok(r, "scope_start: 3 channels at 1 kHz")
+    mk = b.mark()
+    await asyncio.sleep(0.3)
+    await t.mdi("G0 X40")
+    await asyncio.sleep(1.0)
+    fr = [m for m in b.msgs[mk:] if m["t"] == "scope"]
+    t.check(fr and not any(m.get("error") for m in fr), "frames, no error (%s)" % (fr and fr[0].get("error")))
+    n = sum(m["n"] for m in fr)
+    span = fr[-1]["t0"] - fr[0]["t0"] if len(fr) > 1 else 0
+    t.check(span > 1 and abs(n / (span + 0.05) - 1000) < 100, "about 1000 samples a second (%d in %.2f s)" % (n, span))
+    t.check(abs(fr[-1]["rate"] - 1000) < 60, "the measured rate it reports (%s)" % fr[-1]["rate"])
+    late = sum(m["missed"] for m in fr)
+    t.check(late < n * 0.05, "few late samples (%d of %d)" % (late, n))
+    vals = [v for m in fr for v in struct.unpack("<%df" % (3 * m["n"]), base64.b64decode(m["d"]))]
+    x = vals[0::3]
+    t.check(near(x[0], 440, 0.01) and near(x[-1], 480, 0.01) and any(441 < v < 479 for v in x), "X from 440 to 480, the move in between (%d samples on the way)" % sum(441 < v < 479 for v in x))
+    t.check(set(vals[1::3]) <= {0.0, 1.0} and all(v != v for v in vals[2::3]), "a bit as 0/1, a missing pin NaN")
+    await b.call("scope_stop")
+    await asyncio.sleep(0.2)
+    mk = b.mark()
+    await asyncio.sleep(0.4)
+    t.check(not [m for m in b.msgs[mk:] if m["t"] == "scope"], "scope_stop: no more frames")
+    t.refused(await b.call("scope_start", names=[]), "no channels", "channel")
+    # stopping must not leave HAL's mutex locked (a sampler killed inside get_value did): start and stop it fast, often
+    names8 = ["joint.%d.motor-pos-fb" % (i % 4) for i in range(4)] + ["joint.%d.motor-pos-cmd" % i for i in range(4)]
+    for i in range(30):
+        await b.call("scope_start", names=names8, rate=2000)
+        await asyncio.sleep(0.005 * (i % 10))
+        await b.call("scope_stop")
+    r = await asyncio.wait_for(b.call("hal_values", names=["joint.0.motor-pos-fb"]), 10)
+    t.check(r.get("ok") and t.m.halcmd("getp", "joint.0.motor-pos-fb").strip() != "", "30 quick start/stops: HAL still answers (millweb and halcmd)")
+    t.check(not any(c.startswith("millweb-scope") for c in t.m.halcmd("show", "comp").split()), "no sampler components left in HAL")
+    mk = b.mark()
+    v = [{"name": "X axis", "watch": [{"kind": "pin", "name": "joint.0.motor-pos-fb"}], "scope": {"ch": [{"name": "joint.0.motor-pos-fb"}], "rate": 1000}}]
+    t.ok(await t.a.call("views_save", views=v), "views_save")
+    await b.until(lambda c: any(m["t"] == "views" for m in c.msgs[mk:]), 3)
+    m = next((m for m in b.msgs[mk:] if m["t"] == "views"), None)
+    t.check(m and m["views"] == v, "the other browser gets them")
+    c = await t.open()
+    await c.until(lambda c: any(x["t"] == "views" for x in c.msgs), 3)
+    t.check(any(x["t"] == "views" and x["views"] == v for x in c.msgs), "and a new browser at hello")
+    t.ok(await b.call("views_save", views=[]), "a watching browser may change them (they don't move the machine)")
+
+
+@case("HAL_WRITE=yes: setp on an unconnected input and a parameter; not on a driven pin", profile="halwrite")
+async def _(t):
+    a = t.a
+    t.check(a.hello["machine"]["hal_write"] is True, "hello: HAL writes on")
+    mk = a.mark()
+    t.ok(await a.call("hal_set", name="motion.analog-in-00", value="3.5", kind="pin"), "setp an unconnected input")
+    t.check((await a.call("hal_values", names=["motion.analog-in-00"]))["values"]["motion.analog-in-00"] == 3.5, "it reads 3.5")
+    t.check(a.ev(mk, "HAL: setp motion.analog-in-00 = 3.5") is not None, "logged, with who")
+    t.ok(await a.call("hal_set", name="motion-controller.tmax", value="0", kind="param"), "setp a RW parameter")
+    t.refused(await a.call("hal_set", name="joint.0.motor-pos-fb", value="1", kind="pin"), "setp on a pin a signal drives")
+    t.refused(await a.call("hal_set", name="x; rm -rf /", value="1", kind="pin"), "a name that isn't a HAL name", "plain value")
+    b = await t.open()
+    t.refused(await b.call("hal_set", name="motion.analog-in-00", value="1"), "a watching browser", "control")
+
 
 @case("ON_CONTROL_LOSS=hold: feed hold when the holder goes away", profile="hold")
 async def _(t):
