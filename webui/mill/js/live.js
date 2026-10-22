@@ -9,7 +9,7 @@ const Live = (() => {
   let ws = null, nid = 0, me = null, holder = null, info = null, connected = false, onFirst = null;
   const pending = new Map();
   const L = { modal: "" };
-  let files = [], slowSt = {}, jogTimer = null, jogAxis = null, toolsTimer = null;
+  let files = [], dirs = [], slowSt = {}, jogTimer = null, jogAxis = null, toolsTimer = null;
   const ovrTimer = {}, ovrLast = {};
   let lastTool = null, rpmTarget = 0;
 
@@ -51,7 +51,7 @@ const Live = (() => {
       case "program": return program(m);
       case "tools": return tools(m.tools);
       case "offsets": return offsets(m);
-      case "files": files = m.files; if (st.page === "file") L.renderFiles(); return;
+      case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
       case "reply": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p(m); } return; }
@@ -208,10 +208,7 @@ const Live = (() => {
     if (info && info.token_required) askText("Take control", "The machine's control token ([MILLWEB] TOKEN).", go);
     else go();
   });
-  function askText(title, note, cb) {
-    const inp = $("dlg-in"); inp.type = "password"; inp.step = "";
-    ask(title, note, "", () => { const v = inp.value; inp.type = "number"; inp.step = "0.001"; cb(v); });
-  }
+  function askText(title, note, cb) { ask(title, note, "", cb, "password"); }
   function emptyProgram() {
     const p = { name: "—", lines: [], segs: [], tools: new Set(), server: true, total: 0, cutLen: 0, ext: { x: [0, 0], y: [0, 0], z: [0, 0] } };
     return p;
@@ -349,28 +346,109 @@ const Live = (() => {
     const r = await act("program_load", { name: p.name }, "Load " + p.name);
     return r.ok;
   };
+  // the File page: the program folder's folders and programs, one folder at a time
+  L.dir = ""; L.sel = null;  // the folder shown ("" the program folder); the selected {kind: "file" | "dir", path}
+  const inDir = (path, d) => { const pre = d ? d + "/" : ""; return path.startsWith(pre) && !path.slice(pre.length).includes("/"); };
+  const baseName = (p) => p.slice(p.lastIndexOf("/") + 1);
   L.renderFiles = () => {
-    $("files").innerHTML = files.length ? files.map((f, i) => `<button class="file" data-i="${i}" aria-pressed="${i === fileSel}"><span><b>${esc(f.name)}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("")
-      : `<p class="note">No programs in ${esc(info ? info.nc_dir : "the program folder")}.</p>`;
-    if (files.length) L.selectFile(fileSel);
+    $("fl-tools").hidden = false;
+    if (info) $("fl-dir").textContent = info.nc_dir;
+    if (L.dir && !dirs.includes(L.dir)) L.dir = "";  // gone (renamed or deleted elsewhere)
+    const d = L.dir, parts = d ? d.split("/") : [];
+    $("fl-crumbs").innerHTML = `<button data-go="" aria-current="${!d}">programs</button>` +
+      parts.map((p, i) => `/<button data-go="${esc(parts.slice(0, i + 1).join("/"))}" aria-current="${i === parts.length - 1}">${esc(p)}</button>`).join("");
+    const sub = dirs.filter((x) => inDir(x, d));
+    const here = files.map((f, i) => [f, i]).filter(([f]) => inDir(f.name, d));
+    const sel = (kind, path) => L.sel && L.sel.kind === kind && L.sel.path === path;
+    $("files").innerHTML =
+      (d ? `<button class="file dir" data-up="1"><span><b>..</b><br><span class="muted">up a folder</span></span><span></span><span></span></button>` : "") +
+      sub.map((x) => { const n = files.filter((f) => f.name.startsWith(x + "/")).length;
+        return `<button class="file dir" data-dir="${esc(x)}" aria-pressed="${sel("dir", x)}"><span><b>${esc(baseName(x))}/</b><br><span class="muted">${n} program${n === 1 ? "" : "s"}</span></span><span></span><span class="btn sm" data-open="1">Open</span></button>`; }).join("") +
+      here.map(([f, i]) => `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
+      `<p class="note">No programs in ${d ? esc(d) : esc(info ? info.nc_dir : "the program folder")}. Upload some, or drop them here.</p>`;
+    if (L.sel && !(L.sel.kind === "dir" ? dirs.includes(L.sel.path) : files.some((f) => f.name === L.sel.path))) L.sel = null;
+    if (!L.sel && inDir(prog.name, d) && files.some((f) => f.name === prog.name)) L.sel = { kind: "file", path: prog.name, auto: true };  // the loaded one
+    $("fl-rename").disabled = $("fl-delete").disabled = !L.sel;
+    if (L.sel && L.sel.kind === "file") {
+      const i = files.findIndex((f) => f.name === L.sel.path);
+      if (i !== fileSel || L.sel.auto) { delete L.sel.auto; L.selectFile(i); }
+      else $$("#files .file").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.i !== undefined && +b.dataset.i === i)));
+    }
   };
   L.selectFile = async (i) => {
-    if (!files.length) return;
-    fileSel = clamp(i, 0, files.length - 1);
-    $$("#files .file").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.i === fileSel)));
-    const name = files[fileSel].name;
+    if (!files[i]) return;
+    fileSel = i; L.sel = { kind: "file", path: files[i].name };
+    $$("#files .file").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.i !== undefined && +b.dataset.i === fileSel)));
+    $("fl-rename").disabled = $("fl-delete").disabled = false;
+    const name = files[i].name;
     const r = await send("program_get", { name });
     if (r.ok && files[fileSel] && files[fileSel].name === name) renderPreflight(toProgram(r.program));
   };
-  // the File page's Load buttons: the server's file list, not the sim's library
+  const openDir = (d) => { L.dir = d; L.sel = null; L.renderFiles(); };
+  // the File page's clicks: the server's programs, not the simulation's library
   $("files").addEventListener("click", (e) => {
     if (!LIVE) return;
     const b = e.target.closest(".file"); if (!b) return;
     e.stopImmediatePropagation();
+    if (b.dataset.up) return openDir(L.dir.includes("/") ? L.dir.slice(0, L.dir.lastIndexOf("/")) : "");
+    if (b.dataset.dir !== undefined) {
+      if (e.target.closest("[data-open]")) return openDir(b.dataset.dir);
+      L.sel = { kind: "dir", path: b.dataset.dir };
+      $$("#files .file").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      $("fl-rename").disabled = $("fl-delete").disabled = false;
+      return;
+    }
     const i = +b.dataset.i;
     if (e.target.closest(".btn") && files[i] && files[i].name !== prog.name) act("program_load", { name: files[i].name }, "Load");
     L.selectFile(i);
   }, true);
+  $("files").addEventListener("dblclick", (e) => { const b = e.target.closest(".file.dir"); if (LIVE && b && b.dataset.dir) openDir(b.dataset.dir); });
+  $("fl-crumbs").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b) openDir(b.dataset.go); });
+  const here = (n) => (L.dir ? L.dir + "/" : "") + n;
+  $("fl-mkdir").addEventListener("click", () => ask("New folder", `In ${L.dir || "the program folder"}.`, "", (v) => {
+    v = v.trim(); if (!v) return;
+    act("folder_create", { name: here(v) }, "New folder").then((r) => { if (r.ok) msg(`Folder ${here(v)} made`, "ok"); });
+  }, "text"));
+  $("fl-rename").addEventListener("click", () => {
+    const s = L.sel; if (!s) return;
+    ask(s.kind === "dir" ? "Rename or move the folder" : "Rename or move the program",
+      "A new name, or a path in the program folder to move it to (folder/name).", s.path, (v) => {
+        let to = v.trim().replace(/^\/+|\/+$/g, ""); if (!to || to === s.path) return;
+        const ext = s.path.match(/\.(ngc|nc|tap|gcode)$/i);
+        if (s.kind === "file" && ext && !/\.(ngc|nc|tap|gcode)$/i.test(to)) to += ext[0];  // keeps its extension
+        act("program_rename", { name: s.path, to }, "Rename").then((r) => {
+          if (!r.ok) return;
+          msg(`${s.path} is now ${to}`, "ok");
+          L.sel = { kind: s.kind, path: to };
+          const d = to.includes("/") ? to.slice(0, to.lastIndexOf("/")) : "";
+          if (d !== L.dir && (s.kind === "file" || d)) L.dir = d;  // follow it
+        });
+      }, "text");
+  });
+  $("fl-delete").addEventListener("click", () => {
+    const s = L.sel; if (!s) return;
+    ask(`Delete ${s.path}${s.kind === "dir" ? "/" : ""}?`, s.kind === "dir" ? "Only an empty folder can be deleted." : "The program is removed from the machine.", "", () => {
+      act(s.kind === "dir" ? "folder_delete" : "program_delete", { name: s.path }, "Delete").then((r) => { if (r.ok) { msg(`Deleted ${s.path}`, "info"); L.sel = null; } });
+    }, "confirm");
+  });
+  // upload: the button, or files dropped on the list, into the folder shown
+  const confirmP = (title, note) => new Promise((res) => ask(title, note, "", () => res(true), "confirm", () => res(false)));
+  async function upload(list) {
+    for (const f of list) {
+      if (!/\.(ngc|nc|tap|gcode)$/i.test(f.name)) { msg(`${f.name}: not a G-code program (.ngc .nc .tap .gcode)`, "warn"); continue; }
+      if (f.size > 6 * 1024 * 1024) { msg(`${f.name}: ${(f.size / 1048576).toFixed(1)} MB; uploads stop at 6 MB: copy it into the program folder`, "warn"); continue; }
+      const name = here(f.name.replace(/[^\w.\- ]/g, "_"));
+      if (files.some((x) => x.name === name) && !(await confirmP(`Replace ${name}?`, "A program of that name is there already."))) continue;
+      const r = await act("program_save", { name, text: await f.text() }, "Upload " + f.name);
+      if (r.ok) { msg(`Uploaded ${name}`, "ok"); L.sel = { kind: "file", path: name }; }
+    }
+  }
+  $("fl-upload").addEventListener("click", () => $("fl-input").click());
+  $("fl-input").addEventListener("change", (e) => { upload([...e.target.files]); e.target.value = ""; });
+  const panel = $("files").closest(".panel");
+  panel.addEventListener("dragover", (e) => { if (!LIVE) return; e.preventDefault(); panel.classList.add("drop"); });
+  panel.addEventListener("dragleave", () => panel.classList.remove("drop"));
+  panel.addEventListener("drop", (e) => { if (!LIVE) return; e.preventDefault(); panel.classList.remove("drop"); upload([...e.dataTransfer.files]); });
 
   return { connect, L, emptyProgram };
 })();

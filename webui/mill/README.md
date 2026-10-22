@@ -88,7 +88,7 @@ JSON over the WebSocket at `/ws`.
 | `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
 | `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
 | `program` | when a program is loaded | name; `nlines` and the first 2000 `lines` (from `line0`); `path`: `[kind, x, y, z, feed, line, tool]` per segment, each from where the one before ended (`start`), from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates; `stats` over every move: `moves`, `shown`, `stride` (past `PREVIEW_SEGS` the drawn path merges neighbouring moves), `ext` (travel), `cut` and `rapid` lengths, `time`, `tools`; `error`, `truncated` |
-| `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder |
+| `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder (`files` with their paths, `dirs`) |
 | `control` | on change | who has control |
 | `ev` | as they happen | `{time, lvl, text}`: LinuxCNC's error channel, state changes, commands |
 | `reply` | to each request | `{id, ok, err}`, plus a result (probe, tool setter, preview) |
@@ -103,10 +103,19 @@ JSON over the WebSocket at `/ws`.
 - `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
-- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text]};
+- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`);
+- `program_rename` {name, to}: a program or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
+
+## Programs
+
+The File page (connected to a machine) shows the program folder (`[MILLWEB] NC_DIR`,
+else `[DISPLAY] PROGRAM_PREFIX`) a folder at a time, with the path above it:
+- **Upload**: the button, or G-code files dropped on the list, into the folder shown. Asks before replacing a program. Up to 6 MB each; larger ones go into the program folder directly (network share, USB).
+- **New folder**, **Rename / move** (a new name, or a path such as `jobs/acme/op1.ngc`; a program keeps its extension), **Delete** (asks first; a folder only when empty).
+- Selecting a program shows its preflight; **Load** opens it in LinuxCNC.
 
 ## Safety, as built
 
@@ -118,7 +127,7 @@ JSON over the WebSocket at `/ws`.
 - **A program can't take millweb down.** The preview interprets in a child process (killed after `PREVIEW_TIMEOUT`); the server keeps answering while it works.
 - **The work offset shown is LinuxCNC's.** When LinuxCNC's status comes up without it (a fast start, DEBUGNOTES), the DRO says "G5x?" and millweb has LinuxCNC publish it again once the machine is homed and idle, and before any MDI.
 - **Probe moves stay inside the soft limits.** LinuxCNC refuses a G38 move whose end lies beyond them, so millweb shortens the travel to what's left.
-- **Program files** stay inside the program folder: base names only, G-code extensions only.
+- **Program files** stay inside the program folder: paths of plain names (no `..`, nothing hidden, no links out), at most 8 folders deep, G-code extensions only. The loaded program, and the folder it is in, can't be renamed, moved or deleted.
 - **Access:** keep the machine on the shop network or behind a VPN. Use `CERT`/`KEY` for HTTPS and `TOKEN` for a password. There are no user accounts or roles yet.
 
 ## Not yet

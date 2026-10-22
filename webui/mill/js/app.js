@@ -630,7 +630,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "F2") { e.preventDefault(); togglePower(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "r") { e.preventDefault(); startCycle(0); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "m") { e.preventDefault(); showPage("main"); subtab("mdi"); $("mdi").focus(); return; }
-  if (e.key === "Escape") { if (!$("dlg").hidden) { $("dlg").hidden = true; return; } if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
+  if (e.key === "Escape") { if (!$("dlg").hidden) { closeDlg(); return; } if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
   if (inField || !st.kbd || !keyJog[e.key]) return;
   e.preventDefault();
   if (st.jogInc === 0) { if (!e.repeat) jogStep(keyJog[e.key]); } else jogStep(keyJog[e.key]);
@@ -659,10 +659,24 @@ for (const k of ["shaper", "defl", "shrink", "jerk"]) {
 $("b-recal").addEventListener("click", () => { if (LIVE) { $("recal-note").textContent = "On the machine: run linuxcnc/dynwiz from the controller's console; its result shows here when the backend reads dynwiz.json (not yet)."; return; } if (busy()) { $("recal-note").textContent = "Stop the program first: the measurement moves the machine."; return; } $("recal-note").textContent = "Queued: mass, modes, circle, verify. Clear the table, then confirm at the machine."; msg("Re-measure requested (dynwiz run)", "info"); });
 
 // ============================================================ dialog
-let dlgCb = null;
-function ask(title, note, val, cb) { $("dlg-t").textContent = title; $("dlg-n").textContent = note; $("dlg-in").value = val; dlgCb = cb; $("dlg").hidden = false; $("dlg-in").focus(); $("dlg-in").select(); }
-$("dlg-form").addEventListener("submit", (e) => { e.preventDefault(); $("dlg").hidden = true; if (dlgCb) dlgCb(+$("dlg-in").value); });
-$("dlg-cancel").addEventListener("click", () => ($("dlg").hidden = true));
+// kind: "number" (cb gets a number), "text" or "password" (a string), "confirm" (no input);
+// onCancel: called on Cancel or Esc
+let dlgCb = null, dlgCancel = null, dlgKind = "number";
+function ask(title, note, val, cb, kind = "number", onCancel = null) {
+  const inp = $("dlg-in");
+  dlgKind = kind; dlgCb = cb; dlgCancel = onCancel;
+  inp.hidden = kind === "confirm";
+  inp.type = kind === "confirm" ? "text" : kind; inp.step = kind === "number" ? "0.001" : "";
+  $("dlg-t").textContent = title; $("dlg-n").textContent = note; inp.value = val; $("dlg").hidden = false;
+  if (kind === "confirm") $("dlg-form").querySelector("[type=submit]").focus(); else { inp.focus(); inp.select(); }
+}
+function closeDlg() { $("dlg").hidden = true; const c = dlgCancel; dlgCancel = dlgCb = null; if (c) c(); }
+$("dlg-form").addEventListener("submit", (e) => {
+  e.preventDefault(); $("dlg").hidden = true;
+  const cb = dlgCb, v = $("dlg-in").value; dlgCb = dlgCancel = null;
+  if (cb) cb(dlgKind === "number" ? +v : v);
+});
+$("dlg-cancel").addEventListener("click", closeDlg);
 
 // ============================================================ 3D: the machine
 let R = null;

@@ -221,6 +221,13 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .files { display: grid; gap: 6px; }
 .file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); text-align: left; }
 .file[aria-pressed="true"] { border-color: var(--accent); }
+.file.dir b { color: var(--accent); }
+.file-tools { margin-bottom: 8px; }
+.file-tools .grow { flex: 1; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-family: var(--f-mono); font-size: 12px; }
+.crumbs button { background: none; border: 0; color: var(--accent); padding: 2px 4px; cursor: pointer; font: inherit; }
+.crumbs button[aria-current="true"] { color: var(--ink); cursor: default; }
+#p-file .panel.drop { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .file b { font-family: var(--f-mono); font-weight: 500; overflow-wrap: anywhere; }
 pre.code { margin: 0; font: 11.5px/1.55 var(--f-mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; overflow: auto; max-height: 340px; color: var(--ink-dim); }
 .events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -346,7 +353,16 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
     <!-- FILE -->
     <section class="page-pane" id="p-file" hidden>
       <div class="panel">
-        <h2>Programs <small>~/linuxcnc/nc_files/portal</small></h2>
+        <h2>Programs <small id="fl-dir">~/linuxcnc/nc_files/portal</small></h2>
+        <div class="row file-tools" id="fl-tools" hidden>
+          <nav class="crumbs" id="fl-crumbs" aria-label="Folder"></nav>
+          <span class="grow"></span>
+          <button class="btn sm accent" id="fl-upload" title="G-code files from this computer into this folder (or drop them on the list)">Upload</button>
+          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode" hidden>
+          <button class="btn sm" id="fl-mkdir">New folder</button>
+          <button class="btn sm" id="fl-rename" disabled>Rename / move</button>
+          <button class="btn sm" id="fl-delete" disabled>Delete</button>
+        </div>
         <div class="files" id="files"></div>
       </div>
       <div class="panel">

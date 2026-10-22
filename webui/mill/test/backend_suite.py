@@ -545,15 +545,50 @@ async def _(t):
 @case("programs: names stay in the program folder")
 async def _(t):
     a = t.a
-    for bad in ("x.txt", "x", "evil;rm.ngc", "a$b.ngc", ".ngc", "x.ngc.sh", "", "über\x00.ngc"):
-        t.refused(await a.call("program_save", name=bad, text="M2"), "the name %r" % bad, "file names")
-    t.ok(await a.call("program_save", name="../../escape.ngc", text="M2"), "a path: its base name only")
-    t.check(os.path.exists(os.path.join(t.dir, "nc_files", "escape.ngc")) and not os.path.exists(os.path.join(os.path.dirname(t.dir), "escape.ngc")),
-            "...saved in the program folder")
+    for bad in ("x.txt", "x", "evil;rm.ngc", "a$b.ngc", ".ngc", "x.ngc.sh", "", "über\x00.ngc", "../../escape.ngc", "a/../../x.ngc",
+                "/etc/x.ngc", ".hidden/x.ngc", "nc/../../x.ngc"):
+        t.refused(await a.call("program_save", name=bad, text="M2"), "the name %r" % bad)
+    t.check(not os.path.exists(os.path.join(os.path.dirname(t.dir), "escape.ngc")) and not os.path.exists(os.path.join(t.dir, "x.ngc")),
+            "nothing written outside the program folder")
     for good in ("A-b_c.1.NGC", "with space.nc", "x.tap", "y.gcode"):
         t.ok(await a.call("program_save", name=good, text="M2"), "the name %r" % good)
-    r = await a.call("program_get", name="/etc/passwd")
-    t.refused(r, "program_get of /etc/passwd", "file names")
+    t.refused(await a.call("program_get", name="/etc/passwd"), "program_get of /etc/passwd")
+    t.refused(await a.call("program_lines", name="../mill.ini"), "program_lines outside the folder")
+
+
+@case("programs: folders, rename, move, delete")
+async def _(t):
+    a = t.a
+    nc = os.path.join(t.dir, "nc_files")
+    mk = a.mark()
+    t.ok(await a.call("folder_create", name="jobs"), "new folder jobs")
+    t.ok(await a.call("folder_create", name="jobs/bracket"), "new folder jobs/bracket")
+    t.refused(await a.call("folder_create", name="jobs"), "the same folder again", "there already")
+    t.check(await a.until(lambda c: c.since(mk, lambda m: m["t"] == "files" and "jobs/bracket" in m.get("dirs", [])), 3), "files broadcast with the folders")
+    await t.upload("jobs/bracket/op1.ngc", "G0 X1 Y2 Z3\nG1 X21 F500\nM2")
+    pv = await t.load("jobs/bracket/op1.ngc")
+    t.check(pv and pv["name"] == "jobs/bracket/op1.ngc" and segs(pv)[-1][4] == 21, "a program in a folder: loaded, previewed under its path")
+    t.check(await a.until(lambda c: c.st["file"].endswith("nc_files/jobs/bracket/op1.ngc"), 3), "LinuxCNC has it open")
+    r = await a.call("program_lines", name="jobs/bracket/op1.ngc", start=2, count=1)
+    t.check(r.get("lines") == ["G1 X21 F500"], "its lines (%r)" % r.get("lines"))
+    t.refused(await a.call("program_rename", name="jobs/bracket/op1.ngc", to="op1.ngc"), "moving the loaded program", "loaded")
+    t.refused(await a.call("program_rename", name="jobs", to="old-jobs"), "renaming its folder", "loaded")
+    t.refused(await a.call("folder_delete", name="jobs/bracket"), "deleting a folder with programs", "isn't empty")
+    await t.upload("jobs/op2.ngc", "M2")
+    t.ok(await a.call("program_rename", name="jobs/op2.ngc", to="jobs/bracket/op2.ngc"), "move a program into a folder")
+    t.ok(await a.call("program_rename", name="jobs/bracket/op2.ngc", to="jobs/bracket/op2-final.ngc"), "rename it")
+    t.check(os.path.isfile(os.path.join(nc, "jobs", "bracket", "op2-final.ngc")) and not os.path.exists(os.path.join(nc, "jobs", "op2.ngc")), "on disk")
+    t.refused(await a.call("program_rename", name="jobs", to="jobs/bracket/inner"), "a folder into itself", "itself")
+    await t.load("bracket-op1.ngc")
+    t.ok(await a.call("program_rename", name="jobs", to="archive"), "rename the folder once its program isn't loaded")
+    t.check(os.path.isfile(os.path.join(nc, "archive", "bracket", "op1.ngc")), "the folder moved with its programs")
+    for f in ("archive/bracket/op1.ngc", "archive/bracket/op2-final.ngc"):
+        t.ok(await a.call("program_delete", name=f), "delete " + f)
+    t.ok(await a.call("folder_delete", name="archive/bracket"), "delete the empty folder")
+    t.ok(await a.call("folder_delete", name="archive"), "and its parent")
+    t.check(await a.until(lambda c: not [d for d in c.last("files").get("dirs", []) if d.startswith("archive")], 3), "files broadcast without them")
+    b = await t.open()
+    t.refused(await b.call("folder_create", name="x"), "a watching browser can't", "control")
 
 
 @case("programs: too large is refused; a bad program previews with its error")

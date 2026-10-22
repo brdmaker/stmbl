@@ -254,11 +254,76 @@ test("file page: the machine's programs, preflight, load, run with the cycle but
   await t.click("#b-stop");
   t.check(await M.until((s) => s.interp === "idle") && await t.until(() => document.getElementById("ch-run").textContent === "IDLE" || document.getElementById("ch-run").textContent === "DONE"), "Stop");
   await t.click("#gl-16");  // G0 Z5 after the pocket: a line it can start from
+  await t.ev(() => { window.evMark = events.length; });  // events are newest first
   await t.click("#b-runfrom");
   t.check(await logHas(t, "Cycle start from line 16"), "Run from N0016");
   t.check(await M.until((s) => s.run === "done", 90000), "...runs to the end");
-  t.check(await logHas(t, "Program finished") && !(await t.ev(() => events.some((e) => e.lvl === "bad"))), "finished without an error");
+  t.check(await logHas(t, "Program finished") && !(await t.ev(() => events.slice(0, events.length - window.evMark).some((e) => e.lvl === "bad"))), "finished without an error");
   t.check(await t.until(() => document.getElementById("ch-run").textContent === "DONE"), "DONE");
+});
+
+test("file page: upload, folders, rename and move, delete", async (t) => {
+  await take(t);
+  await t.nav("file");
+  const nc = (...p) => path.join(DIR, "nc_files", ...p);
+  const rows = () => t.ev(() => [...document.querySelectorAll("#files .file b")].map((b) => b.textContent));
+  const dlg = async (value, ok = true) => {  // answer the console's dialog
+    await t.page.waitForSelector("#dlg:not([hidden])");
+    if (value !== null) await t.page.fill("#dlg-in", value);
+    await t.click(ok ? '#dlg-form [type="submit"]' : "#dlg-cancel");
+  };
+  t.check(!(await t.hidden("#fl-tools")) && (await t.text("#fl-crumbs")) === "programs", "the tools, at the program folder");
+  // upload with the button
+  await t.page.setInputFiles("#fl-input", [{ name: "uploaded one.ngc", mimeType: "text/plain", buffer: Buffer.from("G0 X5 Y5 Z5\nG1 X15 F600\nM2\n") }]);
+  t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "uploaded one.ngc")), "uploaded: listed");
+  t.check(fs.readFileSync(nc("uploaded one.ngc"), "utf8").startsWith("G0 X5 Y5 Z5"), "on the machine");
+  t.check(await t.until(() => document.getElementById("fl-name").textContent === "uploaded one.ngc"), "selected, with its preflight");
+  // the same name again: asks first; Cancel keeps the old one
+  await t.page.setInputFiles("#fl-input", [{ name: "uploaded one.ngc", mimeType: "text/plain", buffer: Buffer.from("M2\n") }]);
+  await dlg(null, false);
+  await t.sleep(500);
+  t.check(fs.readFileSync(nc("uploaded one.ngc"), "utf8").startsWith("G0 X5"), "replace? Cancel: unchanged");
+  // too large, and not G-code
+  await t.page.setInputFiles("#fl-input", [{ name: "huge.ngc", mimeType: "text/plain", buffer: Buffer.alloc(7 * 1024 * 1024, 65) }]);
+  t.check(await t.msgHas("uploads stop at 6 MB"), "7 MB: refused, says why");
+  await t.page.setInputFiles("#fl-input", [{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") }]);
+  t.check(await t.msgHas("not a G-code program"), "a .txt: refused");
+  // a new folder, opened, a file dropped into it
+  await t.click("#fl-mkdir");
+  await dlg("jobs");
+  t.check(await t.until(() => [...document.querySelectorAll("#files .file.dir b")].some((b) => b.textContent === "jobs/")), "new folder jobs/");
+  await t.click('#files .file[data-dir="jobs"] [data-open]');
+  t.check(await t.until(() => document.getElementById("fl-crumbs").textContent === "programs/jobs"), "opened: programs/jobs");
+  await t.page.evaluate(() => {
+    const dt = new DataTransfer(); dt.items.add(new File(["G0 X1\nM2\n"], "dropped.ngc", { type: "text/plain" }));
+    document.getElementById("files").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "dropped.ngc")), "dropped into jobs/");
+  t.check(fs.existsSync(nc("jobs", "dropped.ngc")), "...on the machine");
+  // rename (it keeps its extension), then move it up
+  await t.click('#files .file[data-i] b');
+  await t.click("#fl-rename");
+  await dlg("jobs/renamed");
+  t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "renamed.ngc")), "renamed: renamed.ngc (the extension kept)");
+  await t.click("#fl-rename");
+  await dlg("moved.ngc");
+  t.check(await t.until(() => document.getElementById("fl-crumbs").textContent === "programs" && [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "moved.ngc")), "moved to the program folder; the page follows");
+  t.check(fs.existsSync(nc("moved.ngc")) && !fs.existsSync(nc("jobs", "renamed.ngc")), "...on disk");
+  // delete: asks; the empty folder too; the loaded program can't be
+  await t.click("#fl-delete");
+  await dlg(null);
+  t.check(await t.until(() => ![...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "moved.ngc")) && !fs.existsSync(nc("moved.ngc")), "deleted after asking");
+  await t.click('#files .file[data-dir="jobs"] b');
+  t.check(!(await t.page.isDisabled("#fl-delete")), "a folder selected");
+  await t.click("#fl-delete");
+  await dlg(null);
+  t.check(await t.until(() => !document.querySelector('#files .file[data-dir="jobs"]')) && !fs.existsSync(nc("jobs")), "the empty folder deleted");
+  await t.click('#files .file[data-i] b');
+  const loaded = await t.ev(() => prog.name);
+  await t.ev((n) => { const i = [...document.querySelectorAll("#files .file[data-i]")].findIndex((b) => b.querySelector("b").textContent === n); if (i >= 0) document.querySelectorAll("#files .file[data-i]")[i].click(); }, loaded);
+  await t.click("#fl-delete");
+  await dlg(null);
+  t.check(await t.msgHas("loaded"), `the loaded program (${loaded}) can't be deleted`);
 });
 
 test("wizard: its program is saved on the machine and loaded", async (t) => {

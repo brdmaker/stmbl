@@ -109,7 +109,7 @@ class Hub:
             await ws.send_json({"t": "slow", **self.slow_state})
         await ws.send_json(self.tools_msg())
         await ws.send_json(self.offsets_msg())
-        await ws.send_json({"t": "files", "files": self.m.programs()})
+        await ws.send_json(self.files_msg())
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -330,7 +330,8 @@ class Hub:
         return res
 
     async def op_files(self, c, m):
-        return {"files": self.m.programs()}
+        files, dirs = self.m.programs()
+        return {"files": files, "dirs": dirs}
 
     async def op_program_get(self, c, m):
         path = self.m._safe(m["name"])
@@ -352,22 +353,45 @@ class Hub:
         text = str(m.get("text", ""))
         if len(text) > 6 * 1024 * 1024:
             return "too large"
-        err = await self.run(self.m.cmd_program_save, m["name"], text)
+        err = await self.run(self.m.cmd_program_save, m["name"], text, bool(m.get("overwrite", True)))
         if not err:
-            self.event("ok", "Saved %s" % os.path.basename(m["name"]))
-            self.broadcast({"t": "files", "files": self.m.programs()})
+            self.event("ok", "Saved %s" % m["name"])
+            self.broadcast(self.files_msg())
         return err
 
     async def op_program_delete(self, c, m):
         err = await self.run(self.m.cmd_program_delete, m["name"])
         if not err:
-            self.broadcast({"t": "files", "files": self.m.programs()})
+            self.event("info", "Deleted %s" % m["name"])
+            self.broadcast(self.files_msg())
+        return err
+
+    async def op_program_rename(self, c, m):
+        """A program or a folder renamed or moved: {name, to}."""
+        err = await self.run(self.m.cmd_rename, m["name"], m["to"])
+        if not err:
+            self.event("info", "Renamed %s to %s" % (m["name"], m["to"]))
+            self.broadcast(self.files_msg())
+        return err
+
+    async def op_folder_create(self, c, m):
+        err = await self.run(self.m.cmd_folder_create, m["name"])
+        if not err:
+            self.event("info", "New folder %s" % m["name"])
+            self.broadcast(self.files_msg())
+        return err
+
+    async def op_folder_delete(self, c, m):
+        err = await self.run(self.m.cmd_folder_delete, m["name"])
+        if not err:
+            self.event("info", "Deleted folder %s" % m["name"])
+            self.broadcast(self.files_msg())
         return err
 
     async def op_program_load(self, c, m):
         err = await self.run(self.m.cmd_program_load, m["name"])
         if not err:
-            self.event("ok", "Loaded %s" % os.path.basename(m["name"]))
+            self.event("ok", "Loaded %s" % m["name"])
             # its preview, also when it is the same file again (edited on disk since?)
             self.program_file = self.m._safe(m["name"])
             asyncio.ensure_future(self.send_preview(self.program_file))
@@ -377,6 +401,10 @@ class Hub:
         return await self.run(self.m.cmd_pcomp, m["k"], m["v"])
 
     # ------------------------------------------------------------ data
+    def files_msg(self):
+        files, dirs = self.m.programs()
+        return {"t": "files", "files": files, "dirs": dirs}
+
     def tools_msg(self):
         return {"t": "tools", "tools": self.m.tools()}
 
@@ -471,7 +499,7 @@ class Hub:
             lines, n = await loop.run_in_executor(self.ppool, self.read_lines, path, 1, 2000)
         except OSError:
             lines, n = [], 0
-        msg = {"t": "program", "name": os.path.basename(path), "path": path, "lines": lines, "line0": 1, "nlines": n,
+        msg = {"t": "program", "name": self.m.relpath(path), "path": path, "lines": lines, "line0": 1, "nlines": n,
                "error": head["error"], "truncated": head["truncated"], "stats": head["stats"], "start": head["start"],
                "wcs": self.state.get("wcs", 0), "seconds": head.get("seconds")}
         return json.dumps(msg, separators=(",", ":"))[:-1] + ',"path":' + ptext + "}", msg
@@ -564,10 +592,11 @@ class Hub:
                     self.control = None
                     self.broadcast({"t": "control", "holder": None})
                     self.event("warn", "Remote control switched off at the machine")
-                fs = json.dumps(self.m.programs())
+                fm = self.files_msg()
+                fs = json.dumps(fm)
                 if fs != self.files_sig:
                     self.files_sig = fs
-                    self.broadcast({"t": "files", "files": json.loads(fs)})
+                    self.broadcast(fm)
                 try:
                     ts = os.path.getmtime(self.m.tool_file)
                 except OSError:

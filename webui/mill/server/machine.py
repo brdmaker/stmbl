@@ -640,32 +640,73 @@ class Machine:
         self.mdi("G90", wait=True)
         return res
 
-    # programs
-    def _safe(self, name):
-        base = os.path.basename(str(name))
-        if not re.match(r"^[\w.\- ]+\.(ngc|nc|tap|gcode)$", base, re.I):
-            raise ValueError("file names: letters, digits, . _ - and an .ngc / .nc / .tap / .gcode extension")
-        return os.path.join(self.nc_dir, base)
+    # programs: paths relative to the program folder ("parts/op1.ngc"), in it only
+    PART = re.compile(r"^[\w\- ][\w.\- ]*$")  # a file or folder name: no "..", nothing hidden
+    PROGRAM = re.compile(r"\.(ngc|nc|tap|gcode)$", re.I)
+    MAX_DEPTH, MAX_ENTRIES = 8, 5000
+
+    def _safe(self, name, folder=False):
+        """The absolute path of a program (or, folder=True, a folder; "" is the
+        program folder itself), from its path in the program folder."""
+        rel = str(name).replace("\\", "/").strip("/")
+        parts = [p for p in rel.split("/") if p] if rel else []
+        if not folder and not parts:
+            raise ValueError("no program name")
+        if len(parts) > self.MAX_DEPTH or any(not self.PART.match(p) or len(p) > 120 for p in parts):
+            raise ValueError("names: letters, digits, space . _ - (not starting with a dot), folders separated by /")
+        if not folder and not self.PROGRAM.search(parts[-1]):
+            raise ValueError("programs end in .ngc, .nc, .tap or .gcode")
+        root = os.path.realpath(self.nc_dir)
+        full = os.path.join(root, *parts)
+        real = os.path.realpath(full)
+        if real != root and not real.startswith(root + os.sep):
+            raise ValueError("outside the program folder")
+        return full
+
+    def relpath(self, path):
+        """A path's name in the program folder, or its base name when it is elsewhere."""
+        root = os.path.realpath(self.nc_dir)
+        real = os.path.realpath(path)
+        return os.path.relpath(real, root).replace(os.sep, "/") if real.startswith(root + os.sep) else os.path.basename(path)
 
     def programs(self):
-        out = []
-        try:
-            for n in sorted(os.listdir(self.nc_dir)):
-                p = os.path.join(self.nc_dir, n)
-                if os.path.isfile(p) and re.search(r"\.(ngc|nc|tap|gcode)$", n, re.I):
-                    st = os.stat(p)
-                    out.append({"name": n, "size": st.st_size, "mtime": int(st.st_mtime)})
-        except OSError:
-            pass
-        return out
+        """Every program in the program folder and its folders (hidden ones and
+        links out of it left out): files [{name, size, mtime}], dirs [name]."""
+        files, dirs = [], []
+        root = os.path.realpath(self.nc_dir)
+        for top, dnames, fnames in os.walk(root):
+            depth = 0 if top == root else os.path.relpath(top, root).count(os.sep) + 1
+            dnames[:] = sorted(d for d in dnames if self.PART.match(d) and depth < self.MAX_DEPTH
+                               and os.path.realpath(os.path.join(top, d)).startswith(root + os.sep))
+            rel = "" if top == root else os.path.relpath(top, root).replace(os.sep, "/") + "/"
+            dirs += [rel + d for d in dnames]
+            for n in sorted(fnames):
+                if self.PART.match(n) and self.PROGRAM.search(n):
+                    try:
+                        st = os.stat(os.path.join(top, n))
+                    except OSError:
+                        continue
+                    files.append({"name": rel + n, "size": st.st_size, "mtime": int(st.st_mtime)})
+            if len(files) + len(dirs) > self.MAX_ENTRIES:
+                break
+        return files, dirs
 
     def program_text(self, name):
         with open(self._safe(name), errors="replace") as f:
             return f.read()
 
-    def cmd_program_save(self, name, text):
+    def _loaded(self):
+        self.ws.poll()
+        return os.path.realpath(self.ws.file) if self.ws.file else None
+
+    def cmd_program_save(self, name, text, overwrite=True):
         p = self._safe(name)
-        os.makedirs(self.nc_dir, exist_ok=True)
+        if not os.path.isdir(os.path.dirname(p)):
+            if os.path.dirname(p) != os.path.realpath(self.nc_dir):
+                return "no such folder"
+            os.makedirs(self.nc_dir, exist_ok=True)
+        if not overwrite and os.path.exists(p):
+            return "a program of that name is there already"
         with open(p + ".tmp", "w") as f:
             f.write(text if text.endswith("\n") else text + "\n")
         os.replace(p + ".tmp", p)
@@ -673,10 +714,52 @@ class Machine:
 
     def cmd_program_delete(self, name):
         p = self._safe(name)
-        self.ws.poll()
-        if self.ws.file and os.path.abspath(self.ws.file) == os.path.abspath(p):
+        if self._loaded() == os.path.realpath(p):
             return "that program is loaded"
+        if not os.path.isfile(p):
+            return "no such program"
         os.remove(p)
+        return None
+
+    def cmd_rename(self, name, to):
+        """A program or a folder to a new name or place (in the program folder);
+        a program keeps a program's extension."""
+        folder = os.path.isdir(self._safe(name, folder=True))
+        src, dst = self._safe(name, folder), self._safe(to, folder)
+        if src == os.path.realpath(self.nc_dir):
+            return "not the program folder itself"
+        if not os.path.exists(src):
+            return "no such " + ("folder" if folder else "program")
+        if os.path.exists(dst):
+            return "%s is there already" % to
+        if not os.path.isdir(os.path.dirname(dst)):
+            return "no such folder: %s" % os.path.dirname(str(to))
+        if folder and (dst + os.sep).startswith(os.path.realpath(src) + os.sep):
+            return "not into itself"
+        loaded = self._loaded()
+        if loaded and (loaded == os.path.realpath(src) or loaded.startswith(os.path.realpath(src) + os.sep)):
+            return "the loaded program is " + ("in it" if folder else "that one")
+        os.rename(src, dst)
+        return None
+
+    def cmd_folder_create(self, name):
+        p = self._safe(name, folder=True)
+        if os.path.exists(p):
+            return "%s is there already" % name
+        if not os.path.isdir(os.path.dirname(p)):
+            return "no such folder: %s" % os.path.dirname(str(name))
+        os.mkdir(p)
+        return None
+
+    def cmd_folder_delete(self, name):
+        p = self._safe(name, folder=True)
+        if p == os.path.realpath(self.nc_dir):
+            return "not the program folder itself"
+        if not os.path.isdir(p):
+            return "no such folder"
+        if os.listdir(p):
+            return "the folder isn't empty"
+        os.rmdir(p)
         return None
 
     def cmd_program_load(self, name):

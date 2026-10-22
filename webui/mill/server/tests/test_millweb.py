@@ -232,8 +232,8 @@ class Protocol(Base):
         self.assertFalse(r["ok"])
         # programs
         r = await self.call(ws, "program_save", name="../evil.ngc", text="M2")
-        self.assertTrue(r["ok"])  # the name is reduced to its base name, inside NC_DIR
-        self.assertTrue(os.path.exists(os.path.join(self.d, "nc", "evil.ngc")))
+        self.assertFalse(r["ok"])  # no way out of NC_DIR
+        self.assertFalse(os.path.exists(os.path.join(self.d, "evil.ngc")))
         r = await self.call(ws, "program_save", name="x.sh", text="M2")
         self.assertFalse(r["ok"])
         self.assertTrue((await self.call(ws, "program_save", name="b.ngc", text="G0 X5\nM2"))["ok"])
@@ -300,6 +300,51 @@ class Protocol(Base):
         self.assertEqual(lc.M.mdi_log[i - 2:i], ["G55", "G54"])  # another system, then the startup one
         self.assertEqual(lc.M.g5x_index, 1)
         await self.until(ws, lambda m: m["t"] == "ev" and "re-read (G54)" in m["text"])
+        await ws.close()
+
+    async def test_folders_rename_delete(self):
+        ws = await self.client()
+        await self.ready(ws)
+        nc = os.path.join(self.d, "nc")
+        ok = lambda r: self.assertTrue(r["ok"], r)  # noqa: E731
+        ok(await self.call(ws, "folder_create", name="parts"))
+        ok(await self.call(ws, "folder_create", name="parts/bracket"))
+        self.assertIn("no such folder", (await self.call(ws, "folder_create", name="nope/x"))["err"])
+        ok(await self.call(ws, "program_save", name="parts/bracket/op1.ngc", text="G0 X1\nM2"))
+        self.assertIn("no such folder", (await self.call(ws, "program_save", name="nope/a.ngc", text="M2"))["err"])
+        self.assertIn("there already", (await self.call(ws, "program_save", name="parts/bracket/op1.ngc", text="M2", overwrite=False))["err"])
+        r = await self.call(ws, "files")
+        self.assertIn("parts/bracket/op1.ngc", [f["name"] for f in r["files"]])
+        self.assertEqual(r["dirs"], ["parts", "parts/bracket"])
+        # a program in a folder: get, load, its preview named by its path
+        self.assertEqual((await self.call(ws, "program_get", name="parts/bracket/op1.ngc"))["program"]["name"], "parts/bracket/op1.ngc")
+        ok(await self.call(ws, "program_load", name="parts/bracket/op1.ngc"))
+        # rename and move; not the loaded one, nor its folder
+        self.assertIn("loaded", (await self.call(ws, "program_rename", name="parts/bracket/op1.ngc", to="parts/op1.ngc"))["err"])
+        self.assertIn("loaded", (await self.call(ws, "program_rename", name="parts", to="jobs"))["err"])
+        ok(await self.call(ws, "program_save", name="parts/op2.ngc", text="M2"))
+        ok(await self.call(ws, "program_rename", name="parts/op2.ngc", to="parts/bracket/op2-new.ngc"))
+        self.assertTrue(os.path.exists(os.path.join(nc, "parts", "bracket", "op2-new.ngc")))
+        self.assertIn("there already", (await self.call(ws, "program_rename", name="a.ngc", to="parts/bracket/op2-new.ngc"))["err"])
+        self.assertIn("into itself", (await self.call(ws, "program_rename", name="parts", to="parts/bracket/x"))["err"])
+        lc.M.file = ""  # nothing loaded
+        ok(await self.call(ws, "program_rename", name="parts", to="jobs"))
+        self.assertTrue(os.path.isdir(os.path.join(nc, "jobs", "bracket")))
+        # delete: a program; a folder only when empty
+        self.assertIn("isn't empty", (await self.call(ws, "folder_delete", name="jobs/bracket"))["err"])
+        ok(await self.call(ws, "program_delete", name="jobs/bracket/op1.ngc"))
+        ok(await self.call(ws, "program_delete", name="jobs/bracket/op2-new.ngc"))
+        ok(await self.call(ws, "folder_delete", name="jobs/bracket"))
+        self.assertFalse(os.path.exists(os.path.join(nc, "jobs", "bracket")))
+        self.assertIn("not the program folder", (await self.call(ws, "folder_delete", name=""))["err"])
+        # nothing outside the program folder, nothing hidden
+        for bad in ("../x.ngc", "a/../../x.ngc", "/etc/x.ngc", ".hidden.ngc", "jobs/.git/x.ngc", "a\\..\\..\\x.ngc"):
+            self.assertFalse((await self.call(ws, "program_save", name=bad, text="M2"))["ok"], bad)
+        for bad in ("..", "../outside", ".git", "jobs/../.."):
+            self.assertFalse((await self.call(ws, "folder_create", name=bad))["ok"], bad)
+        os.symlink("/tmp", os.path.join(nc, "link"))  # a link out of the folder: not followed
+        self.assertIn("outside", (await self.call(ws, "program_save", name="link/x.ngc", text="M2"))["err"])
+        self.assertNotIn("link", (await self.call(ws, "files"))["dirs"])
         await ws.close()
 
     async def test_tool_zero_unloads(self):
