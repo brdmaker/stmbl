@@ -12,6 +12,8 @@ loadrt sum2 names=tipz
 loadrt wcomp names=probez,probing
 loadrt conv_s32_float names=mtype
 loadrt and2 names=probe-and
+# home switches for the simulated joints (they move to them when homing)
+loadrt sim_home_switch names=y1home,y2home,zhome
 
 setp hm2_[HOSTMOT2](BOARD).0.watchdog.timeout_ns 50000000
 
@@ -25,6 +27,9 @@ addf probez                        servo-thread
 addf mtype                         servo-thread
 addf probing                       servo-thread
 addf probe-and                     servo-thread
+addf y1home                        servo-thread
+addf y2home                        servo-thread
+addf zhome                         servo-thread
 
 # X: the real drive
 net xposcmd joint.0.motor-pos-cmd  => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.pos_cmd
@@ -32,11 +37,21 @@ net xvelcmd joint.0.vel-cmd        => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.vel_cmd
 net xposfb  joint.0.motor-pos-fb  <=  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.pos_fb
 net xenable joint.0.amp-enable-out => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.enable
 net xfault  joint.0.amp-fault-in  <=  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.fault
+# homing: X creeps to the encoder's index (HOME_USE_INDEX, the drive's idx_home)
+net xindex  joint.0.index-enable  <=> hm2_[HOSTMOT2](BOARD).0.stbl.0.0.index_enable
 
 # Y, Y2, Z: simulated
-net j1 joint.1.motor-pos-cmd => joint.1.motor-pos-fb
-net j2 joint.2.motor-pos-cmd => joint.2.motor-pos-fb
-net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb tipz.in0
+net j1 joint.1.motor-pos-cmd => joint.1.motor-pos-fb y1home.cur-pos
+net j2 joint.2.motor-pos-cmd => joint.2.motor-pos-fb y2home.cur-pos
+net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb tipz.in0 zhome.cur-pos
+# the switches, in the joints' raw positions (0 at start-up): Y1/Y2 50 mm
+# and Z 20 mm away in the search direction ([JOINT_n]HOME_* in mill.ini)
+setp y1home.home-pos 50
+setp y2home.home-pos 50
+setp zhome.home-pos 20
+net y1home-sw y1home.home-sw => joint.1.home-sw-in
+net y2home-sw y2home.home-sw => joint.2.home-sw-in
+net zhome-sw  zhome.home-sw  => joint.3.home-sw-in
 
 # the probe: the tool tip (joint Z less the tool length offset) below Z -195
 # during a probe move (motion type 5)
