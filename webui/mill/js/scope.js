@@ -20,8 +20,9 @@ try { views = JSON.parse(localStorage.getItem("pmc.views") || "[]"); } catch (e)
 function debugTab(t) {
   dbgTab = t;
   $$("#dbg-tab button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
-  $("dbg-hal").hidden = t !== "hal"; $("dbg-scope").hidden = t !== "scope";
+  $("dbg-hal").hidden = t !== "hal"; $("dbg-scope").hidden = t !== "scope"; $("dbg-drives").hidden = t !== "drives";
   if (t === "scope") { renderScopeSide(); requestAnimationFrame(drawScope); }
+  if (t === "drives") drvEnter(); else if (typeof drvLeave === "function") drvLeave();
 }
 $("dbg-tab").addEventListener("click", (e) => { const b = e.target.closest("button[data-t]"); if (b) debugTab(b.dataset.t); });
 

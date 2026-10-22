@@ -5,6 +5,7 @@
 #   make test-backend   the protocol case by case against real LinuxCNC (test/sim; ~7 min)
 #   make test-gui-live  the console on real LinuxCNC through its own controls (~3 min)
 #   make test-live      the end-to-end scenario: protocol, then the page (~1 min)
+#   make test-drive     the Drives tab: backend and page with a simulated stmbl drive on X (~1 min)
 #   make test-stress    large programs (a million lines ...) through every layer (~10 min)
 #   make check-all      all of them
 #
@@ -41,6 +42,11 @@ ifdef REMOTE
 else
 	python3 test/harness.py -- node test/gui/live_suite.js $(SEL)
 endif
+
+# the Debug page's drives against LinuxCNC with a simulated stmbl drive on X (harness.py --drive)
+test-drive:
+	python3 test/backend_suite.py -k drive
+	python3 test/harness.py --drive -- node test/gui/live_suite.js -k drive -k connects
 
 test-live:
 	python3 test/run_live.py --browser

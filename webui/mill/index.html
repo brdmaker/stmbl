@@ -255,6 +255,26 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .sc-chan .r label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-faint); flex: 1; min-width: 0; }
 .sc-chan .r input, #sc-add { width: 100%; min-width: 0; background: var(--panel); border: 1px solid var(--line-hi); border-radius: 4px; padding: 3px 6px; font: 12px var(--f-mono); color: var(--ink); }
 #sc-ch .note { margin: 0; }
+.drv-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 8px; min-height: 0; flex: 1; }
+.drv-cards { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; }
+.drv-card { flex-shrink: 0; }
+.drv-card .h { display: flex; align-items: center; gap: 6px; }
+.drv-card .h b { font: 600 15px var(--f-head, var(--f-body)); letter-spacing: .04em; margin-right: auto; }
+.drv-card .fw { font: 11px var(--f-mono); color: var(--ink-faint); margin: 2px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drv-card .fault { color: var(--stop); font-weight: 600; margin: 4px 0; }
+.drv-card .lastf { color: var(--warn); font-size: 12px; margin: 4px 0; }
+.drv-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 10px; margin: 6px 0; }
+.drv-card dt { font-size: 10px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .06em; }
+.drv-card dd { margin: 0; font: 13px var(--f-mono); }
+.drv-card .ft { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-faint); }
+.drv-card .ft span { margin-right: auto; }
+.drv-card.sel { border-color: var(--accent); }
+.drv-con { min-height: 0; }
+.drv-out { flex: 1; min-height: 260px; max-height: 60vh; overflow: auto; margin: 0; padding: 8px 10px; background: #05080c; border: 1px solid var(--line); border-radius: 4px; font: 12px/1.45 var(--f-mono); white-space: pre-wrap; word-break: break-all; color: var(--ink); }
+.drv-out .u { color: var(--accent); } .drv-out .e { color: var(--stop); } .drv-out .w { color: var(--warn); }
+#dc-in { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--line-hi); border-radius: 4px; padding: 5px 8px; font: 12px var(--f-mono); color: var(--ink); }
+.drv-quick { flex-wrap: wrap; gap: 4px; }
+@media (max-width: 1100px) { .drv-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1100px) { .scope-grid { grid-template-columns: minmax(0, 1fr); } }
 .hal-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; min-height: 0; flex: 1; }
 .hal-grid > .panel { min-height: 0; }
@@ -579,7 +599,7 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
     <!-- DEBUG: HAL (halshow, halmeter), the scope (halscope), saved views -->
     <section class="page-pane" id="p-debug" hidden>
       <div class="panel dbg-bar">
-        <div class="seg" id="dbg-tab" role="tablist"><button data-t="hal" aria-pressed="true">HAL</button><button data-t="scope" aria-pressed="false">Scope</button></div>
+        <div class="seg" id="dbg-tab" role="tablist"><button data-t="hal" aria-pressed="true">HAL</button><button data-t="scope" aria-pressed="false">Scope</button><button data-t="drives" aria-pressed="false">Drives</button></div>
         <span class="dbg-label">Views</span>
         <div class="dbg-views" id="dbg-views"></div>
         <button class="btn sm" id="dbg-save" title="The watch list and the scope's set-up, under a name, for every browser">Save view</button>
@@ -601,6 +621,19 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
           <div class="hal-detail" id="hal-detail"></div>
         </div>
       </div>
+      </div>
+      <div class="dbg-tab drv-grid" id="dbg-drives" hidden>
+        <div class="drv-cards" id="drv-cards"></div>
+        <div class="panel drv-con">
+          <h2>Console <small id="dc-name">—</small><span class="pill off" id="dc-mode" style="margin-left:auto">READING</span></h2>
+          <pre class="drv-out" id="dc-out" aria-live="polite"></pre>
+          <form class="row" id="dc-form" autocomplete="off">
+            <input id="dc-in" placeholder="a command or a pin: about, showconf, fault0.dc_volt …" maxlength="63" spellcheck="false" aria-label="Drive command">
+            <button class="btn sm accent" type="submit">Send</button>
+          </form>
+          <div class="row drv-quick" id="dc-quick"><button class="btn sm" data-c="about">about</button><button class="btn sm" data-c="fault0">fault0</button><button class="btn sm" data-c="showconf">showconf</button><button class="btn sm" data-c="list">list</button><button class="btn sm" data-c="uptime">uptime</button><button class="btn sm" id="dc-clear" title="Clear this screen">Clear</button></div>
+          <p class="note" id="dc-note">The drive's console as over USB, through its smart-serial link (about 1 kB/s): reading for everyone; setting pins and commands with control and <code>[MILLWEB] DRIVE_WRITE = yes</code>. ↑/↓: history.</p>
+        </div>
       </div>
       <div class="dbg-tab scope-grid" id="dbg-scope" hidden>
         <div class="panel scope-main">
@@ -796,6 +829,7 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 <script src="js/setup3d.js"></script>
 <script src="js/hal.js"></script>
 <script src="js/scope.js"></script>
+<script src="js/drives.js"></script>
 <script src="js/live.js"></script>
 
 </body>

@@ -68,7 +68,8 @@ test("connects: LIVE, the machine's name, tables from the INI", async (t) => {
   await t.nav("stat");
   t.check(await t.until(() => document.querySelectorAll("#pins tbody tr").length === 5 && document.getElementById("lpin-0").textContent !== "—"), "the INI's five pins, with values");
   await t.nav("dyn");
-  t.check((await t.text("#drv-t")).includes("No drives configured"), "no drives configured");
+  const nd = (M.hello.machine.drives || []).length;  // the test machine has none; with harness.py --drive, X
+  t.check(nd ? await t.until((n) => document.querySelectorAll("#drv-t tbody tr").length === n, nd) : (await t.text("#drv-t")).includes("No drives configured"), nd ? "the configured drives" : "no drives configured");
   t.check(await t.until(() => document.getElementById("pc-pill").textContent === "NOT LOADED"), "pcomp: not loaded");
   await t.nav("tool");
   t.check(await t.ev(() => st.tools.map((x) => x.t).join(",") === "1,3,5,12,99"), "the machine's tool table");
@@ -533,6 +534,34 @@ test("Debug page, scope: a jog captured on a trigger; a view shared with another
   } finally { await p2.close(); }
   await t.click('#dbg-views [data-vdel="0"]'); await t.click('#dlg-form [type=submit]');
   t.check(await t.until(() => views.length === 0), "deleted");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Debug page, drives: the simulated drive on X, its card through a move and a stop, its console", async (t) => {
+  if (!(M.hello.machine.drive_links || []).length) return t.skip("no drive on this machine (make test-gui-drive runs it with one)");
+  await take(t);
+  await t.nav("debug");
+  await t.click('#dbg-tab button[data-t="drives"]');
+  const card = '.drv-card[data-n="X"]';
+  t.check(await t.until((c) => document.querySelector(c) && /ENABLED/.test(document.querySelector(c + ' [data-k="state"]').textContent) && /LINK OK/.test(document.querySelector(c + ' [data-k="link"]').textContent), card, 15000), "X: ENABLED, link ok");
+  t.check(await t.until((c) => /STMBL/.test(document.querySelector(c + " .fw").textContent) && /^\d{3} V$/.test(document.querySelector(c + ' [data-k="dc"]').textContent), card, 10000), `firmware and bus: ${await t.text(card + " .fw")}, ${await t.text(card + ' [data-k="dc"]')}`);
+  t.check((await t.text("#dc-mode")) === "READING", "the console: reading only (DRIVE_WRITE off)");
+  await t.page.fill("#dc-in", "fault0.dc_volt"); await t.page.press("#dc-in", "Enter");
+  t.check(await t.until(() => /fault0\.dc_volt <= hv0\.dc_volt = \d+/.test(document.getElementById("dc-out").textContent), null, 8000), "a pin read over the smart-serial console");
+  await t.page.fill("#dc-in", "conf0.max_vel = 1"); await t.page.press("#dc-in", "Enter");
+  t.check(await t.until(() => /! only reading/.test(document.getElementById("dc-out").textContent)), "a write: refused, said in the console");
+  // a stop from the machine: the card follows, the drive's message in the log
+  await t.click("#b-power");
+  t.check(await t.until((c) => /DISABLED/.test(document.querySelector(c + ' [data-k="state"]').textContent), card, 10000), "machine off: DISABLED");
+  t.check(await logHas(t, "Drive X: Disabled", 8000), "the drive's own message in the event log");
+  // another browser sees the same console
+  const p2 = await t.ctx.browser().newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await p2.goto(BASE + "#debug");
+    await p2.waitForFunction(() => typeof dbgTab !== "undefined" && st.page === "debug", null, { timeout: 15000 });
+    await p2.click('#dbg-tab button[data-t="drives"]');
+    t.check(await p2.waitForFunction(() => /fault0\.dc_volt <= hv0/.test(document.getElementById("dc-out").textContent), null, { timeout: 10000 }).then(() => true, () => false), "another browser: the console so far");
+  } finally { await p2.close(); }
   t.check(t.errors.length === 0, "no script errors");
 });
 

@@ -2,12 +2,17 @@
 """LinuxCNC with millweb for the test suites: a copy of test/sim in a
 temporary directory, started headless, stopped by stopping millweb.
 
-    python3 harness.py [--ini-set SECTION.KEY=VALUE ...] [--keep] -- CMD ARGS...
+    python3 harness.py [--ini-set SECTION.KEY=VALUE ...] [--keep] [--drive] -- CMD ARGS...
     python3 harness.py --serve [--port 8080] [--stress-files]     (for suites run from another computer)
 
 runs CMD in LinuxCNC's environment with MILLWEB_PORT (and MILLWEB_DIR, the
 config's directory) and exits with its status. As a module: `with Machine() as m:`
 gives m.port and m.dir. Runs as a non-root user (rtapi_app refuses root).
+
+--drive (Machine(drive=True)): a simulated stmbl drive on X (test/sim-drive:
+stmbl_sim closing joint 0's loop, its console through sserialterm), with
+[MILLWEB] DRIVE_LINK set; needs stmbl_sim.so and sserialterm.so (make -C
+host/lcnc all install, make -C linuxcnc/sserialterm all install).
 """
 import argparse
 import os
@@ -86,8 +91,13 @@ def millweb_pids():
 
 
 class Machine:
-    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1"):
-        self.ini_set, self.keep, self.hal_extra = list(ini_set), keep, hal_extra
+    # the simulated drive's X: slower than the test machine's (the drive's
+    # motor tops out at ~500 mm/s), and room for autophasing at enable
+    DRIVE_INI = ["JOINT_0.MAX_VELOCITY=200", "JOINT_0.MAX_ACCELERATION=1500", "JOINT_0.FERROR=5", "JOINT_0.MIN_FERROR=2.5",
+                 "AXIS_X.MAX_VELOCITY=200", "AXIS_X.MAX_ACCELERATION=1500"]
+
+    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False):
+        self.ini_set, self.keep, self.hal_extra, self.drive = list(ini_set), keep, hal_extra, drive
         self.port = port or free_port()
         self.host = host
         self.dir = None
@@ -102,6 +112,12 @@ class Machine:
         shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
         p = os.path.join(self.dir, "mill.ini")
         ini = open(p).read()
+        ini_set, hal_extra = list(self.ini_set), self.hal_extra
+        if self.drive:
+            shutil.copytree(os.path.join(HERE, "sim-drive"), self.dir, dirs_exist_ok=True)
+            hal_extra += "\n" + open(os.path.join(self.dir, "drive.hal")).read().replace("@DIR@", self.dir)
+            ini_set = self.DRIVE_INI + ["MILLWEB.DRIVE=X stmbl-sim.0.current stmbl-sim.0.power stmbl-sim.0.fault",
+                                        "MILLWEB.DRIVE_LINK=X %s/drive-x stmbl-sim.0" % self.dir] + ini_set
         # millweb through a wrapper that keeps its output (LinuxCNC's own log
         # file is deleted when it exits)
         wrap = os.path.join(self.dir, "millweb-display")
@@ -111,14 +127,14 @@ class Machine:
         ini = set_ini(ini, "DISPLAY", "DISPLAY", wrap)
         ini = set_ini(ini, "MILLWEB", "PORT", str(self.port))
         ini = set_ini(ini, "MILLWEB", "HOST", self.host)
-        for item in self.ini_set:
+        for item in ini_set:
             k, v = item.split("=", 1)
             sec, key = k.split(".", 1)
             ini = set_ini(ini, sec, key, v)
         open(p, "w").write(ini)
-        if self.hal_extra:
+        if hal_extra:
             with open(os.path.join(self.dir, "mill.hal"), "a") as f:
-                f.write("\n" + self.hal_extra + "\n")
+                f.write("\n" + hal_extra + "\n")
         sh = RIP + "cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1" % self.dir
         self.proc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
         t = time.time() + 90
@@ -178,7 +194,7 @@ def serve(a):
     stop = []
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *x: stop.append(1))
-    with Machine(a.ini_set, a.keep, port=a.port, host="0.0.0.0") as m:
+    with Machine(a.ini_set, a.keep, port=a.port, host="0.0.0.0", drive=a.drive) as m:
         if a.stress_files:  # written here, so nothing big goes over the network
             import stress_suite
             print("writing the stress suite's programs ...", flush=True)
@@ -198,6 +214,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ini-set", action="append", default=[], help="SECTION.KEY=VALUE in the test INI")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--drive", action="store_true", help="a simulated stmbl drive on X, its console through sserialterm")
     ap.add_argument("--serve", action="store_true", help="serve the test machine on the network for suites run elsewhere")
     ap.add_argument("--port", type=int, default=8080, help="--serve's port")
     ap.add_argument("--stress-files", action="store_true", help="--serve: write the stress suite's programs too")
@@ -208,7 +225,7 @@ def main():
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
     if not cmd:
         ap.error("a command to run: -- CMD ARGS (or --serve)")
-    with Machine(a.ini_set, a.keep) as m:
+    with Machine(a.ini_set, a.keep, drive=a.drive) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
         env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
         rc = subprocess.run(cmd, env=env).returncode

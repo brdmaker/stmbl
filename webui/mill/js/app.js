@@ -244,7 +244,7 @@ const pages = [
 $("nav").innerHTML = pages.map(([id, l, icon]) => `<button data-p="${id}" aria-current="${id === "main" ? "page" : "false"}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>${l}${id === "stat" ? '<span class="badge" id="nav-stat-badge"></span>' : ""}</button>`).join("");
 const paneIds = { main: "p-main", file: "p-file", wiz: "p-wiz", off: "p-off", tool: "p-tool", probe: "p-probe", dyn: "p-dyn", stat: "p-stat", debug: "p-debug", set: "p-set" };
 function showPage(id) {
-  if (st.page === "debug" && id !== "debug" && typeof halSrc === "function") halSrc().watch([]);  // the watch list streams only while seen; a running scope goes on (arm it, go and jog, come back)
+  if (st.page === "debug" && id !== "debug" && typeof halSrc === "function") { halSrc().watch([]); drvLeave(); }  // the watch list and a drive's console stream only while seen; a running scope goes on (arm it, go and jog, come back)
   st.page = id;
   $$("#nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.p === id ? "page" : "false"));
   for (const [k, v] of Object.entries(paneIds)) $(v).hidden = k !== id;

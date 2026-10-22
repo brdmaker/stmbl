@@ -59,6 +59,8 @@ PROFILES = {
     "hold": dict(ini_set=["MILLWEB.ON_CONTROL_LOSS=hold"]),
     "token": dict(ini_set=["MILLWEB.TOKEN=s3cret"]),
     "halwrite": dict(ini_set=["MILLWEB.HAL_WRITE=yes"]),
+    "drive": dict(drive=True),
+    "drivewrite": dict(drive=True, ini_set=["MILLWEB.DRIVE_WRITE=yes"]),
     "remote": dict(ini_set=["MILLWEB.REMOTE_ENABLE_PIN=remote-key.in0", "MILLWEB.AIR_PIN=air.in0"],
                    hal_extra="loadrt or2 names=remote-key,air\nsetp remote-key.in0 1"),
 }
@@ -924,7 +926,7 @@ async def _(t):
     r = await a.call("probe", kind="z", travel=20, feed=300)
     t.check(r["ok"] and near(r["mach"][2], -195, 0.01), "touched at machine Z -195 (%s)" % r.get("mach", r.get("err")))
     t.check(await a.until(lambda c: near(c.st["pos"], [60, 40, 5], 0.01) and c.st["interp"] == "idle", 5), "backs off to the clearance above the trip point (Z %.4f)" % a.st["pos"][2])
-    t.check(a.ev(mk, "Probe: machine Z -195") is not None, "event")
+    t.check(await a.until(lambda c: c.ev(mk, "Probe: machine Z -195") is not None, 3), "event")  # it may come just after the reply
     await a.call("tool_load", t=5)
     await a.until(lambda c: c.st["tool"] == 5, 5)
     await t.mdi("G0 Z8")
@@ -1047,6 +1049,102 @@ async def _(t):
     await c.until(lambda c: any(x["t"] == "views" for x in c.msgs), 3)
     t.check(any(x["t"] == "views" and x["views"] == v for x in c.msgs), "and a new browser at hello")
     t.ok(await b.call("views_save", views=[]), "a watching browser may change them (they don't move the machine)")
+
+
+def drv(c, name="X"):
+    m = c.last("drv")
+    return next((d for d in m["drives"] if d["n"] == name), None) if m else None
+
+
+def douts(c, mark, name="X"):
+    return "".join(m["text"] for m in c.msgs[mark:] if m["t"] == "dout" and m["n"] == name)
+
+
+@case("drive: the card (state, fault, bus, temperatures, process data), the console for every browser, reading only", profile="drive")
+async def _(t):
+    a = t.a
+    t.check(a.hello["machine"]["drive_links"] == ["X"] and a.hello["machine"]["drive_write"] is False, "hello: drive X, writing off")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("link") == "ok" and drv(c).get("state") == "ENABLED" and drv(c).get("dc"), 15),
+            "the card: link ok, ENABLED with the machine on (%s)" % drv(a))
+    d = drv(a)
+    t.check(d["fw"] and "STMBL" in d["fw"], "firmware from about (%s)" % d["fw"])
+    t.check(250 < d["dc"] < 400 and d["hv_t"] is not None and d["mot_t"] is not None and d["fault"] is None, "bus %s V, HV %s °C, motor %s °C, no fault" % (d["dc"], d["hv_t"], d["mot_t"]))
+    t.check(d["pd"]["enable"] is True and d["pd"]["fault"] is False and isinstance(d["pd"]["pos_fb"], float), "process data from HAL (%s)" % d["pd"])
+    # X moves through the drive
+    await t.mdi("G53 G0 X600")
+    v = (await a.call("hal_values", names=["joint.0.motor-pos-fb", "stmbl-sim.0.pos_fb"]))["values"]
+    t.check(near(v["joint.0.motor-pos-fb"], 600, 0.05) and v["joint.0.motor-pos-fb"] == v["stmbl-sim.0.pos_fb"], "G53 G0 X600 through the drive (%s)" % v)
+    # a watching browser: the console, reading
+    b = await t.open()
+    r = await b.call("drive_watch", name="X")
+    t.check(r.get("ok") and "software info" in r["scroll"], "watch: what it said so far (about at start)")
+    t.check("fault0.state" not in r["scroll"], "millweb's own questions don't show")
+    mk = b.mark()
+    t.ok(await b.call("drive_cmd", name="X", cmd="fault0.dc_volt"), "a watching browser reads a pin")
+    t.check(await b.until(lambda c: "fault0.dc_volt <= hv0.dc_volt = " in douts(c, mk), 5), "its answer: %r" % douts(b, mk)[-80:])
+    await asyncio.sleep(0.3)
+    mk = b.mark()
+    t.ok(await b.call("drive_cmd", name="X", cmd="showconf"), "showconf")
+    t.check(await b.until(lambda c: "linrev0.scale=10" in douts(c, mk), 10), "the drive's whole config comes (%d chars)" % len(douts(b, mk)))
+    for cmd, why in (("conf0.max_vel = 300", "DRIVE_WRITE"), ("flashsaveconf", "DRIVE_WRITE"), ("jogl", "DRIVE_WRITE"),
+                     ("x" * 64, "63"), ("about\u0007", "printable")):
+        t.refused(await a.call("drive_cmd", name="X", cmd=cmd), "%r" % cmd[:20], why)
+    t.refused(await b.call("drive_cmd", name="Y", cmd="about"), "an unknown drive", "no drive")
+    # the drive's own messages in the event log
+    mk = a.mark()
+    t.ok(await a.call("power", on=False), "machine off")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("state") == "DISABLED", 10), "the card: DISABLED")
+    t.check(await a.until(lambda c: c.ev(mk, "Drive X: Disabled") is not None, 5), "the drive's 'INFO: Disabled' in the event log")
+    # another program may have the console for a while
+    t.refused(await b.call("drive_detach", name="X", on=True), "detach without control", "control")
+    t.ok(await a.call("drive_detach", name="X", on=True, seconds=60), "detach")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("link") == "detached", 3), "the card: detached")
+    import os
+    import select
+    import termios
+    import tty
+    fd = os.open(t.m.dir + "/drive-x", os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    tty.setraw(fd)
+    os.write(fd, b"uptime\n")
+    got, end = b"", time.time() + 3
+    while time.time() < end and b"up " not in got:
+        if select.select([fd], [], [], 0.1)[0]:
+            got += os.read(fd, 1000)
+    os.close(fd)
+    t.check(b"up " in got, "another program talks to the drive meanwhile (%r)" % got[-40:])
+    t.refused(await a.call("drive_cmd", name="X", cmd="about"), "the console while detached", "detached")
+    t.ok(await a.call("drive_detach", name="X", on=False), "attach again")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("link") == "ok", 10), "the card: ok again")
+
+
+@case("DRIVE_WRITE=yes: a pin set with control, logged; what moves or rewrites asks first; a position error fault on the card", profile="drivewrite")
+async def _(t):
+    a = t.a
+    b = await t.open()
+    t.refused(await b.call("drive_cmd", name="X", cmd="fault0.max_sat = 0.3"), "a write without control", "control")
+    mk = a.mark()
+    t.ok(await a.call("drive_cmd", name="X", cmd="fault0.max_sat = 0.3"), "a pin set with control")
+    t.check(await a.until(lambda c: c.ev(mk, "Drive X: fault0.max_sat = 0.3 (by") is not None, 3), "logged, with who")
+    await asyncio.sleep(0.3)
+    await a.call("drive_watch", name="X")
+    mk = a.mark()
+    await a.call("drive_cmd", name="X", cmd="fault0.max_sat")
+    t.check(await a.until(lambda c: "fault0.max_sat = 0.3" in douts(c, mk), 5), "reads back 0.3 (%r)" % douts(a, mk)[-60:])
+    t.refused(await a.call("drive_cmd", name="X", cmd="flashsaveconf"), "flashsaveconf without sure", "confirm")
+    t.refused(await a.call("drive_cmd", name="X", cmd="jogl"), "a jog without sure", "confirm")
+    # a fault: a position error limit the next move can't keep
+    await asyncio.sleep(0.3)
+    mk = a.mark()
+    t.ok(await a.call("drive_cmd", name="X", cmd="fault0.max_pos_error = 0.0001"), "a tiny position error limit")
+    await asyncio.sleep(0.3)
+    await a.call("mdi", cmd="G53 G0 X700")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("last") == "position error" and drv(c).get("last_at"), 10),
+            "the card: the last fault, decoded, with its time (%s)" % drv(a))
+    t.check(await a.until(lambda c: c.ev(mk, "Drive X: Fault 5: position error") is not None, 5), "the drive's ERROR line in the event log")
+    t.check(await a.until(lambda c: drv(c).get("state") == "DISABLED" and drv(c)["pd"]["enable"] is False, 5), "LinuxCNC took enable away: DISABLED")
+    t.check(await a.until(lambda c: not c.st["on"], 5), "LinuxCNC: amp fault, machine off")
+    await a.call("drive_cmd", name="X", cmd="fault0.max_pos_error = 5")
+    await asyncio.sleep(0.3)
 
 
 @case("HAL_WRITE=yes: setp on an unconnected input and a parameter; not on a driven pin", profile="halwrite")

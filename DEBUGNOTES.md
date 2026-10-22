@@ -2051,3 +2051,21 @@ Entry format:
   calls are killed only after a 10 s timeout).
 - Also:    the sampler's frame header had a "t" (time) that the relay's
   {"t": "scope"} overwrote; it is "t0" now.
+
+## 2026-10-22  Drives tab: a drive's fault is gone before its card asks
+- Area:    webui/mill (server/drives.py)
+- Status:  Note
+- Symptom: a position-error fault on the simulated drive never showed as
+  SOFT FAULT on the card: it read DISABLED, with last_fault set.
+- Cause:   the drive faults, LinuxCNC sees amp-fault and drops enable at
+  once, and the drive goes SOFT_FAULT -> DISABLED within a servo period or
+  two. millweb asks the card's values one at a time over the ~1 kB/s
+  console (a full card every ~2 s), so it rarely catches the fault state.
+- Fix:     the drive prints "ERROR: Fault n: text" on the fault. millweb
+  reads that line, logs it, and keeps it as the card's "last fault" with
+  its time. The polled fault0.fault/state still show a fault that stays.
+- Also:    millweb holds the drive's pty for good (a pty nobody reads drops
+  the drive's output), so servoterm-cli can't share it; the card's Detach
+  lets go of it for a while. A pin read is a prefix match on the drive
+  ("fault0.en" prints five pins): millweb asks full names and parses every
+  "name [<= source] = value" line it sees, whoever asked.

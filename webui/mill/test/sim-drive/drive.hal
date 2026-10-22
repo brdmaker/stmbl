@@ -1,0 +1,19 @@
+# The test machine with a simulated stmbl drive on X (harness.py --drive):
+# stmbl_sim (host/lcnc) in the servo thread, its position feedback closing
+# joint 0's loop, its console on a pty through sserialterm, as a real drive
+# over smart-serial (hm2_<board>.0.stbl.0.0.* in place of stmbl-sim.0.*).
+# @DIR@ is the machine's directory.
+loadrt stmbl_sim conf=@DIR@/drive.conf sim=@DIR@/drive-sim.txt tty=@DIR@/drive-x-usb
+loadrt sserialterm tty=@DIR@/drive-x
+addf stmbl-sim.0 servo-thread 1
+addf sserialterm.0 servo-thread
+
+unlinkp joint.0.motor-pos-fb
+net j0 => stmbl-sim.0.pos_cmd
+net x-vel-cmd joint.0.vel-cmd => stmbl-sim.0.vel_cmd
+net x-pos-fb stmbl-sim.0.pos_fb => joint.0.motor-pos-fb
+net x-enable joint.0.amp-enable-out => stmbl-sim.0.enable
+net x-fault stmbl-sim.0.fault => joint.0.amp-fault-in
+
+net x-con-fb  stmbl-sim.0.con_fb    => sserialterm.0.con-fb
+net x-con-cmd sserialterm.0.con-cmd => stmbl-sim.0.con_cmd

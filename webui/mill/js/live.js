@@ -56,6 +56,8 @@ const Live = (() => {
       case "hal": if (st.page === "debug") halShow(m.v); return;
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
+      case "drv": return drivesShow(m.drives);
+      case "dout": if (m.n === drv.watching) drvText(m.text); return;
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
       case "reply": { const p = pending.get(m.id); if (p) { pending.delete(m.id); p(m); } return; }
@@ -207,6 +209,7 @@ const Live = (() => {
     b.setAttribute("aria-pressed", String(mine));
     b.title = mine ? "This browser controls the machine. Click to hand it back." : holder ? "Another browser controls the machine." : "Nobody controls the machine.";
     if (st.page === "debug" && typeof renderHalWatch === "function") { hal.writable = L.halWritable(); renderHalWatch(); }
+    if (st.page === "debug" && dbgTab === "drives") drvMode();
   }
   $("b-control").addEventListener("click", () => {
     if (holder === me) { act("control", { take: false }); return; }
@@ -336,6 +339,13 @@ const Live = (() => {
     scopeData(m.n, new Float32Array(b.buffer), m.rate, m.missed);
   }
   L.viewsSave = (views) => send("views_save", { views });
+  // the Debug page's drives: their cards ("drv"), consoles ("dout")
+  L.drives = {
+    watch: (name) => send("drive_watch", { name }),
+    cmd: (name, cmd, sure) => send("drive_cmd", { name, cmd, sure: !!sure }),
+    detach: (name, on) => send("drive_detach", { name, on, seconds: 600 }),
+    writable: () => !!(info && info.drive_write) && holder === me,
+  };
   L.halWritable = () => !!(info && info.hal_write) && holder === me;
   L.toolMeasure = () => act("tool_measure", {}, "Tool setter");
   L.probe = async (op) => {

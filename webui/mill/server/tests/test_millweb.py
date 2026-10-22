@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,7 @@ import fake_linuxcnc as lc  # noqa: E402
 import machine  # noqa: E402
 import preview  # noqa: E402
 import sampler  # noqa: E402
+import drives  # noqa: E402
 import millweb  # noqa: E402
 import wsserver  # noqa: E402
 
@@ -642,6 +644,135 @@ class Scope(Base):
         await self.until(c, lambda m: m["t"] == "views" and m["views"] and m["views"][0]["name"] == "axes")
         for w in (a, b, c):
             await w.close()
+
+
+class DriveConsole(unittest.TestCase):
+    """drives.py: what may be sent, what the drive says, the card."""
+
+    def test_classify(self):
+        for cmd, kind in (("about", "read"), ("showconf", "read"), ("fault0.dc_volt", "read"), ("fault0", "write"), ("crash", "read"),
+                          ("crash clear", "write"), ("conf0.r = 2", "write"), ("flashsaveconf", "danger"), ("jogl", "danger"),
+                          ("reset", "danger"), ("fwbegin 1 2", "danger"), ("appendconf conf0.r = 1", "write")):
+            self.assertEqual(drives.classify(cmd)[0], kind, cmd)
+        self.assertIsNone(drives.classify("x" * 64)[0])
+        self.assertIsNone(drives.classify("about\x1b")[0])
+        self.assertIsNone(drives.classify("")[0])
+
+    def test_lines_values_events_and_hidden_answers(self):
+        out, ev = [], []
+        d = drives.DriveLink("X", "/nonexistent", out=lambda l, t: out.append(t), event=lambda lvl, t: ev.append((lvl, t)))
+        d.pending["fault0.state"] = 0
+        d.feed(b"######## software info ########\nSTMBL v0.9.4 abc\nBranch master\nfault0.state = 3.000000\nfault0.dc_volt <= hv0.dc_volt = 323.5\n")
+        d.feed(b"<font color='red'>ERROR:</font> Fault 5: position error\nINFO: Disabled \nfault0.fault = 5.0000")
+        self.assertEqual(d.fw, "STMBL v0.9.4 abc")
+        self.assertEqual(d.values["fault0.state"], 3.0)
+        self.assertEqual(d.values["fault0.dc_volt"], 323.5)
+        self.assertNotIn("fault0.state", "".join(out))       # millweb's own question
+        self.assertIn("fault0.dc_volt <= hv0.dc_volt = 323.5", "".join(out))  # someone else's: shown
+        self.assertNotIn("fault0.fault", "".join(out))        # no newline yet
+        self.assertIn(("bad", "Drive X: Fault 5: position error"), ev)
+        self.assertIn(("info", "Drive X: Disabled"), ev)
+        d.feed(b"\n")
+        st = d.status()
+        self.assertEqual((st["state"], st["fault"], st["last"], st["dc"]), ("SOFT FAULT", "position error", "position error", 323.5))
+        self.assertTrue(st["last_at"])
+        self.assertEqual(st["link"], "missing" if d.state == "missing" else st["link"])
+
+    def test_polls_over_a_pty_when_quiet(self):
+        import pty
+        import select
+        master, slave = pty.openpty()
+        path = os.ttyname(slave)
+        d = drives.DriveLink("X", path, poll_ms=50)
+        self.assertTrue(d.open())
+        got = b""
+        t = time.time()
+        while time.time() - t < 1.0:  # about first, then the card's pins one at a time, each once answered or timed out
+            d.tick()
+            if select.select([master], [], [], 0.02)[0]:
+                got += os.read(master, 1000)
+                for line in got.split(b"\n")[:-1]:
+                    name = line.strip().decode()
+                    if name in drives.POLL and name in d.pending:
+                        d.feed(("%s = 1.5\n" % name).encode())
+                got = got.split(b"\n")[-1]
+        self.assertTrue(d.fw is None)
+        self.assertGreaterEqual(len(d.values), 5)
+        self.assertEqual(d.status()["link"], "ok")
+        # a browser's line goes out at once; the polling waits for a quiet console
+        before = d.tx
+        self.assertIsNone(d.user("showconf"))
+        self.assertEqual(d.tx - before, len("showconf\n"))
+        d.feed(b"conf0.r = 2\n")
+        n = d.tx
+        d.tick()
+        self.assertEqual(d.tx, n, "no poll right after the drive spoke or a user wrote")
+        d.detach("me", 60)
+        self.assertIsNotNone(d.user("about"))
+        self.assertEqual(d.status()["link"], "detached")
+        self.assertTrue(d.attach())
+        d.close()
+        os.close(master)
+        os.close(slave)
+
+
+class DriveOps(Base):
+    """drive_watch / drive_cmd / drive_detach: who may do what."""
+
+    async def asyncSetUp(self):
+        import pty
+        self.master, self.slave = pty.openpty()
+        self.INI_EXTRA = "DRIVE_LINK = X %s\nDRIVE_POLL_MS = 100000\n" % os.ttyname(self.slave)
+        await super().asyncSetUp()
+        self.tasks.append(asyncio.ensure_future(self.hub.drive_loop()))
+        await asyncio.sleep(0.2)
+
+    async def asyncTearDown(self):
+        await super().asyncTearDown()
+        os.close(self.master)
+        os.close(self.slave)
+
+    def drive_reads(self):
+        import select
+        out = b""
+        while select.select([self.master], [], [], 0.1)[0]:
+            out += os.read(self.master, 1000)
+        return out.decode()
+
+    async def test_reading_writing_and_detach(self):
+        ws = await self.client()
+        self.assertEqual(ws.hello["machine"]["drive_links"], ["X"])
+        self.drive_reads()  # about at start
+        r = await self.call(ws, "drive_watch", name="X")
+        self.assertTrue(r["ok"], r)
+        self.assertTrue((await self.call(ws, "drive_cmd", name="X", cmd="fault0.dc_volt"))["ok"])
+        self.assertIn("fault0.dc_volt\n", self.drive_reads())
+        os.write(self.master, b"fault0.dc_volt <= hv0.dc_volt = 320.0\n")
+        m = await self.until(ws, lambda m: m["t"] == "dout" and "320.0" in m["text"])
+        self.assertEqual(m["n"], "X")
+        await asyncio.sleep(0.25)
+        self.assertIn("DRIVE_WRITE", (await self.call(ws, "drive_cmd", name="X", cmd="conf0.r = 1"))["err"])
+        self.hub.drive_write = True
+        self.assertIn("control", (await self.call(ws, "drive_cmd", name="X", cmd="conf0.r = 1"))["err"])
+        await self.call(ws, "control", take=True)
+        await asyncio.sleep(0.25)
+        self.assertTrue((await self.call(ws, "drive_cmd", name="X", cmd="conf0.r = 1"))["ok"])
+        await asyncio.sleep(0.25)
+        self.assertIn("confirm", (await self.call(ws, "drive_cmd", name="X", cmd="flashsaveconf"))["err"])
+        await asyncio.sleep(0.25)
+        self.assertTrue((await self.call(ws, "drive_cmd", name="X", cmd="flashsaveconf", sure=True))["ok"])
+        sent = self.drive_reads()
+        self.assertIn("conf0.r = 1\n", sent)
+        self.assertIn("flashsaveconf\n", sent)
+        self.assertIn("one line at a time", (await self.call(ws, "drive_cmd", name="X", cmd="about"))["err"] + (await self.call(ws, "drive_cmd", name="X", cmd="about"))["err"])
+        await self.until(ws, lambda m: m["t"] == "ev" and "Drive X: flashsaveconf (by" in m["text"])
+        self.assertTrue((await self.call(ws, "drive_detach", name="X", on=True))["ok"])
+        self.assertIsNone(self.hub.links["X"].fd)
+        self.assertTrue((await self.call(ws, "drive_detach", name="X", on=False))["ok"])
+        self.assertIsNotNone(self.hub.links["X"].fd)
+        m = await self.until(ws, lambda m: m["t"] == "drv")
+        self.assertEqual(m["drives"][0]["n"], "X")
+        await ws.close()
 
 
 class Token(Base):

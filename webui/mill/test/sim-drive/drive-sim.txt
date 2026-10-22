@@ -1,0 +1,6 @@
+# Sim-only HAL commands for the simulated drive (stmbl_sim sim=), after
+# host/sim_board.txt: the bench motor of hwtest/burnin-sim.
+hv0.sim_l = 0.0049
+hv0.sim_r = 2.3
+hv0.sim_j = 0.00003
+hv0.sim_mains = 211

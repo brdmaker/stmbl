@@ -30,6 +30,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import drives as drives_mod  # noqa: E402
 import machine as machine_mod  # noqa: E402
 import preview  # noqa: E402
 import wsserver  # noqa: E402
@@ -86,6 +87,13 @@ class Hub:
         self.quit = quit_event
         self.files_sig = None
         self.tools_sig = None
+        # stmbl drives' consoles (drives.py): [MILLWEB] DRIVE_LINK
+        self.drive_write = (cfg.get("MILLWEB", "DRIVE_WRITE", "no") or "no").lower() in ("yes", "1", "true")
+        poll_ms = cfg.num("MILLWEB", "DRIVE_POLL_MS", 250)
+        self.links = {n: drives_mod.DriveLink(n, path, pd, out=self.drive_out, event=self.event, poll_ms=poll_ms)
+                      for n, path, pd in drives_mod.links_from(cfg.all("MILLWEB", "DRIVE_LINK"))}
+        self.drive_watch = {}        # client id -> the drive whose console it shows
+        self.drive_sig = None
 
     # ------------------------------------------------------------ events
     def event(self, lvl, text):
@@ -107,6 +115,8 @@ class Hub:
         info = self.m.info()
         info["version"] = VERSION
         info["token_required"] = bool(self.token)
+        info["drive_links"] = list(self.links)
+        info["drive_write"] = self.drive_write
         await ws.send_json({"t": "hello", "you": c.id, "machine": info, "control": self.control,
                             "events": [{"time": t, "lvl": l, "text": x} for t, l, x in self.events[-80:]]})
         await ws.send_json({"t": "st", **self.state})
@@ -117,6 +127,8 @@ class Hub:
         await ws.send_json(self.files_msg())
         await ws.send_json(self.setup_msg())
         await ws.send_json({"t": "views", "views": self.m.views()})
+        if self.links:
+            await ws.send_json({"t": "drv", "drives": self.drive_status()})
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -134,6 +146,7 @@ class Hub:
         finally:
             del self.clients[c.id]
             self.hal_watch.pop(c.id, None)
+            self.drive_watch.pop(c.id, None)
             await self.scope_stop(c.id)
             if self.control == c.id:
                 await self.lose_control(c)
@@ -187,7 +200,7 @@ class Hub:
                     self.jog_seen[a] = time.time()
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
-                      "scope_start", "scope_stop", "views_save", "ping", "events"):  # reading, and the Debug page's own
+                      "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -489,6 +502,95 @@ class Hub:
     async def op_scope_stop(self, c, m):
         await self.scope_stop(c.id)
 
+    # ------------------------------------------------------------ stmbl drives
+    def drive_out(self, link, text):
+        """What a drive printed: to the browsers that show its console."""
+        who = {cid for cid, n in self.drive_watch.items() if n == link.name}
+        if who:
+            self.broadcast({"t": "dout", "n": link.name, "text": text}, only=who)
+
+    def drive_status(self):
+        pin = self.m._pin if self.m.hal else None
+        return [l.status(pin) for l in self.links.values()]
+
+    async def drive_loop(self):
+        """The drives' consoles: open, ask, and the cards twice a second."""
+        loop = asyncio.get_event_loop()
+        for l in self.links.values():
+            l.loop = loop
+            l.open()
+        n = 0
+        while not (self.quit and self.quit.is_set()):
+            try:
+                for l in self.links.values():
+                    l.tick()
+                n += 1
+                if n % 10 == 0 and self.links:
+                    msg = {"t": "drv", "drives": self.drive_status()}
+                    sig = json.dumps(msg)
+                    if sig != self.drive_sig:
+                        self.drive_sig = sig
+                        self.broadcast(msg)
+            except Exception as e:
+                self.event("bad", "millweb: drives: %r" % e)
+            await asyncio.sleep(0.05)
+        for l in self.links.values():
+            l.close()
+
+    def link_of(self, m):
+        l = self.links.get(str(m.get("name")))
+        if l is None:
+            raise ValueError("no drive %r ([MILLWEB] DRIVE_LINK)" % m.get("name"))
+        return l
+
+    async def op_drive_watch(self, c, m):
+        """Show a drive's console in this browser (name), or none (name null): what it has said so far."""
+        if m.get("name") is None:
+            self.drive_watch.pop(c.id, None)
+            return None
+        l = self.link_of(m)
+        self.drive_watch[c.id] = l.name
+        return {"scroll": l.scroll, "drive": l.status(self.m._pin if self.m.hal else None)}
+
+    async def op_drive_cmd(self, c, m):
+        """A line for a drive's console. Reading for everyone; anything else with
+        control and DRIVE_WRITE, and what moves, restarts or rewrites the drive
+        only with sure: true."""
+        l = self.link_of(m)
+        cmd = str(m.get("cmd", "")).strip()
+        kind, why = drives_mod.classify(cmd)
+        if kind is None:
+            return why
+        if kind != "read":
+            if not self.drive_write:
+                return "only reading: writing to drives is off ([MILLWEB] DRIVE_WRITE = yes turns it on)"
+            if self.control != c.id:
+                return "this browser doesn't have control (take it first)"
+            if kind == "danger" and not m.get("sure"):
+                return "confirm: %r can move the motor, restart the drive or rewrite its flash" % cmd.split()[0]
+        if time.time() - getattr(c, "drive_last", 0) < 0.2:
+            return "one line at a time (the link is slow)"
+        c.drive_last = time.time()
+        self.drive_watch.setdefault(c.id, l.name)
+        err = l.user(cmd)
+        if not err and kind != "read":
+            self.event("warn", "Drive %s: %s (by %s)" % (l.name, cmd, c.name))
+        return err
+
+    async def op_drive_detach(self, c, m):
+        """Let another program have a drive's console (on: true, for at most `seconds`), or take it back."""
+        l = self.link_of(m)
+        if m.get("on", True):
+            secs = max(10, min(3600, int(m.get("seconds", 600))))
+            l.detach(c.name, secs)
+            self.event("warn", "Drive %s: console left to other programs for %d min (by %s): %s" % (l.name, secs // 60, c.name, l.path))
+        else:
+            if not l.attach():
+                return "can't open %s: %s" % (l.path, l.err)
+            self.event("info", "Drive %s: console back with millweb (by %s)" % (l.name, c.name))
+        self.drive_sig = None
+        return None
+
     async def op_views_save(self, c, m):
         """The Debug page's views: saved for every browser (no control needed: they don't touch the machine)."""
         err = await self.run(self.m.cmd_views_save, m["views"])
@@ -778,7 +880,8 @@ async def amain(args):
             loop.add_signal_handler(sig, quit_event.set)
         except NotImplementedError:
             pass
-    tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop())]
+    tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop()),
+             asyncio.ensure_future(hub.drive_loop())]
     await quit_event.wait()
     for t in tasks:
         t.cancel()

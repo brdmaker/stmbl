@@ -696,6 +696,34 @@ test("Debug page, views: save, open with a click and Alt+1, delete, remembered",
   await t.ev(() => { localStorage.removeItem("pmc.views"); localStorage.removeItem("pmc.halwatch"); });
 });
 
+test("Debug page, drives (simulation): cards, the console, history, a command that asks first", async (t) => {
+  await t.nav("debug");
+  await t.click('#dbg-tab button[data-t="drives"]');
+  t.check(await t.until(() => document.querySelectorAll("#drv-cards .drv-card").length === 4), "four drives: X, Y1, Y2, Z");
+  t.check(await t.until(() => /ENABLED|DISABLED/.test(document.querySelector('.drv-card[data-n="X"] [data-k="state"]').textContent) && /V$/.test(document.querySelector('.drv-card[data-n="X"] [data-k="dc"]').textContent)), "a card: state, bus voltage");
+  t.check((await t.text("#dc-name")) === "X" && (await t.text("#dc-mode")) === "READ + WRITE", "the console on X");
+  await t.page.fill("#dc-in", "about"); await t.page.press("#dc-in", "Enter");
+  t.check(await t.until(() => /software info/.test(document.getElementById("dc-out").textContent)), "about answers");
+  await t.page.fill("#dc-in", "conf0.max_vel = 300"); await t.page.press("#dc-in", "Enter");
+  await t.page.fill("#dc-in", "conf0.max_vel"); await t.page.press("#dc-in", "Enter");
+  t.check(await t.until(() => /conf0\.max_vel = 300\.000000/.test(document.getElementById("dc-out").textContent)), "a pin set, read back");
+  await t.page.press("#dc-in", "ArrowUp");
+  t.check((await t.ev(() => document.getElementById("dc-in").value)) === "conf0.max_vel", "↑: the last line");
+  await t.page.press("#dc-in", "ArrowUp");
+  t.check((await t.ev(() => document.getElementById("dc-in").value)) === "conf0.max_vel = 300", "↑ again: the one before");
+  await t.page.fill("#dc-in", "jogl"); await t.page.press("#dc-in", "Enter");
+  t.check(await t.until(() => !document.getElementById("dlg").hidden && /jogl/.test(document.getElementById("dlg-t").textContent)), "a jog asks first");
+  await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => /doesn't run that/.test(document.getElementById("dc-out").textContent)), "then goes");
+  t.check((await t.ev(() => document.getElementById("dc-in").maxLength)) === 63, "63 characters at most, as the drive");
+  await t.click('.drv-card[data-n="Z"] [data-con]');
+  t.check(await t.until(() => document.getElementById("dc-name").textContent === "Z" && document.querySelector('.drv-card[data-n="Z"]').classList.contains("sel") && !/jogl/.test(document.getElementById("dc-out").textContent)), "Console on Z's card: Z's console");
+  await t.click('#dc-quick [data-c="showconf"]');
+  t.check(await t.until(() => /linrev0\.scale=10/.test(document.getElementById("dc-out").textContent)), "a quick button: showconf");
+  await t.click('#dbg-tab button[data-t="hal"]');
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("settings: units, decimals, exaggeration, switches", async (t) => {
   await stop(t);
   await mdi(t, "G0 X10 Y20 Z-5");

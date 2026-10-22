@@ -28,11 +28,13 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
 | `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
+| `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
 | `js/scope.js` | the Debug page's scope (triggering, drawing, cursor), its tabs and saved views |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
 | `millweb` | the backend's launcher: LinuxCNC's display program |
 | `server/millweb.py` | the hub: browsers, control lease, jog deadman, status diffs, events, previews |
 | `server/machine.py` | LinuxCNC: status, commands, tool table, offsets, programs, probing |
+| `server/drives.py` | the stmbl drives' consoles: the tty, the values the cards ask for, what browsers may send |
 | `server/sampler.py` | the scope's sampler: HAL values at a steady rate, in a process of its own |
 | `server/preview.py` | a program's toolpath from LinuxCNC's interpreter (the `gcode` module, as AXIS previews) |
 | `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
@@ -84,6 +86,9 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `PREVIEW_NICE` | 10 | the preview process's niceness (lower priority than millweb and LinuxCNC) |
 | `HAL_HZ` | 10 | the Debug page's watch rate |
 | `HAL_WRITE` | no | `yes`: the Debug page can set unconnected input pins, writable parameters and undriven signals |
+| `DRIVE_LINK` (repeat) | | an stmbl drive for the Drives tab: `name tty [hal-prefix]`, e.g. `X /tmp/drive-x hm2_7i96s.0.stbl.0.0` (its console through `sserialterm`, or its USB port; the prefix of its smart-serial pins) |
+| `DRIVE_WRITE` | no | `yes`: with control, the Drives tab's console may set pins and run commands, not only read |
+| `DRIVE_POLL_MS` | 250 | a drive's card values are asked one at a time, at most this often, while its console is quiet |
 | `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
@@ -121,6 +126,7 @@ JSON over the WebSocket at `/ws`.
 - `model_save` {name, data (base64), overwrite}, `model_get` {name}: 3D models (`.stl`, `.obj`);
 - `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
 - `scope_start` {names (≤ 8), rate (10–2000 Hz)}, `scope_stop`: then `scope` messages every 50 ms, `{names, n, rate (measured), missed (late samples), t0, d}` with `d` the n×channels samples as base64 little-endian float32, row by row (two browsers may scope at once);
+- `drive_watch` {name | null}: a drive's console in this browser (the reply has what it said so far, `scroll`; then `dout` messages `{n, text}`); `drive_cmd` {name, cmd, sure}: a line to its console (reading for everyone; the rest with control and `DRIVE_WRITE`, and what moves, restarts or rewrites the drive with `sure`); `drive_detach` {name, on, seconds}: the tty left to other programs for a while (with control). `drv` messages (2 Hz, when changed): each drive's card, `{n, link: ok | silent | missing | detached, state, fault, last, last_at, dc, hv_t, mot_t, ac, perr, sat, fw, rx, tx, age, pd: {enable, fault, pos_fb, vel_fb, current, power}}`;
 - `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
@@ -138,7 +144,7 @@ else `[DISPLAY] PROGRAM_PREFIX`) a folder at a time, with the path above it:
 
 ## The Debug page
 
-HAL debugging in the browser, as LinuxCNC's `halshow`, `halmeter` and `halscope`, on two tabs with saved views above them.
+HAL debugging in the browser, as LinuxCNC's `halshow`, `halmeter` and `halscope`, and the stmbl drives' own state and console, on three tabs with saved views above them.
 
 **HAL tab**
 - **Left:** every pin, signal and parameter, grouped by component, with a filter (name, component or signal). Each shows its type, direction, value (the rows on screen refresh once a second) and what it is linked to. **Refresh** reads the HAL again.
@@ -151,6 +157,12 @@ HAL debugging in the browser, as LinuxCNC's `halshow`, `halmeter` and `halscope`
 - **Cursor:** hover the screen for the time from the trigger and each channel's value.
 - The scope runs on when you change tab or page: arm a single capture, go and jog, come back to it. **Stop** stops it, and it stops when the browser goes.
 - **How it samples:** millweb starts `server/sampler.py`, a process per scoping browser that reads the values with the `hal` module at the rate set, and streams them to the browser, which does the triggering and drawing. It runs in userspace. It is steady to a fraction of a millisecond, and the info line shows the measured rate and late samples. It is not halscope's real-time sampling, which is locked to the servo thread: for events within a servo period, use halscope.
+
+**Drives tab** (for stmbl drives, `[MILLWEB] DRIVE_LINK`)
+- **A card per drive:** its state (DISABLED, ENABLED, PHASING, SOFT/HARD FAULT), the fault decoded, or the last one with its time, DC bus voltage, power stage and motor temperatures, AC current, position error and saturation (asked over the drive's console), and its smart-serial process data from HAL (enable, fault bit, position, velocity, current, power). The footer says how old the values are and how many bytes went each way. The drive's own messages (`INFO: Enabled`, `ERROR: Fault 5: position error`, warnings) go into the event log.
+- **The console:** the drive's terminal as over USB, through its smart-serial link with `sserialterm` (docs/sserial_console.md, about 1 kB/s): `about`, `showconf`, `list`, a pin's name (`fault0.dc_volt`, or a prefix, `fault0`), ↑/↓ for the last lines. Every browser on the tab sees the same console. Reading is open to everyone. Setting pins and other commands need `[MILLWEB] DRIVE_WRITE = yes` and control, and are logged with who sent them; the page asks before anything that moves the motor (`jogl`, `jogr`), stops or restarts the drive (`start`, `stop`, `reset`, `bootloader`) or rewrites its flash or firmware (`flashsaveconf`, `fw*`). The drive takes 63 characters a line.
+- **Detach:** millweb keeps the tty open (a pty nobody reads drops what the drive says), so `servoterm-cli -d /tmp/drive-x` can't use it meanwhile. **Detach** (with control) lets go of it for 10 minutes or until **Attach**, e.g. for `servoterm-cli --dump` before flashing.
+- **The link is slow:** a card's values are asked one at a time, only when the console is quiet (`DRIVE_POLL_MS`), so a full card takes about 2 s and typing goes first. A fault that clears within that time (LinuxCNC takes the enable away at once) still shows as the last fault, from the drive's own message.
 
 **Views** keep the watch list and the scope's set-up under a name. **Save view** saves the current ones (an existing name is replaced); a click on a view, or **Alt+1…9**, opens it; **×** deletes it. On a machine they are kept for every browser (`[MILLWEB] DEBUG_VIEWS`, no control needed: they don't touch the machine); in the simulation they are kept in this browser.
 
@@ -201,6 +213,7 @@ needs control.
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
+| `make test-drive` | the Drives tab on LinuxCNC with a simulated stmbl drive on X (`harness.py --drive`: `stmbl_sim` closing joint 0's loop, `sserialterm`) | 1 min | all of the above, `stmbl_sim.so` and `sserialterm.so` installed |
 | `make check-all` | the first four | 15 min | |
 
 **On a small board** (LinuxCNC installed from packages, little RAM): the harness
