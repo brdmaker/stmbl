@@ -47,7 +47,7 @@ const st = {
   cool: { flood: false, mist: false, air: false },
   ovr: { feed: 1, rapid: .5, spin: 1, maxv: 1 },
   dro: "work", units: "mm", dec: 3, exag: 200, kbd: true, m1: true, bd: false, lift: true, confirm: false,
-  show: { machine: true, path: true, limits: false, defl: false }, color: "err",
+  show: { machine: true, work: true, path: true, limits: false, defl: false }, color: "err",
   jogInc: 1, jogRate: 2000,
   err: 0, errHist: [], yawHist: [], errs: [], p99: 0, yaw: 0, fe: [0, 0, 0, 0], bus: 325, quota: 1,
   pc: { shaper: true, defl: true, shrink: true, jerk: true },
@@ -710,6 +710,7 @@ function init3d() {
   fixture.add(box(STOCK.w + 70, STOCK.l + 40, 14, mat.vise, STOCK.w / 2, STOCK.l / 2, 7));
   fixture.add(box(STOCK.w + 70, 22, 34, mat.vise, STOCK.w / 2, -12, 17)); fixture.add(box(STOCK.w + 70, 22, 34, mat.vise, STOCK.w / 2, STOCK.l + 12, 17));
   const stockMesh = box(STOCK.w, STOCK.l, STOCK.h, mat.stock, STOCK.w / 2, STOCK.l / 2, 14 + STOCK.h / 2); fixture.add(stockMesh);
+  const work = [...fixture.children];  // the stock and the vise: the "workpiece" switch (not the origin below)
   // the work origin: on the stock's top front-left corner
   const triad = new THREE.Group(); fixture.add(triad);
   for (const [d, c] of [[[1, 0, 0], 0xff4d5e], [[0, 1, 0], 0x5fe0a0], [[0, 0, 1], 0x4cc9ff]]) triad.add(new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0, 0, 0), 40, c, 9, 5));
@@ -754,7 +755,7 @@ function init3d() {
   const sparkGeo = new THREE.BufferGeometry(); sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
   scene.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
 
-  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, fixture, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
+  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, fixture, work, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
   buildTool(); rebuildPath(); setCam("iso", true);
   new ResizeObserver(resize3d).observe($("viewer"));
   resize3d();
@@ -860,6 +861,7 @@ function update3d(dt, tip, moving, cutting) {
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
   R.machine.visible = st.show.machine;
+  for (const m of R.work) m.visible = st.show.work;
   R.pathLine.visible = st.show.path; R.trail.visible = st.show.path;
   R.limits.visible = st.show.limits;
   R.coolant.visible = st.cool.flood || st.cool.mist;

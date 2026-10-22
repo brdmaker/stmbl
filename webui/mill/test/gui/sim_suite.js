@@ -599,11 +599,15 @@ test("3D view: cameras, colours, layers", async (t) => {
     await t.click(`[data-col="${col}"]`);
     t.check(await t.ev((c) => st.color === c, col), `colour by ${col}`);
   }
-  for (const k of ["machine", "path", "limits", "defl"]) {
+  for (const k of ["machine", "work", "path", "limits", "defl"]) {
     const was = await t.ev((k) => st.show[k], k);
     await t.click(`[data-show="${k}"]`);
     t.check(await t.ev(([k, w]) => st.show[k] === !w && document.querySelector(`[data-show="${k}"]`).getAttribute("aria-pressed") === String(!w), [k, was]), `layer ${k}`);
   }
+  // the loop above left the workpiece off: stock and vise hidden in the scene, not the G54 origin
+  t.check(await t.until(() => !st.show.work && R.work.length === 4 && R.work.every((m) => !m.visible) && R.fixture.visible && R.fixture.children.some((c) => c.visible)), "workpiece off: stock and vise hidden, the origin stays");
+  await t.click('[data-show="work"]');
+  t.check(await t.until(() => R.work.every((m) => m.visible)), "workpiece on again");
   const box = await t.page.locator("#scene").boundingBox();
   await t.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await t.page.mouse.down();
