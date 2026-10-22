@@ -871,7 +871,13 @@ $$("[data-col]").forEach((b) => b.addEventListener("click", () => {
   st.color = b.dataset.col; $$("[data-col]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   $("legend").hidden = st.color === "op"; $("leg-b").textContent = st.color === "err" ? "60 µm" : "6000 mm/min"; colorPath(true);
 }));
-$$("[data-show]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.show; st.show[k] = !st.show[k]; b.setAttribute("aria-pressed", String(st.show[k])); }));
+$$("[data-show]").forEach((b) => b.addEventListener("click", () => {
+  const k = b.dataset.show;
+  // the workpiece: solid, see-through ("glass"), hidden; the others on and off
+  st.show[k] = k === "work" ? (st.show.work === true ? "glass" : st.show.work === "glass" ? false : true) : !st.show[k];
+  b.setAttribute("aria-pressed", String(!!st.show[k]));
+  if (k === "work") b.textContent = st.show.work === "glass" ? "workpiece · see-through" : "workpiece";
+}));
 
 function update3d(dt, tip, moving, cutting) {
   if (!R) return;
@@ -885,7 +891,12 @@ function update3d(dt, tip, moving, cutting) {
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
   R.machine.visible = st.show.machine;
-  for (const m of R.work) m.visible = st.show.work;
+  for (const m of R.work) m.visible = !!st.show.work;
+  const glass = st.show.work === "glass";
+  if (R.workGlass !== glass) {  // see-through: the toolpath shows through the stock, its edges still drawn
+    R.workGlass = glass;
+    for (const m of [R.mat.stock, R.mat.vise]) { m.transparent = glass; m.opacity = glass ? 0.28 : 1; m.depthWrite = !glass; m.needsUpdate = true; }
+  }
   R.pathLine.visible = st.show.path; R.trail.visible = st.show.path;
   R.limits.visible = st.show.limits;
   R.coolant.visible = st.cool.flood || st.cool.mist;
