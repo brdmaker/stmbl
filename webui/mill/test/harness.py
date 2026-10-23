@@ -9,6 +9,10 @@ runs CMD in LinuxCNC's environment with MILLWEB_PORT (and MILLWEB_DIR, the
 config's directory) and exits with its status. As a module: `with Machine() as m:`
 gives m.port and m.dir. Runs as a non-root user (rtapi_app refuses root).
 
+--supervised (Machine(supervised=True)): the machine of test/machine
+(machine.json) run by millweb-supervisor, which makes its INI and HAL and
+restarts LinuxCNC; m.dir is the machine folder, m.sup the supervisor.
+
 --drive (Machine(drive=True)): a simulated stmbl drive on X (test/sim-drive:
 stmbl_sim closing joint 0's loop, its console through sserialterm), with
 [MILLWEB] DRIVE_LINK set; needs stmbl_sim.so and sserialterm.so (make -C
@@ -96,8 +100,9 @@ class Machine:
     DRIVE_INI = ["JOINT_0.MAX_VELOCITY=200", "JOINT_0.MAX_ACCELERATION=1500", "JOINT_0.FERROR=5", "JOINT_0.MIN_FERROR=2.5",
                  "AXIS_X.MAX_VELOCITY=200", "AXIS_X.MAX_ACCELERATION=1500"]
 
-    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False):
+    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False, supervised=False, machine=None):
         self.ini_set, self.keep, self.hal_extra, self.drive = list(ini_set), keep, hal_extra, drive
+        self.supervised, self.machine_json = supervised, machine  # machine: a machine.json (dict) in place of test/machine's
         self.port = port or free_port()
         self.host = host
         self.dir = None
@@ -109,6 +114,8 @@ class Machine:
         if millweb_pids():
             raise SystemExit("a millweb is already running: stop that LinuxCNC first")
         self.dir = tempfile.mkdtemp(prefix="millweb-test.")
+        if self.supervised:
+            return self.start_supervised()
         shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
         p = os.path.join(self.dir, "mill.ini")
         ini = open(p).read()
@@ -151,6 +158,41 @@ class Machine:
         self.__exit__(None, None, None)
         raise RuntimeError("millweb didn't come up:\n" + log)
 
+    def start_supervised(self):
+        import json
+        shutil.copytree(os.path.join(HERE, "machine"), self.dir, dirs_exist_ok=True)
+        shutil.copytree(os.path.join(HERE, "sim", "nc_files"), os.path.join(self.dir, "nc_files"), dirs_exist_ok=True)
+        if self.machine_json is not None:
+            with open(os.path.join(self.dir, "machine.json"), "w") as f:
+                json.dump(self.machine_json, f, indent=2)
+        sup = os.path.join(MILL, "millweb-supervisor")
+        sh = RIP + "exec python3 %s %s --port %d --host %s > %s/supervisor.log 2>&1" % (sup, self.dir, self.port, self.host, self.dir)
+        self.proc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
+        if not self.wait_state("running", 90):
+            log = "".join(open(os.path.join(self.dir, f)).read()[-3000:] for f in ("supervisor.log", "logs/linuxcnc.log")
+                          if os.path.exists(os.path.join(self.dir, f)))
+            self.__exit__(None, None, None)
+            raise RuntimeError("the supervisor didn't get LinuxCNC running:\n" + log)
+        return self
+
+    def status(self):
+        import json
+        try:
+            return json.load(open(os.path.join(self.dir, "run", "status.json")))
+        except (OSError, ValueError):
+            return {}
+
+    def wait_state(self, state, timeout=60):
+        """Until the supervisor says state (and, for running, millweb answers)."""
+        t = time.time() + timeout
+        while time.time() < t:
+            if self.proc.poll() is not None:
+                return False
+            if self.status().get("state") == state:
+                return True
+            time.sleep(0.2)
+        return False
+
     @staticmethod
     def lcnc_env():
         """This environment plus LinuxCNC's (a run-in-place tree's rip-environment; installed: as it is)."""
@@ -173,7 +215,11 @@ class Machine:
 
     def __exit__(self, *exc):
         ok = True
-        self.stop_millweb()
+        if self.supervised:
+            if self.proc and self.proc.poll() is None:
+                os.killpg(self.proc.pid, signal.SIGTERM)  # the supervisor stops LinuxCNC, then itself
+        else:
+            self.stop_millweb()
         if self.proc:
             try:
                 self.proc.wait(40)
@@ -215,6 +261,7 @@ def main():
     ap.add_argument("--ini-set", action="append", default=[], help="SECTION.KEY=VALUE in the test INI")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--drive", action="store_true", help="a simulated stmbl drive on X, its console through sserialterm")
+    ap.add_argument("--supervised", action="store_true", help="test/machine's machine.json, run by millweb-supervisor")
     ap.add_argument("--serve", action="store_true", help="serve the test machine on the network for suites run elsewhere")
     ap.add_argument("--port", type=int, default=8080, help="--serve's port")
     ap.add_argument("--stress-files", action="store_true", help="--serve: write the stress suite's programs too")
@@ -225,7 +272,7 @@ def main():
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
     if not cmd:
         ap.error("a command to run: -- CMD ARGS (or --serve)")
-    with Machine(a.ini_set, a.keep, drive=a.drive) as m:
+    with Machine(a.ini_set, a.keep, drive=a.drive, supervised=a.supervised) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
         env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
         rc = subprocess.run(cmd, env=env).returncode

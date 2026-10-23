@@ -333,6 +333,44 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 .dialog h3 { margin: 0; font: 12px var(--f-display); letter-spacing: .1em; }
 .dialog input { background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 8px; font: 16px var(--f-mono); }
 
+/* ---------- the Configure page */
+.cf-bar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.cf-err { margin: 0; padding: 8px 12px; border: 1px solid var(--stop); border-radius: var(--r); color: var(--stop); background: rgba(255, 60, 80, .07); font: 12px var(--f-mono); white-space: pre-wrap; }
+.cf-main { min-height: 0; }
+.cf-tabs { margin-bottom: 4px; }
+.cf-body { display: flex; flex-direction: column; gap: 10px; }
+.cf-body h3 { margin: 6px 0 0; font: 11px var(--f-display); letter-spacing: .1em; color: var(--ink-dim); }
+.cf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 12px; }
+.cf { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); min-width: 0; }
+.cf.wide { grid-column: 1 / -1; }
+.cf input, .cf select, .cf textarea, .cf-t input, .cf-t select { background: var(--panel); border: 1px solid var(--line-hi); border-radius: 4px; padding: 5px 7px; font: 12px var(--f-mono); color: var(--ink); min-width: 0; width: 100%; }
+.cf textarea, .cf-code { min-height: 140px; resize: vertical; font: 12px/1.45 var(--f-mono); }
+.cf-code { width: 100%; min-height: 360px; background: #05080c; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 8px 10px; white-space: pre; overflow: auto; margin: 0; }
+.cf.chk { flex-direction: row; align-items: center; gap: 6px; }
+.cf.chk input { width: auto; }
+.cf .h { color: var(--ink-faint); font-size: 10.5px; }
+.cf.bad input, .cf.bad select, .cf.bad textarea, .cf-t td.bad input, .cf-t td.bad select { border-color: var(--stop); }
+.cf-t { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cf-t th { text-align: left; font: 10px var(--f-display); letter-spacing: .06em; color: var(--ink-faint); padding: 4px; white-space: nowrap; }
+.cf-t td { padding: 3px 4px; vertical-align: top; }
+.cf-t td input { width: 82px; } .cf-t td input.w { width: 150px; } .cf-t td select { width: auto; }
+.cf-joint { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.cf-joint .h { display: flex; align-items: center; gap: 8px; }
+.cf-joint .h .spacer { flex: 1; }
+.cf-t td input { max-width: 120px; }
+.cf-problems { border-color: var(--stop); }
+.cf-problems li { cursor: pointer; } .cf-problems li b { font-family: var(--f-mono); font-weight: 500; color: var(--stop); }
+.cf-actions { flex-direction: row; align-items: center; gap: 8px; padding: 8px 10px; position: sticky; bottom: 0; z-index: 2; }
+.cf-hist li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.cf-hist li span { flex: 1; }
+.cf-diff .a { color: var(--ok); } .cf-diff .d { color: var(--stop); } .cf-diff .h { color: var(--accent); }
+/* LinuxCNC down, the supervisor serving: only the Configure page */
+.sup-mode .app { grid-template-columns: 78px minmax(0, 1fr); grid-template-areas: "head head" "nav page" "foot foot"; }
+.sup-mode .ctl, .sup-mode .page-pane:not(#p-config) { display: none !important; }
+.sup-mode .nav button:not([data-p="config"]) { opacity: .35; pointer-events: none; }
+.sup-mode #b-power, .sup-mode #ch-home, .sup-mode #ch-mode, .sup-mode #ch-run { display: none; }
+@media (max-width: 960px) { .sup-mode .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "nav" "page" "foot"; } }
+
 /* ---------- touch screens (tablets)
    No double-tap zoom (iPad Safari zooms on a quick second tap, also on a
    button); pinch zoom and scrolling stay. Taps and holds on controls don't
@@ -368,7 +406,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
   .chips { flex: 0 1 auto; min-width: 150px; }
   .prog-name { flex: 1 1 110px; min-width: 70px; }
   .prog-name .num { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
-  .spacer { display: none; }
+  .head .spacer { display: none; }
   .times { flex-wrap: nowrap; flex-shrink: 0; }
   .head > button { flex-shrink: 0; }
 }
@@ -396,8 +434,8 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
   body { padding-bottom: 84px; }  /* room to scroll the last controls out from under the floating E-STOP */
   .app { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto auto;
     grid-template-areas: "head" "nav" "page" "ctl" "foot"; }
-  .nav { flex-direction: row; overflow-x: auto; }
-  .nav button { min-width: 66px; }
+  .nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
+  .nav button { min-width: 58px; flex: 1 1 58px; }  /* one row if they fit, else two: none out of sight */
   .page-pane { height: auto; overflow: visible; }
   .view-main { grid-template-rows: minmax(340px, 60vh) auto; overflow: visible; }
   .lower .panel { min-height: 300px; }
@@ -805,6 +843,34 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
     </section>
 
     <!-- SETTINGS -->
+    <!-- CONFIGURE: the machine (machine.json) and LinuxCNC's restarts, with millweb-supervisor -->
+    <section class="page-pane" id="p-config" hidden>
+      <div class="panel cf-bar">
+        <span class="label">LinuxCNC</span><span class="pill off" id="cf-state">—</span><span class="muted" id="cf-since"></span>
+        <span class="pill warn" id="cf-pending" hidden title="machine.json was saved since LinuxCNC started: Restart runs it">SAVED, NOT RUNNING</span>
+        <span class="spacer"></span>
+        <button class="btn" id="cf-start" hidden>Start LinuxCNC</button>
+        <button class="btn" id="cf-stop" hidden>Stop LinuxCNC</button>
+        <button class="btn accent" id="cf-restart" hidden>Restart LinuxCNC</button>
+      </div>
+      <p class="cf-err" id="cf-error" hidden></p>
+      <div class="panel cf-main">
+        <div class="seg cf-tabs" id="cf-tabs" role="tablist">
+          <button data-t="machine" aria-pressed="true">Machine</button><button data-t="axes" aria-pressed="false">Axes &amp; joints</button><button data-t="hw" aria-pressed="false">Hardware</button><button data-t="io" aria-pressed="false">I/O</button><button data-t="console" aria-pressed="false">Console</button><button data-t="custom" aria-pressed="false">Custom HAL</button><button data-t="json" aria-pressed="false">machine.json</button><button data-t="gen" aria-pressed="false">Generated</button><button data-t="hist" aria-pressed="false">History</button><button data-t="log" aria-pressed="false">Log</button>
+        </div>
+        <div class="cf-body" id="cf-body"></div>
+      </div>
+      <div class="panel cf-problems" id="cf-problems" hidden></div>
+      <div class="panel cf-actions">
+        <span class="muted" id="cf-dirty">No changes</span>
+        <span class="spacer"></span>
+        <button class="btn" id="cf-check" title="Check machine.json and make its INI and HAL (Generated)">Check</button>
+        <button class="btn" id="cf-discard">Discard</button>
+        <button class="btn" id="cf-save">Save</button>
+        <button class="btn accent" id="cf-saverestart" title="Save, then restart LinuxCNC with it">Save &amp; restart</button>
+      </div>
+    </section>
+
     <section class="page-pane" id="p-set" hidden>
       <div class="cards">
         <div class="card"><h3>Display</h3>
@@ -889,6 +955,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
 <script src="js/hal.js"></script>
 <script src="js/scope.js"></script>
 <script src="js/drives.js"></script>
+<script src="js/config.js"></script>
 <script src="js/live.js"></script>
 
 </body>

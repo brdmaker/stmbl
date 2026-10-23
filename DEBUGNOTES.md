@@ -2092,3 +2092,24 @@ Entry format:
   suite run on the previous version fails on every page.
 - Note:    Chromium's iPad emulation doesn't do Safari's double-tap zoom,
   so the suite checks the CSS that prevents it, not the zoom itself.
+
+## 2026-10-23  millweb-supervisor: LinuxCNC's output, restarts, a refused config
+- Area:    webui/mill/server/supervisor.py
+- Status:  Note
+- Symptom: logs/linuxcnc.log held only the supervisor's own lines; neither
+  LinuxCNC's nor millweb's output.
+- Cause:   the `linuxcnc` script sends its output to /tmp/linuxcnc.print.*
+  and .debug.* when stdout isn't a terminal, and deletes them at exit
+  (on an error it copies them to ~/linuxcnc_*.txt).
+- Fix:     the supervisor runs linuxcnc on a pty and copies what comes out
+  into the log (DISPLAY unset: no X error window either).
+- Also:    a restart is millweb quitting with run/request = restart (LinuxCNC
+  follows its display); each start gets a fresh millweb, so nothing
+  reattaches to a new HAL or NML. Before quitting millweb stops its scope
+  samplers (else their HAL components hold up LinuxCNC's exit). A config
+  that never reached "running" isn't retried (its error doesn't go away);
+  the error shown is the first HAL file line from the log
+  ("custom.hal:1: Pin 'nosuch.pin' does not exist"), not the script's
+  generic "terminated with an error". A quick restart (~2 s) can bring the
+  page back to the new millweb without passing the supervisor: the
+  supervisor's state is in millweb's hello and pushed on change.

@@ -29,12 +29,17 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
 | `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
 | `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
+| `js/config.js` | the Configure page: machine.json in forms and as text, Check, history, Restart |
 | `js/scope.js` | the Debug page's scope (triggering, drawing, cursor), its tabs and saved views |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
 | `millweb` | the backend's launcher: LinuxCNC's display program |
+| `millweb-supervisor` | runs LinuxCNC for a machine folder (machine.json), again and again; `millweb-supervisor.service` for systemd |
 | `server/millweb.py` | the hub: browsers, control lease, jog deadman, status diffs, events, previews |
 | `server/machine.py` | LinuxCNC: status, commands, tool table, offsets, programs, probing |
 | `server/drives.py` | the stmbl drives' consoles: the tty, the values the cards ask for, what browsers may send |
+| `server/supervisor.py` | millweb-supervisor: the bitstream, the INI and HAL, LinuxCNC's runs; the page while LinuxCNC is down |
+| `server/machineconf.py` | machine.json: checking it, the INI and HAL made of it, saving with a history |
+| `server/fpga_load.py` | loads a bitstream through Linux's FPGA manager (root, via sudo) |
 | `server/sampler.py` | the scope's sampler: HAL values at a steady rate, in a process of its own |
 | `server/preview.py` | a program's toolpath from LinuxCNC's interpreter (the `gcode` module, as AXIS previews) |
 | `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
@@ -46,6 +51,84 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `test/gui/` | the GUI suites (Playwright): `runner.js`, `sim_suite.js` (simulated), `live_suite.js` (real LinuxCNC), `wsclient.js` |
 | `test/run_live.py`, `test/browser_live.js` | the end-to-end scenario: the protocol, then a headless Chromium on the page |
 | `deploy/linuxcnc-millweb.service` | systemd: LinuxCNC with millweb at boot |
+
+## A machine in one file: millweb-supervisor
+
+The usual way: LinuxCNC isn't started by hand with a hand-written INI. A
+service, `millweb-supervisor`, runs it for a **machine folder**, again and
+again, and the console configures it:
+
+    millweb-supervisor /home/lcnc/machine          (in LinuxCNC's environment, as the machine's user)
+
+Each start:
+1. `machine.json` is checked and made into `run/mill.ini` and `run/machine.hal` (and `custom.hal`, if there is one, loaded after it);
+2. the **FPGA bitstream** is loaded, if machine.json names one: with Linux's FPGA manager (a Zynq's programmable logic: `bitstreams/<file>.bit.bin`, through `server/fpga_load.py` with `sudo -n`), or with a command of your own (`{file}` is the bitstream). With `reload: changed` it is loaded when it changed or after a boot, else at every start;
+3. `linuxcnc run/mill.ini` runs, millweb as its display, until it ends.
+
+**Restart LinuxCNC** (the Configure page; with control, not while a program
+runs) makes millweb quit; LinuxCNC follows; the supervisor starts it again
+with the saved machine.json. The page reconnects by itself, in 2–3 s with the
+test machine. **Stop** leaves LinuxCNC down until **Start**.
+
+**While LinuxCNC is down** (restarting, stopped, or failed) the supervisor
+serves the console on the same port: the header says *LINUXCNC FAILED* (or
+stopped), and only the Configure page works: the error, the start's log,
+machine.json to fix, Start. A configuration LinuxCNC refuses isn't retried
+(the error names the HAL line); one that ran before and then ended is
+started again (three quick failures in a row: it waits for Start).
+
+**The machine folder:**
+
+| | |
+|---|---|
+| `machine.json` | the machine (below); the Configure page edits it |
+| `custom.hal` | more HAL, after the generated (the Configure page's Custom HAL) |
+| `bitstreams/` | FPGA bitstreams (uploaded on the page, up to 6 MB; larger ones copied in) |
+| `history/` | every saved machine.json and custom.hal (and the file as it was before the first save) |
+| `run/` | made at each start: `mill.ini`, `machine.hal`; `status.json` (the supervisor's state); the drives' console ptys |
+| `logs/` | `linuxcnc.log`: LinuxCNC's and millweb's output, the last start (`.1`, `.2` the ones before) |
+| `tool.tbl`, `linuxcnc.var`, `nc_files/`, `millweb-setup.json`, `debug-views.json` | kept across starts |
+
+`millweb-supervisor DIR --init` makes a folder with a default machine.json
+(three simulated joints). `make supervised` runs `test/machine` (the test
+machine as a machine.json) to try it.
+
+**machine.json** (everything optional has a default; the Configure page shows
+it):
+
+| key | what |
+|---|---|
+| `name`, `units` (mm), `servo_period_ns` | |
+| `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
+| `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
+| `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
+| `joints` | a list: `axis`; `drive`: `{type: sim}` (command = feedback), `{type: stmbl_sserial, port, channel}` (on the Mesa board's smart-serial), `{type: stmbl_can, bus, node}` (stmblcan; `can.spi` lists the buses), `{type: stmbl_sim, conf, sim}` (the simulated drive, one at most), with `console` (its console on the Drives tab, default yes); `ferror`, `min_ferror`; `home`: `method` (`absolute`, `immediate`, `switch` with `switch`/`search_vel`/`latch_vel`/`offset`, `index` with `latch_vel`/`offset`), `pos`, `sequence` (two joints on an axis: a gantry, homed in step); `min`, `max`, `max_vel`, `max_acc` (default: the axis's, travel ±1 mm, speeds ×1.1) |
+| `can` | `spi` (a device a bus, or `sim`), `discover`, `spi_hz` |
+| `estop` | `input` (a HAL pin, true while the chain is closed), `invert`; a Mesa board's watchdog also trips it; no input and no board: a loop |
+| `probe` | `type`: `none`, `input` (`input`, `invert`), `sim` (trips below `sim_z`) |
+| `spindle` | `type`: `none`, `sim`; `max_rpm` |
+| `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
+| `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
+| `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
+
+The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
+and a `sserialterm` console each, made from the joints.
+
+**As a service:** `millweb-supervisor.service` (edit the user and paths;
+it runs as the machine's user: LinuxCNC refuses root). For the FPGA manager,
+a sudoers line lets that user load bitstreams and nothing else:
+
+    lcnc ALL=(root) NOPASSWD: /usr/bin/python3 /home/lcnc/stmbl/webui/mill/server/fpga_load.py *
+
+(`MILLWEB_SUDO` changes the `sudo -n` prefix; empty runs it directly.)
+
+**The Configure page** (also without the supervisor: then it says so and
+the INI is configured by hand):
+- **Machine, Axes & joints, Hardware, I/O, Console:** machine.json in forms (a joint per card; the drive's and the homing's fields follow their type). Blank fields take the default shown.
+- **Custom HAL**, **machine.json** (as text; the forms and the text are the same file).
+- **Check** asks millweb to check machine.json and make its INI and HAL: problems are listed (a click goes to the field, marked), **Generated** shows the files and the changes against the saved ones.
+- **Save** (asks, naming the settings changed; a note goes into the history), **Save & restart**, **Discard**; **History**: every version, compared with the editor or loaded into it; **Log**: the last three starts.
+- Saving, uploading bitstreams and restarting need control; reading doesn't. Changes are in the event log with who made them.
 
 ## Running it on a machine
 
@@ -127,6 +210,7 @@ JSON over the WebSocket at `/ws`.
 - `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
 - `scope_start` {names (≤ 8), rate (10–2000 Hz)}, `scope_stop`: then `scope` messages every 50 ms, `{names, n, rate (measured), missed (late samples), t0, d}` with `d` the n×channels samples as base64 little-endian float32, row by row (two browsers may scope at once);
 - `drive_watch` {name | null}: a drive's console in this browser (the reply has what it said so far, `scroll`; then `dout` messages `{n, text}`); `drive_cmd` {name, cmd, sure}: a line to its console (reading for everyone; the rest with control and `DRIVE_WRITE`, and what moves, restarts or rewrites the drive with `sure`); `drive_detach` {name, on, seconds}: the tty left to other programs for a while (with control). `drv` messages (2 Hz, when changed): each drive's card, `{n, link: ok | silent | missing | detached, state, fault, last, last_at, dc, hv_t, mot_t, ac, perr, sat, fw, rx, tx, age, pd: {enable, fault, pos_fb, vel_fb, current, power}}`;
+- `config_get`, `config_check` {text, custom}, `config_save` {text, custom, note, restart}, `config_version` {version}, `bitstream_save` {name, data}, `bitstream_delete` {name}, `log_get` {which, n}, `sup_status`, `lcnc_restart`, `lcnc_stop` (with millweb-supervisor; `sup` messages carry its state). While LinuxCNC is down the supervisor answers these (`lcnc_start` for Start; its hello has `machine: null` and `supervisor`);
 - `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
@@ -223,6 +307,7 @@ round (`make test-gui-tablet`):
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
+| `make test-config` | the Configure page and restarts: test/machine run by millweb-supervisor (backend cases and the page) | 2 min | all of the above |
 | `make test-drive` | the Drives tab on LinuxCNC with a simulated stmbl drive on X (`harness.py --drive`: `stmbl_sim` closing joint 0's loop, `sserialterm`) | 1 min | all of the above, `stmbl_sim.so` and `sserialterm.so` installed |
 | `make check-all` | unit, simulated, tablet, backend and live GUI suites | 17 min | |
 

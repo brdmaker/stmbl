@@ -31,6 +31,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import drives as drives_mod  # noqa: E402
+import supervisor as supervisor_mod  # noqa: E402
 import machine as machine_mod  # noqa: E402
 import preview  # noqa: E402
 import wsserver  # noqa: E402
@@ -93,6 +94,9 @@ class Hub:
         self.links = {n: drives_mod.DriveLink(n, path, pd, out=self.drive_out, event=self.event, poll_ms=poll_ms)
                       for n, path, pd in drives_mod.links_from(cfg.all("MILLWEB", "DRIVE_LINK"))}
         self.drive_watch = {}        # client id -> the drive whose console it shows
+        # run by millweb-supervisor (supervisor.py): machine.json, restarts
+        mdir = cfg.get("MILLWEB", "MACHINE_DIR")
+        self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
         self.drive_sig = None
 
     # ------------------------------------------------------------ events
@@ -117,6 +121,9 @@ class Hub:
         info["token_required"] = bool(self.token)
         info["drive_links"] = list(self.links)
         info["drive_write"] = self.drive_write
+        info["supervised"] = bool(self.conf)
+        if self.conf:
+            info["supervisor"] = self.conf.status()
         await ws.send_json({"t": "hello", "you": c.id, "machine": info, "control": self.control,
                             "events": [{"time": t, "lvl": l, "text": x} for t, l, x in self.events[-80:]]})
         await ws.send_json({"t": "st", **self.state})
@@ -200,7 +207,8 @@ class Hub:
                     self.jog_seen[a] = time.time()
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
-                      "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
+                      "sup_status", "log_get", "config_get", "config_check", "config_version"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -591,6 +599,87 @@ class Hub:
         self.drive_sig = None
         return None
 
+    # ------------------------------------------------------------ the machine's configuration (millweb-supervisor)
+    def need_conf(self):
+        if not self.conf:
+            raise ValueError("this LinuxCNC isn't run by millweb-supervisor: configure it through its INI")
+        return self.conf
+
+    async def op_sup_status(self, c, m):
+        return {"status": self.need_conf().status()}
+
+    async def op_log_get(self, c, m):
+        return self.need_conf().log(int(m.get("which", 0)), int(m.get("n", 400)))
+
+    async def op_config_get(self, c, m):
+        return await self.run_bg(self.need_conf().get)
+
+    async def op_config_check(self, c, m):
+        return await self.run_bg(self.need_conf().check, str(m.get("text", "")), str(m.get("custom", "")))
+
+    async def op_config_version(self, c, m):
+        return self.need_conf().version(m.get("version"))
+
+    async def op_config_save(self, c, m):
+        """machine.json and custom.hal saved; with restart: true, LinuxCNC restarts with them."""
+        conf = self.need_conf()
+        if m.get("restart"):
+            err = self.restart_refused()
+            if err:
+                return err
+        err, hid = await self.run_bg(conf.save, str(m.get("text", "")), str(m.get("custom", "")), c.name, str(m.get("note", ""))[:200])
+        if err:
+            return err
+        self.event("ok", "machine.json saved by %s" % c.name)
+        if m.get("restart"):
+            self.lcnc_end("restart", c)
+        return {"version": hid}
+
+    async def op_bitstream_save(self, c, m):
+        conf = self.need_conf()
+        err = await self.run_bg(conf.bitstream_save, m.get("name"), m.get("data", ""))
+        return err or {"bitstreams": conf.bitstreams()}
+
+    async def op_bitstream_delete(self, c, m):
+        conf = self.need_conf()
+        return conf.bitstream_delete(m.get("name")) or {"bitstreams": conf.bitstreams()}
+
+    def restart_refused(self):
+        if self.state.get("run") in ("run", "hold", "step"):
+            return "a program is running: stop it first"
+        return None
+
+    def lcnc_end(self, why, c):
+        """LinuxCNC ends (millweb quits, it follows); the supervisor starts it again (restart) or waits (stop)."""
+        self.conf.request(why)
+        self.event("warn", "LinuxCNC %s by %s" % ("restarts" if why == "restart" else "stops", c.name))
+        self.broadcast({"t": "sup", "status": dict(self.conf.status(), state="restarting" if why == "restart" else "stopping")})
+        asyncio.get_event_loop().call_later(0.5, self.quit.set)
+
+    async def op_lcnc_restart(self, c, m):
+        self.need_conf()
+        err = self.restart_refused()
+        if err:
+            return err
+        self.lcnc_end("restart", c)
+
+    async def op_lcnc_stop(self, c, m):
+        self.need_conf()
+        err = self.restart_refused()
+        if err:
+            return err
+        self.lcnc_end("stop", c)
+
+    async def run_bg(self, fn, *a):
+        return await asyncio.get_event_loop().run_in_executor(self.ppool, lambda: fn(*a))
+
+    async def shutdown(self):
+        """Before millweb exits (LinuxCNC follows): the scopes' samplers out of HAL, the drives' consoles closed."""
+        for cid in list(self.scopes):
+            await self.scope_stop(cid)
+        for l in self.links.values():
+            l.close()
+
     async def op_views_save(self, c, m):
         """The Debug page's views: saved for every browser (no control needed: they don't touch the machine)."""
         err = await self.run(self.m.cmd_views_save, m["views"])
@@ -828,6 +917,14 @@ class Hub:
                     self.control = None
                     self.broadcast({"t": "control", "holder": None})
                     self.event("warn", "Remote control switched off at the machine")
+                if self.conf:  # the supervisor's state (run/status.json) to every browser when it changes
+                    try:
+                        mt = os.path.getmtime(os.path.join(self.conf.mdir, "run", "status.json"))
+                    except OSError:
+                        mt = None
+                    if mt != getattr(self, "sup_mtime", None):
+                        self.sup_mtime = mt
+                        self.broadcast({"t": "sup", "status": self.conf.status()})
                 fm = self.files_msg()
                 fs = json.dumps(fm)
                 if fs != self.files_sig:
@@ -883,6 +980,7 @@ async def amain(args):
     tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop()),
              asyncio.ensure_future(hub.drive_loop())]
     await quit_event.wait()
+    await hub.shutdown()
     for t in tasks:
         t.cancel()
     server.close()

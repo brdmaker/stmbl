@@ -57,6 +57,7 @@ const Live = (() => {
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
       case "drv": return drivesShow(m.drives);
+      case "sup": if (L.kind) supBrand(m.status); return cfgStatus(m.status);
       case "dout": if (m.n === drv.watching) drvText(m.text); return;
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
@@ -65,6 +66,11 @@ const Live = (() => {
     }
   }
   function hello(m) {
+    // millweb (LinuxCNC running) or millweb-supervisor (it isn't): a change between them starts the page afresh
+    const sup = !m.machine && !!m.supervisor;
+    if (L.kind !== undefined && L.kind !== sup) { location.reload(); return; }
+    L.kind = sup;
+    if (sup) return supHello(m);
     connected = true; me = m.you; holder = m.control; info = m.machine;
     const lim = info.limits;
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
@@ -80,9 +86,30 @@ const Live = (() => {
       $("o-spin").max = Math.round(info.ovr_max.spin * 100); $("o-spin").min = Math.round(info.ovr_max.spin_min * 100);
     }
     linkChip(); controlUi();
+    if (info.supervisor) cfgStatus(info.supervisor);
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
     else if (st.page === "debug") halWatchSend();  // reconnected: the watch again
+    else if (st.page === "config") cfgLoad(dirty());  // reconnected (LinuxCNC restarted): what is saved and running now
     msg(`Connected to ${info.name}`, "ok");
+  }
+  // LinuxCNC down: the supervisor serves the page, only the Configure page works
+  function supHello(m) {
+    connected = true; me = m.you; holder = m.control;
+    info = { name: "LinuxCNC", supervised: true, token_required: m.token_required, drive_links: [] };
+    document.body.classList.add("sup-mode");
+    supBrand(m.supervisor);
+    $("f-src").textContent = `supervisor · ${location.host}`;
+    events.length = 0;
+    for (const e of (m.events || []).slice().reverse()) events.push({ t: e.time, lvl: e.lvl, text: e.text });
+    renderEvents();
+    linkChip(); controlUi();
+    cfgStatus(m.supervisor);
+    if (onFirst) { const f = onFirst; onFirst = null; f(); }
+    msg(`LinuxCNC ${m.supervisor.state}: ${m.supervisor.error || "Configure it, or start it"}`, m.supervisor.state === "failed" ? "bad" : "info");
+  }
+  function supBrand(s) {
+    document.querySelector(".brand b").textContent = "LINUXCNC " + String(s.state).toUpperCase();
+    document.querySelector(".brand span").textContent = `millweb-supervisor ${s.version || ""} · ${s.dir || ""}`;
   }
   function state(m) {
     if ("estop" in m) st.estop = m.estop;
@@ -339,6 +366,19 @@ const Live = (() => {
     scopeData(m.n, new Float32Array(b.buffer), m.rate, m.missed);
   }
   L.viewsSave = (views) => send("views_save", { views });
+  // the Configure page: machine.json, bitstreams, LinuxCNC's restarts (millweb-supervisor)
+  L.supervised = () => !!(info && info.supervised);
+  L.conf = {
+    get: () => send("config_get"),
+    check: (text, custom) => send("config_check", { text, custom }),
+    save: (text, custom, note, restart) => send("config_save", { text, custom, note, restart: !!restart, start: !!restart }),
+    version: (version) => send("config_version", { version }),
+    bitstreamSave: (name, data) => send("bitstream_save", { name, data }),
+    bitstreamDelete: (name) => send("bitstream_delete", { name }),
+    log: (which) => send("log_get", { which }),
+    restart: () => send("lcnc_restart"), start: () => send("lcnc_start"), stop: () => send("lcnc_stop"),
+    status: () => send("sup_status"),
+  };
   // the Debug page's drives: their cards ("drv"), consoles ("dout")
   L.drives = {
     watch: (name) => send("drive_watch", { name }),
@@ -566,5 +606,6 @@ const Live = (() => {
     st.on = false; st.estop = true; st.run = "idle"; st.motion = null; st.spindle.dir = 0; st.spindle.rpm = 0;
     st.homed = { x: false, y: false, z: false };
     bootCommon();
+    if (Live.L.kind) showPage("config");  // LinuxCNC down: the Configure page
   });
 })();

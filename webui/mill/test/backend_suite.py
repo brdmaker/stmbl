@@ -11,6 +11,7 @@ Exit status 0 when every case passed.
 """
 import argparse
 import asyncio
+import json
 import os
 import socket
 import sys
@@ -61,6 +62,7 @@ PROFILES = {
     "halwrite": dict(ini_set=["MILLWEB.HAL_WRITE=yes"]),
     "drive": dict(drive=True),
     "drivewrite": dict(drive=True, ini_set=["MILLWEB.DRIVE_WRITE=yes"]),
+    "supervised": dict(supervised=True),
     "remote": dict(ini_set=["MILLWEB.REMOTE_ENABLE_PIN=remote-key.in0", "MILLWEB.AIR_PIN=air.in0"],
                    hal_extra="loadrt or2 names=remote-key,air\nsetp remote-key.in0 1"),
 }
@@ -1145,6 +1147,154 @@ async def _(t):
     t.check(await a.until(lambda c: not c.st["on"], 5), "LinuxCNC: amp fault, machine off")
     await a.call("drive_cmd", name="X", cmd="fault0.max_pos_error = 5")
     await asyncio.sleep(0.3)
+
+
+# ----------------------------------------------------------------------- millweb-supervisor
+
+async def lcnc_back(t, timeout=90, restarting=True):
+    """Until the supervisor has LinuxCNC running again (restarting: it is about to stop first); then a new control client."""
+    t0 = time.time()
+    while restarting and t.m.status().get("state") == "running" and time.time() - t0 < 15:  # millweb quits half a second after the request
+        await asyncio.sleep(0.1)
+    ok = await asyncio.get_event_loop().run_in_executor(None, t.m.wait_state, "running", timeout)
+    if not ok:
+        raise Failed("LinuxCNC isn't running again (supervisor: %s)" % t.m.status())
+    t.a = await C.open(t.port)
+    await t.a.call("control", take=True, force=True)
+    return t.a
+
+
+async def sup_until(t, state, timeout=30):
+    return await asyncio.get_event_loop().run_in_executor(None, t.m.wait_state, state, timeout)
+
+
+@case("supervisor: machine.json read, checked and made into INI/HAL; watching browsers read, only control saves", profile="supervised")
+async def _(t):
+    a, b = t.a, await t.open()
+    t.check(a.hello["machine"]["supervised"] is True and a.hello["machine"]["name"] == "PORTAL-M sim", "hello: supervised, the machine's name from machine.json")
+    r = await b.call("config_get")
+    t.check(r["ok"] and json.loads(r["text"])["name"] == "PORTAL-M sim" and r["running"] == r["saved"], "config_get: the text, what runs is what is saved")
+    m = json.loads(r["text"])
+    m["axes"]["X"]["max"] = 900
+    r2 = await b.call("config_check", text=json.dumps(m), custom="")
+    t.check(r2["ok"] and r2["errors"] == [] and "MAX_LIMIT = 900" in r2["files"]["mill.ini"] and '"max": 900' in r2["diff"], "config_check: no problems, the INI made, the change")
+    m["axes"]["X"]["max"] = -5
+    r2 = await b.call("config_check", text=json.dumps(m), custom="")
+    t.check(r2["errors"] and r2["errors"][0][0] == "axes.X", "a bad axis: its problem, where (%s)" % r2.get("errors"))
+    t.refused(await b.call("config_save", text=r["text"], custom=""), "a watching browser saving", "control")
+    t.refused(await b.call("lcnc_restart"), "a watching browser restarting", "control")
+    t.refused(await a.call("config_save", text="{", custom=""), "saving what isn't JSON", "JSON")
+    t.check((await b.call("log_get"))["lines"] and any("LINUXCNC" in l for l in (await b.call("log_get"))["lines"]), "log_get: LinuxCNC's output")
+    t.check((await b.call("sup_status"))["status"]["state"] == "running", "sup_status: running")
+
+
+@case("supervisor: Save & restart runs the new machine.json; a program running refuses", profile="supervised")
+async def _(t):
+    a = t.a
+    r = await a.call("config_get")
+    m = json.loads(r["text"])
+    t.check(a.hello["machine"]["limits"]["X"]["vel"] == 500 * 60, "X at 500 mm/s now")
+    await t.load("slow.ngc", SLOW)
+    t.ok(await a.call("cycle", action="start"), "a program runs")
+    await a.until(lambda c: c.st["run"] == "run", 5)
+    t.refused(await a.call("lcnc_restart"), "a restart meanwhile", "program")
+    await a.call("cycle", action="stop")
+    await t.idle()
+    m["axes"]["X"]["max_vel"] = 300
+    mk = a.mark()
+    r = await a.call("config_save", text=json.dumps(m, indent=2), custom="", note="slower X", restart=True)
+    t.ok(r, "config_save with restart")
+    t.check(await a.until(lambda c: c.since(mk, lambda x: x["t"] == "sup" and x["status"]["state"] == "restarting"), 3), "every browser told: restarting")
+    t0 = time.time()
+    a = await lcnc_back(t)
+    t.check(a.hello["machine"]["limits"]["X"]["vel"] == 300 * 60, "back in %.1f s, X at 300 mm/s (%s)" % (time.time() - t0, a.hello["machine"]["limits"]["X"]["vel"]))
+    r = await a.call("config_get")
+    t.check(r["running"] == r["saved"] and r["history"][0]["note"] == "slower X", "what runs is what was saved; the history has it")
+    m["axes"]["X"]["max_vel"] = 500
+    await a.call("config_save", text=json.dumps(m, indent=2), custom="", restart=True)
+    await lcnc_back(t)
+
+
+@case("supervisor: a configuration LinuxCNC refuses: the supervisor serves the page, the log says why, a fix starts it", profile="supervised")
+async def _(t):
+    a = t.a
+    r = await a.call("config_get")
+    text = r["text"]
+    t.ok(await a.call("config_save", text=text, custom="net bogus nosuch.pin\n", restart=True), "custom.hal with a pin that isn't")
+    t.check(await sup_until(t, "failed", 40), "the supervisor: failed (%s)" % t.m.status().get("state"))
+    st = t.m.status()
+    t.check("nosuch.pin" in (st.get("error") or ""), "its error names the HAL line: %s" % st.get("error"))
+    b = await C.open(t.port)
+    t.check(b.hello["machine"] is None and b.hello["supervisor"]["state"] == "failed", "a browser now: the supervisor's hello")
+    log = await b.call("log_get")
+    t.check(any("custom.hal:1" in l for l in log["lines"]), "log_get: LinuxCNC's error")
+    t.check((await b.call("config_get"))["custom"] == "net bogus nosuch.pin\n", "config_get from the supervisor")
+    t.refused(await b.call("config_save", text=text, custom=""), "saving without control", "control")
+    t.refused(await b.call("mdi", cmd="G0 X0"), "a machine command", "isn't running")
+    t.ok(await b.call("control", take=True), "control (from the supervisor)")
+    t.refused(await b.call("config_save", text="{", custom=""), "a broken machine.json", "JSON")
+    t.ok(await b.call("config_save", text=text, custom="", start=True), "the fix, and start")
+    t.check(await sup_until(t, "running", 60), "running again")
+    await b.close()
+    await lcnc_back(t, restarting=False)
+
+
+@case("supervisor: Stop, then Start from the supervisor's page; the bitstream loaded before LinuxCNC, once", profile="supervised")
+async def _(t):
+    import base64
+    a = t.a
+    t.ok(await a.call("bitstream_save", name="top.bit.bin", data=base64.b64encode(b"\x00bitstream" * 64).decode()), "a bitstream uploaded")
+    r = await a.call("config_get")
+    t.check([x["name"] for x in r["bitstreams"]] == ["top.bit.bin"], "listed")
+    m = json.loads(r["text"])
+    m["bitstream"] = {"loader": "command", "file": "top.bit.bin", "command": "cp {file} loaded.bin"}
+    t.ok(await a.call("config_save", text=json.dumps(m, indent=2), custom=""), "saved with a loader")
+    t.refused(await a.call("bitstream_delete", name="top.bit.bin"), "deleting the one it loads", "loads it")
+    t.ok(await a.call("lcnc_stop"), "Stop")
+    t.check(await sup_until(t, "stopped", 30), "stopped")
+    b = await C.open(t.port)
+    t.check(b.hello["supervisor"]["state"] == "stopped", "the supervisor's page")
+    await b.call("control", take=True)
+    t.ok(await b.call("lcnc_start"), "Start")
+    t.check(await sup_until(t, "running", 60), "running")
+    lb = os.path.join(t.m.dir, "loaded.bin")
+    t.check(os.path.exists(lb) and open(lb, "rb").read().startswith(b"\x00bitstream"), "the loader ran (loaded.bin)")
+    a = await lcnc_back(t, restarting=False)
+    os.remove(lb)
+    t.ok(await a.call("lcnc_restart"), "Restart")
+    a = await lcnc_back(t)
+    t.check(not os.path.exists(lb), "the same bitstream after a restart: not loaded again")
+    log = await a.call("log_get")
+    t.check(any("== " in l for l in log["lines"]), "the new start's log")
+    m["bitstream"] = {"loader": "none"}
+    await a.call("config_save", text=json.dumps(m, indent=2), custom="")
+    t.ok(await a.call("bitstream_delete", name="top.bit.bin"), "deleted once unused")
+
+
+@case("supervisor: an stmbl drive (simulated) on X from machine.json: its card and console on the Drives tab", profile="supervised")
+async def _(t):
+    import shutil
+    a = t.a
+    r = await a.call("config_get")
+    old = r["text"]
+    m = json.loads(old)
+    shutil.copy(os.path.join(HERE, "sim-drive", "drive.conf"), os.path.join(t.m.dir, "drive.conf"))
+    shutil.copy(os.path.join(HERE, "sim-drive", "drive-sim.txt"), os.path.join(t.m.dir, "drive-sim.txt"))
+    m["axes"]["X"].update(max_vel=200, max_acc=1500)
+    m["joints"][0].update(drive={"type": "stmbl_sim", "conf": "drive.conf", "sim": "drive-sim.txt"}, ferror=5, min_ferror=2.5)
+    r = await a.call("config_check", text=json.dumps(m), custom="")
+    t.check(r["ok"] and not r["errors"] and "loadrt stmbl_sim conf=" in r["files"]["machine.hal"] and "DRIVE_LINK = X " in r["files"]["mill.ini"], "checked: stmbl_sim, sserialterm, DRIVE_LINK (%s)" % r.get("errors"))
+    t.ok(await a.call("config_save", text=json.dumps(m, indent=2), custom="", restart=True), "saved, restart")
+    a = await lcnc_back(t)
+    t.check(a.hello["machine"]["drive_links"] == ["X"], "hello: drive X")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("link") == "ok" and drv(c).get("fw"), 20), "the card: link ok, firmware (%s)" % drv(a))
+    await baseline(t)  # a fresh LinuxCNC: E-STOP, off, not homed
+    t.check(await a.until(lambda c: (drv(c) or {}).get("state") == "ENABLED", 15), "machine on: the drive ENABLED")
+    await t.mdi("G53 G0 X600")
+    v = (await a.call("hal_values", names=["joint.0.motor-pos-fb", "stmbl-sim.0.pos_fb"]))["values"]
+    t.check(near(v["joint.0.motor-pos-fb"], 600, 0.05) and v["joint.0.motor-pos-fb"] == v["stmbl-sim.0.pos_fb"], "X moves through the drive (%s)" % v)
+    t.ok(await a.call("config_save", text=old, custom="", restart=True), "back to simulated joints")
+    await lcnc_back(t)
 
 
 @case("HAL_WRITE=yes: setp on an unconnected input and a parameter; not on a driven pin", profile="halwrite")

@@ -580,7 +580,7 @@ test("the machine changed by another browser shows here", async (t) => {
 });
 
 test("no script errors on any page", async (t) => {
-  for (const p of ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "set"]) { await t.nav(p); await t.sleep(400); }
+  for (const p of ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "config", "set"]) { await t.nav(p); await t.sleep(400); }
   t.check(t.errors.length === 0, "none");
 });
 

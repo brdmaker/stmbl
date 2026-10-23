@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "PORTAL-M sim",
+  "units": "mm",
+  "servo_period_ns": 1000000,
+  "board": {"type": "none"},
+  "bitstream": {"loader": "none"},
+  "axes": {
+    "X": {"min": 0, "max": 1000, "max_vel": 500, "max_acc": 3000},
+    "Y": {"min": 0, "max": 1000, "max_vel": 500, "max_acc": 3000},
+    "Z": {"min": -215, "max": 0, "max_vel": 200, "max_acc": 2000}
+  },
+  "joints": [
+    {"axis": "X", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5, "home": {"method": "absolute", "pos": 500, "sequence": 0}},
+    {"axis": "Y", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5, "home": {"method": "absolute", "pos": 500, "sequence": 1}},
+    {"axis": "Y", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5, "home": {"method": "absolute", "pos": 500, "sequence": 1}},
+    {"axis": "Z", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5, "home": {"method": "absolute", "pos": 0, "sequence": 0}}
+  ],
+  "estop": {"input": ""},
+  "probe": {"type": "sim", "sim_z": -195},
+  "spindle": {"type": "sim", "max_rpm": 24000},
+  "toolsetter": {"x": 980, "y": 20, "z_above": -40, "z_ref": -245, "travel": 200},
+  "console": {"port": 8080, "pins": ["joint.0.f-error", "joint.1.f-error", "joint.3.motor-pos-fb", "motion.probe-input", "spindle.0.speed-out"]}
+}

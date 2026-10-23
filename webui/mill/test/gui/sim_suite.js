@@ -9,7 +9,7 @@ const { test, run } = require("./runner");
 
 const MILL = path.resolve(__dirname, "../..");
 const URL = "file://" + path.join(MILL, "index.html");
-const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "set"];
+const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "config", "set"];
 
 // ------------------------------------------------------------ helpers
 const idle = (t, ms = 15000) => t.until(() => (st.run === "idle" || st.run === "done") && !st.motion, null, ms);
@@ -341,7 +341,8 @@ test("jog: continuous while held", async (t) => {
   await t.click('#jog-inc button[data-v="0"]');
   const x0 = (await pos(t)).x;
   await t.page.dispatchEvent('#jogpad button[data-j="x+"]', "pointerdown");
-  await t.sleep(700);
+  // held until it has gone past an increment's 10 mm (the simulation's time runs slow at a software renderer's 5 fps)
+  await t.until((x0) => st.pos.x - x0 > 12, x0, 4000);
   const x1 = (await pos(t)).x;
   await t.page.dispatchEvent("body", "pointerup");
   await t.sleep(150);
@@ -721,6 +722,46 @@ test("Debug page, drives (simulation): cards, the console, history, a command th
   await t.click('#dc-quick [data-c="showconf"]');
   t.check(await t.until(() => /linrev0\.scale=10/.test(document.getElementById("dc-out").textContent)), "a quick button: showconf");
   await t.click('#dbg-tab button[data-t="hal"]');
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Configure (simulation): an example machine, forms and text, joints, problems, save in this browser", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  t.check(await t.until(() => cfg.loaded && document.getElementById("cf-state").textContent === "SIMULATED"), "the example machine, LinuxCNC: SIMULATED");
+  t.check((await t.text("#cf-dirty")) === "No changes", "no changes");
+  await t.page.fill('#cf-body [data-path="name"]', "Test mill"); await t.page.press('#cf-body [data-path="name"]', "Tab");
+  t.check((await t.text("#cf-dirty")) === "Changed: not saved", "a change: not saved");
+  await t.click('#cf-tabs button[data-t="axes"]');
+  const n = await t.ev(() => document.querySelectorAll(".cf-joint").length);
+  await t.click("#cf-addjoint");
+  t.check(await t.ev((n) => document.querySelectorAll(".cf-joint").length === n + 1, n), "Add joint");
+  await t.page.selectOption(`.cf-joint[data-joint="${n}"] [data-path="joints.${n}.drive.type"]`, "stmbl_can");
+  t.check(await t.until((n) => document.querySelector(`[data-path="joints.${n}.drive.node"]`), n), "a CAN drive: bus and node fields");
+  await t.click('#cf-tabs button[data-t="hw"]');
+  t.check(/CAN \(stmblcan\)/.test(await t.text("#cf-body")), "Hardware: the CAN section appears");
+  await t.click('#cf-tabs button[data-t="axes"]');
+  await t.click(`[data-rmjoint="${n}"]`);
+  await t.click('[data-rmaxis="Z"]');
+  await t.click("#cf-check");
+  t.check(await t.until(() => /joints\.3\.axis/.test(document.getElementById("cf-problems").textContent)), "Z gone but a joint on it: a problem");
+  await t.click("#cf-problems li");
+  t.check(await t.ev(() => cfg.tab === "axes" && document.querySelector('[data-f="joints.3.axis"]').classList.contains("bad")), "a click: its tab, the field marked");
+  await t.click('#cf-tabs button[data-t="json"]');
+  await t.page.fill("#cf-json", "{ not json");
+  await t.click('#cf-tabs button[data-t="machine"]');
+  t.check(await t.until(() => cfg.tab === "json" && /isn't JSON/.test(document.getElementById("cf-body").textContent)), "text that isn't JSON: stays on the text, says so");
+  await t.click("#cf-discard"); await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => document.getElementById("cf-dirty").textContent === "No changes"), "Discard: back to the saved one");
+  await t.click('#cf-tabs button[data-t="machine"]');
+  await t.page.fill('#cf-body [data-path="name"]', "Test mill"); await t.page.press('#cf-body [data-path="name"]', "Tab");
+  await t.click("#cf-save");
+  t.check(await t.until(() => !document.getElementById("dlg").hidden && /Save machine\.json \(name\)/.test(document.getElementById("dlg-t").textContent)), "Save asks: name changed");
+  await t.page.fill("#dlg-in", "renamed"); await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => JSON.parse(localStorage.getItem("pmc.machine")).name === "Test mill" && document.getElementById("cf-dirty").textContent === "No changes"), "saved in this browser");
+  await t.click('#cf-tabs button[data-t="hist"]');
+  t.check(/renamed/.test(await t.text("#cf-body")), "History: the save");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
   t.check(t.errors.length === 0, "no script errors");
 });
 

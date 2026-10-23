@@ -1,0 +1,28 @@
+# millweb-supervisor as a systemd service: LinuxCNC for /home/lcnc/machine,
+# started at boot, restarted from the console's Configure page.
+#   sudo cp millweb-supervisor.service /etc/systemd/system/
+#   (edit User, the paths, and ExecStart's LinuxCNC environment)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now millweb-supervisor
+# Logs: journalctl -u millweb-supervisor (the supervisor), and the machine
+# folder's logs/linuxcnc.log (LinuxCNC and millweb, the last start).
+[Unit]
+Description=millweb-supervisor: LinuxCNC with the browser console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lcnc
+Group=lcnc
+# an installed LinuxCNC:
+ExecStart=/home/lcnc/stmbl/webui/mill/millweb-supervisor /home/lcnc/machine
+# a run-in-place LinuxCNC tree instead:
+# ExecStart=/bin/bash -c '. /home/lcnc/linuxcnc-2.9/scripts/rip-environment && exec /home/lcnc/stmbl/webui/mill/millweb-supervisor /home/lcnc/machine'
+# LinuxCNC (rtapi) wants to lock memory and raise priorities
+LimitMEMLOCK=infinity
+LimitRTPRIO=99
+KillMode=mixed
+TimeoutStopSec=60
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

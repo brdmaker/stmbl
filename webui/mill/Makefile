@@ -6,6 +6,7 @@
 #   make test-backend   the protocol case by case against real LinuxCNC (test/sim; ~7 min)
 #   make test-gui-live  the console on real LinuxCNC through its own controls (~3 min)
 #   make test-live      the end-to-end scenario: protocol, then the page (~1 min)
+#   make test-config    the Configure page: machine.json, restarts, a broken config (millweb-supervisor) (~2 min)
 #   make test-drive     the Drives tab: backend and page with a simulated stmbl drive on X (~1 min)
 #   make test-stress    large programs (a million lines ...) through every layer (~10 min)
 #   make check-all      all of them
@@ -51,6 +52,16 @@ endif
 test-drive:
 	python3 test/backend_suite.py -k drive
 	python3 test/harness.py --drive -- node test/gui/live_suite.js -k drive -k connects
+
+# the Configure page and LinuxCNC's restarts, on test/machine's machine.json run by millweb-supervisor
+test-config:
+	python3 test/backend_suite.py -k supervisor
+	python3 test/harness.py --supervised -- node test/gui/config_suite.js $(SEL)
+
+# test/machine under millweb-supervisor, to try the Configure page by hand (a copy in /tmp; Ctrl-C stops it)
+supervised:
+	@d=$$(mktemp -d /tmp/millweb-machine.XXXXXX) && cp -r test/machine/. $$d/ && cp -r test/sim/nc_files $$d/ && \
+	bash -c '$(RIP) exec ./millweb-supervisor '"$$d"
 
 test-live:
 	python3 test/run_live.py --browser
