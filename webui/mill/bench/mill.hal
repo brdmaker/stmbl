@@ -8,6 +8,8 @@ loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JO
 loadrt hostmot2
 loadrt [HOSTMOT2](DRIVER) config=[HOSTMOT2](CONFIG) [HOSTMOT2](DRIVER_PARAMS)
 loadrt estop_latch
+# the drive's console over smart-serial for the Drives tab (DRIVE_LINK)
+loadrt sserialterm tty=[SSERIALTERM]TTY
 loadrt sum2 names=tipz
 loadrt wcomp names=probez,probing
 loadrt conv_s32_float names=mtype
@@ -22,6 +24,7 @@ addf motion-command-handler        servo-thread
 addf motion-controller             servo-thread
 addf hm2_[HOSTMOT2](BOARD).0.write servo-thread
 addf estop-latch.0                 servo-thread
+addf sserialterm.0                 servo-thread
 addf tipz                          servo-thread
 addf probez                        servo-thread
 addf mtype                         servo-thread
@@ -37,6 +40,8 @@ net xvelcmd joint.0.vel-cmd        => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.vel_cmd
 net xposfb  joint.0.motor-pos-fb  <=  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.pos_fb
 net xenable joint.0.amp-enable-out => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.enable
 net xfault  joint.0.amp-fault-in  <=  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.fault
+net xcon-fb  hm2_[HOSTMOT2](BOARD).0.stbl.0.0.con_fb => sserialterm.0.con-fb
+net xcon-cmd sserialterm.0.con-cmd => hm2_[HOSTMOT2](BOARD).0.stbl.0.0.con_cmd
 # homing: X creeps to the encoder's index (HOME_USE_INDEX, the drive's idx_home)
 net xindex  joint.0.index-enable  <=> hm2_[HOSTMOT2](BOARD).0.stbl.0.0.index_enable
 
