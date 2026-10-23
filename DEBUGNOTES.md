@@ -1722,3 +1722,15 @@ Entry format:
   phase_cur / 8 and grows (drive_phasing_align_gentle.test).
   Bench, v0.9.18-356: offset reading with the bridge off 0.09 -> ~0.01 A;
   phasing suite 36/36 (align swing <= 0.018 mm, move error <= 0.115 mm).
+
+## 2026-10-23  hm2_spix: a cold start read the card bit-shifted at 31.25 MHz
+- Area:    `hwtest/burnin/stmbl.ini` [HOSTMOT2] DRIVER_PARAMS (Pi 4 + 7C81)
+- Status:  Workaround
+- Symptom: after a power-up, LinuxCNC with the burn-in config failed:
+  "hm2_spix: SPI0/CE0: MISO input is bit-shifted by one bit. SPI read clock
+  frequency probably too high", "Invalid cookie", no board. The same 35.7 /
+  31.25 MHz had worked for days.
+- Cause:   the read margin at 31.25 MHz is thin (reads failed at 41.7);
+  a cold board or supply shifts it. Not pinned down.
+- Fix:     25 MHz both ways (`spiclk_rate=25000 spiclk_rate_rd=25000`), also
+  in webui/mill/bench. The Pi-side timing test (hwtest/suite) shows the cost.
