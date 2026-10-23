@@ -1,0 +1,26 @@
+# Index homing a second time (webui/mill/bench, 2026-10-23): after one
+# index homing the joint stops past the index (fb_abs quadrant 1); standing
+# at fb_abs -0.63 (quadrant 4) the next request saw idx_home's lastq from
+# the request before, took 1 -> 4 for the index and reported it at once:
+# the joint was "homed" where it stood, without moving. It must wait for
+# the index (index_rehome_creep.test: creeping on finds it).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 20
+run 0.5
+lcncindex 1
+run 2.5
+lcnc 1 0
+run 0.5
+idx_home0.fb_abs
+# home again standing still: no index
+lcncindex 1
+run 0.5
+lcncindex
+@expect idx_home0.fb_abs < -0.1
+@expect lcncindex.found == 0
+@expect lcncindex.periods >= 500

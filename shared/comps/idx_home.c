@@ -24,6 +24,7 @@ struct idx_home_ctx_t {
   int state;
   int lastq;
   int waitabs;
+  int armed;  // index_en was set last period: lastq is this request's
   int homed;  // index found and LinuxCNC answered (index_en dropped)
 };
 
@@ -36,14 +37,22 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(PIN(index_en) > 0) {
     if(PIN(mot_state) == 3) {
       q = quadrant(PIN(fb_abs));
+      if(!ctx->armed) {  // a new request: lastq was from the one before, where it stopped past the index
+        ctx->lastq = q;
+      }
       if(((q == 1 && ctx->lastq == 4) || (q == 4 && ctx->lastq == 1)) || ctx->waitabs == 1) {
         PIN(index_clear) = 1;
         ctx->state       = 1;
+        ctx->waitabs     = 0;
       }
       ctx->lastq = q;
     } else {  //index requested, but index not seen
       ctx->waitabs = 1;
     }
+    ctx->armed = 1;
+  } else {  // no request (or it was withdrawn): nothing pending
+    ctx->armed   = 0;
+    ctx->waitabs = 0;
   }
 
   if(!(PIN(index_en) > 0) && ctx->state == 1) {

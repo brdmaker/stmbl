@@ -2148,3 +2148,33 @@ Entry format:
   configs over the drive's console (docs/firmware_versions.md).
 - Note:    version_info_t's product_name sits at byte 152 of the struct
   (0x188 + 152 in an image), fw_magic at 196, fw_version at 200.
+
+## 2026-10-23  hm2_spix: a cold start read the card bit-shifted at 31.25 MHz
+- Area:    `hwtest/burnin/stmbl.ini` [HOSTMOT2] DRIVER_PARAMS (Pi 4 + 7C81)
+- Status:  Workaround
+- Symptom: after a power-up, LinuxCNC with the burn-in config failed:
+  "hm2_spix: SPI0/CE0: MISO input is bit-shifted by one bit. SPI read clock
+  frequency probably too high", "Invalid cookie", no board. The same 35.7 /
+  31.25 MHz had worked for days.
+- Cause:   the read margin at 31.25 MHz is thin (reads failed at 41.7);
+  a cold board or supply shifts it. Not pinned down.
+- Fix:     25 MHz both ways (`spiclk_rate=25000 spiclk_rate_rd=25000`), also
+  in webui/mill/bench. The Pi-side timing test (hwtest/suite) shows the cost.
+
+## 2026-10-23  Index homing again: the index reported at once, without moving
+- Area:    `shared/comps/idx_home.c`
+- Status:  Fixed
+- Symptom: On the bench mill (webui/mill/bench) homing X a second time
+  "homed" it where it stood: index-enable dropped 50 ms after it was set,
+  the joint never crept to the index (the true index was 3 mm away).
+- Cause:   idx_home finds the index as fb_abs crossing between quadrants 1
+  and 4, comparing each sample with lastq. A new request compared its
+  first sample with the lastq of the request before, which stopped just
+  past the index (quadrant 1 or 4): standing anywhere in the other of the
+  two, that was a crossing. Also: waitabs (an index requested before the
+  drive had seen one) was never cleared, so it would fire every later
+  request at once.
+- Fix:     A new request starts lastq at its own first sample; waitabs is
+  cleared when it fires or the request goes away. Tests:
+  host/tests/index_rehome.test (fails before: found after 3 periods),
+  index_rehome_creep.test.
