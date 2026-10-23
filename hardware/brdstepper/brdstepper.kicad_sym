@@ -1,0 +1,394 @@
+(kicad_symbol_lib
+  (version 20220914)
+  (generator brdstepper_gen)
+  (symbol
+    "DRV8876RGT"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -8.89 16.51 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "DRV8876RGTR" (at 0 -16.51 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_DFN_QFN:VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias"
+      (at 0 -19.05 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://www.ti.com/lit/ds/symlink/drv8876.pdf"
+      (at 0 -21.59 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "DRV8876 brushed DC / H-bridge, 37 V 3.5 A, current mirror (IPROPI), VQFN-16 (RGT). Pinout per SLVSDS7B."
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "DRV8876RGT_0_1"
+      (rectangle
+        (start -8.89 15.24)
+        (end 8.89 -15.24)
+        (stroke (width 0.254) (type default))
+        (fill (type background))))
+    (symbol
+      "DRV8876RGT_1_1"
+      (pin
+        input
+        line
+        (at -11.43 12.7 0)
+        (length 2.54)
+        (name "EN/IN1" (effects (font (size 1.27 1.27))))
+        (number "15" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -11.43 10.16 0)
+        (length 2.54)
+        (name "PH/IN2" (effects (font (size 1.27 1.27))))
+        (number "16" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -11.43 7.62 0)
+        (length 2.54)
+        (name "nSLEEP" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -11.43 5.08 0)
+        (length 2.54)
+        (name "PMODE" (effects (font (size 1.27 1.27))))
+        (number "14" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -11.43 2.54 0)
+        (length 2.54)
+        (name "IMODE" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -11.43 0 0)
+        (length 2.54)
+        (name "VREF" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at -11.43 -2.54 0)
+        (length 2.54)
+        (name "IPROPI" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        open_collector
+        line
+        (at -11.43 -5.08 0)
+        (length 2.54)
+        (name "nFAULT" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at -11.43 -10.16 0)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "13" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at -11.43 -12.7 0)
+        (length 2.54)
+        (name "PAD" (effects (font (size 1.27 1.27))))
+        (number "17" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 11.43 12.7 180)
+        (length 2.54)
+        (name "VM" (effects (font (size 1.27 1.27))))
+        (number "9" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 11.43 10.16 180)
+        (length 2.54)
+        (name "VCP" (effects (font (size 1.27 1.27))))
+        (number "10" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 11.43 7.62 180)
+        (length 2.54)
+        (name "CPH" (effects (font (size 1.27 1.27))))
+        (number "11" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 11.43 5.08 180)
+        (length 2.54)
+        (name "CPL" (effects (font (size 1.27 1.27))))
+        (number "12" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 11.43 0 180)
+        (length 2.54)
+        (name "OUT1" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 11.43 -2.54 180)
+        (length 2.54)
+        (name "OUT2" (effects (font (size 1.27 1.27))))
+        (number "8" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 11.43 -12.7 180)
+        (length 2.54)
+        (name "PGND" (effects (font (size 1.27 1.27))))
+        (number "7" (effects (font (size 1.27 1.27)))))))
+  (symbol
+    "TPS560430"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -7.62 7.62 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "TPS560430XDBVR" (at 0 -7.62 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_TO_SOT_SMD:SOT-23-6"
+      (at 0 -10.16 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://www.ti.com/lit/ds/symlink/tps560430.pdf"
+      (at 0 -12.7 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "TPS560430 4-36 V 600 mA synchronous buck, SOT-23-6 (DBV). VREF 1.0 V."
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "TPS560430_0_1"
+      (rectangle
+        (start -7.62 6.35)
+        (end 7.62 -6.35)
+        (stroke (width 0.254) (type default))
+        (fill (type background))))
+    (symbol
+      "TPS560430_1_1"
+      (pin
+        power_in
+        line
+        (at -10.16 3.81 0)
+        (length 2.54)
+        (name "VIN" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 1.27 0)
+        (length 2.54)
+        (name "EN" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at -10.16 -3.81 0)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 10.16 3.81 180)
+        (length 2.54)
+        (name "CB" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 10.16 1.27 180)
+        (length 2.54)
+        (name "SW" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at 10.16 -3.81 180)
+        (length 2.54)
+        (name "FB" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))))
+  (symbol
+    "AS5047P"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -8.89 11.43 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "AS5047P" (at 5.08 11.43 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_SO:TSSOP-14_4.4x5mm_P0.65mm"
+      (at 0 -15.24 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://ams-osram.com/products/sensor-solutions/position-sensors/ams-as5047p-high-speed-rotary-position-sensor"
+      (at -19.05 -13.97 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "ki_keywords" "Magnetic Hall Sensor" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "AS5047P 14-bit magnetic rotary position sensor, SPI + ABI/UVW, TSSOP-14 (pinout as the AS5047D ✱)"
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_fp_filters"
+      "TSSOP*4.4x5mm*P0.65mm*"
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "AS5047P_1_1"
+      (rectangle
+        (start -10.16 10.16)
+        (end 10.16 -10.16)
+        (stroke (width 0.254) (type default))
+        (fill (type background)))
+      (arc
+        (start -2.794 0)
+        (mid 0 -2.7819)
+        (end 2.794 0)
+        (stroke (width 0.254) (type default))
+        (fill (type none)))
+      (polyline
+        (pts (xy -2.794 0) (xy -3.302 -0.508))
+        (stroke (width 0.254) (type default))
+        (fill (type none)))
+      (polyline
+        (pts (xy -2.794 0) (xy -2.286 -0.508))
+        (stroke (width 0.254) (type default))
+        (fill (type none)))
+      (polyline
+        (pts (xy 2.794 0) (xy 2.286 -0.508))
+        (stroke (width 0.254) (type default))
+        (fill (type none)))
+      (polyline
+        (pts (xy 2.794 0) (xy 3.302 -0.508))
+        (stroke (width 0.254) (type default))
+        (fill (type none)))
+      (polyline
+        (pts (xy 0.254 0.254) (xy 1.27 -0.762) (xy 0.762 -1.27) (xy -0.254 -0.254))
+        (stroke (width 0) (type default))
+        (fill (type none)))
+      (polyline
+        (pts
+          (xy -0.762 1.27)
+          (xy 0.254 0.254)
+          (xy -0.254 -0.254)
+          (xy -1.27 0.762)
+          (xy -1.016 1.016)
+          (xy -0.762 1.27)
+          (xy -0.635 1.143))
+        (stroke (width 0) (type default))
+        (fill (type outline)))
+      (circle (center 0 0) (radius 2.032) (stroke (width 0.254) (type default)) (fill (type none)))
+      (pin
+        input
+        line
+        (at -12.7 0 0)
+        (length 2.54)
+        (name "~{CS}" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 -2.54 180)
+        (length 2.54)
+        (name "U" (effects (font (size 1.27 1.27))))
+        (number "10" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 0 12.7 270)
+        (length 2.54)
+        (name "VDD" (effects (font (size 1.27 1.27))))
+        (number "11" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at -12.7 -5.08 0)
+        (length 2.54)
+        (name "VDD3V3" (effects (font (size 1.27 1.27))))
+        (number "12" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 0 -12.7 90)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "13" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 2.54 180)
+        (length 2.54)
+        (name "I/PWM" (effects (font (size 1.27 1.27))))
+        (number "14" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -12.7 2.54 0)
+        (length 2.54)
+        (name "CLK" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at -12.7 5.08 0)
+        (length 2.54)
+        (name "MISO" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -12.7 7.62 0)
+        (length 2.54)
+        (name "MOSI" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -12.7 -7.62 0)
+        (length 2.54)
+        (name "TST" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 5.08 180)
+        (length 2.54)
+        (name "B" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 7.62 180)
+        (length 2.54)
+        (name "A" (effects (font (size 1.27 1.27))))
+        (number "7" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 -7.62 180)
+        (length 2.54)
+        (name "W/PWM" (effects (font (size 1.27 1.27))))
+        (number "8" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 12.7 -5.08 180)
+        (length 2.54)
+        (name "V" (effects (font (size 1.27 1.27))))
+        (number "9" (effects (font (size 1.27 1.27))))))))

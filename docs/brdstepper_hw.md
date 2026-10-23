@@ -11,7 +11,11 @@ one per coil.
   console.
 - **Simulation:** the control code runs in the host simulator with a NEMA11
   model.
-- **Hardware:** no schematic yet. This document is the input for it.
+- **Hardware:** a KiCad 7 project made from this document,
+  [hardware/brdstepper](../hardware/brdstepper/README.md). The schematic is
+  complete and checked against the part list. The 28 × 28 mm board is
+  placed but not routed. Its parts are taken from this document: change
+  `hardware/brdstepper/gen/parts.py` together with it.
 
 **Sources:**
 - **MCU:** pin numbers and functions from ST's pin data
@@ -258,8 +262,8 @@ GND) with a pigtail. In that case there are no CC resistors.
 | ref | type | pins |
 |---|---|---|
 | J2 | JST-XH 3 ✱ (current rating for the total supply current) | 1 VM_IN, 2 GND, 3 EN_IN (enable / estop input, 3.3–24 V tolerant through 10k + clamp ✱) |
-| J3 | JST-PH 4 or solder pads | 1 A+, 2 A−, 3 B+, 4 B− |
-| SWD | Tag-Connect TC2030 pads (or 1.27 mm 5-pin) | VCC (3V3), SWDIO, NRST, SWCLK, GND |
+| J3 | JST-PH 4 or solder pads (the KiCad board: pads, 2.0 mm; a PH 4 doesn't fit) | 1 A+, 2 A−, 3 B+, 4 B− |
+| SWD (J7) | Tag-Connect TC2030 pads (or 1.27 mm 5-pin; the KiCad board: the 5-pin, SMD, bottom) | VCC (3V3), SWDIO, NRST, SWCLK, GND |
 
 **EN_IN:** above 3.6 V the MCU pin needs protection. Use a divider, or a
 series resistor with a clamp diode to 3V3, sized for the highest enable
@@ -411,7 +415,7 @@ Values are per board; ✱ marks parts to check against their datasheet.
 | J4 (A) | JST-GH 6, SM06B-GHS-TB |
 | J5, J6 (B) | JST-GH 4, SM04B-GHS-TB |
 | JP1 (B) | solder jumper |
-| SWD | Tag-Connect TC2030 footprint |
+| SWD (J7) | Tag-Connect TC2030 footprint, or 1.27 mm 5-pin (the KiCad board) |
 | M1 | diametric magnet 6 × 2.5 mm NdFeB |
 | board | 28 × 28 mm, M2.5 holes at 23 mm, U4 centred on the shaft |
 

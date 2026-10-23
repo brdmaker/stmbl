@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "filename": "brdstepper.kicad_pro",
+    "version": 1
+  },
+  "board": {
+    "design_settings": {
+      "defaults": {},
+      "rules": {}
+    }
+  },
+  "schematic": {
+    "legacy_lib_dir": "",
+    "legacy_lib_list": []
+  },
+  "sheets": [
+    [
+      "c0ad17d6-811b-5f9d-bce1-57a3539607cf",
+      ""
+    ],
+    [
+      "3bf38af7-fba1-558d-bc5f-ec7bc05e0c20",
+      "power"
+    ],
+    [
+      "efbddd9d-6cd8-5275-84a3-c1a6d14df7ee",
+      "mcu"
+    ],
+    [
+      "995dea36-1e67-5bcd-a342-d0e61883fe3c",
+      "bridges"
+    ],
+    [
+      "e2433f06-c339-5da9-857c-5bb6e349aa3b",
+      "encoder"
+    ],
+    [
+      "7ac89917-3818-5490-8084-48ac8a065744",
+      "interfaces"
+    ]
+  ],
+  "text_variables": {},
+  "boards": [],
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.15,
+        "track_width": 0.2,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.2,
+        "diff_pair_gap": 0.15,
+        "wire_width": 6,
+        "bus_width": 12,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "Power",
+        "clearance": 0.2,
+        "track_width": 0.5,
+        "via_diameter": 0.8,
+        "via_drill": 0.4,
+        "diff_pair_width": 0.2,
+        "diff_pair_gap": 0.15,
+        "wire_width": 6,
+        "bus_width": 12,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      }
+    ],
+    "meta": {
+      "version": 3
+    },
+    "netclass_patterns": [
+      {
+        "netclass": "Power",
+        "pattern": "VM"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "GND"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "COIL_*"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "5V*"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "BUCK_SW"
+      }
+    ]
+  }
+}

@@ -2131,3 +2131,24 @@ Entry format:
   configs over the drive's console (docs/firmware_versions.md).
 - Note:    version_info_t's product_name sits at byte 152 of the struct
   (0x188 + 152 in an image), fw_magic at 196, fw_version at 200.
+
+## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
+- Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
+- Status:  Workaround
+- Symptom: `kicad-cli sch erc` / `pcb drc` don't exist (KiCad 7.0.11, the
+  apt version here; the KiCad 8 PPA is blocked). `ZONE_FILLER.Fill`
+  segfaults in a headless pcbnew; `FOOTPRINT.Flip` segfaults on a footprint
+  not yet on a board; `SaveBoard` rewrites the .kicad_pro and drops its net
+  classes and sheet list.
+- Cause:   ERC/DRC came to kicad-cli in KiCad 8; the others are pcbnew 7's
+  Python bindings.
+- Fix:     check.py checks KiCad's own netlist against parts.py plus ERC's
+  pin-type rules; drc.py runs DRC through pcbnew.WriteDRCReport; the GND
+  plane is left unfilled; footprints are added to the board before they are
+  flipped; pcb.py writes its net classes back after saving.
+- Note:    the *_ThermalVias QFN footprints have a copper pad on the far
+  side as well: a QFN on the bottom puts copper on the top. And 28 x 28 mm
+  with both variants' connectors (USB-C, 3 GH, XH 3) and the M2.5 holes'
+  6 mm courtyards is full: J3 is pads and J7 the 1.27 mm 5-pin (both
+  options the document allows), U4 turned 90° so J2's pins pass beside it.
+
