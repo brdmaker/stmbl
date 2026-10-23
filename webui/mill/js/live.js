@@ -394,6 +394,7 @@ const Live = (() => {
     watch: (name) => send("drive_watch", { name }),
     cmd: (name, cmd, sure) => send("drive_cmd", { name, cmd, sure: !!sure }),
     detach: (name, on) => send("drive_detach", { name, on, seconds: 600 }),
+    conf: (name, action, x = {}) => send("drive_conf", { name, action, ...x }),
     writable: () => !!(info && info.drive_write) && holder === me,
   };
   L.halWritable = () => !!(info && info.hal_write) && holder === me;

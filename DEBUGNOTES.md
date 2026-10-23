@@ -2130,3 +2130,21 @@ Entry format:
   event log (a failure as an error). The bench loads both and2 instances
   in mill.hal. Test: test_millweb.PostGui. On the bench: ini.0.ferror 2
   until X is homed and enabled 1.5 s, then 1.
+
+## 2026-10-23  Drives with older firmware faulted; HV and LV firmware could differ unseen
+- Area:    shared/version_number.h, src/comps/hv.c, host/hw/hv.c, shared/commands.c, tools/stmblconf.py, webui/mill (driveconf.py)
+- Status:  Fixed (the mechanism; not yet run on hardware)
+- Symptom: (bench report) fatal faults on drives that didn't have the latest
+  firmware; nothing said which firmware a drive ran, and `about` printed the
+  HV image the F4 carries, not what the HV board runs.
+- Cause:   one product version (0.9.18) for every build; no check between
+  firmware, HV board, config and console.
+- Fix:     STMBL_FW_VERSION (1), in both images; the HV board reports its own
+  in the state rotation (an older one: a rotation without the word = 0) and
+  the drive faults HV_VERSION_ERROR on a mismatch (hv0.fw_check = 0 to
+  allow); `version` command; configs carry #stmbl_conf_version; invertible
+  conf/patches with tools/stmblconf.py; the console shows versions, refuses
+  machine on with another firmware, and backs up / patches / restores
+  configs over the drive's console (docs/firmware_versions.md).
+- Note:    version_info_t's product_name sits at byte 152 of the struct
+  (0x188 + 152 in an image), fw_magic at 196, fw_version at 200.

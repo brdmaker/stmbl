@@ -10,6 +10,8 @@
 #include "main.h"
 #include "ringbuf.h"
 #include <stddef.h>
+#include "fwver.h"
+#include "version.h"
 
 uint32_t hv_uid[3];  // the HV board's (F3) unique ID as it reports it, 0 until then (`uid`)
 
@@ -72,6 +74,11 @@ HAL_PIN(scale);
 HAL_PIN(state);
 HAL_PIN(value);
 
+// firmware versions (docs/firmware_versions.md)
+HAL_PIN(fw_version);  // out: the HV board's STMBL_FW_VERSION; -1 not known yet, 0 from before versioning
+HAL_PIN(fw_image);    // out: the HV firmware this LV firmware carries (hv_update flashes it)
+HAL_PIN(fw_check);    // 1 (default): they must match, else HV_VERSION_ERROR; 0: don't check
+
 struct hv_ctx_t {
   union {
     volatile packet_to_hv_t packet_to_hv;
@@ -87,6 +94,7 @@ struct hv_ctx_t {
   uint16_t timeout;
   uint8_t conf_addr;
   uint8_t send_state;
+  hv_fwver_t fwver;
 };
 
 typedef enum {
@@ -121,6 +129,14 @@ COMMAND("hv", hv_send, "send command to hv board");
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_ctx_t *ctx      = (struct hv_ctx_t *)ctx_ptr;
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
+
+  hv_fwver_init(&ctx->fwver);
+  {  // the HV image's version_info sits at 0x188 in it, as in every stmbl image
+    volatile const version_info_t *hv_info = (void *)(&_binary_obj_hvf3_hvf3_bin_start + 0x188);
+    PIN(fw_image) = hv_info->fw_magic == STMBL_FW_MAGIC ? (float)hv_info->fw_version : 0.0;
+  }
+  PIN(fw_check)   = 1.0;
+  PIN(fw_version) = -1.0;
 
   //setup uart to f1. uses DMA to transfer to_hv struct.
   GPIO_InitTypeDef GPIO_InitStruct;
@@ -269,6 +285,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
               }
 
               uint16_t a = ctx->from_hv.packet_from_hv.header.conf_addr;
+              hv_fwver_word(&ctx->fwver, a, ctx->from_hv.packet_from_hv.header.config.u32, offsetof(struct f3_state_data_temp, fw_version) / 4);
+              PIN(fw_version) = ctx->fwver.running;
+              if(PIN(fw_check) > 0.0 && ctx->fwver.running >= 0 && ctx->fwver.running != (int32_t)PIN(fw_image) && PIN(fault) == 0.0) {
+                PIN(fault) = HV_VERSION_ERROR;  // the HV board runs another firmware: no enable (hv_update)
+              }
               if(a < sizeof(f3_state_data_t) / 4) {  // was CLAMP(.., size): one past the end
                 ctx->state.u32[a] = ctx->from_hv.packet_from_hv.header.config.u32;
                 if(a >= offsetof(struct f3_state_data_temp, uid) / 4) {
@@ -361,6 +382,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(ctx->timeout > 2) {
     PIN(fault) = HV_TIMEOUT_ERROR;
+    hv_fwver_init(&ctx->fwver);  // a restarted (or updated) HV board: learn its version again
   }
   ctx->timeout++;
 

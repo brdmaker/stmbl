@@ -105,6 +105,7 @@ static const char* fault_string[] = {
   "Motor overcurrent hw limit",
   "phasing failed (rotor blocked, or wrong motor/feedback setup)",
   "encoder monitor",
+  "HV firmware version: the HV board runs another firmware than this one carries (hv_update, or hv0.fw_check = 0)",
 };
 
 struct fault_ctx_t {

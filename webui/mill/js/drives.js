@@ -22,7 +22,7 @@ function drivesShow(list) {
   drv.list = Array.isArray(list) ? list : [];
   const first = !drv.sel && drv.list.length;
   if (first) drv.sel = drv.list[0].n;
-  if (st.page === "debug" && dbgTab === "drives") { if (first) drvSelect(drv.sel); else renderDrives(); }
+  if (st.page === "debug" && dbgTab === "drives") { if (first) drvSelect(drv.sel); else renderDrives(); if (dcf.n && !dcf.busy && !document.querySelector("#drv-cfg :focus")) renderDrvCfg(); }
 }
 function renderDrives() {
   const el = $("drv-cards");
@@ -35,6 +35,7 @@ function renderDrives() {
     return `<div class="panel drv-card${d.n === drv.sel ? " sel" : ""}" data-n="${esc(d.n)}">
       <div class="h"><b>${esc(d.n)}</b><span class="pill ${drvStateCls(d)}" data-k="state">${esc(d.state || "—")}</span><span class="pill ${link[0]}" data-k="link">${link[1]}</span></div>
       <div class="fw" title="${esc(d.tty || "")}">${esc(d.fw || d.tty || "")}</div>
+      ${drvVer(d)}
       ${d.fault ? `<div class="fault" data-k="fault">FAULT: ${esc(d.fault)}</div>` : d.last ? `<div class="lastf" data-k="last">Last fault: ${esc(d.last)}${d.last_at ? " · " + esc(d.last_at) : ""}</div>` : ""}
       ${d.link === "missing" && d.err ? `<p class="note">${esc(d.err)}</p>` : ""}
       ${d.link === "detached" ? `<p class="note">Left to other programs by ${esc(d.by || "?")}: <code>${esc(d.tty)}</code></p>` : ""}
@@ -45,11 +46,76 @@ function renderDrives() {
         <dt>Velocity</dt><dd>${dfmt(pd.vel_fb, 1)}</dd><dt>Position</dt><dd>${dfmt(pd.pos_fb, 3)}</dd><dt>Current</dt><dd>${dfmt(pd.current, 2, "A")}</dd><dt>Power</dt><dd>${dfmt(pd.power, 0, "W")}</dd>` : ""}
       </dl>
       <div class="ft"><span>${d.age !== null && d.age !== undefined ? `values ${d.age} s old` : "no values yet"} · in ${kb(d.rx)} · out ${kb(d.tx)}</span>
-        <button class="btn sm" data-con="${esc(d.n)}">Console</button>${LIVE ? `<button class="btn sm" data-det="${esc(d.n)}">${d.link === "detached" ? "Attach" : "Detach"}</button>` : ""}</div>
+        <button class="btn sm" data-con="${esc(d.n)}">Console</button><button class="btn sm" data-cfgp="${esc(d.n)}" title="Its flash config: back up, patch for this firmware, restore">Config…</button>${LIVE ? `<button class="btn sm" data-det="${esc(d.n)}">${d.link === "detached" ? "Attach" : "Detach"}</button>` : ""}</div>
     </div>`;
   }).join("");
 }
+// ------------------------------------------------------------ firmware versions (docs/firmware_versions.md)
+function drvVer(d) {
+  const v = d.ver;
+  if (!v) return d.link === "ok" ? `<div class="drv-ver muted">firmware: asking…</div>` : "";
+  const hv = v.hv === null || v.hv === undefined ? "" : v.hv < 0 ? " · HV: asking…" : ` · HV v${v.hv}${v.hv_image !== v.hv ? ` (carries v${v.hv_image})` : ""}`;
+  const conf = v.conf === null || v.conf === undefined ? "" : ` · config ${v.conf ? "v" + v.conf : "unversioned"}`;
+  const head = `<div class="drv-ver" data-k="ver">firmware ${v.fw ? "v" + v.fw : "from before versioning"}${hv}${conf}${d.fw_want ? ` <span class="muted">· this console: v${d.fw_want}</span>` : ""}</div>`;
+  const job = d.job ? `<div class="drv-prob warn">${esc(d.job)}…</div>` : "";
+  return head + job + (d.problems || []).map((p) => `<div class="drv-prob ${p.level}" data-k="problem">${p.block ? "⛔ " : ""}${esc(p.text)}</div>`).join("");
+}
+
+// the config panel: a drive's flash config, backups, a patch for this firmware
+const dcf = { n: null, backups: [], plan: null, busy: "" };
+async function drvCfgOpen(n) {
+  dcf.n = n; dcf.plan = null; dcf.busy = "";
+  $("drv-cfg").hidden = false;
+  renderDrvCfg();
+  const r = await drvSrc().conf(n, "backups");
+  dcf.backups = r.ok ? r.backups : []; if (!r.ok) dcf.busy = r.err;
+  renderDrvCfg();
+}
+function renderDrvCfg() {
+  const el = $("drv-cfg"), d = drv.list.find((x) => x.n === dcf.n);
+  if (!d) { el.hidden = true; return; }
+  const p = dcf.plan;
+  el.innerHTML = `<h2>Config · ${esc(d.n)} <button class="btn sm" id="dcf-close" style="margin-left:auto">Close</button></h2>
+    ${drvVer(d)}
+    <p class="note">The drive's flash config. Every write keeps what was there first (Backups); a written config runs from the drive's next start. Writing needs control, <code>[MILLWEB] DRIVE_WRITE = yes</code> and the machine off.</p>
+    <div class="row"><button class="btn sm" data-dcf="backup">Back up now</button><button class="btn sm" data-dcf="plan">Patch for v${d.fw_want || "?"}…</button><button class="btn sm" data-dcf="reset" title="Restart the drive (runs its flash config)">Reset drive</button></div>
+    ${dcf.busy ? `<p class="note">${esc(dcf.busy)}</p>` : ""}
+    ${p ? `<h3>Patch v${p.from} → v${p.to}</h3><ul class="dcf-steps">${p.steps.map((s) => `<li><b>v${s.version}</b> ${esc(s.description)}${s.changes.length ? `<ul>${s.changes.map((c) => `<li><code>${esc(c)}</code></li>`).join("")}</ul>` : ""}</li>`).join("")}</ul>
+      <div class="row"><button class="btn sm accent" data-dcf="patch">Write the patched config</button><button class="btn sm" data-dcf="noplan">Cancel</button></div>` : ""}
+    <h3>Backups <small class="muted">${dcf.backups.length}</small></h3>
+    <ul class="cf-hist">${dcf.backups.map((b) => `<li><span><code>${esc(b.name)}</code></span><button class="btn sm" data-restore="${esc(b.name)}">Restore</button></li>`).join("") || "<li class='muted'>None yet.</li>"}</ul>`;
+}
+async function drvCfgAct(act, extra = {}) {
+  const n = dcf.n;
+  dcf.busy = { backup: "Reading the config …", plan: "Reading the config …", patch: "Writing (about a second a line) …", restore: "Writing (about a second a line) …", reset: "Restarting …" }[act] || "";
+  renderDrvCfg();
+  let r = await drvSrc().conf(n, act, extra);
+  if (!r.ok && /^confirm:/.test(r.err || "")) {
+    dcf.busy = ""; renderDrvCfg();
+    return ask(act === "reset" ? `Reset drive ${n}?` : `${act === "patch" ? "Patch" : "Restore"} drive ${n}'s config?`, r.err.replace(/^confirm: /, "").replace(/^./, (c) => c.toUpperCase()) + ". What is there now is kept as a backup first.", "", () => drvCfgAct(act, Object.assign({}, extra, { sure: true })), "confirm");
+  }
+  dcf.busy = r.ok ? "" : r.err;
+  if (r.ok && r.backups) dcf.backups = r.backups;
+  if (act === "plan" && r.ok) dcf.plan = r;
+  if (act === "patch" && r.ok) { dcf.plan = null; msg(`Drive ${n}: config patched (v${r.from} → v${r.to}); it runs from the drive's next start`, "ok"); }
+  if (act === "restore" && r.ok) msg(`Drive ${n}: ${extra.backup} restored; it runs from the drive's next start`, "ok");
+  if (act === "backup" && r.ok) msg(`Drive ${n}: config backed up as ${r.backup}`, "ok");
+  renderDrvCfg();
+}
+$("drv-cfg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dcf]"), rs = e.target.closest("[data-restore]");
+  if (e.target.id === "dcf-close") { $("drv-cfg").hidden = true; dcf.n = null; return; }
+  if (b) {
+    const a = b.dataset.dcf;
+    if (a === "noplan") { dcf.plan = null; renderDrvCfg(); return; }
+    drvCfgAct(a);
+  }
+  if (rs) drvCfgAct("restore", { backup: rs.dataset.restore });
+});
+
 $("drv-cards").addEventListener("click", (e) => {
+  const cp = e.target.closest("[data-cfgp]");
+  if (cp) { drvCfgOpen(cp.dataset.cfgp); return; }
   const c = e.target.closest("[data-con]"), dt = e.target.closest("[data-det]");
   if (c) { drvSelect(c.dataset.con); $("dc-in").focus(); }
   if (dt) {
@@ -113,6 +179,7 @@ $("dc-clear").addEventListener("click", () => { $("dc-out").textContent = ""; })
 const drvSim = (() => {
   const names = ["X", "Y1", "Y2", "Z"], idx = { X: 0, Y1: 1, Y2: 2, Z: 3 }, t0 = Date.now();
   const set = {};  // pins set from the console
+  const confv = {}, sbk = {};  // the simulated drives' config versions, their backups
   let watching = null;
   const pinsOf = (n) => {
     const i = idx[n], fe = (st.fe[i] || 0) / 1000, on = st.on && !st.estop;
@@ -140,7 +207,8 @@ const drvSim = (() => {
   return {
     list: () => names.map((n) => {
       const p = pinsOf(n), on = st.on && !st.estop;
-      return { n, tty: "(simulation)", link: "ok", fw: "STMBL v0.9.4 (simulation)", age: 0.4, rx: Math.round((Date.now() - t0) / 4), tx: Math.round((Date.now() - t0) / 12),
+      return { n, tty: "(simulation)", link: "ok", fw: "STMBL v0.9.4 (simulation)", ver: { fw: 1, hv: 1, hv_image: 1, conf: confv[n] || 0 }, fw_want: 1,
+        problems: confv[n] ? [] : [{ level: "warn", block: false, action: "patch", text: "config from before versioning, firmware v1: Patch config gives it its version line (nothing else changes)" }], age: 0.4, rx: Math.round((Date.now() - t0) / 4), tx: Math.round((Date.now() - t0) / 12),
         state: on ? "ENABLED" : "DISABLED", fault: null, last: null, dc: p["fault0.dc_volt"], hv_t: p["fault0.hv_temp"], mot_t: p["fault0.mot_temp"], ac: p["fault0.ac_cur"],
         perr: p["fault0.pos_error"], sat: 0, pd: { enable: on, fault: false, pos_fb: n === "Z" ? st.pos.z : n === "X" ? st.pos.x : st.pos.y, vel_fb: 0, current: p["fault0.ac_cur"], power: p["pe0.p_in"] } };
     }),
@@ -153,6 +221,16 @@ const drvSim = (() => {
       return { ok: true };
     },
     detach: async () => ({ ok: false, err: "the simulation has no console to leave" }),
+    conf: async (n, act, x = {}) => {  // the simulation's drives: their configs' versions, backups in this page
+      const bk = (sbk[n] = sbk[n] || []), stamp = () => new Date().toISOString().replace(/\D/g, "").slice(0, 14).replace(/^(\d{8})/, "$1-");
+      if (act === "backups") return { ok: true, backups: bk };
+      if (act === "backup") { bk.unshift({ name: `${stamp()}-fw1-conf${confv[n] || 0}-backup.conf`, size: conf.length, v: confv[n] || 0 }); return { ok: true, backups: bk, backup: bk[0].name }; }
+      if (act === "plan") return { ok: true, from: confv[n] || 0, to: 1, steps: (confv[n] || 0) < 1 ? [{ version: 1, direction: "up", description: "Versioned configs start: the config gets its #stmbl_conf_version line; nothing else changes", changes: [] }] : [] };
+      if (!x.sure) return { ok: false, err: act === "reset" ? "confirm: the drive restarts" : `confirm: ${act} rewrites the drive's flash config` };
+      if (act === "patch") { bk.unshift({ name: `${stamp()}-fw1-conf${confv[n] || 0}-beforepatch.conf`, size: conf.length, v: confv[n] || 0 }); confv[n] = 1; return { ok: true, from: 0, to: 1, steps: [], backups: bk }; }
+      if (act === "restore") { const b = bk.find((y) => y.name === x.backup); bk.unshift({ name: `${stamp()}-fw1-conf${confv[n] || 0}-beforerestore.conf`, size: conf.length, v: confv[n] || 0 }); confv[n] = b ? b.v : 0; return { ok: true, backups: bk }; }
+      return { ok: true };
+    },
     writable: () => true,
   };
 })();

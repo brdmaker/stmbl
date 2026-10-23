@@ -63,6 +63,7 @@ PROFILES = {
     "drive": dict(drive=True),
     "drivewrite": dict(drive=True, ini_set=["MILLWEB.DRIVE_WRITE=yes"]),
     "supervised": dict(supervised=True),
+    "drivefw2": dict(drive=True, ini_set=["MILLWEB.DRIVE_FW=2"]),
     "remote": dict(ini_set=["MILLWEB.REMOTE_ENABLE_PIN=remote-key.in0", "MILLWEB.AIR_PIN=air.in0"],
                    hal_extra="loadrt or2 names=remote-key,air\nsetp remote-key.in0 1"),
 }
@@ -145,6 +146,8 @@ async def baseline(t):
         await a.call("estop", on=False)
     if not a.st.get("on"):
         r = await a.call("power", on=True)
+        if not r.get("ok") and "drive firmware" in (r.get("err") or ""):
+            return  # a drive the console refuses (the drivefw2 profile): the case starts with the machine off
         if not r.get("ok"):
             raise Failed("power on: %s" % r.get("err"))
         await a.until(lambda c: c.st["on"], 5)
@@ -1322,6 +1325,65 @@ async def _(t):
     m.pop("model")
     await a.call("config_save", text=json.dumps(m, indent=2), custom="")
     t.ok(await a.call("mmodel_delete", name="frame.stl"), "deleted once unused")
+
+
+@case("drive firmware: versions on the card; config backup, plan, patch and restore over the console, all undoable", profile="drivewrite")
+async def _(t):
+    a = t.a
+    conf_file = os.path.join(t.m.dir, "drive.conf")
+    original = open(conf_file).read()
+    t.check(await a.until(lambda c: (drv(c) or {}).get("ver") and drv(c)["ver"].get("hv", -1) >= 0, 15), "the drive's versions (%s)" % (drv(a) or {}).get("ver"))
+    d = drv(a)
+    t.check(d["ver"] == {"fw": 1, "hv": 1, "hv_image": 1, "conf": 0} and d["fw_want"] == 1, "fw 1, HV 1 (it carries 1), config 0: from before versioning")
+    t.check([p["level"] for p in d["problems"]] == ["warn"] and not d["problems"][0]["block"], "one problem, not blocking: the config wants its version line (%s)" % d["problems"])
+    r = await a.call("drive_conf", name="X", action="backup")
+    t.check(r.get("ok") and "linrev0.scale" in r["text"] and len(r["backups"]) == 1, "backup: the flash config read and kept (%s)" % r.get("backup"))
+    t.check(os.path.exists(os.path.join(t.m.dir, "drive-backups", "X", r["backup"])), "in drive-backups/X/")
+    r = await a.call("drive_conf", name="X", action="plan")
+    t.check(r.get("ok") and r["from"] == 0 and r["to"] == 1 and r["new"].startswith("#stmbl_conf_version 1\n"), "plan: v0 → v1, the version line added")
+    t.refused(await a.call("drive_conf", name="X", action="patch"), "patching with the machine on", "machine off")
+    await a.call("power", on=False)
+    t.refused(await a.call("drive_conf", name="X", action="patch"), "patching without sure", "confirm")
+    b = await t.open()
+    t.refused(await b.call("drive_conf", name="X", action="patch", sure=True), "a watching browser", "control")
+    r = await a.call("drive_conf", name="X", action="patch", sure=True, timeout=120)
+    t.ok(r, "patch: written and read back")
+    t.check(open(conf_file).read().startswith("#stmbl_conf_version 1"), "the drive's flash (drive.conf) has the version line")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("ver", {}).get("conf") == 1 and drv(c)["problems"] == [], 15), "the card: config v1, no problems")
+    bk = await a.call("drive_conf", name="X", action="backups")
+    before = next(x["name"] for x in bk["backups"] if "beforepatch" in x["name"])
+    r = await a.call("drive_conf", name="X", action="restore", backup=before, sure=True, timeout=120)
+    t.ok(r, "restore the one before the patch")
+    t.check(driveconf_clean(open(conf_file).read()) == driveconf_clean(original), "the flash as it was at the start")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("ver", {}).get("conf") == 0, 15), "the card: config v0 again")
+    t.check(len((await a.call("drive_conf", name="X", action="backups"))["backups"]) == 3, "three backups: the first, before the patch, before the restore")
+
+
+@case("drive firmware: an HV board with another firmware keeps the machine off", profile="drivewrite")
+async def _(t):
+    a = t.a
+    await a.call("power", on=False)
+    t.ok(await a.call("drive_cmd", name="X", cmd="hv0.sim_fw_version = 0"), "the simulated HV board: from before versioning")
+    t.check(await a.until(lambda c: (drv(c) or {}).get("ver", {}).get("hv") == 0 and any(p["action"] == "hv_update" for p in drv(c)["problems"]), 20),
+            "the card: HV v0 against v1, hv_update (%s)" % (drv(a) or {}).get("problems"))
+    t.refused(await a.call("power", on=True), "machine on", "HV board runs v0")
+    await asyncio.sleep(0.3)
+    t.ok(await a.call("drive_cmd", name="X", cmd="hv0.sim_fw_version = 1"), "the HV board updated")
+    t.check(await a.until(lambda c: not (drv(c) or {}).get("problems") or all(not p["block"] for p in drv(c)["problems"]), 20), "no blocking problem")
+    t.ok(await a.call("power", on=True), "machine on")
+
+
+@case("drive firmware: a console expecting a newer firmware keeps the machine off", profile="drivefw2")
+async def _(t):
+    a = t.a
+    t.check(await a.until(lambda c: any(p["action"] == "flash" for p in (drv(c) or {}).get("problems", [])), 20), "the card: flash it (%s)" % (drv(a) or {}).get("problems"))
+    await a.call("power", on=False)
+    t.refused(await a.call("power", on=True), "machine on", "this console expects v2")
+    t.check(a.ev(0, "Drive X: firmware v1; this console expects v2") is not None, "said in the event log")
+
+
+def driveconf_clean(text):
+    return "\n".join(l.rstrip() for l in text.splitlines() if l.strip())
 
 
 @case("HAL_WRITE=yes: setp on an unconnected input and a parameter; not on a driven pin", profile="halwrite")

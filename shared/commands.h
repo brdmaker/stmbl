@@ -10,3 +10,6 @@ typedef struct {
   char *doc;
   void (*ptr)(char *);
 } cmd_t;
+
+void conf_version_check(void);   // shared/commands.c: at boot, after the config
+const char *conf_flash_text(void);  // the flash config's text (weak: none)

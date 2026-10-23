@@ -38,6 +38,7 @@
 #include "common.h"
 #include "f3hw.h"
 #include <math.h>
+#include "version_number.h"
 
 HAL_COMP(hv);
 
@@ -124,6 +125,10 @@ HAL_PIN(sim_f3_brake);   // out: the F3 brakes on its own (brake_on_loss)
 HAL_PIN(sim_f3_gave_up); // out: ... and gave up (current not held; kept until the F4 is back)
 HAL_PIN(sim_detent);     // stepper detent torque amplitude [Nm]
 HAL_PIN(max_duty);       // stepper: usable share of the bridge supply
+HAL_PIN(fw_version);     // out: the HV board's firmware version, as src/comps/hv.c (docs/firmware_versions.md)
+HAL_PIN(fw_image);       // out: the one this LV firmware carries
+HAL_PIN(fw_check);       // 1: they must match (HV_VERSION_ERROR), 0: don't check
+HAL_PIN(sim_fw_version); // the simulated HV board's version (default this build's; 0: an HV board from before versioning)
 HAL_PIN(sim_sense);      // stepper current sensing: 0 ideal, 1 DRV8876 IPROPI (low side only, see bip_sense)
 HAL_PIN(sense_window);   // shortest PWM window that can be sampled, share of the period
 HAL_PIN(sense_thr);      // IPROPI noise floor [A]
@@ -316,9 +321,16 @@ static void stepper_rt(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float pe
   fb[3] = o.uq;
 }
 
+static void fw_init(struct hv_pin_ctx_t *pins) {
+  PIN(fw_image)       = STMBL_FW_VERSION;
+  PIN(sim_fw_version) = STMBL_FW_VERSION;
+  PIN(fw_check)       = 1.0;
+}
+
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
 
+  fw_init(pins);
   PIN(ignore_fault_pin) = 1;
   PIN(scale)            = 1;
   PIN(hv_temp)          = 30;
@@ -637,6 +649,10 @@ feedback:
   PIN(dc_volt)  = PIN(sim_motor) > 0.0 ? udc : ctx->udc_meas;
   PIN(sim_vbus) = PIN(sim_motor) > 0.0 ? udc : ctx->vbus;
   PIN(fault)    = PIN(sim_fault) > 0.0 ? PIN(sim_fault) : ctx->hv_fault;
+  PIN(fw_version) = PIN(sim_fw_version);
+  if(PIN(fw_check) > 0.0 && PIN(fw_version) != PIN(fw_image) && PIN(fault) == 0.0) {
+    PIN(fault) = HV_VERSION_ERROR;  // as src/comps/hv.c: no enable with another HV firmware
+  }
   PIN(value)    = 1.0;
 }
 
