@@ -23,8 +23,10 @@ import concurrent.futures
 import datetime
 import json
 import os
+import shlex
 import signal
 import ssl
+import subprocess
 import sys
 import time
 
@@ -983,6 +985,10 @@ async def amain(args):
     hub.event("info", "millweb %s up on port %d" % (VERSION, port))
     if getattr(args, "pinned", None):
         hub.event("info", args.pinned)
+    if hal:
+        for ok, text in postgui(cfg):
+            print("millweb: " + text, flush=True)
+            hub.event("info" if ok else "bad", text)
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -996,6 +1002,28 @@ async def amain(args):
     for t in tasks:
         t.cancel()
     server.close()
+
+
+def postgui(cfg, run=subprocess.run):
+    """[HAL] POSTGUI_HALFILE (repeat; .tcl through haltcl) and POSTGUI_HALCMD,
+    as AXIS runs them: after LinuxCNC has made its ini.* pins, which the
+    HALFILEs can't link. Returns [(ok, text)]."""
+    cmds = []
+    for f in cfg.all("HAL", "POSTGUI_HALFILE"):
+        path = os.path.join(cfg.dir, os.path.expanduser(f))
+        tool = "haltcl" if path.endswith(".tcl") else "halcmd"
+        cmds.append(("POSTGUI_HALFILE " + f, [tool, "-i", cfg.path, "-f", path] if tool == "halcmd" else [tool, "-i", cfg.path, path]))
+    for c in cfg.all("HAL", "POSTGUI_HALCMD"):
+        cmds.append(("POSTGUI_HALCMD " + c, ["halcmd", "-i", cfg.path] + shlex.split(c)))
+    out = []
+    for name, argv in cmds:
+        try:
+            r = run(argv, cwd=cfg.dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=30)
+            ok, text = r.returncode == 0, (r.stdout or "").strip()
+        except (OSError, subprocess.SubprocessError) as e:
+            ok, text = False, str(e)
+        out.append((ok, "%s: %s" % (name, "loaded" if ok else "FAILED " + text)))
+    return out
 
 
 def cpu_list(text):

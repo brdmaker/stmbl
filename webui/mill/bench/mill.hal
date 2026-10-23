@@ -13,7 +13,8 @@ loadrt sserialterm tty=[SSERIALTERM]TTY
 loadrt sum2 names=tipz
 loadrt wcomp names=probez,probing
 loadrt conv_s32_float names=mtype
-loadrt and2 names=probe-and
+# phasing-settled: phasing_ferror.hal's (uspace loads a module once)
+loadrt and2 names=probe-and,phasing-settled
 # home switches for the simulated joints (they move to them when homing)
 loadrt sim_home_switch names=y1home,y2home,zhome
 

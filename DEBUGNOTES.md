@@ -2113,3 +2113,20 @@ Entry format:
   generic "terminated with an error". A quick restart (~2 s) can bring the
   page back to the new millweb without passing the supervisor: the
   supervisor's state is in millweb's hello and pushed on change.
+
+## 2026-10-23  webui/mill/bench: a 1 mm following error tripped X at enable
+- Area:    webui/mill/server/millweb.py, webui/mill/bench (phasing_ferror.hal, mill.hal)
+- Status:  Fixed
+- Symptom: Switching the bench mill on, X jerked (the drive autophasing)
+  and LinuxCNC stopped with "joint 0 following error" (highmark 1.17 mm).
+- Cause:   The larger limit while the drive autophases (PHASING_FERROR 2 mm,
+  hwtest/burnin's phasing_ferror.hal) is a POSTGUI_HALFILE: it links the
+  ini.0.* pins LinuxCNC makes after the HALFILEs. AXIS loads those files;
+  millweb, as the display, didn't, so ini.0.ferror stayed 1 mm. Loaded
+  by hand, its `loadrt and2` then failed: under uspace a module loads
+  once, and mill.hal already loads and2 for the probe.
+- Fix:     millweb runs [HAL] POSTGUI_HALFILE (.tcl through haltcl) and
+  POSTGUI_HALCMD as AXIS does, after it starts, and reports each in the
+  event log (a failure as an error). The bench loads both and2 instances
+  in mill.hal. Test: test_millweb.PostGui. On the bench: ini.0.ferror 2
+  until X is homed and enabled 1.5 s, then 1.

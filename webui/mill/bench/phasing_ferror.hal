@@ -10,7 +10,7 @@
 #
 # A POSTGUI_HALFILE: LinuxCNC creates the ini.* pins after the HALFILEs.
 loadrt timedelay names=phasing-enabled
-loadrt and2 names=phasing-settled
+# and2 phasing-settled: loaded by mill.hal with the probe's (uspace loads a module once)
 loadrt not names=phasing-relax
 loadrt mux2 names=phasing-ferror,phasing-min-ferror
 addf phasing-enabled    servo-thread

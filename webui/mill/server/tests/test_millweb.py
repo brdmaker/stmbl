@@ -468,6 +468,46 @@ class Protocol(Base):
         await ws.close()
 
 
+class PostGui(unittest.TestCase):
+    """[HAL] POSTGUI_HALFILE: millweb as the display loads it, as AXIS does
+    (webui/mill/bench: the drive's phasing following error was never
+    applied, a 1 mm limit tripped X while it autophased at enable)."""
+
+    def test_runs_postgui_files_and_commands(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        ini = os.path.join(d, "m.ini")
+        with open(ini, "w") as f:
+            f.write("[HAL]\nHALFILE = m.hal\nPOSTGUI_HALFILE = post.hal\nPOSTGUI_HALFILE = x.tcl\n"
+                    "POSTGUI_HALCMD = setp a.b 1\n")
+        ran = []
+
+        class R:
+            def __init__(self, rc):
+                self.returncode, self.stdout = rc, "" if rc == 0 else "no such pin"
+
+        def run(argv, **kw):
+            ran.append((argv, kw["cwd"]))
+            return R(1 if "setp" in argv else 0)
+
+        out = millweb.postgui(machine.Config(ini), run=run)
+        self.assertEqual([a for a, _ in ran], [
+            ["halcmd", "-i", ini, "-f", os.path.join(d, "post.hal")],
+            ["haltcl", "-i", ini, os.path.join(d, "x.tcl")],
+            ["halcmd", "-i", ini, "setp", "a.b", "1"]])
+        self.assertTrue(all(cwd == d for _, cwd in ran))
+        self.assertEqual([ok for ok, _ in out], [True, True, False])
+        self.assertIn("no such pin", out[2][1])
+
+    def test_none_without_postgui(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        ini = os.path.join(d, "m.ini")
+        with open(ini, "w") as f:
+            f.write("[HAL]\nHALFILE = m.hal\n")
+        self.assertEqual(millweb.postgui(machine.Config(ini), run=None), [])
+
+
 class Decimation(unittest.TestCase):
     """The preview's canon on its own: stats over every move, a bounded path."""
 
