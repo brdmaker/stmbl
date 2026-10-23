@@ -70,3 +70,10 @@ Always use the repo's make targets, never your own `dfu-util`, `st-flash`,
   Before flashing, back up the drive's config (`servoterm-cli --dump`) and
   confirm the motor is safe to move; after flashing, check `about` and that
   the config is unchanged.
+
+## Firmware version
+
+Count `STMBL_FW_VERSION` (shared/version_number.h) up with every firmware
+change a config, the HV board or the console must know about, and add a
+`conf/patches/NNNN.json` when configs must change with it
+(docs/firmware_versions.md). `make -C host check` checks the patches undo.

@@ -551,6 +551,16 @@ test("Debug page, drives: the simulated drive on X, its card through a move and 
   t.check(await t.until(() => /fault0\.dc_volt <= hv0\.dc_volt = \d+/.test(document.getElementById("dc-out").textContent), null, 8000), "a pin read over the smart-serial console");
   await t.page.fill("#dc-in", "conf0.max_vel = 1"); await t.page.press("#dc-in", "Enter");
   t.check(await t.until(() => /! only reading/.test(document.getElementById("dc-out").textContent)), "a write: refused, said in the console");
+  // firmware versions, and the config panel: a backup is made, a patch can't be written (DRIVE_WRITE off)
+  t.check(await t.until((c) => /firmware v1 · HV v1 · config unversioned/.test((document.querySelector(c + ' [data-k="ver"]') || {}).textContent || ""), card, 15000), "the card: firmware v1, HV v1, config unversioned");
+  await t.click(card + " [data-cfgp]");
+  await t.click('#drv-cfg [data-dcf="backup"]');
+  t.check(await t.until(() => document.querySelectorAll("#drv-cfg [data-restore]").length >= 1, null, 20000), "Back up now: the drive's config kept on the machine");
+  await t.click('#drv-cfg [data-dcf="plan"]');
+  t.check(await t.until(() => /Patch v0 → v1/.test(document.getElementById("drv-cfg").textContent), null, 20000), "the patch v0 → v1, read from the drive");
+  await t.click('#drv-cfg [data-dcf="patch"]');
+  t.check(await t.until(() => /DRIVE_WRITE/.test(document.getElementById("drv-cfg").textContent), null, 10000), "writing it: refused, DRIVE_WRITE is off");
+  await t.click("#dcf-close");
   // a stop from the machine: the card follows, the drive's message in the log
   await t.click("#b-power");
   t.check(await t.until((c) => /DISABLED/.test(document.querySelector(c + ' [data-k="state"]').textContent), card, 10000), "machine off: DISABLED");

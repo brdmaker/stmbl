@@ -37,18 +37,20 @@ STATES = ["DISABLED", "ENABLED", "PHASING", "SOFT FAULT", "HARD FAULT", "LED TES
 FAULTS = ["no error", "command error (link lost)", "motor feedback error", "commutation feedback error", "joint feedback error",
           "position error", "saturation", "motor over temperature", "HV CRC error", "HV timeout", "HV over temperature",
           "HV bus voltage", "HV fault", "HV current offset", "HV overcurrent (RMS)", "HV overcurrent (peak)",
-          "HV overcurrent (hardware)", "phasing failed", "encoder monitor"]  # fault_t
+          "HV overcurrent (hardware)", "phasing failed", "encoder monitor", "HV firmware version"]  # fault_t
+HV_VERSION_FAULT = 19
 
 # the drive's commands (COMMAND(...) in shared/ and src/) that only read
 READ_CMDS = {"about", "help", "list", "show", "show_hal", "show_config", "showconf", "linked", "hal", "uptime", "uid",
              "confcrc", "scopestat", "fwstat", "crash"}
 # writes that move the motor, stop it, restart the drive or rewrite its flash or firmware: the page asks first
-DANGER_CMDS = {"flashsaveconf", "flashloadconf", "deleteconf", "loadconf", "bootloader", "sserialboot", "hardboot", "reset",
+DANGER_CMDS = {"flashsaveconf", "flashloadconf", "deleteconf", "loadconf", "bootloader", "sserialboot", "hardboot", "reset", "hv_update",
                "fwbegin", "fwdata", "fwend", "fwapply", "hv_update", "jogl", "jogr", "start", "stop", "enable", "disable",
                "load", "link", "relink", "fault"}
 PIN_RE = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*[0-9]+\.[A-Za-z_0-9]+$")          # a pin, comp0.pin (or a prefix of one)
 VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z_0-9]*[0-9]+\.[A-Za-z_0-9]+)(?: <= \S+)? = (\S+)$")
 TAG_RE = re.compile(r"<[^>]*>")
+VERSION_RE = re.compile(r"^version fw=(-?\d+) hv=(-?\d+) hv_image=(-?\d+) conf=(-?\d+)")  # the firmware's `version` (docs/firmware_versions.md)
 MAX_LINE = 63  # the drive's console takes 63 characters a line (a longer one is dropped)
 
 
@@ -93,6 +95,11 @@ class DriveLink:
         self.want_about = True
         self.about_next = False
         self.fault_seen = None           # (code, time): the drive's last "ERROR: Fault n" (a fault often clears before a poll)
+        self.ver = None                  # {fw, hv, hv_image, conf}: the drive's `version`; fw 0: from before versioning
+        self.ver_due = 0.0               # when to ask again (the HV board's needs a moment after a start)
+        self.ver_asked = False
+        self.busy = False                # a config job runs (driveconf.py): no polling meanwhile
+        self.capture = None              # a job's list: every line the drive says
         self.err = None
 
     # ------------------------------------------------------------ the tty
@@ -181,6 +188,8 @@ class DriveLink:
         shown = []
         for raw in lines:
             line = raw.decode("utf-8", "replace").rstrip("\r")
+            if self.capture is not None:
+                self.capture.append(line)
             if self.line(line, now):
                 shown.append(line)
         if self.buf and len(self.buf) > 512:  # no newline for a long time: show it as it is
@@ -202,10 +211,18 @@ class DriveLink:
             if v is not None:
                 self.values[m.group(1)] = v
                 self.when[m.group(1)] = now
+                if m.group(1) == "fault0.fault" and int(v) == HV_VERSION_FAULT and (self.ver or {}).get("hv") == (self.ver or {}).get("hv_image"):
+                    self.ver_due = 0  # the HV board's version changed: ask
             if m.group(1) in self.pending:
                 del self.pending[m.group(1)]
                 return False  # our own question's answer
             return True
+        vm = VERSION_RE.match(line.strip())
+        if vm or line.strip() == "not found: version":  # this firmware's versions, or one from before them
+            self.ver = dict(zip(("fw", "hv", "hv_image", "conf"), (int(x) for x in vm.groups()))) if vm else {"fw": 0, "hv": None, "hv_image": None, "conf": None}
+            self.ver_due = now + (5 if vm and self.ver["hv"] < 0 else 10)
+            mine, self.ver_asked = self.ver_asked, False
+            return not mine
         if self.about_next:
             self.about_next = False
             self.fw = line.strip()[:120]
@@ -217,6 +234,8 @@ class DriveLink:
             f = re.match(r"^Fault (\d+)", mm.group(2))
             if mm.group(1) == "ERROR" and f:
                 self.fault_seen = (int(f.group(1)), now)
+                if int(f.group(1)) == HV_VERSION_FAULT:
+                    self.ver_due = 0  # its versions now
             self.event({"INFO": "info", "WARNING": "warn", "ERROR": "bad"}[mm.group(1)], "Drive %s: %s" % (self.name, mm.group(2)))
         return True
 
@@ -239,9 +258,16 @@ class DriveLink:
         quiet = now - self.last_rx > 0.15 and now - self.last_user > 0.5 and now - self.last_tx >= self.poll_s
         if not quiet or self.pending:
             return
+        if self.busy:
+            return
         if self.want_about:
             self.want_about = False
             self.write("about")
+            return
+        if now >= self.ver_due and not self.ver_asked:
+            self.ver_due = now + 10  # asked again if no answer
+            if not self.write("version"):
+                self.ver_asked = True
             return
         pin = POLL[self.poll_i % len(POLL)]
         self.poll_i += 1
@@ -279,6 +305,7 @@ class DriveLink:
             "last_at": time.strftime("%H:%M:%S", time.localtime(self.fault_seen[1])) if self.fault_seen else None,
             "dc": r("fault0.dc_volt"), "hv_t": r("fault0.hv_temp"), "mot_t": r("fault0.mot_temp"), "ac": r("fault0.ac_cur", 2),
             "perr": r("fault0.pos_error", 4), "sat": r("fault0.sat", 3),
+            "ver": self.ver, "busy": self.busy,
         }
         if self.pd and pin:
             out["pd"] = {k: pin("%s.%s" % (self.pd, k)) for k in PD}

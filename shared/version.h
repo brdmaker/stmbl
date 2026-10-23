@@ -20,6 +20,9 @@ typedef struct {
   int major;
   int minor;
   int patch;
+  // since STMBL_FW_VERSION 1 (images before have neither: fw_magic tells)
+  uint32_t fw_magic;
+  uint32_t fw_version;
 } version_info_t;
 
 extern volatile const version_info_t version_info;

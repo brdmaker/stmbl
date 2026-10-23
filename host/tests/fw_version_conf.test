@@ -1,0 +1,8 @@
+# A flash config carries its version ("#stmbl_conf_version N", tools/stmblconf.py
+# writes it): one for a newer firmware says so at boot and in `version`.
+@args --drive tests/version/conf_v5.conf
+lcnc 0 0
+run 0.2
+version
+@match ^WARNING: the config is for firmware v5, this is v1: it may use pins this one lacks$
+@match ^version fw=1 hv=1 hv_image=1 conf=5 conf_newer$

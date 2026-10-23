@@ -8,6 +8,7 @@
 #include "common.h"
 #include "f3hw.h"
 #include "ringbuf.h"
+#include "version_number.h"
 #include "vbrake.h"
 
 extern CRC_HandleTypeDef hcrc;
@@ -176,6 +177,7 @@ static void rt_start(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   for(int i = 0; i < 3; i++) {  // unique ID, reported to the F4 with the state
     state.pins.uid[i] = ((const uint32_t *)0x1FFFF7AC)[i];
   }
+  state.pins.fw_version = STMBL_FW_VERSION;  // for the F4: hv0.fw_version
   ctx->send        = 0;
   PIN(crc_error)   = 0.0;
   PIN(crc_ok)      = 0.0;

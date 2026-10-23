@@ -29,6 +29,7 @@
 #include "hal.h"
 #include "commands.h"
 #include "drive.h"
+#include "version_number.h"
 
 // 1 kHz millisecond counter that the firmware exposes via SysTick.
 volatile uint64_t systime = 0;
@@ -101,6 +102,10 @@ unsigned drive_flash_version(void) {
   return flash_version;
 }
 
+const char *conf_flash_text(void) {  // shared/commands.c: version, the boot check
+  return flash;
+}
+
 void flashloadconf(char *ptr) {
   strncpy(config, flash, sizeof(config));
 }
@@ -154,6 +159,7 @@ void drive_boot(void) {
   load_comp(comp_by_name(term));
   hal_parse("flashloadconf");
   hal_parse("loadconf");
+  conf_version_check();
   // sim only: the simulated motor and encoder follow the config
   hal_parse("link sim_board");
   if(sim_extra[0]) {
@@ -180,6 +186,7 @@ void drive_poll_reset(void) {
 void about(char *ptr) {
   printf("######## software info ########\n");
   printf("STMBL simulated drive (host/drive.c)\n");
+  printf("firmware v%d\n", STMBL_FW_VERSION);
   printf("sim time: %.3f s\n", sim_time_s);
 }
 COMMAND("about", about, "show system infos");

@@ -515,7 +515,7 @@ test("tools page: select, load, add, delete, edit, measure", async (t) => {
   await setRange(t, "o-feed", 200);
   await t.click("#tl-meas");
   t.check(await t.msgHas("Measuring T5"), "measure: on the way to the setter");
-  t.check(await t.until(() => document.getElementById("msg").textContent.includes("length"), null, 20000), "measured");
+  t.check(await t.until(() => document.getElementById("msg").textContent.includes("length"), null, 40000), "measured");  // simulated time runs slow at a software renderer's 5 fps
   t.check(await t.ev(() => Math.abs(st.tools.find((x) => x.t === 5).l - 71.902) < 0.02), "length near the table's");
 });
 
@@ -800,6 +800,29 @@ test("Configure (simulation): the machine's 3D model: upload parts, they move wi
   await t.nav("main");
   t.check(await t.until(() => document.getElementById("viewer").closest("#p-main") && mm3d.nodes.filter(Boolean).length === 2 && !mm3d.builtin), "the main page: the saved model, the view back home");
   await t.ev(() => { localStorage.removeItem("pmc.machine"); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Debug page, drives (simulation): firmware versions; a config backed up, patched for this firmware and restored", async (t) => {
+  await t.nav("debug");
+  await t.click('#dbg-tab button[data-t="drives"]');
+  t.check(await t.until(() => /firmware v1 · HV v1 · config unversioned/.test(document.querySelector('.drv-card[data-n="X"] [data-k="ver"]').textContent)), "the card: firmware v1, HV v1, config unversioned");
+  t.check(/Patch config gives it its version line/.test(await t.text('.drv-card[data-n="X"] [data-k="problem"]')), "a problem: patch the config");
+  await t.click('.drv-card[data-n="X"] [data-cfgp]');
+  t.check(await t.until(() => !document.getElementById("drv-cfg").hidden && /None yet/.test(document.getElementById("drv-cfg").textContent)), "the config panel: no backups yet");
+  await t.click('#drv-cfg [data-dcf="backup"]');
+  t.check(await t.until(() => document.querySelectorAll("#drv-cfg [data-restore]").length === 1), "Back up now: one backup");
+  await t.click('#drv-cfg [data-dcf="plan"]');
+  t.check(await t.until(() => /Patch v0 → v1/.test(document.getElementById("drv-cfg").textContent)), "the patch: v0 → v1, what it does");
+  await t.click('#drv-cfg [data-dcf="patch"]');
+  t.check(await t.until(() => !document.getElementById("dlg").hidden && /Patch drive X/.test(document.getElementById("dlg-t").textContent)), "asks first");
+  await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => /config v1/.test(document.querySelector('.drv-card[data-n="X"] [data-k="ver"]').textContent) && !document.querySelector('.drv-card[data-n="X"] [data-k="problem"]')), "patched: config v1, no problem");
+  t.check(await t.until(() => document.querySelectorAll("#drv-cfg [data-restore]").length === 2), "the one before kept");
+  await t.click("#drv-cfg li:nth-child(2) [data-restore]");
+  await t.click('#dlg-form [type="submit"]');
+  t.check(await t.until(() => /config unversioned/.test(document.querySelector('.drv-card[data-n="X"] [data-k="ver"]').textContent)), "restored: unversioned again");
+  await t.click("#dcf-close");
   t.check(t.errors.length === 0, "no script errors");
 });
 

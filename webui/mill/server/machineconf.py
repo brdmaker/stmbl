@@ -63,6 +63,9 @@ DEFAULT = {
                 "drive_write": False, "cpus": "", "pins": [], "extra": {}},
     # the machine in the console's 3D view: the built-in gantry, and/or parts (STL, OBJ in models/) that move with the axes
     "model": {"builtin": True, "parts": []},
+    # the stmbl drives' firmware (docs/firmware_versions.md): fw null expects this checkout's STMBL_FW_VERSION;
+    # block: a drive with another firmware (or an HV board, or a config needing a patch) keeps the machine off
+    "stmbl": {"fw": None, "block": True},
 }
 MOVES = re.compile(r"^(?:-?([XYZ]))?(?:-?([XYZ]))?(?:-?([XYZ]))?$")
 
@@ -254,6 +257,11 @@ def validate(raw, mdir=None):
         else:
             for k in ("x", "y", "z_above", "z_ref", "travel"):
                 _num(ts.get(k), "toolsetter." + k, errs)
+    sb = m["stmbl"]
+    if sb.get("fw") is not None:
+        _num(sb["fw"], "stmbl.fw", errs, 1, 100000, True)
+    if not isinstance(sb.get("block", True), bool):
+        errs.append(("stmbl.block", "true or false"))
     md = m["model"]
     if not isinstance(md.get("builtin", True), bool):
         errs.append(("model.builtin", "true or false"))
@@ -382,6 +390,7 @@ def generate(m, mdir, mill, custom=None):
           ("CPUS", c["cpus"] or None), ("NC_DIR", os.path.join(mdir, "nc_files")),
           ("SETUP", os.path.join(mdir, "millweb-setup.json")), ("DEBUG_VIEWS", os.path.join(mdir, "debug-views.json")),
           ("MACHINE_DIR", mdir),
+          ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
           ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
           ("PIN", list(c["pins"]) or None)]
     if m["spindle"]["type"] == "sim" and "AT_SPEED_PIN" not in c["extra"]:

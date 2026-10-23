@@ -128,6 +128,7 @@ typedef union {
     float pwm_volt;
     float y;
     uint32_t uid[3];  // the F3's 96-bit unique ID (0x1FFFF7AC), raw words
+    uint32_t fw_version;  // the F3's STMBL_FW_VERSION (an F3 from before sends none: its rotation ends before this word)
   } pins;
   float data[sizeof(struct f3_state_data_temp) / 4];
   uint32_t u32[sizeof(struct f3_state_data_temp) / 4];  // the same, sent bit for bit
@@ -167,6 +168,7 @@ typedef enum {
   HV_OVERCURRENT_HW,
   PHASING_ERROR,  // autophasing found no angle, or its check failed (fb_switch)
   FB_MON_ERROR,   // encoder monitor (encmon): feedback disagrees with the motor
+  HV_VERSION_ERROR,  // the HV board's firmware isn't this LV firmware's (hv_update)
 } fault_t;
 
 //check if structs can be send at 5kHz with DATABAUD

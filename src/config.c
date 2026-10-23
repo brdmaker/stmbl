@@ -39,6 +39,10 @@ void confcrc(char *ptr) {
 }
 COMMAND("confcrc", confcrc, "foo");
 
+const char *conf_flash_text(void) {  // shared/commands.c: version, the boot check
+  return config_ro;
+}
+
 void flashloadconf(char *ptr) {
   strncpy(config, config_ro, sizeof(config));
 }

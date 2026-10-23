@@ -273,6 +273,13 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .drv-card .ft { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-faint); }
 .drv-card .ft span { margin-right: auto; }
 .drv-card.sel { border-color: var(--accent); }
+.drv-left { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; }
+.drv-left .drv-cards { overflow: visible; }
+.drv-ver { font: 12px var(--f-mono); margin: 2px 0 4px; }
+.drv-prob { font-size: 12px; margin: 2px 0; }
+.drv-prob.bad { color: var(--stop); } .drv-prob.warn { color: var(--warn); }
+.drv-cfg { flex-shrink: 0; }
+.dcf-steps { margin: 4px 0; padding-left: 18px; font-size: 12px; }
 .drv-con { min-height: 0; }
 .drv-out { flex: 1; min-height: 260px; max-height: 60vh; overflow: auto; margin: 0; padding: 8px 10px; background: #05080c; border: 1px solid var(--line); border-radius: 4px; font: 12px/1.45 var(--f-mono); white-space: pre-wrap; word-break: break-all; color: var(--ink); }
 .drv-out .u { color: var(--accent); } .drv-out .e { color: var(--stop); } .drv-out .w { color: var(--warn); }
@@ -729,7 +736,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       </div>
       </div>
       <div class="dbg-tab drv-grid" id="dbg-drives" hidden>
-        <div class="drv-cards" id="drv-cards"></div>
+        <div class="drv-left"><div class="drv-cards" id="drv-cards"></div><div class="panel drv-cfg" id="drv-cfg" hidden></div></div>
         <div class="panel drv-con">
           <h2>Console <small id="dc-name">—</small><span class="pill off" id="dc-mode" style="margin-left:auto">READING</span></h2>
           <pre class="drv-out" id="dc-out" aria-live="polite"></pre>

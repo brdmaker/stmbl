@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include "main.h"
 #include "commands.h"
+#include "version_number.h"
 
 extern RCC_ClocksTypeDef RCC_Clocks;
 
@@ -158,6 +159,7 @@ void about(char *ptr) {
 #endif
   // printf("CPU ID     %lx %lx %lx\n",U_ID[0], U_ID[1], U_ID[2]);
   printf("size: %lu crc:%lx\n", version_info.image_size, version_info.image_crc);
+  printf("firmware v%lu\n", (uint32_t)version_info.fw_version);  // STMBL_FW_VERSION; `version` has all of them
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
   printf("######## Bootloader info ########\n");
   printf("DFU requests taken by the bootloader since power-on: %lu\n", ((volatile uint32_t *)DFU_REQUEST_ADDR)[1]);
@@ -180,6 +182,7 @@ void about(char *ptr) {
       hv_version_info->minor,
       hv_version_info->patch,
       hv_version_info->git_version);
+  printf("HV firmware carried: v%ld (what the HV board runs: `version`, hv=)\n", hv_version_info->fw_magic == STMBL_FW_MAGIC ? (long)hv_version_info->fw_version : 0L);
   // printf("Branch %s\n",bt_version_info->git_branch);
   // printf("Compiled %s %s ",bt_version_info->build_date, bt_version_info->build_time);
   // printf("by %s on %s\n",bt_version_info->build_user, bt_version_info->build_host);
@@ -217,6 +220,7 @@ int main(void) {
   if(!crash_safe_mode()) {  // crash loop: console only, see stm32f4xx_it.c
     hal_parse("loadconf");
     hal_parse("relink");
+    conf_version_check();
   }
   hal_parse("start");
 

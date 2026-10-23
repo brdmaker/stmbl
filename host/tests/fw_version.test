@@ -1,0 +1,35 @@
+# Firmware versions (docs/firmware_versions.md): `version` says them
+# machine-readably; an HV board running another firmware than the one this
+# LV firmware carries faults the drive (HV_VERSION_ERROR, 19) and it can't
+# enable, until it matches or hv0.fw_check = 0. An HV board from before
+# versioning reports 0.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.3
+version
+lcnc 1 0
+run 2
+fault0.state
+hv0.sim_fw_version = 0
+run 0.1
+fault0.state
+fault0.fault
+version
+lcnc 0 0
+run 0.1
+lcnc 1 0
+run 0.3
+fault0.state
+hv0.fw_check = 0
+lcnc 0 0
+run 0.1
+lcnc 1 0
+run 2
+fault0.state
+@match ^version fw=1 hv=1 hv_image=1 conf=0$
+@match ^version fw=1 hv=0 hv_image=1 conf=0 hv_mismatch$
+@expect fault0.state[1] == 1
+@expect fault0.state[2] == 3
+@expect fault0.fault[1] == 19
+@expect fault0.state[3] == 3
+@expect fault0.state[4] == 1

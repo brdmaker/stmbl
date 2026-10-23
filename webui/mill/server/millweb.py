@@ -30,6 +30,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import driveconf  # noqa: E402
 import drives as drives_mod  # noqa: E402
 import supervisor as supervisor_mod  # noqa: E402
 import machine as machine_mod  # noqa: E402
@@ -94,6 +95,11 @@ class Hub:
         self.links = {n: drives_mod.DriveLink(n, path, pd, out=self.drive_out, event=self.event, poll_ms=poll_ms)
                       for n, path, pd in drives_mod.links_from(cfg.all("MILLWEB", "DRIVE_LINK"))}
         self.drive_watch = {}        # client id -> the drive whose console it shows
+        # the drives' firmware (driveconf.py): what this console expects, whether a mismatch keeps the machine off
+        self.fw_want = driveconf.expected_fw(cfg)
+        self.fw_block = (cfg.get("MILLWEB", "DRIVE_FW_BLOCK", "yes") or "yes").lower() not in ("no", "0", "false")
+        self.fw_said = {}            # drive -> the problems told in the event log
+        self.drive_jobs = {}         # drive -> what its config job does
         # run by millweb-supervisor (supervisor.py): machine.json, restarts
         mdir = cfg.get("MILLWEB", "MACHINE_DIR")
         self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
@@ -255,6 +261,10 @@ class Hub:
         return {"events": [{"time": t, "lvl": l, "text": x} for t, l, x in self.events[-max(1, int(m.get("n", 300))):]]}
 
     async def op_power(self, c, m):
+        if m.get("on", True):
+            blocked = self.drive_blockers()
+            if blocked:
+                return "not with this drive firmware: %s ([MILLWEB] DRIVE_FW_BLOCK = no to allow it)" % "; ".join(blocked)
         err = await self.run(self.m.cmd_power, bool(m.get("on", True)))
         if not err:
             self.event("ok", "Machine %s" % ("on" if m.get("on", True) else "off"))
@@ -519,7 +529,26 @@ class Hub:
 
     def drive_status(self):
         pin = self.m._pin if self.m.hal else None
-        return [l.status(pin) for l in self.links.values()]
+        out = []
+        for l in self.links.values():
+            st = l.status(pin)
+            st["fw_want"] = self.fw_want
+            st["problems"] = driveconf.problems(st.get("ver"), self.fw_want)
+            st["job"] = self.drive_jobs.get(l.name)
+            said = tuple(p["text"] for p in st["problems"])
+            if said != self.fw_said.get(l.name, ()):  # new problems: into the event log, once
+                for p in st["problems"]:
+                    if p["text"] not in self.fw_said.get(l.name, ()):
+                        self.event(p["level"], "Drive %s: %s" % (l.name, p["text"]))
+                self.fw_said[l.name] = said
+            out.append(st)
+        return out
+
+    def drive_blockers(self):
+        """The drives' problems that keep the machine off ([MILLWEB] DRIVE_FW_BLOCK)."""
+        if not self.fw_block:
+            return []
+        return ["drive %s: %s" % (st["n"], p["text"]) for st in self.drive_status() for p in st["problems"] if p["block"]]
 
     async def drive_loop(self):
         """The drives' consoles: open, ask, and the cards twice a second."""
@@ -584,6 +613,79 @@ class Hub:
         if not err and kind != "read":
             self.event("warn", "Drive %s: %s (by %s)" % (l.name, cmd, c.name))
         return err
+
+    async def op_drive_conf(self, c, m):
+        """A drive's flash config (driveconf.py): backups (list), backup (read and keep), plan (the patch to this
+        console's firmware, nothing written), patch, restore {backup}: the last two with DRIVE_WRITE, sure, the
+        machine off; each keeps what was there first."""
+        l = self.link_of(m)
+        act = str(m.get("action", ""))
+        base = self.conf.mdir if self.conf else self.cfg.dir
+        if act == "backups":
+            return {"backups": driveconf.list_backups(base, l.name)}
+        if act not in ("backup", "plan", "patch", "restore", "reset"):
+            return "action: backups, backup, plan, patch, restore or reset"
+        if act in ("patch", "restore", "reset"):
+            if not self.drive_write:
+                return "writing to drives is off ([MILLWEB] DRIVE_WRITE = yes turns it on)"
+            if self.state.get("on"):
+                return "switch the machine off first (the drive must be disabled)"
+            if not m.get("sure"):
+                return "confirm: %s rewrites the drive's flash config" % act if act != "reset" else "confirm: the drive restarts"
+        if l.name in self.drive_jobs:
+            return "drive %s is busy: %s" % (l.name, self.drive_jobs[l.name])
+        if l.fd is None:
+            return "drive %s: its console isn't open (%s)" % (l.name, l.state)
+        self.drive_jobs[l.name] = act
+        l.busy = True
+        self.drive_sig = None
+        try:
+            if act == "reset":
+                l.user("reset")
+                l.ver = None
+                l.ver_due = time.time() + 3
+                self.event("warn", "Drive %s: reset (by %s)" % (l.name, c.name))
+                return None
+            text = await driveconf.read_conf(l)
+            if not text.strip():
+                return "drive %s answered no config (showconf)" % l.name
+            if act == "backup":
+                fn = driveconf.save_backup(base, l.name, text, l.ver, "backup")
+                self.event("ok", "Drive %s: config backed up as %s" % (l.name, fn))
+                return {"backup": fn, "backups": driveconf.list_backups(base, l.name), "text": text}
+            if act == "plan" or act == "patch":
+                if not driveconf.stmblconf:
+                    return "tools/stmblconf.py isn't here: the console's checkout has no firmware tree"
+                to = int(m.get("to") or (l.ver or {}).get("fw") or self.fw_want or 0)
+                try:
+                    new, steps = driveconf.stmblconf.migrate(text, to)
+                except driveconf.stmblconf.Conflict as e:
+                    return "can't patch: %s" % e
+                plan = {"from": driveconf.stmblconf.version_of(text), "to": to, "steps": steps, "current": text, "new": driveconf.clean(new)}
+                if act == "plan":
+                    return plan
+                fn = driveconf.save_backup(base, l.name, text, l.ver, "before patch")
+                await driveconf.write_conf(l, new, lambda s: self.drive_progress(l, s))
+                self.event("warn", "Drive %s: config patched v%d → v%d by %s (the one before: %s); it runs from the drive's next start" % (l.name, plan["from"], to, c.name, fn))
+                return dict(plan, backup=fn, backups=driveconf.list_backups(base, l.name))
+            # restore
+            old = driveconf.read_backup(base, l.name, m.get("backup"))
+            fn = driveconf.save_backup(base, l.name, text, l.ver, "before restore")
+            await driveconf.write_conf(l, old, lambda s: self.drive_progress(l, s))
+            self.event("warn", "Drive %s: config %s restored by %s (the one before: %s); it runs from the drive's next start" % (l.name, m.get("backup"), c.name, fn))
+            return {"backup": fn, "backups": driveconf.list_backups(base, l.name)}
+        except RuntimeError as e:
+            self.event("bad", "Drive %s: %s failed: %s" % (l.name, act, e))
+            return "%s failed: %s" % (act, e)
+        finally:
+            l.busy = False
+            self.drive_jobs.pop(l.name, None)
+            l.ver_due = min(l.ver_due, time.time() + 1)  # its versions again
+            self.drive_sig = None
+
+    def drive_progress(self, l, text):
+        self.drive_jobs[l.name] = "writing: %s" % text
+        self.drive_sig = None
 
     async def op_drive_detach(self, c, m):
         """Let another program have a drive's console (on: true, for at most `seconds`), or take it back."""
