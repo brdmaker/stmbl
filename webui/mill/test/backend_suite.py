@@ -1297,6 +1297,33 @@ async def _(t):
     await lcnc_back(t)
 
 
+@case("supervisor: the machine's 3D model: files in models/, parts in machine.json, read by every browser", profile="supervised")
+async def _(t):
+    import base64
+    import struct
+    a, b = t.a, await t.open()
+    stl = b"\0" * 80 + struct.pack("<I", 1) + struct.pack("<12f", 0, 0, 1, 0, 0, 0, 100, 0, 0, 0, 100, 0) + b"\0\0"
+    t.refused(await b.call("mmodel_save", name="frame.stl", data=base64.b64encode(stl).decode()), "uploading without control", "control")
+    r = await a.call("mmodel_save", name="frame.stl", data=base64.b64encode(stl).decode())
+    t.check(r.get("ok") and r["models"] == [{"name": "frame.stl", "size": len(stl)}], "uploaded into models/ (%s)" % r)
+    t.check(os.path.exists(os.path.join(t.m.dir, "models", "frame.stl")), "on disk")
+    r = await b.call("mmodel_get", name="frame.stl")
+    t.check(r.get("ok") and base64.b64decode(r["data"]) == stl, "a watching browser reads it back")
+    t.refused(await a.call("mmodel_get", name="../machine.json"), "a path out of models/", "file name")
+    g = await a.call("config_get")
+    t.check(g["models"] == [{"name": "frame.stl", "size": len(stl)}], "config_get lists it")
+    m = json.loads(g["text"])
+    m["model"] = {"builtin": False, "parts": [{"name": "frame", "file": "frame.stl", "moves": "", "pos": [0, 0, -300]}, {"name": "ram", "file": "frame.stl", "moves": "XYZ"}]}
+    t.ok(await a.call("config_save", text=json.dumps(m, indent=2), custom=""), "parts saved (no restart: the view's only)")
+    t.refused(await a.call("mmodel_delete", name="frame.stl"), "deleting a file the model uses", "uses it")
+    bad = dict(m, model={"parts": [{"file": "frame.stl", "moves": "XX"}]})
+    r = await a.call("config_check", text=json.dumps(bad), custom="")
+    t.check(r["errors"] and r["errors"][0][0] == "model.parts.0.moves", "a part's bad axes: its problem (%s)" % r["errors"])
+    m.pop("model")
+    await a.call("config_save", text=json.dumps(m, indent=2), custom="")
+    t.ok(await a.call("mmodel_delete", name="frame.stl"), "deleted once unused")
+
+
 @case("HAL_WRITE=yes: setp on an unconnected input and a parameter; not on a driven pin", profile="halwrite")
 async def _(t):
     a = t.a

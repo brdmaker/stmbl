@@ -245,6 +245,7 @@ const pages = [
 $("nav").innerHTML = pages.map(([id, l, icon]) => `<button data-p="${id}" aria-current="${id === "main" ? "page" : "false"}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>${l}${id === "stat" ? '<span class="badge" id="nav-stat-badge"></span>' : ""}</button>`).join("");
 const paneIds = { main: "p-main", file: "p-file", wiz: "p-wiz", off: "p-off", tool: "p-tool", probe: "p-probe", dyn: "p-dyn", stat: "p-stat", debug: "p-debug", config: "p-config", set: "p-set" };
 function showPage(id) {
+  const leaving = st.page;
   if (st.page === "debug" && id !== "debug" && typeof halSrc === "function") { halSrc().watch([]); drvLeave(); }  // the watch list and a drive's console stream only while seen; a running scope goes on (arm it, go and jog, come back)
   st.page = id;
   $$("#nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.p === id ? "page" : "false"));
@@ -255,18 +256,22 @@ function showPage(id) {
   if (id === "tool") renderTools();
   if (id === "wiz") fillToolSelects();
   if (id === "config") cfgEnter();
+  if (leaving === "config" && id !== "config") mm3dLoad();  // the saved model again (the 3D model tab previews what it edits)
   if (id === "debug") { if (!hal.data) halLoad(); else { halWatchSend(); renderHalList(); renderHalWatch(); } renderHalDetail(); debugTab(dbgTab); renderViews(); }
   try { localStorage.setItem("pmc.page", id); } catch (e) { /* storage blocked */ }
 }
 // the one 3D view: on MAIN, and on PROBE below the cycles (the same scene, moved)
-const viewerHome = { parent: $("viewer").parentNode, next: $("viewer").nextSibling };
+const VIEWER = $("viewer");  // kept: the Configure page's 3D model tab borrows it, and redraws can take it out of the page
+const viewerHome = { parent: VIEWER.parentNode, next: VIEWER.nextSibling };
 function placeViewer(id) {
-  const v = $("viewer");
+  const v = VIEWER;
   if (id === "probe" && v.parentNode !== $("probe-view")) {
     $("probe-view").appendChild(v);
     if (R && !R.camAnim) setCam("part");  // close on the stock: where probing happens
+  } else if (id === "config") {  // the Configure page's 3D model tab, while it shows
+    const c = $("cf-view"); if (c && v.parentNode !== c) { c.appendChild(v); if (R && !R.camAnim) setCam("iso"); }
   } else if (id === "main" && v.parentNode !== viewerHome.parent) viewerHome.parent.insertBefore(v, viewerHome.next);
-  if (id === "main" || id === "probe") requestAnimationFrame(resize3d);
+  if (id === "main" || id === "probe" || id === "config") requestAnimationFrame(resize3d);
 }
 $("nav").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) showPage(b.dataset.p); });
 addEventListener("hashchange", () => { const p = location.hash.slice(1); if (paneIds[p] && p !== st.page) showPage(p); });
@@ -410,7 +415,10 @@ $$("[data-reset]").forEach((b) => b.addEventListener("click", () => { const i = 
 let lastLine = 0;
 function renderProgram() {
   $("h-prog").textContent = prog.name; $("h-prog").title = prog.name;  // shortened with … on a narrow header
-  $("pg-sub").textContent = `${(prog.nlines || prog.lines.length).toLocaleString("en-US")} lines · ${[...prog.tools].map((t) => "T" + t).join(" ")}`;
+  // the program's name as the panel's title (its folder in the line below it: jobs/acme · 486 lines · T3 T5)
+  const nm = prog.name && prog.name !== "—" ? prog.name : "", slash = nm.lastIndexOf("/");
+  $("pg-name").textContent = nm ? nm.slice(slash + 1) : "none loaded"; $("pg-name").title = nm;
+  $("pg-sub").textContent = nm ? [slash > 0 ? nm.slice(0, slash) : "", `${(prog.nlines || prog.lines.length).toLocaleString("en-US")} lines`, [...prog.tools].map((t) => "T" + t).join(" ")].filter(Boolean).join(" · ") : "";
   renderListing();
   st.selLine = 0; $("b-runfrom").disabled = true; $("b-runfrom").textContent = "Run from line";
 }
@@ -787,12 +795,12 @@ function init3d() {
 
   R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
   buildTool(); rebuildPath(); setCam("iso", true);
-  new ResizeObserver(resize3d).observe($("viewer"));
+  new ResizeObserver(resize3d).observe(VIEWER);
   resize3d();
 }
 function resize3d() {
   if (!R) return;
-  const r = $("viewer").getBoundingClientRect(); if (r.width < 10 || r.height < 10) return;
+  const r = VIEWER.getBoundingClientRect(); if (r.width < 10 || r.height < 10) return;
   R.renderer.setSize(r.width, r.height, false); R.cam.aspect = r.width / r.height; R.cam.updateProjectionMatrix();
 }
 function buildTool() {
@@ -895,6 +903,7 @@ function update3d(dt, tip, moving, cutting) {
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
   R.machine.visible = st.show.machine;
+  mm3dPlace(m);
 
   R.pathLine.visible = st.show.path; R.trail.visible = st.show.path;
   R.limits.visible = st.show.limits;
@@ -1157,6 +1166,7 @@ function bootCommon() {
   setCam("iso", true);
   requestAnimationFrame(frame);
   requestAnimationFrame(() => requestAnimationFrame(hideBoot));  // after the first frame is drawn
+  mm3dLoad();  // the machine's own 3D model, if machine.json has one
 }
 function hideBoot() {
   const b = $("boot"); if (!b) return;  // the console has drawn: it started, whatever was said before

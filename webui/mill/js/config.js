@@ -9,7 +9,7 @@
 "use strict";
 
 const cfg = { tab: "machine", text: "", custom: "", m: null, def: {}, saved: "", savedCustom: "", files: null, errors: [], diff: "",
-  history: [], bitstreams: [], status: null, loaded: false, jsonBad: null, view: null, dir: "" };
+  history: [], bitstreams: [], models: [], status: null, loaded: false, jsonBad: null, view: null, dir: "" };
 
 // ------------------------------------------------------------ paths in the machine object
 const cget = (o, p) => p.split(".").reduce((a, k) => (a == null ? undefined : a[k]), o);
@@ -36,6 +36,7 @@ function fld(path, label, kind = "text", o = {}) {
   if (kind === "sel") input = `<select ${attrs}>${o.choices.map(([c, l]) => `<option value="${esc(String(c))}"${String(v ?? d) === String(c) ? " selected" : ""}>${esc(l || String(c))}</option>`).join("")}</select>`;
   else if (kind === "lines") input = `<textarea ${attrs} spellcheck="false" rows="4">${esc((v || []).join("\n"))}</textarea>`;
   else if (kind === "kv") input = `<textarea ${attrs} spellcheck="false" rows="3">${esc(Object.entries(v || {}).map(([k, x]) => `${k} = ${x}`).join("\n"))}</textarea>`;
+  else if (kind === "color") input = `<input type="color" ${attrs} value="${esc(String(v ?? d ?? "#8a99ab"))}">`;
   else input = `<input ${attrs} ${kind === "num" ? 'inputmode="decimal"' : 'spellcheck="false"'} value="${v === undefined || v === null ? "" : esc(String(v))}"${ph}>`;
   return `<label class="cf${o.wide ? " wide" : ""}" data-f="${path}">${label}${input}${help}</label>`;
 }
@@ -131,6 +132,30 @@ const TABS = {
       ${fld("console.hal_write", "HAL page may set pins", "bool")}${fld("console.drive_write", "Drive consoles may write", "bool")}
       ${fld("console.pins", "Status page pins", "lines", { wide: true })}
       ${fld("console.extra", "More [MILLWEB] settings (KEY = value)", "kv", { wide: true, help: "POLL_HZ, HAL_HZ, PREVIEW_SEGS, CERT, KEY, SPINDLE_LOAD_PIN, …" })}</div>`,
+  model: () => {
+    const md = cfg.m.model || {}, parts = md.parts || [], files = cfg.models.map((x) => [x.name, `${x.name} (${(x.size / 1024).toFixed(0)} kB)`]);
+    const cards = parts.map((p, i) => {
+      const P = `model.parts.${i}`;
+      return `<div class="cf-joint" data-part="${i}"><div class="h"><b>${esc(p.name || "Part " + (i + 1))}</b><span class="muted">${esc(p.file || "no file")}</span><span class="spacer"></span><button class="btn sm" data-rmpart="${i}">Remove</button></div>
+        <div class="cf-grid">
+          ${fld(`${P}.name`, "Name", "text", { def: "" })}
+          ${fld(`${P}.file`, "File (models/)", "sel", { choices: [["", "—"], ...files], live: true })}
+          ${fld(`${P}.moves`, "Moves", "sel", { choices: MOVES_T, def: "" })}
+          ${["X", "Y", "Z"].map((a, k) => fld(`${P}.pos.${k}`, `${a} (mm)`, "num", { def: 0 })).join("")}
+          ${["X", "Y", "Z"].map((a, k) => fld(`${P}.rot.${k}`, `Turn about ${a} (°)`, "num", { def: 0 })).join("")}
+          ${fld(`${P}.scale`, "Scale", "num", { def: 1, help: "25.4: drawn in inches" })}
+          ${fld(`${P}.color`, "Colour", "color", { def: "#8a99ab" })}
+          ${fld(`${P}.opacity`, "Opacity", "num", { def: 1, help: "0 to 1" })}
+        </div></div>`;
+    }).join("");
+    return `<div class="cf-model"><div class="cf-body">
+        <p class="note">The machine in the 3D view: its parts as STL or OBJ files, each placed as it is with the machine at X0 Y0 Z0 and the <b>tool tip at the origin</b>, moving with the axes it rides on. Changes show in the view at once; Save keeps them.</p>
+        ${fld("model.builtin", "The built-in gantry (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${cards || `<p class="note">No parts yet: upload a file, then Add part.</p>`}
+        <div class="row"><button class="btn sm" id="cf-addpart">Add part</button><input type="file" id="cf-mfile" accept=".stl,.obj" hidden><button class="btn sm" id="cf-mup">Upload a model…</button>
+          ${cfg.models.map((x) => `<button class="btn sm" data-mdel="${esc(x.name)}" title="Delete ${esc(x.name)}">× ${esc(x.name)}</button>`).join("")}</div>
+      </div><div class="cf-view" id="cf-view"></div></div>`;
+  },
   custom: () => `<p class="note">More HAL, loaded after the generated machine.hal (see Generated): what the form doesn't cover. Blank: none.</p>
     <textarea class="cf-code" id="cf-custom" spellcheck="false">${esc(cfg.custom)}</textarea>`,
   json: () => `<p class="note">machine.json as text: the forms show the same. ${cfg.jsonBad ? `<b class="bad">${esc(cfg.jsonBad)}</b>` : ""}</p>
@@ -165,6 +190,7 @@ function renderCfg() {
   $$("#cf-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === cfg.tab)));
   $("cf-body").innerHTML = TABS[cfg.tab]();
   markErrors();
+  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet); }
   renderCfgBar();
 }
 function cfgText() { return cfg.m ? JSON.stringify(cfg.m, null, 2) + "\n" : cfg.text; }
@@ -205,7 +231,7 @@ function markErrors() {
   p.hidden = !cfg.errors.length;
   p.innerHTML = cfg.errors.length ? `<h2>Problems <small>${cfg.errors.length}</small></h2><ul>${cfg.errors.map(([w, t]) => `<li data-go="${esc(w)}"><b>${esc(w || "machine.json")}</b>: ${esc(t)}</li>`).join("")}</ul>` : "";
 }
-const tabOf = (w) => (/^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^(estop|probe)/.test(w) ? "io" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
+const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^(estop|probe)/.test(w) ? "io" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
 
 // ------------------------------------------------------------ the source: millweb or the supervisor, or the simulation's example
 const cfgSupervised = () => (LIVE ? LIVE.supervised() : false);
@@ -213,7 +239,7 @@ const cfgSrc = () => (LIVE ? LIVE.conf : cfgSim);
 async function cfgLoad(keep) {
   const r = await cfgSrc().get();
   if (!r.ok) { cfg.loaded = true; cfg.m = null; cfg.text = ""; $("cf-body").innerHTML = `<p class="note">${esc(r.err)}</p>`; renderCfgBar(); return; }
-  cfg.saved = r.text; cfg.savedCustom = r.custom; cfg.history = r.history || []; cfg.bitstreams = r.bitstreams || []; cfg.dir = r.dir;
+  cfg.saved = r.text; cfg.savedCustom = r.custom; cfg.history = r.history || []; cfg.bitstreams = r.bitstreams || []; cfg.models = r.models || []; cfg.dir = r.dir;
   cfg.running = r.running; cfg.savedHash = r.saved;
   try { cfg.def = JSON.parse(r.default); } catch (e) { cfg.def = {}; }
   if (!keep) { cfg.text = r.text; cfg.custom = r.custom; parseText(); cfg.errors = []; cfg.files = null; }
@@ -273,7 +299,8 @@ $("cf-body").addEventListener("change", (e) => {
   if (!el.dataset.path || !cfg.m) return;
   cset(cfg.m, el.dataset.path, readField(el));
   cfg.text = cfgText();
-  if (el.dataset.re) renderCfg(); else renderCfgBar();
+  if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
+  if (el.dataset.path.startsWith("model")) mm3dApply(cfg.m.model, cfgSrc().modelGet);  // the view follows the form
 });
 $("cf-body").addEventListener("input", (e) => { if (e.target.id === "cf-json" || e.target.id === "cf-custom") { syncFromEditors(); renderCfgBar(); } });
 $("cf-body").addEventListener("click", async (e) => {
@@ -283,6 +310,10 @@ $("cf-body").addEventListener("click", async (e) => {
   if (t.id === "cf-addjoint") { const free = Object.keys(cfg.m.axes)[0] || "X"; (cfg.m.joints = cfg.m.joints || []).push({ axis: free, drive: { type: "sim" }, home: { method: "absolute", pos: 0, sequence: 0 } }); renderCfg(); }
   if (t.dataset.rmjoint) { cfg.m.joints.splice(+t.dataset.rmjoint, 1); renderCfg(); }
   if (t.id === "cf-bsup") $("cf-bsfile").click();
+  if (t.id === "cf-mup") $("cf-mfile").click();
+  if (t.id === "cf-addpart") { const md = cfg.m.model = cfg.m.model || { builtin: true, parts: [] }; (md.parts = md.parts || []).push({ name: "Part " + (md.parts.length + 1), file: (cfg.models[0] || {}).name || "", moves: "", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, color: "#8a99ab", opacity: 1 }); cfg.text = cfgText(); renderCfg(); }
+  if (t.dataset.rmpart) { cfg.m.model.parts.splice(+t.dataset.rmpart, 1); cfg.text = cfgText(); renderCfg(); }
+  if (t.dataset.mdel) ask(`Delete ${t.dataset.mdel}?`, "From the machine's models/ folder.", "", async () => { const r = await cfgSrc().modelDelete(t.dataset.mdel); if (!r.ok) msg(r.err, "warn"); else { cfg.models = r.models; renderCfg(); } }, "confirm");
   if (t.dataset.bsdel) ask(`Delete ${t.dataset.bsdel}?`, "From the machine's bitstreams/ folder.", "", async () => { const r = await cfgSrc().bitstreamDelete(t.dataset.bsdel); if (!r.ok) msg(r.err, "warn"); else { cfg.bitstreams = r.bitstreams; renderCfg(); } }, "confirm");
   if (t.dataset.hshow || t.dataset.hload) {
     const id = t.dataset.hshow || t.dataset.hload, r = await cfgSrc().version(id);
@@ -305,6 +336,19 @@ $("cf-body").addEventListener("change", (e) => {
     if (!r.ok) { msg("Upload: " + r.err, "warn"); return; }
     cfg.bitstreams = r.bitstreams; if (cfg.m && cfg.m.bitstream && !cfg.m.bitstream.file) cfg.m.bitstream.file = f.name;
     msg(`${f.name} uploaded`, "ok"); renderCfg();
+  };
+  rd.readAsDataURL(f);
+});
+$("cf-body").addEventListener("change", (e) => {
+  if (e.target.id !== "cf-mfile") return;
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (f.size > 6e6) { msg("Up to 6 MB a file: fewer triangles, or the machine in several parts", "warn"); return; }
+  const rd = new FileReader();
+  rd.onload = async () => {
+    const r = await cfgSrc().modelSave(f.name, String(rd.result).split(",")[1] || "", rd.result);
+    if (!r.ok) { msg("Upload: " + r.err, "warn"); return; }
+    cfg.models = r.models; mm3d.geoms.delete(f.name);
+    msg(`${f.name} uploaded: Add part to put it in the machine`, "ok"); renderCfg();
   };
   rd.readAsDataURL(f);
 });
@@ -352,10 +396,14 @@ const cfgSim = (() => {
     estop: { input: "hm2_7i96s.0.inm.00.input-00" }, probe: { type: "input", input: "hm2_7i96s.0.inm.00.input-01" }, spindle: { type: "sim", max_rpm: 24000 },
     toolsetter: { x: 980, y: 20, z_above: -40, z_ref: -245, travel: 200 }, console: { port: 8080 } };
   let saved = JSON.stringify(EX, null, 2) + "\n", custom = "", hist = [];
+  const files = new Map();  // uploaded models: this page only (a reload forgets them)
   try { saved = localStorage.getItem("pmc.machine") || saved; custom = localStorage.getItem("pmc.custom") || ""; } catch (e) { /* storage blocked */ }
   const ok = (x) => Promise.resolve(Object.assign({ ok: true }, x));
   return {
-    get: () => ok({ text: saved, custom, default: saved, history: hist, bitstreams: [], dir: "(this browser)" }),
+    get: () => ok({ text: saved, custom, default: saved, history: hist, bitstreams: [], models: [...files].map(([name, b]) => ({ name, size: b.byteLength })), dir: "(this browser)" }),
+    modelSave: (name, b64, dataUrl) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); files.set(name, u.buffer); return ok({ models: [...files].map(([n, b]) => ({ name: n, size: b.byteLength })) }); },
+    modelGet: async (name) => files.get(name) || null,
+    modelDelete: (name) => { files.delete(name); return ok({ models: [...files].map(([n, b]) => ({ name: n, size: b.byteLength })) }); },
     check: (text, c) => {  // only what the browser can see; millweb checks the rest
       let m; try { m = JSON.parse(text); } catch (e) { return ok({ errors: [["", "machine.json isn't JSON: " + e.message]], files: {} }); }
       const errs = [];

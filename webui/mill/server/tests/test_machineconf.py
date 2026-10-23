@@ -136,6 +136,44 @@ class Machine(unittest.TestCase):
             mc.history_get(self.d, "../../etc")
 
 
+class MachineModel(unittest.TestCase):
+    """machine.json's 3D model: its parts checked; the files in models/."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="machmodel-test.")
+        mc.init(self.d)
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_parts_and_files(self):
+        import base64
+        ops = supervisor.ConfigOps(self.d)
+        stl = base64.b64encode(b"\0" * 80 + b"\0\0\0\0").decode()
+        self.assertIsNone(ops.model_save("frame.stl", stl))
+        self.assertIn("file name", ops.model_save("../x.stl", stl))
+        self.assertIn("file name", ops.model_save("x.step", stl))
+        self.assertIn("6 MB", ops.model_save("big.stl", base64.b64encode(b"x" * (6 * 1024 * 1024 + 1)).decode()))
+        self.assertEqual([x["name"] for x in ops.models()], ["frame.stl"])
+        self.assertEqual(base64.b64decode(ops.model_get("frame.stl")["data"]), b"\0" * 84)
+        m = copy.deepcopy(mc.DEFAULT)
+        m["model"] = {"builtin": False, "parts": [{"file": "frame.stl", "moves": ""}, {"file": "frame.stl", "moves": "-X-Y", "pos": [1, 2, 3], "color": "#112233", "opacity": 0.5}]}
+        mc.validate(m, self.d)
+        for part, where in (({"file": "nope.stl"}, "file"), ({"file": "frame.stl", "moves": "XX"}, "moves"), ({"file": "frame.stl", "moves": "XQ"}, "moves"),
+                            ({"file": "frame.stl", "pos": [1, 2]}, "pos"), ({"file": "frame.stl", "color": "red"}, "color"), ({"file": "frame.stl", "opacity": 2}, "opacity")):
+            m2 = copy.deepcopy(m)
+            m2["model"]["parts"] = [part]
+            with self.assertRaises(mc.Invalid) as cm:
+                mc.validate(m2, self.d)
+            self.assertEqual(cm.exception.errors[0][0], "model.parts.0." + where, part)
+        mc.save(self.d, json.dumps(m), "", MILL)
+        self.assertIn("uses it", ops.model_delete("frame.stl"))
+        m["model"]["parts"] = []
+        mc.save(self.d, json.dumps(m), "", MILL)
+        self.assertIsNone(ops.model_delete("frame.stl"))
+        self.assertEqual(ops.models(), [])
+
+
 class Bitstream(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="bitstream-test.")

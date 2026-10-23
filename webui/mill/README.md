@@ -29,6 +29,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
 | `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
 | `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
+| `js/machmodel.js` | the machine's own 3D model in the view: parts that move with the axes |
 | `js/config.js` | the Configure page: machine.json in forms and as text, Check, history, Restart |
 | `js/scope.js` | the Debug page's scope (triggering, drawing, cursor), its tabs and saved views |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
@@ -83,6 +84,7 @@ started again (three quick failures in a row: it waits for Start).
 |---|---|
 | `machine.json` | the machine (below); the Configure page edits it |
 | `custom.hal` | more HAL, after the generated (the Configure page's Custom HAL) |
+| `models/` | the machine's 3D model files (the 3D model tab; up to 6 MB each) |
 | `bitstreams/` | FPGA bitstreams (uploaded on the page, up to 6 MB; larger ones copied in) |
 | `history/` | every saved machine.json and custom.hal (and the file as it was before the first save) |
 | `run/` | made at each start: `mill.ini`, `machine.hal`; `status.json` (the supervisor's state); the drives' console ptys |
@@ -109,6 +111,7 @@ it):
 | `spindle` | `type`: `none`, `sim`; `max_rpm` |
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
+| `model` | the machine in the 3D view: `builtin` (the built-in gantry, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
 | `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
 
 The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
@@ -125,6 +128,7 @@ a sudoers line lets that user load bitstreams and nothing else:
 **The Configure page** (also without the supervisor: then it says so and
 the INI is configured by hand):
 - **Machine, Axes & joints, Hardware, I/O, Console:** machine.json in forms (a joint per card; the drive's and the homing's fields follow their type). Blank fields take the default shown.
+- **3D model:** the machine in the 3D view from its own files: upload STL or OBJ parts, say what each rides on (the frame fixed, a gantry's bridge with Y, the X carriage with X and Y, the Z ram with all three, a moving table against X and Y), place, turn, scale and colour them, and switch the built-in gantry off. The 3D view sits beside the form and shows each change at once; Save keeps it for every browser. A CAD export of the machine at its home position, in mm, lines up with one offset (where the tool tip is).
 - **Custom HAL**, **machine.json** (as text; the forms and the text are the same file).
 - **Check** asks millweb to check machine.json and make its INI and HAL: problems are listed (a click goes to the field, marked), **Generated** shows the files and the changes against the saved ones.
 - **Save** (asks, naming the settings changed; a note goes into the history), **Save & restart**, **Discard**; **History**: every version, compared with the editor or loaded into it; **Log**: the last three starts.
@@ -210,7 +214,7 @@ JSON over the WebSocket at `/ws`.
 - `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
 - `scope_start` {names (≤ 8), rate (10–2000 Hz)}, `scope_stop`: then `scope` messages every 50 ms, `{names, n, rate (measured), missed (late samples), t0, d}` with `d` the n×channels samples as base64 little-endian float32, row by row (two browsers may scope at once);
 - `drive_watch` {name | null}: a drive's console in this browser (the reply has what it said so far, `scroll`; then `dout` messages `{n, text}`); `drive_cmd` {name, cmd, sure}: a line to its console (reading for everyone; the rest with control and `DRIVE_WRITE`, and what moves, restarts or rewrites the drive with `sure`); `drive_detach` {name, on, seconds}: the tty left to other programs for a while (with control). `drv` messages (2 Hz, when changed): each drive's card, `{n, link: ok | silent | missing | detached, state, fault, last, last_at, dc, hv_t, mot_t, ac, perr, sat, fw, rx, tx, age, pd: {enable, fault, pos_fb, vel_fb, current, power}}`;
-- `config_get`, `config_check` {text, custom}, `config_save` {text, custom, note, restart}, `config_version` {version}, `bitstream_save` {name, data}, `bitstream_delete` {name}, `log_get` {which, n}, `sup_status`, `lcnc_restart`, `lcnc_stop` (with millweb-supervisor; `sup` messages carry its state). While LinuxCNC is down the supervisor answers these (`lcnc_start` for Start; its hello has `machine: null` and `supervisor`);
+- `config_get`, `config_check` {text, custom}, `config_save` {text, custom, note, restart}, `config_version` {version}, `bitstream_save` {name, data}, `bitstream_delete` {name}, `mmodel_save` {name, data}, `mmodel_get` {name}, `mmodel_delete` {name} (the 3D model's files), `log_get` {which, n}, `sup_status`, `lcnc_restart`, `lcnc_stop` (with millweb-supervisor; `sup` messages carry its state). While LinuxCNC is down the supervisor answers these (`lcnc_start` for Start; its hello has `machine: null` and `supervisor`);
 - `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;

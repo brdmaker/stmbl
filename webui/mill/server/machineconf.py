@@ -61,7 +61,10 @@ DEFAULT = {
     "display": {"max_feed_override": 2.0, "max_spindle_override": 1.5, "min_spindle_override": 0.5},
     "console": {"port": 8080, "host": "0.0.0.0", "token": "", "on_control_loss": "continue", "hal_write": False,
                 "drive_write": False, "cpus": "", "pins": [], "extra": {}},
+    # the machine in the console's 3D view: the built-in gantry, and/or parts (STL, OBJ in models/) that move with the axes
+    "model": {"builtin": True, "parts": []},
 }
+MOVES = re.compile(r"^(?:-?([XYZ]))?(?:-?([XYZ]))?(?:-?([XYZ]))?$")
 
 
 class Invalid(ValueError):
@@ -251,6 +254,33 @@ def validate(raw, mdir=None):
         else:
             for k in ("x", "y", "z_above", "z_ref", "travel"):
                 _num(ts.get(k), "toolsetter." + k, errs)
+    md = m["model"]
+    if not isinstance(md.get("builtin", True), bool):
+        errs.append(("model.builtin", "true or false"))
+    if not isinstance(md.get("parts", []), list) or len(md.get("parts", [])) > 40:
+        errs.append(("model.parts", "a list of at most 40 parts"))
+        md["parts"] = []
+    for i, pt in enumerate(md.get("parts", [])):
+        w = "model.parts.%d" % i
+        if not isinstance(pt, dict):
+            errs.append((w, "a part"))
+            continue
+        f = pt.get("file", "")
+        if not isinstance(f, str) or not re.match(r"^[A-Za-z0-9_.\- ]{1,80}\.(stl|obj)$", f, re.I):
+            errs.append((w + ".file", "an STL or OBJ file in the machine's models/ folder"))
+        elif mdir and not os.path.isfile(os.path.join(mdir, "models", f)):
+            errs.append((w + ".file", "models/%s isn't there (upload it)" % f))
+        mv = MOVES.match(str(pt.get("moves", "")))
+        if not mv or len([a for a in mv.groups() if a]) != len(set(a for a in mv.groups() if a)):
+            errs.append((w + ".moves", "the axes it moves with: '' (fixed), Y, XY, XYZ, -X (a moving table) …"))
+        for k, n in (("pos", 3), ("rot", 3)):
+            v = pt.get(k, [0, 0, 0])
+            if not isinstance(v, list) or len(v) != n or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+                errs.append(("%s.%s" % (w, k), "%d numbers" % n))
+        _num(pt.get("scale", 1), w + ".scale", errs, 1e-6, 1e6)
+        _num(pt.get("opacity", 1), w + ".opacity", errs, 0, 1)
+        if not re.match(r"^#[0-9a-fA-F]{6}$", str(pt.get("color", "#8a99ab"))):
+            errs.append((w + ".color", "#rrggbb"))
     for k in ("max_feed_override", "max_spindle_override", "min_spindle_override"):
         _num(m["display"][k], "display." + k, errs, 0, 10)
 

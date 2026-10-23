@@ -126,6 +126,42 @@ test("Configure: a configuration LinuxCNC refuses: the supervisor's page says wh
   t.check(await pageUntil(t, backLive, null, 60000), "fixed: LinuxCNC runs, the page is live again");
 });
 
+
+// an STL box (binary) for the 3D model tab: x0 y0 z0 x1 y1 z1 in mm
+function stlBox(x0, y0, z0, x1, y1, z1) {
+  const v = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) v.push([x, y, z]);
+  const f = [[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]];
+  const b = Buffer.alloc(84 + 50 * f.length); b.writeUInt32LE(f.length, 80);
+  f.forEach((t, i) => t.forEach((k, j) => v[k].forEach((c, n) => b.writeFloatLE(c, 84 + i * 50 + 12 + j * 12 + n * 4))));
+  return b;
+}
+
+test("Configure: the machine's 3D model on the machine: uploaded, saved, a part following a move", async (t) => {
+  await t.nav("config");
+  await t.until(() => cfg.loaded);
+  await take(t);
+  await t.click('#cf-tabs button[data-t="model"]');
+  await t.page.setInputFiles("#cf-mfile", { name: "ram.stl", mimeType: "model/stl", buffer: stlBox(-60, 40, 0, 60, 140, 400) });
+  t.check(await t.until(() => cfg.models.some((m) => m.name === "ram.stl")), "uploaded to the machine's models/");
+  await t.click("#cf-addpart");
+  await t.page.selectOption('[data-path="model.parts.0.moves"]', "XYZ");
+  await t.click("#cf-save"); await t.until(() => !document.getElementById("dlg").hidden); await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => !dirty()), "saved");
+  const c = await protocol();
+  await c.call("control", { take: true, force: true });
+  for (const [op, a] of [["estop", { on: false }], ["power", { on: true }], ["home", { axis: "all" }]]) await c.call(op, a);
+  await new Promise((r) => setTimeout(r, 500));
+  await c.call("mdi", { cmd: "G53 G0 X300 Y200" });
+  await t.nav("main");
+  t.check(await t.until(() => mm3d.nodes[0] && Math.abs(mm3d.nodes[0].holder.position.x - 300) < 0.5 && Math.abs(mm3d.nodes[0].holder.position.y - 200) < 0.5, null, 20000), "the part rides with the machine to X300 Y200");
+  const other = await t.ctx.browser().newPage();
+  try {
+    await other.goto(BASE + "#main");
+    t.check(await other.waitForFunction(() => typeof mm3d !== "undefined" && mm3d.nodes.filter(Boolean).length === 1, null, { timeout: 20000 }).then(() => true, () => false), "another browser loads it from the machine");
+  } finally { await other.close(); }
+  c.ws.close();
+});
+
 test("Configure: Stop and Start", async (t) => {
   await t.nav("config");
   await t.until(() => cfg.loaded);

@@ -118,7 +118,7 @@ class ConfigOps:
     def get(self):
         text, custom = machineconf.read(self.mdir)
         return {"text": text, "custom": custom, "default": json.dumps(machineconf.DEFAULT, indent=2) + "\n",
-                "dir": self.mdir, "bitstreams": self.bitstreams(), "history": machineconf.history(self.mdir)[:30],
+                "dir": self.mdir, "bitstreams": self.bitstreams(), "models": self.models(), "history": machineconf.history(self.mdir)[:30],
                 "running": self.running_hash(), "saved": hashlib.sha256((text + "\0" + custom).encode()).hexdigest()}
 
     def running_hash(self):
@@ -148,6 +148,55 @@ class ConfigOps:
     def version(self, hid):
         text, custom = machineconf.history_get(self.mdir, hid)
         return {"text": text, "custom": custom}
+
+    # the machine's 3D model files (models/), for the console's 3D view
+    MODEL_MAX = 6 * 1024 * 1024
+
+    def models(self):
+        d = os.path.join(self.mdir, "models")
+        try:
+            return [{"name": n, "size": os.path.getsize(os.path.join(d, n))} for n in sorted(os.listdir(d))
+                    if os.path.isfile(os.path.join(d, n)) and re.search(r"\.(stl|obj)$", n, re.I)]
+        except FileNotFoundError:
+            return []
+
+    def model_name(self, name):
+        if not re.match(r"^[A-Za-z0-9_.\- ]{1,80}\.(stl|obj)$", str(name), re.I) or str(name).startswith("."):
+            raise ValueError("an .stl or .obj file name (letters, digits, space . _ -)")
+        return os.path.join(self.mdir, "models", name)
+
+    def model_save(self, name, data):
+        try:
+            path = self.model_name(name)
+            raw = base64.b64decode(str(data), validate=True)
+        except (ValueError, binascii.Error) as e:
+            return str(e) if isinstance(e, ValueError) and "file name" in str(e) else "the file's data isn't base64"
+        if not raw or len(raw) > self.MODEL_MAX:
+            return "1 byte to 6 MB (fewer triangles, or split it into parts)"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "wb") as f:
+            f.write(raw)
+        os.replace(path + ".tmp", path)
+        return None
+
+    def model_get(self, name):
+        path = self.model_name(name)
+        with open(path, "rb") as f:
+            return {"name": name, "data": base64.b64encode(f.read()).decode()}
+
+    def model_delete(self, name):
+        path = self.model_name(name)
+        text, _ = machineconf.read(self.mdir)
+        try:
+            if any(p.get("file") == name for p in json.loads(text).get("model", {}).get("parts", [])):
+                return "machine.json's 3D model uses it: take it out first"
+        except (ValueError, AttributeError):
+            pass
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            return "no such file"
+        return None
 
     def bitstreams(self):
         d = os.path.join(self.mdir, "bitstreams")
@@ -572,7 +621,9 @@ class Supervisor:
                 return await reply(**await loop.run_in_executor(None, self.ops.check, str(m.get("text", "")), str(m.get("custom", ""))))
             if op == "config_version":
                 return await reply(**self.ops.version(m.get("version")))
-            if op not in ("config_save", "bitstream_save", "bitstream_delete", "lcnc_start", "lcnc_restart", "lcnc_stop"):
+            if op == "mmodel_get":
+                return await reply(**await loop.run_in_executor(None, self.ops.model_get, m.get("name")))
+            if op not in ("config_save", "bitstream_save", "bitstream_delete", "mmodel_save", "mmodel_delete", "lcnc_start", "lcnc_restart", "lcnc_stop"):
                 return await reply("LinuxCNC isn't running (%s): only the Configure page works" % self.state)
             if self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -587,6 +638,11 @@ class Supervisor:
             if op == "bitstream_save":
                 err = await loop.run_in_executor(None, self.ops.bitstream_save, m.get("name"), m.get("data", ""))
                 return await reply(err, bitstreams=self.ops.bitstreams())
+            if op == "mmodel_save":
+                err = await loop.run_in_executor(None, self.ops.model_save, m.get("name"), m.get("data", ""))
+                return await reply(err, models=self.ops.models())
+            if op == "mmodel_delete":
+                return await reply(self.ops.model_delete(m.get("name")), models=self.ops.models())
             if op == "bitstream_delete":
                 return await reply(self.ops.bitstream_delete(m.get("name")), bitstreams=self.ops.bitstreams())
             if op in ("lcnc_start", "lcnc_restart"):

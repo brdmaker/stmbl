@@ -90,6 +90,7 @@ const Live = (() => {
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
     else if (st.page === "debug") halWatchSend();  // reconnected: the watch again
     else if (st.page === "config") cfgLoad(dirty());  // reconnected (LinuxCNC restarted): what is saved and running now
+    if (!onFirst && R) mm3dLoad();  // reconnected: the machine's model as saved now
     msg(`Connected to ${info.name}`, "ok");
   }
   // LinuxCNC down: the supervisor serves the page, only the Configure page works
@@ -378,6 +379,15 @@ const Live = (() => {
     log: (which) => send("log_get", { which }),
     restart: () => send("lcnc_restart"), start: () => send("lcnc_start"), stop: () => send("lcnc_stop"),
     status: () => send("sup_status"),
+    modelSave: (name, data) => send("mmodel_save", { name, data }),
+    modelDelete: (name) => send("mmodel_delete", { name }),
+    modelGet: async (name) => {  // a machine model file's bytes
+      const r = await send("mmodel_get", { name });
+      if (!r.ok) { msg(`3D model ${name}: ${r.err}`, "warn"); return null; }
+      const bin = atob(r.data), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return u.buffer;
+    },
   };
   // the Debug page's drives: their cards ("drv"), consoles ("dout")
   L.drives = {

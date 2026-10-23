@@ -208,7 +208,7 @@ class Hub:
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
-                      "sup_status", "log_get", "config_get", "config_check", "config_version"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -643,6 +643,18 @@ class Hub:
     async def op_bitstream_delete(self, c, m):
         conf = self.need_conf()
         return conf.bitstream_delete(m.get("name")) or {"bitstreams": conf.bitstreams()}
+
+    async def op_mmodel_get(self, c, m):
+        return await self.run_bg(self.need_conf().model_get, m.get("name"))
+
+    async def op_mmodel_save(self, c, m):
+        conf = self.need_conf()
+        err = await self.run_bg(conf.model_save, m.get("name"), m.get("data", ""))
+        return err or {"models": conf.models()}
+
+    async def op_mmodel_delete(self, c, m):
+        conf = self.need_conf()
+        return conf.model_delete(m.get("name")) or {"models": conf.models()}
 
     def restart_refused(self):
         if self.state.get("run") in ("run", "hold", "step"):

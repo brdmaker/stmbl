@@ -427,6 +427,7 @@ test("file page: programs, preflight, load, edit", async (t) => {
   t.check((await t.text('#files .file[data-i="1"] .btn')) === "Loaded", "its button: Loaded");
   await t.nav("main");
   t.check(await t.ev(() => document.querySelectorAll("#gcode div").length === prog.lines.length), "the listing follows");
+  t.check((await t.text("#pg-name")) === "HOUSING-7075_OP2.ngc" && /^\d+ lines/.test(await t.text("#pg-sub")), "the program view's title: its name");
   await t.click("#b-edit");
   t.check(await t.until(() => st.page === "file") && (await t.text("#fl-name")) === "HOUSING-7075_OP2.ngc", "Edit: the file page on it");
 });
@@ -762,6 +763,43 @@ test("Configure (simulation): an example machine, forms and text, joints, proble
   await t.click('#cf-tabs button[data-t="hist"]');
   t.check(/renamed/.test(await t.text("#cf-body")), "History: the save");
   await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+
+// an STL box (binary) for the 3D model tab: x0 y0 z0 x1 y1 z1 in mm
+function stlBox(x0, y0, z0, x1, y1, z1) {
+  const v = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) v.push([x, y, z]);
+  const f = [[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]];
+  const b = Buffer.alloc(84 + 50 * f.length); b.writeUInt32LE(f.length, 80);
+  f.forEach((t, i) => t.forEach((k, j) => v[k].forEach((c, n) => b.writeFloatLE(c, 84 + i * 50 + 12 + j * 12 + n * 4))));
+  return b;
+}
+
+test("Configure (simulation): the machine's 3D model: upload parts, they move with their axes, the built-in one hidden", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  await t.click('#cf-tabs button[data-t="model"]');
+  t.check(await t.until(() => document.getElementById("cf-view") && document.getElementById("cf-view").contains(document.getElementById("viewer"))), "the 3D view beside the form");
+  await t.page.setInputFiles("#cf-mfile", { name: "frame.stl", mimeType: "model/stl", buffer: stlBox(-100, -100, -300, 1100, 1100, -240) });
+  t.check(await t.until(() => cfg.models.some((m) => m.name === "frame.stl")), "frame.stl uploaded");
+  await t.page.setInputFiles("#cf-mfile", { name: "ram.stl", mimeType: "model/stl", buffer: stlBox(-60, 40, 0, 60, 140, 400) });
+  t.check(await t.until(() => cfg.models.length === 2), "ram.stl uploaded");
+  await t.click("#cf-addpart");
+  await t.click("#cf-addpart");
+  await t.page.selectOption('[data-path="model.parts.1.file"]', "ram.stl");
+  await t.page.selectOption('[data-path="model.parts.1.moves"]', "XYZ");
+  await t.page.uncheck('[data-path="model.builtin"]');
+  t.check(await t.until(() => mm3d.nodes.length === 2 && mm3d.nodes.every(Boolean) && !mm3d.builtin), "two parts in the view, the built-in gantry off");
+  t.check(await t.ev(() => { const keep = new Set(); R.toolG.traverse((o) => keep.add(o)); R.coolant.traverse((o) => keep.add(o)); let vis = 0, tool = 0; R.machine.traverse((o) => { if (o.isMesh && o.visible) { if (keep.has(o)) tool++; else vis++; } }); return vis === 0 && tool > 0; }), "its meshes hidden, the tool still drawn");
+  // the built-in carriage and ram stay where the tool tip is (hidden): the ram part with them
+  t.check(await t.until(() => { const p = mm3d.nodes[1].holder.position; return Math.abs(p.x - R.carriage.position.x) < 0.01 && Math.abs(p.y - (R.bridge.position.y - 220)) < 0.01 && Math.abs(p.z - R.ram.position.z) < 0.01; }), "the ram (XYZ) at the tool tip");
+  t.check(await t.ev(() => mm3d.nodes[0].holder.position.x === 0 && mm3d.nodes[0].holder.position.z === ZTOP), "the frame (fixed) where it was put");
+  await t.click("#cf-save"); await t.until(() => !document.getElementById("dlg").hidden); await t.page.press("#dlg-in", "Enter");
+  t.check(await t.until(() => JSON.parse(localStorage.getItem("pmc.machine") || "{}").model?.parts?.length === 2), "saved");
+  await t.nav("main");
+  t.check(await t.until(() => document.getElementById("viewer").closest("#p-main") && mm3d.nodes.filter(Boolean).length === 2 && !mm3d.builtin), "the main page: the saved model, the view back home");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); });
   t.check(t.errors.length === 0, "no script errors");
 });
 

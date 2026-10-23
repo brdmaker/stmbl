@@ -264,6 +264,7 @@ test("file page: the machine's programs, preflight, load, run with the cycle but
   t.check((await t.text("#fl-cards")).includes("T3"), "...with its tool");
   await t.click(`#files .file[data-i="${i}"] .btn`);
   t.check(await t.until(() => document.getElementById("h-prog").textContent === "bracket-op1.ngc"), "loaded");
+  t.check(await t.until(() => document.getElementById("pg-name").textContent === "bracket-op1.ngc"), "the program view's title: its name");
   await t.nav("main");
   t.check(await t.until(() => document.querySelectorAll("#gcode div").length === prog.lines.length && prog.lines.length > 20), "its listing");
   await t.click("#b-start");
