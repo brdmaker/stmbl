@@ -76,7 +76,7 @@ const TABS = {
       const drv = t === "stmbl_sserial" ? fld(`${P}.drive.port`, "Smart-serial port", "num", { def: 0 }) + fld(`${P}.drive.channel`, "Channel", "num", { def: 0 })
         : t === "stmbl_can" ? fld(`${P}.drive.bus`, "CAN bus", "num", { def: 0 }) + fld(`${P}.drive.node`, "Node", "num", { def: 1 })
         : t === "stmbl_sim" ? fld(`${P}.drive.conf`, "Drive config (in the folder)", "text", { def: "drive.conf" }) + fld(`${P}.drive.sim`, "Sim commands file", "text", { def: "" }) : "";
-      const homing = hm === "switch" ? fld(`${P}.home.switch`, "Switch pin", "text", { def: "" }) + fld(`${P}.home.search_vel`, "Search speed", "num", { def: "", help: "its sign: the direction" }) + fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 })
+      const homing = hm === "switch" ? fld(`${P}.home.switch`, "Switch pin", "text", { def: "", re: true, help: t === "sim" ? "sim: a simulated switch" : "" }) + (h.switch === "sim" ? fld(`${P}.home.sim_at`, "Switch from the start", "num", { def: 10, help: "in the search direction" }) : "") + fld(`${P}.home.search_vel`, "Search speed", "num", { def: "", help: "its sign: the direction" }) + fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 })
         : hm === "index" ? fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 }) : "";
       return `<div class="cf-joint" data-joint="${i}"><div class="h"><b>Joint ${i}</b><span class="muted">${esc(j.axis || "?")} · ${esc((DRIVE_T.find((x) => x[0] === t) || [t, t])[1])}</span><span class="spacer"></span><button class="btn sm" data-rmjoint="${i}" title="Remove the joint">Remove</button></div>
         <div class="cf-grid">
@@ -85,6 +85,7 @@ const TABS = {
           ${drv}
           ${t !== "sim" ? fld(`${P}.drive.console`, "Its console on the Drives tab", "bool", { def: true }) : ""}
           ${fld(`${P}.ferror`, "Following error", "num", { def: 1 })}${fld(`${P}.min_ferror`, "… at rest", "num", { def: 0.25 })}
+          ${t !== "sim" ? fld(`${P}.phasing_ferror`, "… while it phases", "num", { def: "off", help: "until homed and on a while: a drive that autophases at enable" }) + fld(`${P}.phasing_time`, "… for (s) after enable", "num", { def: 1.5 }) : ""}
           ${fld(`${P}.home.method`, "Homing", "sel", { re: true, choices: HOME_T })}${fld(`${P}.home.pos`, "Home at", "num", { def: 0 })}${fld(`${P}.home.sequence`, "Sequence", "num", { def: 0 })}
           ${homing}
           ${fld(`${P}.min`, "Joint min", "num", { def: "axis − 1" })}${fld(`${P}.max`, "Joint max", "num", { def: "axis + 1" })}${fld(`${P}.max_vel`, "Joint max vel", "num", { def: "axis × 1.1" })}${fld(`${P}.max_acc`, "Joint max acc", "num", { def: "axis × 1.1" })}

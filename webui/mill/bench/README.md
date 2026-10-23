@@ -4,6 +4,19 @@ The console's gantry mill (X Y Y Z) with **X on the real stmbl drive** (the
 7C81's smart-serial, as `hwtest/burnin`) and Y, Y2, Z simulated (as
 `test/sim`). For trying the console against a real servo.
 
+With the Configure page (millweb-supervisor and a machine folder, the
+usual way; `machine.json` here makes the same configuration as `mill.ini`,
+`test_machineconf.test_the_bench_is_bench`):
+
+```sh
+mkdir -p ~/machine-bench && cp machine.json tool.tbl ~/machine-bench/
+cp bench.var ~/machine-bench/linuxcnc.var
+webui/mill/millweb-supervisor ~/machine-bench   # then http://<host>:8080/
+```
+
+Programs go into `~/machine-bench/nc_files/`. Or by hand, without the
+Configure page:
+
 ```sh
 cd webui/mill/bench && linuxcnc mill.ini     # then http://<host>:8080/
 ```
@@ -27,7 +40,8 @@ toolsetter is at machine X 250.
 |---|---|
 | `mill.ini` | `test/sim/mill.ini` with X as the real joint, `[HOSTMOT2]` as `hwtest/burnin` (hm2_spix), the drive in the Dynamics page (`DRIVE = X ...current power fault`) |
 | `mill.hal` | hostmot2 + the drive on joint 0 (index homing: `joint.0.index-enable` <=> `stbl.0.0.index_enable`), the watchdog E-stop latch; joints 1-3 with home switches, the probe and the tool changer simulated |
-| `phasing_ferror.hal` | a larger following error while the drive autophases (`hwtest/burnin`) |
+| `machine.json` | the same machine for millweb-supervisor: `phasing_ferror` on X, `switch: "sim"` home switches on Y, Y2, Z, the workspace in `console.extra` |
+| `phasing_ferror.hal` | a larger following error while the drive autophases (`hwtest/burnin`); a POSTGUI_HALFILE, which millweb loads as AXIS does |
 | `bench.var`, `tool.tbl` | `test/sim`'s, G54 X moved to -60 |
 
 Programs come from `../test/sim/nc_files`.

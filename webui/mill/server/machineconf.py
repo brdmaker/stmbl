@@ -31,7 +31,8 @@ LOADERS = ("none", "fpga_manager", "command")
 HOMING = ("absolute", "immediate", "switch", "index")
 CONSOLE_KEYS = {  # [MILLWEB] keys the console section may set as extra (the rest have fields of their own)
     "POLL_HZ", "HAL_HZ", "PREVIEW_SEGS", "PREVIEW_TIMEOUT", "PREVIEW_NICE", "DRIVE_POLL_MS", "CERT", "KEY", "PCOMP",
-    "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN"}
+    "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN",
+    "WORKSPACE_X", "WORKSPACE_Y", "WORKSPACE_Z"}
 HALNAME = re.compile(r"^[A-Za-z0-9_.:\-]+$")      # a HAL pin or signal name
 PLAIN = re.compile(r"^[^\"\n\r\\]*$")              # a parameter string: no quotes, newlines or backslashes
 
@@ -214,14 +215,26 @@ def validate(raw, mdir=None):
         _num(h["sequence"], w + ".home.sequence", errs, -9, 9, True)
         _num(h["pos"], w + ".home.pos", errs)
         if h["method"] == "switch":
-            if not HALNAME.match(str(h["switch"])):
-                errs.append((w + ".home.switch", "the home switch's HAL pin"))
+            if h["switch"] == "sim":  # a simulated joint's own switch (sim_home_switch), sim_at from where it starts
+                if d.get("type") != "sim":
+                    errs.append((w + ".home.switch", "sim: only for a simulated joint (a drive's switch is a HAL pin)"))
+                _num(h.setdefault("sim_at", 10), w + ".home.sim_at", errs)
+            elif not HALNAME.match(str(h["switch"])):
+                errs.append((w + ".home.switch", "the home switch's HAL pin (sim: a simulated one)"))
             if not h["search_vel"]:
                 errs.append((w + ".home.search_vel", "the search speed (its sign is the direction)"))
         if h["method"] in ("switch", "index") and not h["latch_vel"]:
             errs.append((w + ".home.latch_vel", "the latch speed"))
         if h["method"] == "index" and d.get("type") == "sim":
             errs.append((w + ".home", "a simulated joint has no index"))
+        # an stmbl drive that autophases at enable (no commutation signals) moves
+        # its rotor up to half an electrical period: a larger following error
+        # until the joint is homed and has been on phasing_time s
+        if j.get("phasing_ferror") not in (None, 0):
+            if d.get("type") not in ("stmbl_sserial", "stmbl_can", "stmbl_sim"):
+                errs.append((w + ".phasing_ferror", "only for an stmbl drive"))
+            _num(j["phasing_ferror"], w + ".phasing_ferror", errs, 0)
+            _num(j.setdefault("phasing_time", 1.5), w + ".phasing_time", errs, 0, 60)
     if sims > 1:
         errs.append(("joints", "one simulated stmbl drive at most (stmbl_sim is a single drive)"))
     for a in m["axes"]:
@@ -400,7 +413,8 @@ def generate(m, mdir, mill, custom=None):
     halfiles = [os.path.join(run, "machine.hal")]
     if (custom.strip() if custom is not None else os.path.isfile(os.path.join(mdir, "custom.hal"))):
         halfiles.append(os.path.join(mdir, "custom.hal"))
-    sec("HAL", ("HALFILE", halfiles))
+    phasing = [i for i, j in enumerate(m["joints"]) if j.get("phasing_ferror")]
+    sec("HAL", ("HALFILE", halfiles), ("POSTGUI_HALFILE", os.path.join(run, "postgui.hal") if phasing else None))
     sec("TRAJ", ("COORDINATES", " ".join(coords)), ("LINEAR_UNITS", "mm"), ("ANGULAR_UNITS", "degree"),
         ("DEFAULT_LINEAR_VELOCITY", round(maxv / 10, 3)), ("MAX_LINEAR_VELOCITY", maxv), ("MAX_LINEAR_ACCELERATION", maxa))
     if m["spindle"]["type"] != "none":
@@ -427,6 +441,8 @@ def generate(m, mdir, mill, custom=None):
             kv += [("HOME_OFFSET", h["offset"]), ("HOME_SEARCH_VEL", h["search_vel"]), ("HOME_LATCH_VEL", h["latch_vel"])]
         else:
             kv += [("HOME_OFFSET", h["offset"]), ("HOME_SEARCH_VEL", 0), ("HOME_LATCH_VEL", h["latch_vel"]), ("HOME_USE_INDEX", "YES")]
+        if j.get("phasing_ferror"):
+            kv += [("PHASING_FERROR", j["phasing_ferror"]), ("PHASING_TIME", j["phasing_time"])]
         sec("JOINT_%d" % i, *kv)
     ini = "\n".join(L) + "\n"
 
@@ -485,8 +501,18 @@ def generate(m, mdir, mill, custom=None):
             k = consoles.index(next(x for x in consoles if x[0] == i))
             h("net j%d-con-fb %s.%s => sserialterm.%d.con-fb" % (i, pre, pins["con_fb"], k))
             h("net j%d-con-cmd sserialterm.%d.con-cmd => %s.%s" % (i, k, pre, pins["con_cmd"]))
+    simsw = [i for i, j in enumerate(m["joints"]) if j["home"]["method"] == "switch" and j["home"]["switch"] == "sim"]
+    if simsw:
+        h("# simulated home switches: sim_at from where each joint starts, in the search direction")
+        h("loadrt sim_home_switch names=%s" % ",".join("j%d-homesw" % i for i in simsw))
     for i, j in enumerate(m["joints"]):
-        if j["home"]["method"] == "switch":
+        if i in simsw:
+            hs = j["home"]
+            h("net j%d => j%d-homesw.cur-pos" % (i, i))
+            h("setp j%d-homesw.home-pos %s" % (i, _fmt(float(abs(hs["sim_at"]) * (1 if hs["search_vel"] >= 0 else -1)))))
+            h("net j%d-home-sw j%d-homesw.home-sw => joint.%d.home-sw-in" % (i, i, i))
+            tail.append("j%d-homesw" % i)
+        elif j["home"]["method"] == "switch":
             h("net j%d-home-sw %s => joint.%d.home-sw-in" % (i, j["home"]["switch"], i))
     h("")
     # E-STOP: the input (true when the chain is closed) and a board's watchdog; else a loop
@@ -548,7 +574,39 @@ def generate(m, mdir, mill, custom=None):
     for f in tail + last:
         h("addf %s servo-thread" % f)
     hal = "\n".join(H) + "\n"
-    return {"mill.ini": ini, "machine.hal": hal}
+    out = {"mill.ini": ini, "machine.hal": hal}
+    if phasing:
+        out["postgui.hal"] = _phasing_hal(m, phasing, drv)
+    return out
+
+
+def _phasing_hal(m, joints, drv):
+    """The following error while a drive may autophase: [JOINT_n]PHASING_FERROR
+    until the joint is homed and has been enabled PHASING_TIME s, then FERROR /
+    MIN_FERROR. Loaded after the display starts (POSTGUI_HALFILE): it sets
+    ini.N.ferror, pins LinuxCNC makes after the HALFILEs. mux4 and timedelay
+    only: a uspace module loads once, and machine.hal may load and2, not, mux2."""
+    names = ",".join
+    H = ["# made by millweb from machine.json: a larger following error while a drive autophases",
+         "loadrt timedelay names=%s" % names("j%d-phasing-on" % i for i in joints),
+         "loadrt mux4 names=%s" % names("j%d-phasing-%s" % (i, k) for i in joints for k in ("ferror", "min-ferror"))]
+    for i in joints:
+        H.append("addf j%d-phasing-on servo-thread" % i)
+        H.append("addf j%d-phasing-ferror servo-thread" % i)
+        H.append("addf j%d-phasing-min-ferror servo-thread" % i)
+    for i in joints:
+        H += ["# joint %d: sel 3 (homed and on PHASING_TIME s): the normal limits" % i,
+              "setp j%d-phasing-on.on-delay [JOINT_%d]PHASING_TIME" % (i, i),
+              "setp j%d-phasing-on.off-delay 0" % i,
+              "net j%d-enable => j%d-phasing-on.in" % (i, i),
+              "net j%d-phasing-homed joint.%d.homed => j%d-phasing-ferror.sel0 j%d-phasing-min-ferror.sel0" % (i, i, i, i),
+              "net j%d-phasing-settled j%d-phasing-on.out => j%d-phasing-ferror.sel1 j%d-phasing-min-ferror.sel1" % (i, i, i, i)]
+        for k, ini in (("ferror", "FERROR"), ("min-ferror", "MIN_FERROR")):
+            for n in range(3):
+                H.append("setp j%d-phasing-%s.in%d [JOINT_%d]PHASING_FERROR" % (i, k, n, i))
+            H.append("setp j%d-phasing-%s.in3 [JOINT_%d]%s" % (i, k, i, ini))
+            H.append("net j%d-phasing-%s j%d-phasing-%s.out => ini.%d.%s" % (i, k, i, k, i, k.replace("-", "_")))
+    return "\n".join(H) + "\n"
 
 
 # ------------------------------------------------------------------ the folder

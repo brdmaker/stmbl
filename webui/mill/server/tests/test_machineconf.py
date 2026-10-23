@@ -16,6 +16,7 @@ import supervisor  # noqa: E402
 
 MILL = os.path.dirname(os.path.dirname(HERE))
 TEST_MACHINE = os.path.join(MILL, "test", "machine", "machine.json")
+BENCH = os.path.join(MILL, "bench")
 
 
 def ini_sections(text):
@@ -104,6 +105,46 @@ class Machine(unittest.TestCase):
         self.assertEqual(order[0], "hm2_7c81.0.read")
         self.assertEqual(order[-1], "hm2_7c81.0.write")
         self.assertLess(order.index("motion-controller"), order.index("sserialterm.0"))
+
+    def test_the_bench_is_bench(self):
+        """bench/machine.json makes bench/mill.ini, key for key: the real X with
+        index homing and its phasing following error (postgui.hal), the
+        simulated joints' home switches, the workspace."""
+        f = self.gen(json.load(open(os.path.join(BENCH, "machine.json"))))
+        got = ini_sections(f["mill.ini"])
+        want = ini_sections(open(os.path.join(BENCH, "mill.ini")).read())
+        norm = lambda xs: [float(x) if x.replace(".", "").lstrip("-").isdigit() else x.replace(" ", "") for x in xs]  # noqa: E731
+        for sec in ("TRAJ", "KINS", "AXIS_X", "AXIS_Y", "AXIS_Z", "JOINT_0", "JOINT_1", "JOINT_2", "JOINT_3", "EMCMOT"):
+            for k, v in want[sec].items():
+                self.assertEqual(norm(got[sec].get(k, [])), norm(v), "%s %s" % (sec, k))
+        for k in ("TOOLSETTER", "PIN", "DRIVE", "WORKSPACE_X", "WORKSPACE_Y", "WORKSPACE_Z", "CPUS"):
+            self.assertEqual(got["MILLWEB"][k], want["MILLWEB"][k], k)
+        self.assertEqual(got["HAL"]["POSTGUI_HALFILE"], [os.path.join(self.d, "run", "postgui.hal")])
+        hal, post = f["machine.hal"], f["postgui.hal"]
+        self.assertIn("loadrt hm2_spix config=\" sserial_port_0=00000000\" spiclk_rate=25000 spiclk_rate_rd=25000", hal)
+        self.assertIn("setp j3-homesw.home-pos 20", hal)
+        self.assertIn("net j1-home-sw j1-homesw.home-sw => joint.1.home-sw-in", hal)
+        self.assertIn("net j0-phasing-ferror j0-phasing-ferror.out => ini.0.ferror", post)
+        self.assertIn("setp j0-phasing-ferror.in3 [JOINT_0]FERROR", post)
+        # uspace loads a module once: none loaded in both files (and2 is the probe's)
+        mods = [l.split()[1] for t in (hal, post) for l in t.splitlines() if l.startswith("loadrt ")]
+        self.assertEqual(len(mods), len(set(mods)), mods)
+
+    def test_phasing_and_sim_switch_errors(self):
+        m = copy.deepcopy(mc.DEFAULT)
+        m["joints"][0]["phasing_ferror"] = 2                         # a simulated joint doesn't phase
+        m["joints"][1]["drive"] = {"type": "stmbl_sim"}
+        m["joints"][1]["home"] = {"method": "switch", "switch": "sim", "search_vel": 5, "latch_vel": 1}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        where = {w for w, _ in cm.exception.errors}
+        self.assertTrue({"joints.0.phasing_ferror", "joints.1.home.switch"} <= where, where)
+        m = copy.deepcopy(mc.DEFAULT)
+        m["joints"][2]["home"] = {"method": "switch", "switch": "sim", "search_vel": -5, "latch_vel": 1}
+        f = self.gen(m)
+        self.assertIn("setp j2-homesw.home-pos -10", f["machine.hal"])   # sim_at 10, in the search direction
+        self.assertNotIn("postgui.hal", f)
+        self.assertNotIn("POSTGUI_HALFILE", f["mill.ini"])
 
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
