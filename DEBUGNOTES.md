@@ -2152,3 +2152,24 @@ Entry format:
   6 mm courtyards is full: J3 is pads and J7 the 1.27 mm 5-pin (both
   options the document allows), U4 turned 90° so J2's pins pass beside it.
 
+## 2026-10-25  vibration sensor: a strong tone's skirt read as chatter
+- Area:    shared/vibdsp.c (vib_peak), shared/comps/vib.c (chat_f, chat_a)
+- Status:  Fixed
+- Symptom: (simulator) milling without chatter still reported chat_a
+  0.29 g at 436 Hz: next to the 400 Hz tooth passing.
+- Cause:   the search skipped bins within 3 of a spindle harmonic, but then
+  summed +-3 bins around the bin it found, which reached back into the
+  excluded tone's Hann main lobe.
+- Fix:     exclude +-4 bins, and leave excluded bins out of the sum. Chatter
+  within 4 bins of a spindle harmonic (52 Hz at fft_n 2048, 26 Hz at
+  4096) is not separated from it.
+
+## 2026-10-25  The console prints every pin a name starts with
+- Area:    the console (hal_parse), host tests (@expect PIN[k])
+- Status:  Note
+- Symptom: `vib0.crash` printed crash_g, crash_reset, crash and crash_peak,
+  so a test's crash_peak[1] was the value printed with the crash query.
+- Cause:   pin queries match by prefix.
+- Fix:     name pins so that an alarm's name is no prefix of others
+  (vib0.crash, shock, shock_lim, reset).
+

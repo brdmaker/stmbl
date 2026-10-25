@@ -1,0 +1,34 @@
+# Unbalance: 1 g peak rotating at 6000 rpm (100 Hz) in x / y. Acceleration
+# RMS 1/sqrt(2) = 0.7071 g; velocity 9806.65 / (2 pi 100) / sqrt(2) =
+# 11.04 mm/s (ISO's measure, above vel_warn 4.5); a sine's crest factor
+# sqrt(2), kurtosis 1.5; all of it the 1st order; gravity on z filtered out.
+@include tests/vib/setup.inc
+vibsim0.rpm = 6000
+vibsim0.unb = 1
+run 1.5
+vib0.rms_x
+vib0.rms_y
+vib0.rms_z
+vib0.vel_x
+vib0.vel_y
+vib0.crest_x
+vib0.kurt_x
+vib0.ord1
+vib0.ord2
+vib0.fft_f
+vib0.level
+vib0.crash
+vib0.lost
+@expect vib0.rms_x ~ 0.7071 1%
+@expect vib0.rms_y ~ 0.7071 1%
+@expect vib0.rms_z < 0.01
+@expect vib0.vel_x ~ 11.04 2%
+@expect vib0.vel_y ~ 11.04 2%
+@expect vib0.crest_x ~ 1.414 2%
+@expect vib0.kurt_x ~ 1.5 3%
+@expect vib0.ord1 ~ 0.7071 2%
+@expect vib0.ord2 < 0.01
+@expect vib0.fft_f ~ 100 0.5
+@expect vib0.level == 1
+@expect vib0.crash == 0
+@expect vib0.lost == 0

@@ -1,0 +1,28 @@
+# Crash detection: running (unbalance, noise) stays below shock_lim (8 g);
+# one 20 g impact latches crash within its first samples, until
+# reset. A raised threshold lets the same impact pass.
+@include tests/vib/setup.inc
+vibsim0.rpm = 9000
+vibsim0.unb = 2
+vibsim0.noise = 0.1
+run 0.5
+vib0.crash
+vibsim0.crash = 1
+step 1
+vib0.crash
+vib0.shock
+run 0.5
+vib0.crash
+vib0.reset = 1
+step 1
+vib0.crash
+vib0.shock_lim = 40
+vibsim0.crash = 1
+run 0.2
+vib0.crash
+@expect vib0.crash[1] == 0
+@expect vib0.crash[2] == 1
+@expect vib0.shock > 15
+@expect vib0.crash[3] == 1
+@expect vib0.crash[4] == 0
+@expect vib0.crash[5] == 0

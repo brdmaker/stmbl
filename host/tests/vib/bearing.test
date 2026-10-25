@@ -1,0 +1,19 @@
+# A bearing defect: impacts 87 times a second (an outer race's BPFO), each
+# ringing the structure at 3 kHz, in noise. The time signal turns spiky
+# (kurtosis well above noise's 3), the bearing band's RMS rises, and the
+# envelope repeats at 87 Hz. Before it, noise alone: kurtosis 3.
+@include tests/vib/setup.inc
+vibsim0.noise = 0.05
+run 1
+vib0.kurt_x
+vib0.env
+vibsim0.brg_f = 87
+vibsim0.brg_a = 3
+run 1.5
+vib0.kurt_x
+vib0.env
+vib0.env_f
+@expect vib0.kurt_x[1] ~ 3 10%
+@expect vib0.kurt_x[2] > 5
+@expect vib0.env[2] > 0.15
+@expect vib0.env_f ~ 87 1.5
