@@ -47,7 +47,7 @@ On the spindle, x and y are radial and z is axial.
 | accelerometer | IIS3DWB | 3 axes, 26.667 kHz output rate, flat to ~6.3 kHz ✱, ±2/4/8/16 g, 16 bit, 3 KB FIFO (~19 ms of x y z), SPI up to 10 MHz, −40…105 °C. |
 | temperature | TMP117 (I²C, ±0.1 °C) on the mounting face | The IIS3DWB's own temperature is its die's, not the machine's. |
 | CAN | TCAN1044V (CAN FD, as brdstepper), 120 Ω by solder jumper | A separate measurement bus (§3). |
-| connector | M12 A-coded 5-pin (CiA 303-1: 1 shield, 2 V+, 3 GND, 4 CAN_H, 5 CAN_L) | Standard CANopen cables, T-pieces and terminators. |
+| connector | M8 A-coded 4-pin, male on the sensor: 1 V+ (brown), 2 CAN_H (white), 3 GND (blue), 4 CAN_L (black) ✱ | Small, enough for a 24 V supply and the bus (M8 4-pin: 4 A, 60 V ✱). M8 has no CiA pinout: this one keeps the supply on the opposite pins 1 and 3 and the pair on 2 and 4. There is no shield pin; the shield goes to the metal coupling nut and housing. Use 4-wire twisted-pair CAN cable (CAN_H/CAN_L one pair) and M8 T-pieces for the line; no stubs over ~0.3 m at 5 Mbit/s ✱. |
 | power | 24 V from the bus, a buck to 3.3 V, an LDO or filter for the IIS3DWB | — |
 | mechanics | small round board in an aluminium housing, potted, mounted by an M6 stud or screw (or glued) | The board and housing must resonate well above 6.3 kHz. A magnet mount is fine for surveys, but caps the usable band at about 2 kHz ✱. |
 
@@ -172,10 +172,16 @@ stream.
   - keeps trends;
   - feeds millweb;
   - raises HAL pins for the alarms.
-- **Latency:** a userspace path takes a few ms. That is enough to
-  feed-hold or E-stop on a crash after the fact. To stop before damage
-  spreads, the sensor's crash event could also drive a wired output into
-  the machine's E-stop chain. That needs an M12 8-pin instead of 5 ✱.
+- **The stop is in software** (decided): there is no wired alarm line. A
+  sensor's crash event (ID 0x010 + node, the bus's highest priority)
+  reaches `vibmon`, which sets a HAL pin; the HAL config links it to a
+  feed hold or to the E-stop chain (`iocontrol.0.emc-enable-in` through an
+  `and2`). The way there, sensor → bus → SocketCAN → userspace → HAL, is a
+  few ms ✱ (to be measured): enough to stop after the impact and before a
+  second one, not to prevent the first.
+- **Watchdog:** `vibmon` also watches each sensor's features frame (every
+  0.1 s). A sensor gone silent for 0.5 s raises its own pin, so a lost
+  sensor is seen, and can be made to hold the machine like a crash.
 
 ## 4. Using it for tuning
 
