@@ -57,7 +57,8 @@ On the spindle, x and y are radial and z is axial.
 - **I²C:** the TMP117.
 - **FDCAN1:** the bus.
 - **SWD and USB:** for development.
-- **Node ID:** from the flash config (`node = 4`), or solder jumpers.
+- **Node number:** set over the bus and kept in flash (§3.1). The sensor
+  is potted: there are no jumpers or switches.
 
 ## 2. Processing
 
@@ -96,6 +97,7 @@ x y z ──hp (2 Hz)──┬── rms, peak, crest, kurtosis per axis ──�
 | `chat_f`, `chat_a` | Hz, g | strongest peak in `chat_lo..chat_hi` that is no spindle harmonic (±4 bins) | chatter |
 | `env`, `env_f` | g, Hz | bearing band RMS; the repetition rate in its envelope | bearing defects (BPFO, BPFI, BSF) |
 | `crash`, `shock` | –, g | latched over `shock_lim`; the largest \|a\| since | crashes |
+| `taps` | count | knocks over `tap_g`, 0.3 s apart | naming a sensor (§3.1) |
 | `level` | 0/1/2 | largest `vel_*` against `vel_warn` / `vel_alarm` | severity alarm |
 | `temp_level` | 0/1/2 | `temp` against `temp_warn` / `temp_alarm` | temperature alarm |
 | `reports`, `ffts`, `lost` | count | intervals, FFT blocks, blocks or samples lost | health |
@@ -136,6 +138,51 @@ keeps both simple.
 - **Topology:** the four sensors on one line, the PC at one end.
 - **Termination:** 120 Ω at both ends.
 
+### 3.1 Node numbers: found and given over the bus
+
+Every sensor is the same, and potted. It is told apart by its MCU's 96-bit
+unique ID (`shared/vibaddr.h`, `shared/vibaddr.c` on the sensor,
+`tools/vibmon/vibaddr.py` on the PC).
+
+**Discovery:** the PC searches the IDs bit by bit, like CANopen LSS
+Fastscan. It asks "anyone whose ID begins with these n bits?" and every
+sensor that matches answers with the same frame, so the answers can overlap
+on CAN. 97 questions find one ID; that sensor is muted and the search
+repeats. At 3 ms a question, that is 0.3 s per sensor.
+
+**A new sensor:** one without a number (node 0) sends nothing but these
+answers, so it never collides with the measurement frames.
+
+**Automatic assignment** (`Addresser.auto`) against the machine's list,
+`sensors.json` (uid, node, name, position), run when `vibmon` starts:
+
+| found | done |
+|---|---|
+| a known sensor on its number | nothing |
+| a known sensor on another number, or none (reflashed, reset) | its number and name set back, stored |
+| a new sensor | keeps a free number it has, else gets the lowest free one; stored; added to the list without a position |
+| a new sensor on a number already taken (from another machine) | moved to a free number |
+| a known sensor not found | reported missing. Its number stays reserved, so it gets it back when it returns. |
+
+**Naming the positions:** millweb lists the new sensors. With *Identify*
+on, tapping a sensor (a knock over `tap_g`, 1.5 g) makes it answer with its
+ID, and the page asks which position it is (base, X, Y, spindle).
+
+**Replacing a sensor:** *Replace* hands a missing sensor's number, name and
+position to a new one (`Addresser.replace`).
+
+**Tested:** `tools/vibmon/test_vibaddr.py` runs the PC's code against the
+sensors' C code on a simulated bus (in `make -C host check`). It covers:
+- four new sensors, two with IDs one bit apart;
+- automatic numbers;
+- tap-to-name;
+- a power cycle;
+- a reflashed sensor;
+- a missing one and its replacement;
+- a stranger on a taken number.
+
+### 3.2 Frames
+
 **Frames** (`shared/vibproto.h`; a lower ID wins arbitration):
 
 | ID | from | length | when | content |
@@ -148,6 +195,7 @@ keeps both simple.
 | 0x400 + node | sensor | 64 B | streamed | raw: 9 x y z samples a frame, numbered |
 | 0x600 + node | PC | ≤64 B | — | console to the sensor (stmbl's commands: parameters, `showconf`, `flashsaveconf`) |
 | 0x580 + node | sensor | ≤64 B | — | console from the sensor |
+| 0x7E5 / 0x7E4 | PC / sensor | ≤32 B | setup | node numbers (§3.1) |
 
 **Load** (from `test_vibproto`): a 64-byte frame takes 150 µs, an 8-byte
 one 50 µs.

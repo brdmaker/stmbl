@@ -1,0 +1,19 @@
+# Tapping a sensor (to name it, shared/vibaddr.h): a knock over tap_g
+# (1.5 g) counts once, the ringing after it not again; running at 1 g
+# unbalance counts nothing; two knocks 0.5 s apart count two.
+@include tests/vib/setup.inc
+vibsim0.rpm = 6000
+vibsim0.unb = 1
+vibsim0.noise = 0.02
+run 1
+vib0.taps
+vibsim0.crash_g = 3
+vibsim0.crash = 1
+run 0.5
+vibsim0.crash = 1
+run 0.5
+vib0.taps
+vib0.crash
+@expect vib0.taps[1] == 0
+@expect vib0.taps[2] == 2
+@expect vib0.crash == 0

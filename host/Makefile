@@ -120,6 +120,7 @@ check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader
 	@./test_bip
 	@./test_stmblcan
 	@./test_vibproto
+	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py

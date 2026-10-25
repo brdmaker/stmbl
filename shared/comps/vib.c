@@ -30,6 +30,8 @@
 //   crash          latched when |a| (x y z, filtered) passes shock_lim (g);
 //                  the rt path, so within a sample period. shock: the
 //                  largest |a| since; reset = 1 clears both
+//   taps           counts knocks over tap_g at least 0.3 s apart: tapping a
+//                  sensor names it while the PC identifies (shared/vibaddr.h)
 //   level          0 ok, 1 vel_warn, 2 vel_alarm (largest vel_*)
 //   temp_level     0 ok, 1 temp_warn, 2 temp_alarm
 // Every parameter is a pin: set it from the config, the console, or over CAN.
@@ -53,6 +55,7 @@ HAL_PIN(teeth);
 HAL_PIN(chat_lo);
 HAL_PIN(chat_hi);
 HAL_PIN(shock_lim);
+HAL_PIN(tap_g);
 HAL_PIN(reset);
 HAL_PIN(vel_warn);
 HAL_PIN(vel_alarm);
@@ -87,6 +90,7 @@ HAL_PIN(chat_f);
 HAL_PIN(chat_a);
 HAL_PIN(crash);
 HAL_PIN(shock);
+HAL_PIN(taps);
 HAL_PIN(level);
 HAL_PIN(temp_level);
 HAL_PIN(reports);  // intervals reported
@@ -112,6 +116,7 @@ struct vib_ctx_t {
   float vint[3], leak;
   vib_mom_t acc[3], vel[3], envm;
   uint32_t n_int;      // samples in this interval
+  uint32_t since_tap;  // samples
   int fill, fill_n, blk_w;
   volatile int ready;  // -1 none, else the buffer nrt is to do
   int efill, edec, eblk_w;
@@ -137,6 +142,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(chat_lo)    = 200;
   PIN(chat_hi)    = 5000;
   PIN(shock_lim)    = 8;
+  PIN(tap_g)        = 1.5;
   PIN(vel_warn)   = 4.5;   // ISO 10816-3, group 2 rigid: B/C boundary 2.8, C/D 4.5;
   PIN(vel_alarm)  = 11.2;  // machine tools vary: set them from the machine's own baseline
   PIN(temp_warn)  = 60;
@@ -235,6 +241,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       float v      = vib_bq(&ctx->vlp[i], vib_bq(&ctx->vhp[i], ctx->vint[i]));
       vib_mom_add(&ctx->vel[i], v);
       m2 += a[i] * a[i];
+    }
+    if(ctx->since_tap < (uint32_t)(0.3f * fs)) {
+      ctx->since_tap++;
+    } else if(PIN(tap_g) > 0.0f && m2 >= PIN(tap_g) * PIN(tap_g)) {
+      ctx->since_tap = 0;
+      PIN(taps)++;
     }
     if(crash > 0.0f && m2 >= crash * crash) {
       PIN(crash)      = 1;
