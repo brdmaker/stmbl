@@ -19,8 +19,8 @@ COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS))) \
 COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS) $(HW_COMPS) conf))
 # The vibration sensor (docs/vibsensor.md): its processing and a simulated
 # IIS3DWB on a machine. In stmbl_host only, not in the drive's LinuxCNC module.
-COMP_SRCS += $(ROOT)/shared/comps/vib.c hw/vibsim.c
-COMP_HDRS += $(GEN)/vib_comp.h $(GEN)/vibsim_comp.h
+COMP_SRCS += $(ROOT)/shared/comps/vib.c $(ROOT)/shared/comps/vnode.c hw/vibsim.c
+COMP_HDRS += $(GEN)/vib_comp.h $(GEN)/vnode_comp.h $(GEN)/vibsim_comp.h
 
 # Config templates for 'link', as in the firmware, plus the sim-only board.
 TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
@@ -29,10 +29,10 @@ CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.
             $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c \
             $(ROOT)/shared/fwstage.c $(ROOT)/shared/bip_loop.c \
             $(ROOT)/linuxcnc/stmblcan/mcp2515.c $(ROOT)/linuxcnc/stmblcan/stmblcan_bus.c \
-            $(ROOT)/linuxcnc/stmblcan/candesc.c $(ROOT)/shared/vibdsp.c
+            $(ROOT)/linuxcnc/stmblcan/candesc.c $(ROOT)/shared/vibdsp.c $(ROOT)/shared/vibaddr.c
 # Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
 DRIVE_SRCS = drive.c cdc_host.c pty.c fwup_host.c can_host.c mcp2515_sim.c
-HOST_SRCS = main.c $(DRIVE_SRCS)
+HOST_SRCS = main.c $(DRIVE_SRCS) vnode_host.c
 ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 
 # Sources scanned by create_cmd.py for COMMAND() registrations.

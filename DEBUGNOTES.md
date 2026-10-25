@@ -2173,3 +2173,19 @@ Entry format:
 - Fix:     name pins so that an alarm's name is no prefix of others
   (vib0.crash, shock, shock_lim, reset).
 
+## 2026-10-25  vibsensor: 4096-point FFTs and the HAL's pools didn't fit 128 KB
+- Area:    vibsensor/ (Makefile HAL_SIZES), shared/comps/vib.c, shared/vibbuf.h, shared/comps/vnode.c
+- Status:  Fixed
+- Symptom: the first link overflowed RAM by 58 KB.
+- Cause:   the FFT input double buffer (32 KB) plus a copy for the FFT
+  (16 KB) and im (16 KB), a 4096-sample vibbuf (24 KB), a spectrum copy
+  and frame array for vnspec (13 KB), and the HAL's default pools
+  (1024 pins, 16 KB of contexts: 26 KB).
+- Fix:     the FFT works in the collected block; vibbuf 1024 samples
+  (38 ms; rt drains it every 0.2 ms); vnspec builds frames one at a time;
+  the sensor's HAL pools -DHAL_MAX_PINS=320 -DHAL_MAX_COMPS=8
+  -DHAL_MAX_CTX=4096; config text 6 KB, Tx ring 64. Now 108 KB.
+- Note:    a component name must not contain a digit (the console reads
+  `tmp1170.temp` as comp tmp, instance 1170): the TMP117's component is
+  `thermo`.
+

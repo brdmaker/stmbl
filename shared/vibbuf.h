@@ -7,7 +7,7 @@
 #pragma once
 #include <stdint.h>
 
-#define VIBBUF_SIZE 4096  // samples (xyz), a power of two: 150 ms at 26.7 kHz
+#define VIBBUF_SIZE 1024  // samples (xyz), a power of two: 38 ms at 26.7 kHz (rt drains it every 0.2 ms)
 
 typedef struct {
   int16_t x, y, z;

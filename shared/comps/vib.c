@@ -106,7 +106,7 @@ vibbuf_t vibbuf;
 // Big buffers are static: one instance.
 static float blk[2][FFT_MAX];      // samples of fft_axis, double buffered (rt fills one)
 static float eblk[2][ENV_N];       // the envelope, decimated
-static float re[FFT_MAX], im[FFT_MAX];
+static float im[FFT_MAX];             // the FFT works in the block itself (re) and this
 static float spec[FFT_MAX / 2 + 1];  // the last spectrum's power, for the console and CAN
 static float espec[ENV_N / 2 + 1];
 static vib_spec_t last_spec;
@@ -290,14 +290,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 }
 
-static void spectrum(const float *x, int n, float fs, float *p, vib_spec_t *s) {
+// the block's power spectrum into p; the block (re) is used up
+static void spectrum(float *re, int n, float fs, float *p, vib_spec_t *s) {
   float mean = 0.0f;
   for(int i = 0; i < n; i++) {
-    mean += x[i];
+    mean += re[i];
   }
   mean /= n;
   for(int i = 0; i < n; i++) {
-    re[i] = x[i] - mean;
+    re[i] -= mean;
     im[i] = 0.0f;
   }
   s->s2 = vib_hann(re, n);

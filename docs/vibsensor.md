@@ -28,15 +28,13 @@ On the spindle, x and y are radial and z is axial.
 - **Signal processing:** written (`shared/vibdsp.c`, `shared/comps/vib.c`)
   and tested in the host simulator against a simulated sensor on a machine
   (`host/hw/vibsim.c`, `host/tests/vib/`).
-- **Bus frames:** written and tested (`shared/vibproto.h`,
-  `host/tests/test_vibproto.c`).
-- **Not yet:**
-  - the firmware target (G4, the IIS3DWB driver, FDCAN);
-  - the PC's side;
-  - the millweb page;
-  - the board.
-
-  See [What's next](#whats-next).
+- **Bus:** frames (`shared/vibproto.h`), node numbering
+  (`shared/vibaddr.c`, `tools/vibmon/vibaddr.py`) and the sensor's side
+  (`shared/comps/vnode.c`), all tested in the host.
+- **Firmware:** `vibsensor/` (G473: FDCAN, IIS3DWB, TMP117, console on the
+  bus) builds; not yet run on a board.
+- **Not yet:** the PC's `vibmon`, the millweb page, the board. See
+  [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
 
 ## 1. Hardware
@@ -278,9 +276,8 @@ parameters) and `test_vibproto`. Both are in `make -C host check`.
 
 ## What's next
 
-1. **Firmware target `vibsensor/`** (G473, as `brdstepper/`): the IIS3DWB
-   driver (SPI DMA from the FIFO into `vibbuf`), the TMP117, the FDCAN
-   driver and the bus frames, the console over the bus, the flash config.
+1. **Firmware on a board:** bring-up of `vibsensor/` (README there), SPI
+   DMA for the FIFO, USB for development.
 2. **The PC's side:**
    - `vibmon` on SocketCAN: machine state out, frames in, trends, HAL pins;
    - a simulated bus, so it runs against `stmbl_host` sensors.

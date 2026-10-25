@@ -1,0 +1,5 @@
+load iis
+load thermo
+iis0.rt_prio = 1
+link vnode
+vib0.temp = thermo0.temp

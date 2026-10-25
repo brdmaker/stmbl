@@ -39,6 +39,7 @@ host/test_bip
 host/test_stmblcan
 host/test_vibproto
 brdstepper/obj
+vibsensor/obj
 host/servoterm
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/
