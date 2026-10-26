@@ -62,6 +62,7 @@ const Live = (() => {
       case "vibspectrum": return vibSpectrumIn(m.node, m.spectrum);
       case "vibconsole": return vibConsoleIn(m.node, m.text);
       case "sup": if (L.kind) supBrand(m.status); return cfgStatus(m.status);
+      case "sys": return sysIn(m);
       case "dout": if (m.n === drv.watching) drvText(m.text); return;
       case "control": holder = m.holder; return controlUi();
       case "ev": return event(m);
@@ -91,6 +92,7 @@ const Live = (() => {
     }
     linkChip(); controlUi();
     if (info.supervisor) cfgStatus(info.supervisor);
+    sysEnable(!!info.sysupdate);
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
     else if (st.page === "debug") halWatchSend();  // reconnected: the watch again
     else if (st.page === "config") cfgLoad(dirty());  // reconnected (LinuxCNC restarted): what is saved and running now
@@ -109,6 +111,7 @@ const Live = (() => {
     renderEvents();
     linkChip(); controlUi();
     cfgStatus(m.supervisor);
+    sysEnable(!!m.sysupdate);
     if (onFirst) { const f = onFirst; onFirst = null; f(); }
     msg(`LinuxCNC ${m.supervisor.state}: ${m.supervisor.error || "Configure it, or start it"}`, m.supervisor.state === "failed" ? "bad" : "info");
   }
@@ -392,6 +395,13 @@ const Live = (() => {
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
       return u.buffer;
     },
+  };
+  // system updates (sysupdate.js, server/sysupdate.py)
+  L.sys = {
+    status: () => send("sys_status"),
+    check: () => send("sys_check"),
+    install: (version) => send("sys_install", { version }),
+    reboot: () => send("sys_reboot"),
   };
   // the Debug page's drives: their cards ("drv"), consoles ("dout")
   L.drives = {

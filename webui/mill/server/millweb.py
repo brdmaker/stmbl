@@ -35,6 +35,7 @@ import driveconf  # noqa: E402
 import drives as drives_mod  # noqa: E402
 import vibmon_link  # noqa: E402
 import supervisor as supervisor_mod  # noqa: E402
+import sysupdate  # noqa: E402
 import machine as machine_mod  # noqa: E402
 import preview  # noqa: E402
 import wsserver  # noqa: E402
@@ -112,6 +113,8 @@ class Hub:
         self.vib_teeth = (None, None)  # (tool, its teeth)
         mdir = cfg.get("MILLWEB", "MACHINE_DIR")
         self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
+        # system updates (sysupdate.py): the controller image's update helper, if it has one
+        self.sys = sysupdate.SysUpdate(self.broadcast, self.event)
         self.drive_sig = None
 
     # ------------------------------------------------------------ events
@@ -138,6 +141,7 @@ class Hub:
         info["drive_write"] = self.drive_write
         info["supervised"] = bool(self.conf)
         info["vibmon"] = bool(self.vib)
+        info["sysupdate"] = self.sys.enabled
         if self.conf:
             info["supervisor"] = self.conf.status()
         await ws.send_json({"t": "hello", "you": c.id, "machine": info, "control": self.control,
@@ -154,6 +158,8 @@ class Hub:
             await ws.send_json({"t": "drv", "drives": self.drive_status()})
         if self.vib:
             await ws.send_json({"t": "vib", "up": self.vib.up, "status": self.vib.status})
+        if self.sys.status is not None:
+            await ws.send_json(self.sys.snapshot())
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -227,7 +233,7 @@ class Hub:
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
                       "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
-                      "vib_spectrum", "vib_trend", "vib_console_read"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "vib_spectrum", "vib_trend", "vib_console_read", "sys_status", "sys_check"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -877,6 +883,16 @@ class Hub:
         conf = self.need_conf()
         return conf.model_delete(m.get("name")) or {"models": conf.models()}
 
+    # ------------------------------------------------------------ system updates (sysupdate.py)
+    async def sys_op(self, c, m):
+        if m["op"] in ("sys_install", "sys_reboot"):
+            err = self.restart_refused()
+            if err:
+                return err
+        return await self.sys.op(m["op"], m, c.name)
+
+    op_sys_status = op_sys_check = op_sys_install = op_sys_reboot = sys_op
+
     def restart_refused(self):
         if self.state.get("run") in ("run", "hold", "step"):
             return "a program is running: stop it first"
@@ -1211,6 +1227,7 @@ async def amain(args):
             loop.add_signal_handler(sig, quit_event.set)
         except NotImplementedError:
             pass
+    hub.sys.start()
     tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop()),
              asyncio.ensure_future(hub.drive_loop())]
     if hub.vib:
