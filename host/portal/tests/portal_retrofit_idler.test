@@ -1,0 +1,16 @@
+# dispenser (machine/retrofit): one Y motor, no Y2 drive in the file at
+# all; a move across the table, then fault_code with the drive missing.
+@program portal/portal_sim
+@args portal/machine/retrofit/dispenser.portal
+run 0.05
+lcnc 1
+run 0.3
+move 0.3 500 350
+run 0.3
+print x y1 y2 fault fault_code
+@expect portal.x ~ 500 0.01
+@expect portal.y1 ~ 350 0.01
+@expect portal.y2 ~ 350 0.3
+@expect portal.fault == 0
+@expect portal.fault_code == 0
+@reject ^ERROR

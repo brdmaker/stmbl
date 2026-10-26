@@ -2319,3 +2319,422 @@ Entry format:
   rather than widening the window. The subtitle shows only the kinematics
   module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
   stretch.) Now 1448 px.
+
+
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
+- Status:  Fixed
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
+
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
+- Status:  Known
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
+
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
+- Status:  Fixed
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
+
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
+
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
+- Status:  Known
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
+
+
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
+
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Fixed (compiles for the F4; not yet run on a drive)
+- Symptom: none seen; found by reading the code. Relevant for fast linear
+  scales: 1 µm at 4–5 m/s is 4–5 M counts/s.
+- Cause:   Three problems:
+  - TIM_ICInit (ICFilter = 0xF) ran before
+    RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC), so its writes were lost
+    unless res.c had already enabled TIM4. The inputs ran unfiltered.
+  - `TIM_Channel_1 | TIM_Channel_2` is TIM_Channel_2 (Channel_1 is 0), so
+    TIM_ICInit only ever reached B.
+  - Its BothEdge polarity sets CC2NP, which TIM_EncoderInterfaceConfig
+    leaves set. Encoder mode must not use that.
+  Just moving the clock enable would have applied a 3 µs filter to B
+  only (0xF: fDTS/32, N = 8: about 0.65 m/s at 1 µm), in both-edges mode.
+- Fix:     Enable the clock first and drop TIM_ICInit. After
+  TIM_EncoderInterfaceConfig, write IC1F/IC2F in CCMR1 from the new pin
+  `enc_fb0.input_filter` (set at load; default 3 = 8 samples at 84 MHz,
+  ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
+  Still to check on a drive: counts against distance at speed, and the
+  direction.
+
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Known
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
+
+## 2026-10-20  Linear motors: conf0.j must be the whole moving mass
+- Area:    drive config (`conf0.j`, `vel1` observer), `host/portal/machine/*.conf`
+- Status:  Fixed (portal configs); Known for any linear-motor config
+- Symptom: on the simulated portal the axes rang at 15-25 Hz while moving,
+  with up to 2 mm of following error. Raising pos_bw above about 40 made it
+  a limit cycle. Holding position was quiet.
+- Cause:   `vel1.j = conf0.j`: the velocity observer predicts acceleration
+  from torque / conf0.j. With j = the coil (1.5 kg on X) and the load in
+  j_sys, it expects 8 x too much acceleration; its velocity lags and
+  overshoots (23.6 vs 25.9 rad/s seen). On a rotary motor j is the rotor
+  and the load hangs on a coupling; a linear motor's coil is the load.
+- Fix:     j = the whole moving mass (as rotary: m (p/2pi)^2), j_sys = 0.
+  Cruise error dropped from about 5 to 0.4 um rms, and stable gains went up
+  to pos_bw 150 / vel_bw 1000 on a rigid load.
+
+## 2026-10-20  A loop that rings in motion can hold quietly (friction damps it)
+- Area:    servo tuning, `host/portal`
+- Status:  Note
+- Symptom: gains with a 20 Hz limit cycle in motion held position within
+  2 um at standstill.
+- Cause:   the guides' Coulomb friction acts as very heavy damping around
+  zero speed; in motion it is a constant force and damps nothing.
+- Fix:     judge tuning with the axis moving (constant speed and after
+  acceleration steps), not on a held position.
+
+## 2026-10-20  No acceleration feedforward over smart-serial by default
+- Area:    `conf/template/sserial.txt` (`vel0.en = 0`)
+- Status:  Known
+- Symptom: following error during acceleration of a/(pos_bw vel_bw)
+  (1.2 mm at 0.9 g, pos_bw 25, vel_bw 300).
+- Cause:   pid0.acc_ext_cmd comes from vel0 (the derivative of the
+  command), which the sserial template disables.
+- Fix:     `vel0.en = 1` in the config gives it (the portal's configs do).
+  It is filtered (vel0.lp 50 Hz) and helps about 25 %; feedforward of the
+  planner's own acceleration would help more.
+
+## 2026-10-20  Gantry: racking limits the Y gains
+- Area:    `host/portal` (Y1/Y2 as separate drives)
+- Status:  Known
+- Symptom: Y gains above vel_bw 300 / pos_bw 60 made the bridge oscillate
+  in yaw (0.6-1.3 mrad); without the guides' yaw stiffness it ran away.
+- Cause:   each Y drive is tuned for its 21 kg share of the bridge. In the
+  racking mode a motor moves only the bridge's yaw inertia over (L/2)^2,
+  about 5 kg: the same gains are 4 x too high there.
+- Fix:     tune Y for the racking mode, or a cross-coupled gantry loop
+  (mean and difference of Y1/Y2 controlled separately).
+
+## 2026-10-20  sampler.0.enable defaults to on: halsampler records from startup
+- Area:    `hwtest/portal-sim/portal.hal`
+- Status:  Fixed
+- Symptom: the benchmark's samples started at LinuxCNC's start: 500 mm of
+  "following error" (command 0 before homing) and a program time that
+  included the startup.
+- Cause:   `sampler.N.enable` is true when loaded.
+- Fix:     `setp sampler.0.enable 0` in the HAL file; portal_run.py sets it
+  while a program runs. Also: axis.x.pos-cmd read 0 here, so the HAL file
+  records joint.N.motor-pos-cmd (trivkins, absolute scales: the same).
+
+## 2026-10-20  Headless linuxcnc: its output goes to /tmp/linuxcnc.print.*
+- Area:    LinuxCNC's `scripts/linuxcnc`, `hwtest/portal-sim/bench.py`
+- Status:  Note
+- Symptom: `linuxcnc portal.ini > log` exited 255 with an empty log.
+- Cause:   without a terminal the script redirects itself into
+  /tmp/linuxcnc.print.* / linuxcnc.debug.* and deletes them at exit. On an
+  error without X it copies them to ~/linuxcnc_print.txt and
+  ~/linuxcnc_debug.txt (here: a pin already on a signal in portal.hal).
+- Fix:     read ~/linuxcnc_debug.txt after a failed headless start.
+
+## 2026-10-20  Acceleration leads: which way each one points
+- Area:    `host/portal/pcomp.c` (command conditioning)
+- Status:  Note
+- Symptom: two of the three leads made the path worse at first (a circle
+  shrank further: -401 instead of -236 um).
+- Cause:   sign. A smoothing filter, and a servo that lags under
+  acceleration, behave like an average along the path: they end up
+  displaced towards the acceleration (inside a curve), s = x + s2/2 a. The
+  head's lag is inertial: it bends against the acceleration.
+- Fix:     out = s + a (1/w^2 - tau2 - s2/2). Leads also need a smooth
+  acceleration: on LinuxCNC's stepping acceleration (even after a ZV
+  shaper) they jump the command by K da (0.5 mm) and double the current;
+  a moving average after the shaper turns the steps into ramps.
+
+## 2026-10-20  halsampler stopped mid-line: numpy.loadtxt rejects the whole file
+- Area:    `hwtest/portal-sim/bench.py`
+- Status:  Fixed
+- Symptom: every run but the first per LinuxCNC session scored "no samples".
+- Cause:   portal_run.py terminates halsampler, which leaves a partial last
+  line; loadtxt raises, and the analysis read that as an empty file.
+- Fix:     keep only rows with all the columns.
+
+## 2026-10-20  A command filter between motion and the drives: three traps
+- Area:    `linuxcnc/pcomp` (any component that changes the command after motion)
+- Status:  Fixed
+- Symptom: LinuxCNC with pcomp: amplifier faults at machine on; following
+  error aborts out of rapids, even at 0.25 g (1.1 mm, proportional to v).
+- Cause:   three, one after the other:
+  1. Wind-up. With the drives off, motion makes its command follow the
+     feedback. pcomp hands back fb + (in - out), and through the filter's
+     delay that loop integrates; at startup (absolute scales: 0 -> 500 mm)
+     it wound up.
+  2. Stale velocity. A backward difference of the output is half a servo
+     period late: v dt/2 of drive lag (0.8 mm at 1.6 m/s).
+  3. Feedback pairing. pcomp reads the drives' feedback before they run (it
+     shows where they got to with pcomp's previous output), and motion
+     compares it with this period's command. fb + (in - out) of the same
+     period, or of the period before, both leave v dt (1 mm at 1 m/s).
+- Fix:     1. enable = the amplifiers' enable; restart at standstill.
+  2. the shaped path's central difference (one period back) + the lead's
+  rate. 3. fb_out = fb + (in now - out the period before).
+  The servo lag constant tau2 had to be recalibrated after 2 (1.45e-5 ->
+  2.15e-5 s^2): the stale velocity had been part of it.
+
+## 2026-10-21  Velocity observer lags under acceleration (2 d a / w); vel_bw ceiling 556
+- Area:    `shared/comps/vel.c` (vel1: pid0.vel_fb), every drive
+- Status:  Workaround (opt-in `vel1.bc = 1`; default unchanged)
+- Symptom: the portal and the linear axis held a position error
+  proportional to acceleration that tuning couldn't remove; acceleration
+  feedforward made circles worse; vel_bw above about 550 was unstable on
+  every load; the vel_bw a config said wasn't the loop's real bandwidth.
+- Cause:   the observer's torque model only acts above `lp` (50 Hz). A
+  steady acceleration a is tracked with an error a/w^2, and the reported
+  velocity (acc_sum, without the proportional correction 2 d w e) lags the
+  true one by 2 d a / w (1.8 ms x a at w 1000, d 0.9). In the speed loop
+  that is positive acceleration feedback: the effective inertia is
+  j (1 - 2 d vel_bw / w), so the real bandwidth is vel_bw / (1 - 2 d vel_bw / w)
+  (650 for a configured 300), unstable at vel_bw = w / 2d = 556. It also
+  stands in for missing acceleration feedforward, which is why feedforward
+  alone looked harmful.
+- Fix:     `vel1.bc = 1` adds the correction to the reported velocity
+  (`vel1.bc_lp` [Hz] filters it against quantization). Use it together with
+  acceleration feedforward (`vel_int0.mode = 1`) and retune: vel_bw is then
+  the real bandwidth. Portal: following error 115 -> 7 um at 0.7 g;
+  linear axis at 2 m/s^2: 3.7 -> 0.5 mrad (`tests/acc_ff_linear.test`). With
+  bc on by default the host suite's motors all still pass; only configs
+  tuned with the lag in place (portal, two arm detector thresholds) move,
+  so it stays opt-in.
+
+## 2026-10-21  LinuxCNC's vel-cmd is half a servo period late; acc feedforward over sserial
+- Area:    `shared/comps/vel_int.c`, `conf/template/sserial.txt`
+- Status:  Fixed (opt-in `vel_int0.mode = 1`)
+- Symptom: velocity feedforward lagged; no acceleration feedforward over
+  smart-serial (vel0 is off in sserial.txt; on, it is a filtered derivative).
+- Cause:   joint.N.vel-cmd is the average over the last period. LinuxCNC's
+  planner moves with constant acceleration between updates.
+- Fix:     mode 1: velocity and acceleration from the last three positions
+  (exact for the planner: a = (d1 - d0)/T^2, v = d1/T + a T/2, T =
+  1/cmd_freq), quadratic interpolation, acc_out -> rev0.out_dd ->
+  pid0.acc_ext_cmd. Mode 0 passes vel0.acc through, as before.
+
+## 2026-10-21  vel_int mode 1: a jump while standing kicks the next move (POS_ERROR)
+- Area:    `shared/comps/vel_int.c` (mode 1)
+- Status:  Fixed
+- Symptom: on some portal origins (X 400 and 450, not 420 or 500) the
+  first move faulted with POS_ERROR at once; the drive ran backwards.
+- Cause:   standing still, LinuxCNC's packets repeat and aren't "new", so
+  the history p2 kept whatever came before the stop. After a jump in the
+  command while stopped (here portal_sim's unsynced first command, the raw
+  scale, then the offset one), the next move's first packet computed
+  a = (d1 - jump) / T^2, about 2.7e6 rad/s^2.
+- Fix:     a stop (v = 0 or no change) sets p2 = p: the history is
+  "standing at p". `host/tests/acc_ff_jump.test` (fails before).
+
+## 2026-10-21  portal_sim sent an unsynced command before the scale offsets were set
+- Area:    `host/portal/portalcore.c` (`ptcore_set_cmd`)
+- Status:  Fixed
+- Symptom: as above; with mode 0 harmless.
+- Cause:   until the offsets were known (5 exchanges), the command was the
+  raw machine position (400 mm), then about 0: a jump LinuxCNC never sends.
+- Fix:     until synced, each drive gets its own feedback as command (as
+  LinuxCNC follows the feedback while disabled).
+
+## 2026-10-21  portal files: `cogging` lines never parsed; fault_code crashed without a Y2 drive
+- Area:    `host/portal/portalcore.c`, `host/portal/portal_sim.c`
+- Status:  Fixed
+- Symptom: `cogging y1 28 22.86 30` -> "bad line"; `print fault_code` on a
+  file with only `drive y2 none` segfaulted.
+- Cause:   the number parser started at the motor's name (n = 0 numbers);
+  fault_code called the unloaded drive's `pin()` (NULL).
+- Fix:     parse the numbers after the name; skip drives that never
+  loaded. `host/portal/tests/portal_retrofit*.test`.
+
+## 2026-10-21  Gantry: Y1 and Y2 fight at 160-235 Hz in the bridge's yaw
+- Area:    gantry drive tuning (`conf0.vel_bw`, `conf0.cur_bw`), `host/portal/machine/retrofit`
+- Status:  Fixed in simulation with the gantry link (`shared/comps/gantry.c`);
+  Workaround on hardware until the drive-to-drive link exists (cur_bw 2000
+  or a lower vel_bw)
+- Symptom: Y1 and Y2 currents opposite, +-4 to +-7 A at 160-235 Hz, while
+  moving (laser3015, cmm) or after reversing at slow speed (pcbdrill); with
+  one Y motor, against the bridge's twist (dispenser). Masses, modes, the
+  portal's own machine fine.
+- Cause:   each Y drive is tuned for its share of the moving mass; in the
+  yaw (Y1 against Y2) it moves only 2 J / L^2 of the bridge (18 of 73 kg on
+  the laser, 4.7 of 21.5 kg on the driller): the velocity loop is 4-5x as
+  fast there and meets the default current loop (1000 rad/s). Guide
+  friction damps it on some machines (it appeared without friction on the
+  laser: 11.5 A).
+- Fix:     `conf0.cur_bw = 2000`, or `conf0.vel_bw` 200-300. dynwiz's
+  `mass` and `cogging` steps detect it (a sustained line in the current)
+  and `write` proposes vel_bw x 0.6. The real fix: the gantry link (next
+  entries): the two Y drives exchange position error and velocity, and
+  each feeds its pid the yaw at r_vel ~ m_yaw / m_side of the velocity
+  gain. The fight is gone at the default gains on laser3015, cmm and
+  pcbdrill (cmm: 10 A at 208 Hz -> 0.01 A, rack 118 -> 2.4 urad), and
+  vel_bw can double. `host/portal/tests/portal_gantry*.test`.
+
+## 2026-10-21  Brake chopper above the drives' max_dc_volt never helps
+- Area:    `host/portal` `bus` lines, real supplies
+- Status:  Note
+- Symptom: HV_VOLT_ERROR at 2 g with a chopper set to switch on at 390 V.
+- Cause:   `conf0.max_dc_volt` is 380 (conf/template/conf.txt): the
+  drives trip before the chopper conducts.
+- Fix:     chopper on below it (360 V in the retrofit files); on a real
+  machine, check the resistor module's threshold against max_dc_volt.
+
+## 2026-10-21  Moving mass from the current: a ringing head biases a per-sample fit
+- Area:    `linuxcnc/dynwiz/dynident.py` (`mass_fit`)
+- Status:  Fixed
+- Symptom: X masses 14 % high (cmm) or 18 % low (pcbdrill); dynwiz would
+  have proposed a wrong conf0.j.
+- Cause:   the head swinging on its springs adds a force that, over the
+  short accelerations (36 ms at 2 g), sits at whatever phase it has.
+- Fix:     fit the impulse: both sides summed over each move's samples;
+  the head's part then is its momentum, which stays small. All five
+  simulated machines within 3 %.
+
+## 2026-10-21  Step-response modes: the base and the servo look like the head
+- Area:    `linuxcnc/dynwiz` (`modes`)
+- Status:  Workaround
+- Symptom: the strongest ring after a step was 17 Hz at the bridge's ends
+  (pcbdrill: its frame on its feet) or 15 Hz everywhere (dispenser: the
+  position loop's own settling, pos_bw 100 rad/s), not the head.
+- Cause:   the scales are on the frame and only see the head through its
+  reaction on the servo-held carriage; a light, stiff head (1.2 kg at
+  85-140 Hz on 1.8 kg) barely shows at all.
+- Fix:     the three strongest peaks per position; a frequency within 3 %
+  at every position is the base's and is left out; the current is used
+  where it is clearer than the scale; a fit that doesn't bend like a bridge
+  is marked doubtful and not written; `--use-tool` for a sensor on the head.
+
+## 2026-10-21  HAL sampler: a second instance needs its own depth
+- Area:    LinuxCNC `sampler` (2.9)
+- Status:  Note
+- Symptom: `loadrt sampler depth=20000 cfg=...,...` then `addf sampler.1`:
+  "function 'sampler.1' not found".
+- Cause:   depth is per instance; an instance without one isn't created.
+- Fix:     `depth=20000,20000`.
+
+## 2026-10-21  Gantry link: the partner's data must arrive within ~1 ms
+- Area:    `shared/comps/gantry.c`, `host/portal` (`glink DELAY EVERY`)
+- Status:  Known
+- Symptom: with the link's latency at 2 ms the fight came back at the
+  bridge's middle; at 3 ms (a relay through LinuxCNC and smart-serial at
+  1 kHz) it is as bad as without, SAT_ERROR at 4 ms.
+- Cause:   the partner's velocity feeds the fast loop, where the fight is
+  (200 Hz: 2 ms is 144 degrees).
+- Fix:     a drive-to-drive link, not LinuxCNC: classic CAN between the two
+  Y drives (stmbl v4 P10: CAN1 without a transceiver, can-support branch),
+  an 8-byte frame each way every 400 us (68 % of 1 Mbit/s), ~600 us
+  latency: simulated as `glink 3 2`, stable. Stability with the link: the
+  yaw's velocity bandwidth vel_bw r_vel / (m_yaw / m_side) up to about
+  1.8 cur_bw.
+
+## 2026-10-21  Gantry: what didn't help (inertia split, load-split lead)
+- Area:    `pid0.j_mot / j_sys / j_lpf`, pcomp
+- Status:  Note
+- Symptom/Cause: (1) the pid's frequency split of the inertia (j_mot = the
+  yaw's mass, j_sys the rest, above j_lpf only j_mot) can't tell the yaw
+  from the common mode, and its low-pass sits at the speed loop's crossover:
+  worse, POS_ERROR. (2) A per-side lead in pcomp for the carriage's load
+  split (Y1/Y2 apart by G (X - x0)/L a): rack grew with either sign. The
+  stiff Y drives already hold the quasi-static split (16 urad at 1 g with
+  the carriage off-centre); the rack left is dynamic.
+- Fix:     none needed; the gantry link instead. Removed from pcomp.
+
+## 2026-10-26  Portal: the linear motors run out of bus voltage at 1.3 m/s
+- Area:    host/portal (claude/portal-dynamics), host `hw/hv.c` (the F3's voltage limit)
+- Status:  Open (simulation; no portal hardware)
+- Symptom: Merging claude/portal-dynamics into master: portal_move's tool
+  path error 177 um (limit 100, the branch 60), the frame moving 562 um (114);
+  portal_racking's Y1 current 1.06 x (limit 1.05); portal_momentum's second
+  move ends elsewhere. Marked @todo.
+- Cause:   Master's simulated F3 limits the output voltage vector to what the
+  bus can make (vbus / sqrt 3); the branch's limited ud and uq one by one, up
+  to 1.34 x that. The Baldor LMCF08F at 1.3 m/s needs ~130 V back-EMF plus
+  R i (10.5 ohm) against 188 V from a 325 V bus: the moves are voltage
+  limited. Without the vector limit the merge reproduces the branch's numbers
+  (60 um, 114 um). portal_momentum faults (POS_ERROR) on its second move on
+  both; it only checks momentum and frame travel, and master brakes after the
+  fault where the branch coasted.
+- Fix:     Not yet: slower or lower-acceleration moves, a higher bus (a PFC
+  front end, 400 V), or motors with a lower Kf. Then drop the @todo lines.
+- Also:    linuxcnc/dynwiz `make test-sim` (not in host check): 4 of 8 fail
+  on the branch itself on the bench Pi (dispenser: "the scales can't see the
+  head"; pcbdrill, write_confs: "math domain error"; write); after the merge
+  test_portal fails instead of test_write ("math domain error", likely the
+  same voltage limit). `make test` (dynident) 6/6.
+
+## 2026-10-26  sserial pos_advance is 0.2 ms long since idx_home runs before linrev
+- Area:    `conf/template/sserial.txt` (sserial0.pos_advance 0.0008), idx_home rt_prio
+- Status:  Open (needs the bench)
+- Symptom: The portal simulation's following error (LinuxCNC's command
+  minus the drive's reported position) grew from ~8 to ~228 um at 0.7 g on
+  master; the motion itself was the same.
+- Cause:   sserial0.pos_fb is extrapolated by pos_advance (0.8 ms) for the
+  link's latency. Since idx_home0.rt_prio went to 2.05 (2026-10-17, index
+  homing) linrev reports the position one rt cycle (0.2 ms) fresher, so the
+  same advance now leads by 0.2 ms: at 1 m/s that reads as 0.2 mm.
+- Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
+  it alters every drive's reported position; check it on the bench first
+  (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).

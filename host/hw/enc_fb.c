@@ -62,11 +62,11 @@ HAL_PIN(sim_fail);   // 1: the encoder is broken (cable): position frozen, error
 HAL_PIN(sim_freeze);  // fault: angle held
 HAL_PIN(sim_scale);   // fault: gain on angle changes (1 = none)
 HAL_PIN(sim_offset);  // fault: added angle [rad]
+HAL_PIN(sim_absolute);  // 1: an absolute encoder, state 3 from the start
 HAL_PIN(sim_abs_pos);     // unwrapped shaft position [rad] (hv0.sim_abs_pos)
 HAL_PIN(sim_ref_mode);    // 0 per revolution, 1 single, 2 periodic
 HAL_PIN(sim_ref_pos);     // mark position on sim_abs_pos [rad]
 HAL_PIN(sim_ref_period);  // mark spacing, mode 2 [rad]
-HAL_PIN(sim_absolute);  // 1: an absolute encoder, state 3 from the start
 
 struct enc_fb_ctx_t {
   int init;

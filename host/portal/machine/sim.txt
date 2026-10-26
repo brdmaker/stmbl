@@ -1,0 +1,5 @@
+# simulation only: absolute linear scales (the DC bus: portal.portal)
+enc_fb0.sim_absolute = 1
+# the bus is the portal's (portalcore.c sets each drive's sim_udc), not
+# the simulated drive's own mains supply (host/sim_board.txt)
+hv0.sim_supply = 0

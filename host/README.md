@@ -366,8 +366,10 @@ motor is then exactly what the config says; the encoder index sits where
 to test an autotune), override those pins with `--sim FILE`.
 
 - **Without `--pty`:** the script drives the clock with `step` and `run`.
-  `lcnc <enable> [vel_cmd [pos_cmd]]` plays LinuxCNC: every 1 ms it sends the
-  held command and advances `pos_cmd` by `vel_cmd`. `lcnc` on its own prints
+  `lcnc <enable> [vel_cmd [pos_cmd [acc]]]` plays LinuxCNC: every 1 ms it
+  sends the held command and advances `pos_cmd` by `vel_cmd`; with `acc` it
+  moves with constant acceleration like LinuxCNC's planner, `vel_cmd` being
+  the average over each period (as joint.N.vel-cmd). `lcnc` on its own prints
   the feedback.
 - **With `--pty`:** the drive runs in real time, 1 ms per ms, and its USB
   console is the pty. `reset` reboots the simulated drive, and
