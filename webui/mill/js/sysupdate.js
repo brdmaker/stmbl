@@ -70,6 +70,16 @@ function sysIn(m) {
   sysRender();
 }
 
+// versions are dotted numbers (2026.10.26.3): is a older than b?
+function sysOlder(a, b) {
+  const x = String(a || "").split(/[.-]/), y = String(b || "").split(/[.-]/);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const p = +x[i] || 0, q = +y[i] || 0;
+    if (p !== q) return p < q;
+  }
+  return false;
+}
+
 // the release notes are Markdown: headings, bullets, `code`
 function sysNotes(md) {
   const inl = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
@@ -98,11 +108,11 @@ function sysRender() {
   // how the last update ended (once per outcome, also as an event)
   const last = s.last;
   let lastHtml = "";
-  if (last && last.outcome === "updated") lastHtml = `<span class="pill ok">updated</span> from ${esc(last.from || "?")} to ${esc(last.to)}`;
+  if (last && last.outcome === "updated") lastHtml = `<span class="pill ok">${sysOlder(last.to, last.from) ? "went back" : "updated"}</span> from ${esc(last.from || "?")} to ${esc(last.to)}`;
   else if (last && last.outcome === "rolled_back") lastHtml = `<span class="pill bad">rolled back</span> ${esc(last.to)} didn't start: the controller went back to ${esc(s.version || "?")}`;
   $("sys-last").innerHTML = lastHtml; $("sys-last").hidden = !lastHtml;
   if (last && last.outcome !== "pending" && sys.said !== last.time + last.outcome) {
-    if (sys.said !== null) msg(last.outcome === "updated" ? `System updated to ${last.to}` : `System ${last.to} didn't start: back to ${s.version}`, last.outcome === "updated" ? "ok" : "bad");
+    if (sys.said !== null) msg(last.outcome === "updated" ? `System ${sysOlder(last.to, last.from) ? "back at" : "updated to"} ${last.to}` : `System ${last.to} didn't start: back to ${s.version}`, last.outcome === "updated" ? "ok" : "bad");
     sys.said = last.time + last.outcome;
   }
   // a running or finished install
