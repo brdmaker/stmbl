@@ -595,6 +595,23 @@ test("no script errors on any page", async (t) => {
   t.check(t.errors.length === 0, "none");
 });
 
+// the System card (js/sysupdate.js) against test/fake-update-helper: MILLWEB_UPDATE_CMD=$PWD/test/fake-update-helper
+test("system updates: releases with notes, the UPDATE chip, upgrade with progress (a stand-in helper)", async (t) => {
+  if (!M.hello.machine.sysupdate) return t.skip("no update helper (MILLWEB_UPDATE_CMD=test/fake-update-helper runs it)");
+  await take(t);
+  await t.nav("set");
+  t.check(!(await t.hidden("#sys-card")), "the System card on the Settings page");
+  await t.click("#sys-check");
+  t.check(await t.until(() => !!document.querySelector('#sys-list [data-install="1.1"]')), "the server's releases, an Upgrade button");
+  t.check(await t.until(() => document.getElementById("sys-pill").textContent === "UPDATE AVAILABLE" && !document.getElementById("ch-update").hidden), "UPDATE AVAILABLE, the header's chip");
+  t.check((await t.text("#sys-list")).includes("Downgrade"), "an older release can be installed too");
+  t.check((await t.text("#sys-list")).includes("faster"), "the newest's notes shown");
+  t.page.once("dialog", (d) => d.accept());
+  await t.click('#sys-list [data-install="1.1"]');
+  t.check(await t.until(() => document.getElementById("sys-prog-t").textContent.includes("Installing 1.1")), "the install's progress");
+  t.check(await logHas(t, "installs system 1.1"), "event: who installs what");
+});
+
 // last: millweb goes away
 test("millweb stops: OFFLINE, and the page says so", async (t) => {
   if (REMOTE) return t.skip("remote: this would stop the board's millweb (and LinuxCNC with it)");

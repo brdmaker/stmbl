@@ -20,7 +20,7 @@ function sysCard() {
     <div class="sys-list" id="sys-list"></div>`;
   c.querySelector("#sys-check").onclick = async () => {
     $("sys-check").disabled = true;
-    const r = await Live.sys.check();
+    const r = await Live.L.sys.check();
     $("sys-check").disabled = false;
     if (!r.ok) msg(`Update check: ${r.err}`, "warn");
     else if (r.check && !r.check.ok) msg(r.check.error, "warn");
@@ -29,7 +29,7 @@ function sysCard() {
   c.querySelector("#sys-latest").onclick = () => { const k = sys.check; if (k && k.latest) sysInstall(k.releases[0]); };
   c.querySelector("#sys-reboot").onclick = async () => {
     if (!confirm("Restart the controller now? LinuxCNC stops; the console is back in about a minute.")) return;
-    const r = await Live.sys.reboot();
+    const r = await Live.L.sys.reboot();
     if (!r.ok) msg(`Restart: ${r.err}`, "warn"); else msg("The controller restarts…", "warn");
   };
   c.addEventListener("click", (e) => {
@@ -52,7 +52,7 @@ async function sysInstall(r) {
   const cur = sys.check && sys.check.current;
   const what = r.newer ? `Upgrade from ${cur} to ${r.version}?` : `Go back from ${cur} to the older ${r.version}?`;
   if (!confirm(`${what}\n\nIt is installed into the other system slot while this one keeps running; then restart to use it. If it doesn't start, the controller goes back to ${cur} by itself.`)) return;
-  const res = await Live.sys.install(r.version);
+  const res = await Live.L.sys.install(r.version);
   if (!res.ok) msg(`Install ${r.version}: ${res.err}`, "warn");
 }
 
@@ -61,7 +61,7 @@ function sysEnable(on) {
   sysPlace();
   sysCard().hidden = !on;
   if (!on) $("ch-update").hidden = true;
-  if (on) Live.sys.status();
+  if (on) Live.L.sys.status();
 }
 
 function sysIn(m) {

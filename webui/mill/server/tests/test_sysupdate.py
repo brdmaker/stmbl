@@ -4,47 +4,20 @@ import json
 import os
 import sys
 import tempfile
-import textwrap
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import sysupdate  # noqa: E402
 
-FAKE = textwrap.dedent('''\
-    #!/usr/bin/env python3
-    # a stand-in for ebaz-update: state in $FAKE_DIR/state.json
-    import json, os, sys
-    d = os.environ["FAKE_DIR"]; p = os.path.join(d, "state.json")
-    s = json.load(open(p)) if os.path.exists(p) else {"version": "1.0", "install": None}
-    a = sys.argv[1:]
-    open(os.path.join(d, "calls"), "a").write(" ".join(a) + "\\n")
-    rel = [{"version": "1.1", "date": "2026-10-26", "notes": "## New\\n- faster", "bundle": "b/1.1.raucb"},
-           {"version": "1.0", "date": "2026-10-20", "notes": "first", "bundle": "b/1.0.raucb"},
-           {"version": "0.9", "date": "2026-10-10", "notes": "old", "bundle": "b/0.9.raucb"}]
-    if a == ["status"]:
-        print(json.dumps({"version": s["version"], "slot": "A", "install": s["install"], "last": None}))
-    elif a == ["check"]:
-        for r in rel:
-            r["current"] = r["version"] == s["version"]; r["newer"] = r["version"] > s["version"]
-        print(json.dumps({"ok": True, "current": s["version"], "latest": "1.1", "update_available": s["version"] < "1.1", "releases": rel}))
-    elif a[:1] == ["install"]:
-        if a[1] not in [r["version"] for r in rel]:
-            print(json.dumps({"ok": False, "error": "no release " + a[1]}))
-        else:
-            s["install"] = {"state": "running", "version": a[1], "percent": 10, "message": "Checking bundle"}
-            print(json.dumps({"ok": True, "started": a[1]}))
-    elif a == ["reboot"]:
-        print(json.dumps({"ok": True}))
-    json.dump(s, open(p, "w"))
-''')
+FAKE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "test", "fake-update-helper")
 
 
 class SysUpdateOps(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
         self.helper = os.path.join(self.d, "helper")
-        open(self.helper, "w").write(FAKE)
+        open(self.helper, "w").write(open(FAKE).read())  # a copy: one test replaces it
         os.chmod(self.helper, 0o755)
         os.environ["FAKE_DIR"] = self.d
         os.environ["MILLWEB_UPDATE_CMD"] = self.helper
@@ -67,6 +40,11 @@ class SysUpdateOps(unittest.TestCase):
         self.assertEqual(r["status"]["version"], "1.0")
         self.assertEqual(self.sent[-1]["t"], "sys")          # every browser hears it
         self.assertIn("## New", r["check"]["releases"][0]["notes"])
+
+    def test_replies_dont_carry_a_message_type(self):
+        # millweb and the supervisor merge these into {"t": "reply", ...}: a "t" here made the page see no reply
+        for op in ("sys_status", "sys_check"):
+            self.assertNotIn("t", self.op(op))
 
     def test_install_older_and_newer_and_refuse_a_second(self):
         r = self.op("sys_install", version="0.9")             # a downgrade is an install like any other

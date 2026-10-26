@@ -65,7 +65,7 @@ class SysUpdate:
         if check:
             self.check = await self.run("check", timeout=30)
         self.broadcast(self.snapshot())
-        return self.snapshot()
+        return {"status": self.status, "check": self.check}  # a reply's fields: no "t" (it would replace "reply")
 
     def installing(self):
         i = (self.status or {}).get("install") or {}
