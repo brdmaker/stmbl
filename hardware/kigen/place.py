@@ -1,7 +1,8 @@
 """kigen.place: a board (<name>.kicad_pcb) from the schematic's netlist (run
 the schematic first), placed by the board's rules in gen/board.py:
 
-  OUTLINE        ("rect", half) or ("circle", radius), centred; mm
+  OUTLINE        ("rect", half), ("circle", radius) or ("poly", [(x, y), ...])
+                 (convex, counter-clockwise on screen), centred; mm
   LAYERS         copper layers
   RULES          {design setting: mm}, e.g. {"m_MinClearance": 0.127}
   TITLE          the board's title
@@ -48,6 +49,7 @@ OUT = PROJECT = B = None
 HALF = 0.0
 FIXED = OVERHANG = KEEPOUT = ANCHOR = {}
 TOP_ONLY = BOTTOM_FIRST = EARLY = BIG_NETS = set()
+POLY_SIGN = 1.0
 
 
 def mm(v):
@@ -125,6 +127,17 @@ class Board:
             return False
         if B.OUTLINE[0] == "circle" and max(math.hypot(x, y) for x in (x0, x1) for y in (y0, y1)) > lim + 1e-6:
             return False  # a round board: every corner inside
+        if B.OUTLINE[0] == "poly":  # every corner at least -(lim - HALF) inside every edge
+            inset = HALF - lim
+            pts = B.OUTLINE[1]
+            for i in range(len(pts)):
+                (ax, ay), (bx, by) = pts[i], pts[(i + 1) % len(pts)]
+                ln = math.hypot(bx - ax, by - ay)
+                for x in (x0, x1):
+                    for y in (y0, y1):
+                        # inside is to the left of a->b (y down: counter-clockwise on screen)
+                        if ((bx - ax) * (y - ay) - (by - ay) * (x - ax)) / ln * POLY_SIGN < inset - 1e-6:
+                            return False
         k = KEEPOUT.get(ref)
         if k and x0 < k and x1 > -k and y0 < k and y1 > -k:
             return False
@@ -149,6 +162,8 @@ def circle(board, r, layer, x=0.0, y=0.0):
 
 
 def outline_points():
+    if B.OUTLINE[0] == "poly":
+        return list(B.OUTLINE[1])
     if B.OUTLINE[0] == "circle":
         return [(HALF * math.cos(2 * math.pi * i / 72), HALF * math.sin(2 * math.pi * i / 72)) for i in range(72)]
     return [(-HALF, -HALF), (HALF, -HALF), (HALF, HALF), (-HALF, HALF)]
@@ -157,7 +172,12 @@ def outline_points():
 def run(proj_dir, parts, board_mod):
     global OUT, PROJECT, B, HALF, FIXED, OVERHANG, KEEPOUT, ANCHOR, TOP_ONLY, BOTTOM_FIRST, EARLY, BIG_NETS
     OUT, PROJECT, B = proj_dir, parts.PROJECT, board_mod
-    HALF = B.OUTLINE[1]
+    HALF = B.OUTLINE[1] if B.OUTLINE[0] != "poly" else max(max(abs(x), abs(y)) for x, y in B.OUTLINE[1])
+    if B.OUTLINE[0] == "poly":  # which side of the edges is inside
+        pts = B.OUTLINE[1]
+        area = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1] for i in range(len(pts)))
+        global POLY_SIGN
+        POLY_SIGN = 1.0 if area > 0 else -1.0
     FIXED, OVERHANG = B.FIXED, getattr(B, "OVERHANG", {})
     KEEPOUT, ANCHOR = getattr(B, "KEEPOUT", {}), getattr(B, "ANCHOR", {})
     TOP_ONLY, BOTTOM_FIRST = getattr(B, "TOP_ONLY", set()), getattr(B, "BOTTOM_FIRST", set())
@@ -177,6 +197,16 @@ def run(proj_dir, parts, board_mod):
 
     if B.OUTLINE[0] == "circle":
         circle(board, HALF, pcbnew.Edge_Cuts)
+    elif B.OUTLINE[0] == "poly":
+        pts = B.OUTLINE[1]
+        for i in range(len(pts)):
+            seg = pcbnew.PCB_SHAPE(board)
+            seg.SetShape(pcbnew.SHAPE_T_SEGMENT)
+            seg.SetStart(pcbnew.VECTOR2I(mm(OX + pts[i][0]), mm(OY + pts[i][1])))
+            seg.SetEnd(pcbnew.VECTOR2I(mm(OX + pts[(i + 1) % len(pts)][0]), mm(OY + pts[(i + 1) % len(pts)][1])))
+            seg.SetLayer(pcbnew.Edge_Cuts)
+            seg.SetWidth(mm(0.1))
+            board.Add(seg)
     else:
         edge = pcbnew.PCB_SHAPE(board)
         edge.SetShape(pcbnew.SHAPE_T_RECT)

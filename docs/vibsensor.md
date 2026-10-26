@@ -41,8 +41,10 @@ On the spindle, x and y are radial and z is axial.
   the sensors by tapping them, a console; millweb sends vibmon the machine
   state.
 - **Board:** a KiCad project, [hardware/vibsensor](../hardware/vibsensor/README.md):
-  the schematic, checked against its part list, and a round 26 mm board,
-  placed, not routed.
+  the schematic, checked against its part list, and a 32 × 18 mm board,
+  placed, not routed. The enclosure concept "Shard" (faceted, bolted flat
+  by two M4 lugs or onto an M6 stud, M8 in the tail):
+  [hardware/vibsensor/enclosure](../hardware/vibsensor/enclosure/README.md).
 - **Not yet:** routing, and a board on the bench. See [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
 
@@ -56,7 +58,7 @@ On the spindle, x and y are radial and z is axial.
 | CAN | TCAN1044V (CAN FD, as brdstepper), 120 Ω by solder jumper | A separate measurement bus (§3). |
 | connector | M8 A-coded 4-pin, male on the sensor: 1 V+ (brown), 2 CAN_H (white), 3 GND (blue), 4 CAN_L (black) ✱ | Small, enough for a 24 V supply and the bus (M8 4-pin: 4 A, 60 V ✱). M8 has no CiA pinout: this one keeps the supply on the opposite pins 1 and 3 and the pair on 2 and 4. There is no shield pin; the shield goes to the metal coupling nut and housing. Use 4-wire twisted-pair CAN cable (CAN_H/CAN_L one pair) and M8 T-pieces for the line; no stubs over ~0.3 m at 5 Mbit/s ✱. |
 | power | 24 V from the bus, a buck to 3.3 V, an LDO or filter for the IIS3DWB | — |
-| mechanics | small round board in an aluminium housing, potted, mounted by an M6 stud or screw (or glued) | The board and housing must resonate well above 6.3 kHz. A magnet mount is fine for surveys, but caps the usable band at about 2 kHz ✱. |
+| mechanics | the "Shard" housing (hardware/vibsensor/enclosure): milled aluminium base with a solid floor, two M4 lugs (or an M6 stud), the board on two bosses over the floor, potted, a faceted cover with a light pipe; M8 in the tail | The sensor's path to the machine is short and stiff: board, bosses, potting, solid floor. The housing must resonate well above 6.3 kHz ✱ (to check). A magnet mount is fine for surveys, but caps the usable band at about 2 kHz ✱. |
 
 **On the MCU:**
 - **SPI1:** the IIS3DWB with DMA. Its INT1, the FIFO watermark, starts the

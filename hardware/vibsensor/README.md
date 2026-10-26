@@ -2,8 +2,8 @@
 
 The vibration and temperature sensor of [docs/vibsensor.md](../../docs/vibsensor.md),
 for the firmware in [vibsensor/](../../vibsensor/README.md): a KiCad 7
-project with the schematic, a placed (not routed) round 26 mm board, and a
-BOM.
+project with the schematic, a placed (not routed) 32 × 18 mm board shaped to
+the enclosure, and a BOM. The enclosure concept is in [enclosure/](enclosure/README.md).
 
 ![top and bottom (seen from below)](doc/vibsensor-placement.png)
 
@@ -11,8 +11,8 @@ BOM.
 - **Schematic:** complete, one sheet, checked against the part list
   (`make sch`: 50 parts, 33 nets).
 - **Board:**
-  - 26 mm round, four layers, a GND plane on In1.Cu (not filled: press B in
-    the editor).
+  - 32 × 18 mm, chamfered to the enclosure "Shard", four layers, a GND plane
+    on In1.Cu (not filled: press B in the editor).
   - Every footprint placed with its nets; DRC clean but for the unrouted
     connections.
   - **Not routed:** the placement is a starting point for the layout.
@@ -34,13 +34,15 @@ BOM.
 | CAN | U6 TCAN1044V (VCC 5 V, VIO 3.3 V, STB on PB13); 120 Ω through JP1, closed on the sensor at a bus end |
 
 **On the board:**
-- **Top:** the M8 leads' pads (J1), the supply, SWD.
-- **Bottom** (facing the housing's base, over the M6 stud):
+- **Top:** the MCU at the centre, the supply, SWD; the M8 leads' pads (J1)
+  at the tail, where the socket is.
+- **Bottom** (facing the enclosure's floor, over the M6 hole):
   - the IIS3DWB at the centre;
-  - the TMP117 against the base;
-  - the MCU and the transceiver.
-- **Mounting:** two M2 holes hold the board to the housing before it is
-  potted.
+  - the TMP117 beside it;
+  - the transceiver.
+- **Mounting:** two M2 holes at ±9 mm on the long axis hold the board to
+  the floor's bosses before potting.
+- **Nose:** the narrow end (+x) is the sensor's X axis.
 
 ## Generated: edit `gen/parts.py` and `gen/board.py`
 
