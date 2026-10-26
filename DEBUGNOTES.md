@@ -2216,3 +2216,14 @@ Entry format:
   passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
   unit and the load add inertia.
 
+## 2026-10-26  kigen: GND in a wide-clearance net class fails fine-pitch parts
+- Area:    hardware/kigen (sch.py net classes), hardware/vibsensor/gen/parts.py
+- Status:  Note
+- Symptom: DRC on the vibration sensor's board: four clearance errors
+  between the IIS3DWB's own pads (0.5 mm pitch, 0.15 mm apart).
+- Cause:   GND was in the "Power" net class (0.2 mm clearance), and LGA /
+  QFN pads of the same part sit closer than that.
+- Fix:     a board's NETCLASS_POWER (gen/parts.py) leaves GND out where
+  fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
+  classes (no violation there).
+

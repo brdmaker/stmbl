@@ -40,7 +40,10 @@ On the spindle, x and y are radial and z is axial.
   cards, trends, spectra with the spindle's orders marked, alarms, naming
   the sensors by tapping them, a console; millweb sends vibmon the machine
   state.
-- **Not yet:** the board. See [What's next](#whats-next).
+- **Board:** a KiCad project, [hardware/vibsensor](../hardware/vibsensor/README.md):
+  the schematic, checked against its part list, and a round 26 mm board,
+  placed, not routed.
+- **Not yet:** routing, and a board on the bench. See [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
 
 ## 1. Hardware
@@ -286,5 +289,4 @@ parameters) and `test_vibproto`. Both are in `make -C host check`.
    DMA for the FIFO, USB for development.
 2. **The PC's side:** done, `tools/vibmon/` (README there).
 3. **millweb:** done, the Measure page.
-4. **The board:** a KiCad project made from this document, as for
-   brdstepper.
+4. **The board:** placed ([hardware/vibsensor](../hardware/vibsensor/README.md)); routing is next.

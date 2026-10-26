@@ -1,10 +1,23 @@
 """brdstepper: every part and what each of its pins connects to, from
-docs/brdstepper_hw.md (section numbers in the comments). gen.py makes the
-KiCad schematic and board of it.
+docs/brdstepper_hw.md (section numbers in the comments). hardware/kigen makes
+the KiCad schematic and board of it (board.py: the placement).
 
 A part: (ref, lib_id, value, footprint, {pin: net}, notes). A pin left out
 is not connected (a no-connect flag). Nets are named as in the document.
 """
+
+PROJECT = "brdstepper"
+TITLE = "closed-loop NEMA11 stepper drive"
+DOC = "docs/brdstepper_hw.md"
+DATE = "2026-10-23"
+REV = "0.1"
+NOTE = ("brdstepper: STM32G473 + AS5047P + 2x DRV8876, 28 x 28 mm on the back of a NEMA11 motor.\n"
+        "Connections are by net name (net labels): docs/brdstepper_hw.md is the reference.\n"
+        "Variant A fits U8/J4 (smart-serial to a Mesa card), variant B U9/J5/J6/JP1 (CAN).")
+NETCLASS_POWER = ("VM", "GND", "COIL_*", "5V*", "BUCK_SW")
+VARIANTS = {r: "A" for r in ("U8", "J4", "R20", "C38")}               # smart-serial
+VARIANTS.update({r: "B" for r in ("U9", "J5", "J6", "JP1", "R21", "C39", "C40")})  # CAN
+NOT_FITTED = {"H1", "H2", "H3", "H4", "TP1", "TP2", "TP3", "JP1"}
 
 FP_R = "Resistor_SMD:R_0402_1005Metric"
 FP_C = "Capacitor_SMD:C_0402_1005Metric"
@@ -175,3 +188,40 @@ TITLES = {"power": "Power: motor supply, buck 5 V, 5 V OR, LDO 3.3 V, VDDA, VM s
 
 # nets with no power output on them: ERC needs a PWR_FLAG (the supply comes from a connector or a passive part)
 PWR_FLAGS = ["VM", "GND", "5V", "VDDA", "5V_USB"]
+
+
+def own_symbols(k):
+    """The project's own symbols (k: kigen.sch, its helpers)."""
+    import os
+    from sexp import Sym, parse, find, findall
+    drv = k.box_symbol(
+        "DRV8876RGT", "DRV8876RGTR", "Package_DFN_QFN:VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias",
+        "https://www.ti.com/lit/ds/symlink/drv8876.pdf",
+        "DRV8876 brushed DC / H-bridge, 37 V 3.5 A, current mirror (IPROPI), VQFN-16 (RGT). Pinout per SLVSDS7B.",
+        [("15", "EN/IN1", "input"), ("16", "PH/IN2", "input"), ("1", "nSLEEP", "input"), ("14", "PMODE", "input"),
+         ("5", "IMODE", "input"), ("3", "VREF", "input"), ("4", "IPROPI", "output"), ("2", "nFAULT", "open_collector"),
+         None, ("13", "GND", "power_in"), ("17", "PAD", "power_in")],
+        [("9", "VM", "power_in"), ("10", "VCP", "passive"), ("11", "CPH", "passive"), ("12", "CPL", "passive"), None,
+         ("6", "OUT1", "output"), ("8", "OUT2", "output"), None, None, None, ("7", "PGND", "power_in")], w=17.78)
+    buck = k.box_symbol(
+        "TPS560430", "TPS560430XDBVR", "Package_TO_SOT_SMD:SOT-23-6",
+        "https://www.ti.com/lit/ds/symlink/tps560430.pdf",
+        "TPS560430 4-36 V 600 mA synchronous buck, SOT-23-6 (DBV). VREF 1.0 V.",
+        [("5", "VIN", "power_in"), ("4", "EN", "input"), None, ("2", "GND", "power_in")],
+        [("1", "CB", "passive"), ("6", "SW", "output"), None, ("3", "FB", "input")])
+    # the AS5047P is pin-compatible with KiCad's AS5047D; its VDD3V3 is an
+    # output only in 5 V mode, here it is tied to the 3V3 rail (an input)
+    lib = parse(open(os.path.join(k.KICAD_SYMBOLS, "Sensor_Magnetic.kicad_sym")).read())
+    enc = k.rename(next(s for s in findall(lib, "symbol") if s[1] == "AS5047D"), "AS5047D", "AS5047P")
+    for prop in findall(enc, "property"):
+        if prop[1] == "Value":
+            prop[2] = "AS5047P"
+        elif prop[1] == "Datasheet":
+            prop[2] = "https://ams-osram.com/products/sensor-solutions/position-sensors/ams-as5047p-high-speed-rotary-position-sensor"
+        elif prop[1] == "ki_description":
+            prop[2] = "AS5047P 14-bit magnetic rotary position sensor, SPI + ABI/UVW, TSSOP-14 (pinout as the AS5047D ✱)"
+    for u in findall(enc, "symbol"):
+        for p in findall(u, "pin"):
+            if find(p, "number")[1] == "12":
+                p[1] = Sym("power_in")
+    return [drv, buck, enc]

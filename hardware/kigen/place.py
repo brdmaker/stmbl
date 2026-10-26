@@ -1,17 +1,32 @@
-"""Generate brdstepper.kicad_pcb from the schematic's netlist (run gen.py first).
+"""kigen.place: a board (<name>.kicad_pcb) from the schematic's netlist (run
+the schematic first), placed by the board's rules in gen/board.py:
 
-The board: 28 x 28 mm, four layers, M2.5 holes on the NEMA11's 23 mm square,
-U4 (the encoder) on the bottom, centred on the shaft. Every footprint gets its
-nets and its link to the schematic symbol, so "Update PCB from schematic"
-works on it.
+  OUTLINE        ("rect", half) or ("circle", radius), centred; mm
+  LAYERS         copper layers
+  RULES          {design setting: mm}, e.g. {"m_MinClearance": 0.127}
+  TITLE          the board's title
+  FIXED          {ref: (side, rotation, x, y)}: put there first (edge
+                 connectors, holes, sensors)
+  OVERHANG       {ref: mm} a courtyard may stand past the edge (default
+                 -0.05: inside, so copper keeps its edge clearance)
+  TOP_ONLY, BOTTOM_FIRST, EARLY   sets of refs: the side they go on first,
+                 and which are placed before the rest (largest first)
+  KEEPOUT        {ref: half}: stay out of the square of that half size
+                 around the centre
+  ANCHOR         {ref: (x, y)}: start the search there instead of at the
+                 centre of the parts it shares nets with
+  BIG_NETS       nets that don't pull parts together (GND, supplies)
+  PLANES         [(net, layer name)]: unfilled zones over the whole board
+  draw(board, h) optional: extra drawings (h: helpers mm, OX, OY, pcbnew)
 
-Placement is a starting point, not a layout: the edge connectors and the
-encoder are put where docs/brdstepper_hw.md says; every other part goes to
-the nearest free spot (courtyards may not overlap) next to the parts it
-shares nets with. A part that finds no room is left beside the board and
-listed. Nothing is routed; In1.Cu carries a GND plane.
+Every footprint gets its nets and its link to the schematic symbol, so
+"Update PCB from schematic" works on it. Every part not fixed goes to the
+nearest free spot (courtyards may not overlap; through-hole pins and
+far-side pads take room on the other side) next to the parts it shares nets
+with. A part that finds no room is left beside the board and listed. Nothing
+is routed.
 
-  python3 pcb.py [OUTDIR]
+  kigen.py pcb <board dir>
 """
 import json
 import math
@@ -22,48 +37,17 @@ import tempfile
 
 import pcbnew
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from sexp import parse, find, findall  # noqa: E402
+from sexp import parse, find, findall
 
-OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(HERE)
 FPDIR = os.environ.get("KICAD7_FOOTPRINT_DIR", "/usr/share/kicad/footprints")
 OX, OY = 100.0, 100.0          # board centre in KiCad coordinates (mm)
-HALF = 14.0                    # 28 x 28 mm
-HOLE = 11.5                    # M2.5 at 23 mm
 STEP = 0.25
 GAP = 0.0                      # extra space between courtyards
-
-# where the edge connectors and the encoder go: (side, rotation, x, y) of the
-# footprint origin. Rotation 0 has the mating face of J1 and the GH connectors
-# toward +y; their front is put on the board edge.
-FIXED = {
-    "H1": ("F", 0, -HOLE, -HOLE), "H2": ("F", 0, HOLE, -HOLE),
-    "H3": ("F", 0, -HOLE, HOLE), "H4": ("F", 0, HOLE, HOLE),
-    "U4": ("B", 90, 0.0, 0.0),                                 # on the shaft axis (turned: J2's pins pass beside it)
-    "J2": ("F", 90, -4.3, 3.0),                                # supply, beside the shaft: DC only (see README)
-    "J1": ("F", 180, 0.0, -HALF + 3.1),                        # USB-C, north edge ("PCB Edge" at +3.1)
-    "J4": ("F", 90, HALF - 3.2, 0.0),                          # smart-serial, east edge
-    "J5": ("F", 270, -HALF + 3.2, 0.0),                        # CAN, west edge
-    "J6": ("F", 0, 0.0, HALF - 3.2),                           # CAN, south edge
-}
-OVERHANG = {"J1": 1.2, "J4": 0.05, "J5": 0.05, "J6": 0.05, "H1": 0.5, "H2": 0.5, "H3": 0.5, "H4": 0.5}         # mm a connector's courtyard may stand past the edge
-
-# parts that stay on top: the bottom faces the motor, a few mm away
-TOP_ONLY = {"L1", "C1", "C2", "D2", "J2", "J3"}
-BOTTOM_FIRST = {"U1", "U8", "U9"}  # thin, leaving the top to what must be there
-EARLY = {"U2", "U3"}             # the bridges: kept off the centre, and their thermal pads reach both sides
-# parts carrying the switched coil current stay out of a square around the
-# shaft (§8: their field reaches the sensor); the supply (DC) parts may come
-# closer, but not over the sensor itself
-KEEPOUT = {r: 5.5 for r in ("U2", "U3", "C23", "C24", "C27", "C28")}
-KEEPOUT["J3"] = 4.0            # the motor-lead pads
-KEEPOUT.update({r: 3.0 for r in ("L1", "U6", "C1", "C2", "C3", "C4", "C5", "D2")})
-
-# a few parts start from a chosen spot instead of the centre of their nets
-ANCHOR = {"U1": (0.0, -7.0), "J3": (6.0, 2.0), "U2": (6.0, -4.0), "U3": (6.0, 4.0),
-          "U8": (7.0, -6.0), "U9": (-7.0, 0.0), "J7": (-4.0, -6.0), "L1": (-8.0, 4.0), "U6": (-8.0, 8.0)}
-BIG_NETS = {"GND", "3V3", "VM", "5V", "VDDA"}
+# set by run() from the board's rules (gen/board.py)
+OUT = PROJECT = B = None
+HALF = 0.0
+FIXED = OVERHANG = KEEPOUT = ANCHOR = {}
+TOP_ONLY = BOTTOM_FIRST = EARLY = BIG_NETS = set()
 
 
 def mm(v):
@@ -73,7 +57,7 @@ def mm(v):
 def netlist():
     with tempfile.TemporaryDirectory() as d:
         out = os.path.join(d, "n.net")
-        subprocess.run(["kicad-cli", "sch", "export", "netlist", "-o", out, os.path.join(OUT, "brdstepper.kicad_sch")],
+        subprocess.run(["kicad-cli", "sch", "export", "netlist", "-o", out, os.path.join(OUT, PROJECT + ".kicad_sch")],
                        check=True, stdout=subprocess.DEVNULL)
         nl = parse(open(out).read())
     comps = []
@@ -139,6 +123,8 @@ class Board:
         lim = HALF + OVERHANG.get(ref, 0.5 if ref is None else -0.05)  # in from the edge: copper keeps 0.25 mm
         if x0 < -lim - 1e-6 or y0 < -lim - 1e-6 or x1 > lim + 1e-6 or y1 > lim + 1e-6:
             return False
+        if B.OUTLINE[0] == "circle" and max(math.hypot(x, y) for x in (x0, x1) for y in (y0, y1)) > lim + 1e-6:
+            return False  # a round board: every corner inside
         k = KEEPOUT.get(ref)
         if k and x0 < k and x1 > -k and y0 < k and y1 > -k:
             return False
@@ -152,38 +138,55 @@ class Board:
             self.occ[s].append(r)
 
 
-def main():
+def circle(board, r, layer, x=0.0, y=0.0):
+    c = pcbnew.PCB_SHAPE(board)
+    c.SetShape(pcbnew.SHAPE_T_CIRCLE)
+    c.SetCenter(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
+    c.SetEnd(pcbnew.VECTOR2I(mm(OX + x + r), mm(OY + y)))
+    c.SetLayer(layer)
+    c.SetWidth(mm(0.1))
+    board.Add(c)
+
+
+def outline_points():
+    if B.OUTLINE[0] == "circle":
+        return [(HALF * math.cos(2 * math.pi * i / 72), HALF * math.sin(2 * math.pi * i / 72)) for i in range(72)]
+    return [(-HALF, -HALF), (HALF, -HALF), (HALF, HALF), (-HALF, HALF)]
+
+
+def run(proj_dir, parts, board_mod):
+    global OUT, PROJECT, B, HALF, FIXED, OVERHANG, KEEPOUT, ANCHOR, TOP_ONLY, BOTTOM_FIRST, EARLY, BIG_NETS
+    OUT, PROJECT, B = proj_dir, parts.PROJECT, board_mod
+    HALF = B.OUTLINE[1]
+    FIXED, OVERHANG = B.FIXED, getattr(B, "OVERHANG", {})
+    KEEPOUT, ANCHOR = getattr(B, "KEEPOUT", {}), getattr(B, "ANCHOR", {})
+    TOP_ONLY, BOTTOM_FIRST = getattr(B, "TOP_ONLY", set()), getattr(B, "BOTTOM_FIRST", set())
+    EARLY, BIG_NETS = getattr(B, "EARLY", set()), getattr(B, "BIG_NETS", set())
     comps, pins = netlist()
     board = pcbnew.BOARD()
-    board.SetCopperLayerCount(4)
+    board.SetCopperLayerCount(B.LAYERS)
     ds = board.GetDesignSettings()
-    for k, v in (("m_MinClearance", 0.127), ("m_TrackMinWidth", 0.127), ("m_ViasMinSize", 0.45), ("m_MinThroughDrill", 0.2),
-                 ("m_CopperEdgeClearance", 0.25), ("m_HoleToHoleMin", 0.25),
-                 ("m_HoleClearance", 0.15)):  # the USB4105 footprint has 0.194 mm between its own hole and pad
+    for k, v in B.RULES.items():
         if hasattr(ds, k):
             setattr(ds, k, mm(v))
     tb = board.GetTitleBlock()
-    tb.SetTitle("brdstepper: closed-loop NEMA11 stepper drive")
-    tb.SetRevision("0.1")
+    tb.SetTitle("%s: %s" % (PROJECT, B.TITLE))
+    tb.SetRevision(parts.REV)
     tb.SetCompany("stmbl")
-    tb.SetComment(0, "Generated by gen/pcb.py: placement only, not routed")
+    tb.SetComment(0, "Generated by hardware/kigen (gen/board.py): placement only, not routed")
 
-    edge = pcbnew.PCB_SHAPE(board)
-    edge.SetShape(pcbnew.SHAPE_T_RECT)
-    edge.SetStart(pcbnew.VECTOR2I(mm(OX - HALF), mm(OY - HALF)))
-    edge.SetEnd(pcbnew.VECTOR2I(mm(OX + HALF), mm(OY + HALF)))
-    edge.SetLayer(pcbnew.Edge_Cuts)
-    edge.SetWidth(mm(0.1))
-    board.Add(edge)
-    # the shaft and the magnet under U4
-    for r, layer in ((3.0, pcbnew.B_Fab), (0.6, pcbnew.Dwgs_User)):
-        c = pcbnew.PCB_SHAPE(board)
-        c.SetShape(pcbnew.SHAPE_T_CIRCLE)
-        c.SetCenter(pcbnew.VECTOR2I(mm(OX), mm(OY)))
-        c.SetEnd(pcbnew.VECTOR2I(mm(OX + r), mm(OY)))
-        c.SetLayer(layer)
-        c.SetWidth(mm(0.1))
-        board.Add(c)
+    if B.OUTLINE[0] == "circle":
+        circle(board, HALF, pcbnew.Edge_Cuts)
+    else:
+        edge = pcbnew.PCB_SHAPE(board)
+        edge.SetShape(pcbnew.SHAPE_T_RECT)
+        edge.SetStart(pcbnew.VECTOR2I(mm(OX - HALF), mm(OY - HALF)))
+        edge.SetEnd(pcbnew.VECTOR2I(mm(OX + HALF), mm(OY + HALF)))
+        edge.SetLayer(pcbnew.Edge_Cuts)
+        edge.SetWidth(mm(0.1))
+        board.Add(edge)
+    if hasattr(B, "draw"):
+        B.draw(board, sys.modules[__name__])
 
     nets = {}
     for n in sorted(set(pins.values())):
@@ -215,7 +218,7 @@ def main():
             n = pins.get((c["ref"], num))
             if n and n in nets:
                 pad.SetNet(nets[n])
-            elif (c["ref"], num) not in pins and not (c["ref"].startswith("U") and num in ("17", "49")):
+            elif (c["ref"], num) not in pins and num not in getattr(B, "PAD_NOPIN", {}).get(c["ref"], ()):
                 missing.append(num)
         # thermal-via pads carry the exposed pad's number; nothing else should be without a pin
         if missing:
@@ -311,25 +314,25 @@ def main():
         fp.SetPosition(pcbnew.VECTOR2I(mm(OX + px - r[0]), mm(OY + py - r[1])))
         py += r[3] - r[1] + 1.0
 
-    # GND plane on In1.Cu
-    zone = pcbnew.ZONE(board)
-    zone.SetLayer(pcbnew.In1_Cu)
-    zone.SetNet(nets["GND"])
-    zone.SetIsFilled(False)
-    ol = zone.Outline()
-    ol.NewOutline()
-    for x, y in ((-HALF, -HALF), (HALF, -HALF), (HALF, HALF), (-HALF, HALF)):
-        ol.Append(mm(OX + x), mm(OY + y))
-    zone.SetLocalClearance(mm(0.2))
-    zone.SetMinThickness(mm(0.2))
-    board.Add(zone)
-    # not filled here: ZONE_FILLER crashes in headless pcbnew 7 (press B in the editor)
+    # planes: not filled here, ZONE_FILLER crashes in headless pcbnew 7 (press B in the editor)
+    for net, layer in getattr(B, "PLANES", []):
+        zone = pcbnew.ZONE(board)
+        zone.SetLayer(getattr(pcbnew, layer.replace(".", "_")))
+        zone.SetNet(nets[net])
+        zone.SetIsFilled(False)
+        ol = zone.Outline()
+        ol.NewOutline()
+        for x, y in outline_points():
+            ol.Append(mm(OX + x), mm(OY + y))
+        zone.SetLocalClearance(mm(0.2))
+        zone.SetMinThickness(mm(0.2))
+        board.Add(zone)
 
-    path = os.path.join(OUT, "brdstepper.kicad_pcb")
-    pro = os.path.join(OUT, "brdstepper.kicad_pro")
+    path = os.path.join(OUT, PROJECT + ".kicad_pcb")
+    pro = os.path.join(OUT, PROJECT + ".kicad_pro")
     mine = json.load(open(pro))
     pcbnew.SaveBoard(path, board)
-    # saving rewrites the project file: keep gen.py's net classes and sheets
+    # saving rewrites the project file: keep the schematic's net classes and sheets
     saved = json.load(open(pro))
     for k in ("net_settings", "sheets", "schematic"):
         saved[k] = mine[k]
@@ -341,6 +344,3 @@ def main():
         len(placed), top, len(placed) - top, len(unplaced), " ".join(unplaced) or "-"))
     return 0
 
-
-if __name__ == "__main__":
-    sys.exit(main())

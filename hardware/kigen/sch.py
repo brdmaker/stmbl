@@ -1,31 +1,30 @@
-"""Generate the brdstepper KiCad 7 project from parts.py:
+"""kigen.sch: a KiCad 7 project's symbols, project file and schematic, made
+from the project's gen/parts.py (hardware/<board>/gen/parts.py):
 
-  brdstepper.kicad_sym   the project's own symbols (DRV8876RGT, TPS560430, AS5047P)
-  sym-lib-table          that library, as "brdstepper"
-  brdstepper.kicad_pro   the project
-  brdstepper.kicad_sch   the schematic, one large sheet: a framed section per
-                         part of the design (power, mcu, bridges, encoder,
-                         interfaces)
+  <name>.kicad_sym   the project's own symbols (parts.own_symbols(sch))
+  sym-lib-table      that library, as <name>
+  <name>.kicad_pro   the project
+  <name>.kicad_sch   the schematic, one large sheet: a framed section per
+                     part of the design (parts.SHEETS)
 
 Every pin is joined to its net by a short wire and a net label of the net's
 name; a pin with no net gets a no-connect flag. Parts are laid out in rows, so
-the sheets read as a netlist, not as a drawn schematic. UUIDs are derived from
-names, so running it again changes only what changed.
+the sections read as a netlist, not as a drawn schematic. UUIDs are derived
+from names, so running it again changes only what changed.
 
-  python3 gen.py [OUTDIR]     (default: the directory above this one)
+parts.py gives: PROJECT, TITLE, NOTE, DOC, DATE, REV, SHEETS, TITLES,
+PWR_FLAGS, NETCLASS_POWER (net name patterns), own_symbols(sch) (optional).
 """
 import os
 import sys
 import uuid
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from sexp import Sym, parse, dump, find, findall  # noqa: E402
-import parts  # noqa: E402
+from sexp import Sym, parse, dump, find, findall
 
 KICAD_SYMBOLS = os.environ.get("KICAD7_SYMBOL_DIR", "/usr/share/kicad/symbols")
-PROJECT = "brdstepper"
 NS = uuid.UUID("6f1c2b0e-55a1-4f0e-9d0b-6272647374ff")
+# set by run(): the project's name, its parts module, its directory
+PROJECT, parts, OUT = None, None, None
 GRID = 1.27
 STUB = 2.54
 
@@ -51,7 +50,7 @@ def font(hide=False, justify=None):
     return e
 
 
-# ------------------------------------------------------------------ the project's own symbols
+# ------------------------------------------------------------------ helpers for a project's own symbols
 def pin(kind, x, y, ang, name, num, length=2.54):
     return [Sym("pin"), Sym(kind), Sym("line"), [Sym("at"), x, y, ang], [Sym("length"), length],
             [Sym("name"), name, font()], [Sym("number"), str(num), font()]]
@@ -81,40 +80,6 @@ def box_symbol(name, value, fp, ds, desc, left, right, w=15.24):
             [Sym("property"), "Datasheet", ds, [Sym("at"), 0, top - h - 6.35, 0], font(hide=True)],
             [Sym("property"), "ki_description", desc, [Sym("at"), 0, 0, 0], font(hide=True)],
             body, pins]
-
-
-def own_symbols():
-    drv = box_symbol(
-        "DRV8876RGT", "DRV8876RGTR", "Package_DFN_QFN:VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias",
-        "https://www.ti.com/lit/ds/symlink/drv8876.pdf",
-        "DRV8876 brushed DC / H-bridge, 37 V 3.5 A, current mirror (IPROPI), VQFN-16 (RGT). Pinout per SLVSDS7B.",
-        [("15", "EN/IN1", "input"), ("16", "PH/IN2", "input"), ("1", "nSLEEP", "input"), ("14", "PMODE", "input"),
-         ("5", "IMODE", "input"), ("3", "VREF", "input"), ("4", "IPROPI", "output"), ("2", "nFAULT", "open_collector"),
-         None, ("13", "GND", "power_in"), ("17", "PAD", "power_in")],
-        [("9", "VM", "power_in"), ("10", "VCP", "passive"), ("11", "CPH", "passive"), ("12", "CPL", "passive"), None,
-         ("6", "OUT1", "output"), ("8", "OUT2", "output"), None, None, None, ("7", "PGND", "power_in")], w=17.78)
-    buck = box_symbol(
-        "TPS560430", "TPS560430XDBVR", "Package_TO_SOT_SMD:SOT-23-6",
-        "https://www.ti.com/lit/ds/symlink/tps560430.pdf",
-        "TPS560430 4-36 V 600 mA synchronous buck, SOT-23-6 (DBV). VREF 1.0 V.",
-        [("5", "VIN", "power_in"), ("4", "EN", "input"), None, ("2", "GND", "power_in")],
-        [("1", "CB", "passive"), ("6", "SW", "output"), None, ("3", "FB", "input")])
-    # the AS5047P is pin-compatible with KiCad's AS5047D; its VDD3V3 is an
-    # output only in 5 V mode, here it is tied to the 3V3 rail (an input)
-    lib = parse(open(os.path.join(KICAD_SYMBOLS, "Sensor_Magnetic.kicad_sym")).read())
-    enc = rename(next(s for s in findall(lib, "symbol") if s[1] == "AS5047D"), "AS5047D", "AS5047P")
-    for prop in findall(enc, "property"):
-        if prop[1] == "Value":
-            prop[2] = "AS5047P"
-        elif prop[1] == "Datasheet":
-            prop[2] = "https://ams-osram.com/products/sensor-solutions/position-sensors/ams-as5047p-high-speed-rotary-position-sensor"
-        elif prop[1] == "ki_description":
-            prop[2] = "AS5047P 14-bit magnetic rotary position sensor, SPI + ABI/UVW, TSSOP-14 (pinout as the AS5047D ✱)"
-    for u in findall(enc, "symbol"):
-        for p in findall(u, "pin"):
-            if find(p, "number")[1] == "12":
-                p[1] = Sym("power_in")
-    return [drv, buck, enc]
 
 
 def rename(sym, old, new):
@@ -331,23 +296,18 @@ def schematic(root_uuid):
                      [Sym("uuid"), uid("sch", "title", name)]])
         body += place(items, pos, x0 + FRAME, y0 + FRAME + 7.62, used, path)
     yn = 25.4 + max(heights) + 5.08
-    body.append([Sym("text"), NOTE, [Sym("at"), 25.4, round(yn, 4), 0], font(justify="left top"), [Sym("uuid"), uid("sch", "note")]])
+    body.append([Sym("text"), parts.NOTE, [Sym("at"), 25.4, round(yn, 4), 0], font(justify="left top"), [Sym("uuid"), uid("sch", "note")]])
     return [Sym("kicad_sch"), [Sym("version"), 20230121], [Sym("generator"), Sym("eeschema")], [Sym("uuid"), root_uuid],
-            [Sym("paper"), paper], title_block("closed-loop NEMA11 stepper drive"),
+            [Sym("paper"), paper], title_block(parts.TITLE),
             [Sym("lib_symbols")] + list(used.values())] + body + \
            [[Sym("sheet_instances"), [Sym("path"), "/", [Sym("page"), "1"]]]]
 
 
 def title_block(title):
-    return [Sym("title_block"), [Sym("title"), "brdstepper: " + title], [Sym("date"), DATE], [Sym("rev"), REV],
+    return [Sym("title_block"), [Sym("title"), PROJECT + ": " + title], [Sym("date"), parts.DATE], [Sym("rev"), parts.REV],
             [Sym("company"), "stmbl"],
-            [Sym("comment"), 1, "Generated by gen/gen.py from docs/brdstepper_hw.md: edit gen/parts.py"],
+            [Sym("comment"), 1, "Generated by hardware/kigen from %s: edit gen/parts.py" % parts.DOC],
             [Sym("comment"), 2, "Parts with * in their Note: check against the datasheet before layout"]]
-
-
-NOTE = ("brdstepper: STM32G473 + AS5047P + 2x DRV8876, 28 x 28 mm on the back of a NEMA11 motor.\n"
-        "Connections are by net name (net labels): docs/brdstepper_hw.md is the reference.\n"
-        "Variant A fits U8/J4 (smart-serial to a Mesa card), variant B U9/J5/J6/JP1 (CAN).")
 
 
 def pwr_flags():
@@ -373,14 +333,8 @@ def project_json(root_uuid):
              "microvia_diameter": 0.3, "microvia_drill": 0.1, "pcb_color": "rgba(0, 0, 0, 0.000)",
              "schematic_color": "rgba(0, 0, 0, 0.000)"}],
             "meta": {"version": 3},
-            "netclass_patterns": [{"netclass": "Power", "pattern": p} for p in
-                                  ("VM", "GND", "COIL_*", "5V*", "BUCK_SW")]},
+            "netclass_patterns": [{"netclass": "Power", "pattern": p} for p in parts.NETCLASS_POWER]},
     }, indent=2) + "\n"
-
-
-DATE = "2026-10-23"
-REV = "0.1"
-OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(HERE)
 
 
 def write(name, text):
@@ -388,21 +342,17 @@ def write(name, text):
         f.write(text)
 
 
-def main():
+def run(proj_dir, parts_mod):
+    global PROJECT, parts, OUT
+    PROJECT, parts, OUT = parts_mod.PROJECT, parts_mod, proj_dir
+    _libs.clear()
     os.makedirs(OUT, exist_ok=True)
+    own = parts.own_symbols(sys.modules[__name__]) if hasattr(parts, "own_symbols") else []
     write(PROJECT + ".kicad_sym", dump([Sym("kicad_symbol_lib"), [Sym("version"), 20220914],
-                                        [Sym("generator"), Sym("brdstepper_gen")]] + own_symbols()) + "\n")
-    write("sym-lib-table", '(sym_lib_table\n  (lib (name "%s")(type "KiCad")(uri "${KIPRJMOD}/%s.kicad_sym")(options "")(descr "brdstepper parts"))\n)\n'
-          % (PROJECT, PROJECT))
+                                        [Sym("generator"), Sym("kigen")]] + own) + "\n")
+    write("sym-lib-table", '(sym_lib_table\n  (lib (name "%s")(type "KiCad")(uri "${KIPRJMOD}/%s.kicad_sym")(options "")(descr "%s parts"))\n)\n'
+          % (PROJECT, PROJECT, PROJECT))
     root_uuid = uid("root")
     write(PROJECT + ".kicad_sch", dump(schematic(root_uuid)) + "\n")
     write(PROJECT + ".kicad_pro", project_json(root_uuid))
-    for n in parts.SHEETS:  # the sheets of the multi-sheet version, gone
-        old = os.path.join(OUT, n + ".kicad_sch")
-        if os.path.exists(old):
-            os.remove(old)
     print("wrote", OUT)
-
-
-if __name__ == "__main__":
-    main()

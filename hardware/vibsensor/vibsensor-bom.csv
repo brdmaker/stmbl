@@ -1,0 +1,30 @@
+References,Qty,Value,Footprint,Variant,Notes
+C1,1,4.7u 50V,C_1206_3216Metric,,input
+C2,1,100n 50V,C_0402_1005Metric,,at the buck's VIN
+C3 C12 C13 C14 C15 C17 C18 C20 C21 C22,10,100n,C_0402_1005Metric,,bootstrap; VDD (23); VDD (35); VDD (48); VDD (8) ✱; VDD_IO (5); TMP117; VCC; VIO
+C4,1,22u 10V,C_0805_2012Metric,,buck output
+C5 C6 C7 C19,4,1u,C_0402_1005Metric,,LDO input; LDO output
+C8 C9,2,10n,C_0402_1005Metric,,
+C10 C11,2,10p C0G,C_0402_1005Metric,,✱ per the crystal's CL
+C16,1,4.7u,C_0603_1608Metric,,
+D1,1,PMEG6010CEH,D_SOD-123F,,reverse polarity
+D2,1,SMF33A,D_SMF,,TVS ✱ (pad 1 the cathode)
+D3,1,green,LED_0603_1608Metric,,seen through the potting? ✱
+FB1 FB2,2,600R@100MHz,L_0402_1005Metric,,MCU analog; the accelerometer's own supply
+J1,1,M8 LEADS,PinHeader_1x04_P2.00mm_Vertical,,"the M8 socket's leads, M8 order: 1 V+, 2 CAN_H, 3 GND, 4 CAN_L ✱"
+L1,1,10u,L_Taiyo-Yuden_NR-30xx,,"✱ NR3015, >= 0.3 A"
+R1,1,88.7k 1%,R_0402_1005Metric,,5.02 V with 22.1k (VREF 1.00 V)
+R2,1,22.1k 1%,R_0402_1005Metric,,
+R3,1,100k 1%,R_0402_1005Metric,,bus voltage: 2.7 V at 30 V
+R4,1,10k 1%,R_0402_1005Metric,,
+R5 R9,2,10k,R_0402_1005Metric,,PB8-BOOT0 low until the option bytes are set; ALERT is open drain
+R6,1,1k,R_0402_1005Metric,,
+R7 R8,2,4.7k,R_0402_1005Metric,,
+R10,1,120,R_0402_1005Metric,,
+U1,1,STM32G473CEU6,QFN-48-1EP_7x7mm_P0.5mm_EP5.6x5.6mm,,"exposed pad: the only VSS / VSSA; vias to the GND plane. PA0 VIN_SENSE, PA4-7 SPI1, PB0/PB1 INT1/2, PA8/9 I2C2, PA10 ALERT, PB8/9 FDCAN1, PB12 LED, PB13 STB"
+U2,1,TPS560430XDBVR,SOT-23-6,,"buck to 5 V, as brdstepper's ✱"
+U3,1,TLV75533PDBVR,SOT-23-5,,3.3 V
+U4,1,IIS3DWBTR,LGA-14_3x2.5mm_P0.5mm_LayoutBorder3x4y,,"SPI mode 3; RES 2, 3 to GND, 10, 11 open (DS12569) ✱; near the mounting stud"
+U5,1,TMP117AIDRVR,WSON-6-1EP_2x2mm_P0.65mm_EP1x1.6mm,,"address 0x48 (ADD0 to GND); on the mounting face, thermally bonded ✱"
+U6,1,TCAN1044VDR,SOIC-8_3.9x4.9mm_P1.27mm,,"CAN FD to 5 Mbit/s; the TJA1042T-3's pinout, as the TCAN1044V's ✱"
+Y1,1,8MHz,Crystal_SMD_2016-4Pin_2.0x1.6mm,,✱ CL
