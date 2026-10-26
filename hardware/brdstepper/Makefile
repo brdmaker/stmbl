@@ -5,7 +5,6 @@
 #   make sch        the schematic and its netlist check
 #   make pcb        the board (placement redone: hand edits to it are lost)
 
-SCH = brdstepper.kicad_sch power.kicad_sch mcu.kicad_sch bridges.kicad_sch encoder.kicad_sch interfaces.kicad_sch
 
 all: sch pcb drc bom doc
 

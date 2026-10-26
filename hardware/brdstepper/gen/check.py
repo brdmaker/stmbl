@@ -37,8 +37,8 @@ def netlist():
 def pwr_flags():
     """The nets a PWR_FLAG sits on (netlists leave power symbols out): the
     global label at the end of each flag's pin stub."""
-    sch = parse(open(os.path.join(PROJ, "power.kicad_sch")).read())
-    labels = {(round(float(find(l, "at")[1]), 2), round(float(find(l, "at")[2]), 2)): l[1] for l in findall(sch, "global_label")}
+    sch = parse(open(os.path.join(PROJ, "brdstepper.kicad_sch")).read())
+    labels = {(round(float(find(l, "at")[1]), 2), round(float(find(l, "at")[2]), 2)): l[1] for l in findall(sch, "label")}
     out = []
     for s in findall(sch, "symbol"):
         if find(s, "lib_id")[1] == "power:PWR_FLAG":
