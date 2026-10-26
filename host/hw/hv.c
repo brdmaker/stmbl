@@ -33,6 +33,16 @@
  * period (e.g. 60 mm): j = mass * (period / 2pi)^2. sim_min_pos / sim_max_pos
  * (on sim_abs_pos, rad) are end stops: the carriage stops dead there, and
  * sim_stop_hits counts the contacts. Both 0: no stops.
+ *
+ * sim_type = 1 simulates an induction motor instead (T equivalent circuit,
+ * stationary frame, states: stator current is and rotor flux psir):
+ *   dpsir/dt = rr / lr * (lm * is - psir) + j * we * psir
+ *   dis/dt   = (us - rs * is - lm / lr * dpsir/dt) / (sigma * ls)
+ *   torque   = 3/2 * pp * lm / lr * (psir x is)
+ * with rs = sim_r, rr = sim_rr, lm = sim_lm, leakage sim_l split evenly
+ * between stator and rotor (ls = lr = lm + sim_l / 2), sigma = 1 - lm^2 /
+ * (ls * lr), we = pp * sim_vel. sim_psi is not used. sim_id / sim_iq are
+ * then the stator current in the rotor flux frame (magnetizing / torque).
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -139,6 +149,10 @@ HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods]
 HAL_PIN(sense_off_a);       // the offsets it found [A]
 HAL_PIN(sense_off_b);
 
+HAL_PIN(sim_type);       // 0 = PMSM, 1 = induction motor
+HAL_PIN(sim_rr);         // induction: rotor resistance [ohm]
+HAL_PIN(sim_lm);         // induction: magnetizing inductance [H]
+
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
 HAL_PIN(sim_abs_pos);    // mechanical position [rad], not wrapped (double inside)
@@ -156,6 +170,8 @@ HAL_PIN(sim_ia);  // stepper coil currents [A]
 HAL_PIN(sim_ib);
 HAL_PIN(duty_a);  // stepper bridge duties, -1..1
 HAL_PIN(duty_b);
+HAL_PIN(sim_flux);    // induction: rotor flux magnitude [V*s]
+HAL_PIN(sim_slip);    // induction: slip, electrical [rad/s]
 
 #define F3_PER_RT 4    // F3 current loop at 20 kHz
 #define MOT_PER_F3 4   // motor model at 80 kHz
@@ -195,6 +211,8 @@ struct hv_ctx_t {
   double abs0;      // upos where sim_abs_pos is 0 (the start)
   int abs0_set;
   int at_stop;      // against sim_min_pos / sim_max_pos (sim_stop_hits)
+  float isa, isb;  // induction motor: stator current, stationary frame
+  float fra, frb;  // rotor flux, stationary frame
 };
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
@@ -431,7 +449,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_f3_brake) = f3_brake;
 
   float udc = MAX(PIN(sim_udc), 0.0);
-  int mains = PIN(sim_supply) > 0.0 && PIN(sim_motor) <= 0.0;
+  int mains = PIN(sim_supply) > 0.0 && PIN(sim_motor) <= 0.0 && PIN(sim_type) <= 0.5;  // the induction motor: sim_udc
   if(!ctx->bus_init) {  // charged: peak minus two diodes
     ctx->bus_init = 1;
     ctx->vbus     = mains ? MAX(PIN(sim_mains) * M_SQRT2 - 1.8, 0.0) : udc;
@@ -475,6 +493,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float pp   = MAX(PIN(sim_pp), 1.0);
   float mj   = MAX(PIN(sim_j), 1e-7);
   float prev = PIN(sim_phase_rev) > 0.0 ? -1.0 : 1.0;
+  int acim   = PIN(sim_type) > 0.5;
+  float rr   = MAX(PIN(sim_rr), 0.001);
+  float lm   = MAX(PIN(sim_lm), 0.0001);
+  float lsr  = lm + ml / 2.0;  // ls = lr
+  float sls  = lsr - lm * lm / lsr;  // sigma * ls
+  float kr   = lm / lsr;
 
   float f3_dt  = period / F3_PER_RT;
   float mot_dt = f3_dt / MOT_PER_F3;
@@ -490,6 +514,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
     float ia = PIN(sim_id) * cm - PIN(sim_iq) * sm;
     float ib = (PIN(sim_id) * sm + PIN(sim_iq) * cm) * prev;
+    if(acim) {
+      ia = ctx->isa;
+      ib = ctx->isb * prev;
+    }
     id       = ia * ca + ib * sa;
     iq       = -ia * sa + ib * ca;
 
@@ -569,7 +597,35 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       ub *= umax / uu;
     }
 
-    for(int m = 0; m < MOT_PER_F3; m++) {
+    for(int m = 0; m < MOT_PER_F3 && acim; m++) {
+      float we = PIN(sim_vel) * pp;
+      if(en) {
+        float dfa = rr / lsr * (lm * ctx->isa - ctx->fra) - we * ctx->frb;
+        float dfb = rr / lsr * (lm * ctx->isb - ctx->frb) + we * ctx->fra;
+        ctx->isa += (ua - mr * ctx->isa - kr * dfa) / sls * mot_dt;
+        ctx->isb += (ub - mr * ctx->isb - kr * dfb) / sls * mot_dt;
+        ctx->fra += dfa * mot_dt;
+        ctx->frb += dfb * mot_dt;
+      } else {  // bridge off: no stator current, the rotor flux decays
+        ctx->isa = 0.0;
+        ctx->isb = 0.0;
+        ctx->fra -= rr / lsr * ctx->fra * mot_dt;
+        ctx->frb -= rr / lsr * ctx->frb * mot_dt;
+      }
+      // the rotor as for the PMSM (mech_step: friction, brake, load, stops);
+      // the bus is the stiff sim_udc (the mains model is the PMSM's)
+      mech_step(ctx, pins, 1.5 * pp * kr * (ctx->fra * ctx->isb - ctx->frb * ctx->isa), mj, mot_dt);
+      float flux = sqrtf(ctx->fra * ctx->fra + ctx->frb * ctx->frb);
+      PIN(sim_flux) = flux;
+      if(flux > 1e-6) {
+        float c = ctx->fra / flux, sn = ctx->frb / flux;
+        PIN(sim_id) = ctx->isa * c + ctx->isb * sn;
+        PIN(sim_iq) = -ctx->isa * sn + ctx->isb * c;
+        PIN(sim_slip) = rr / lsr * lm * PIN(sim_iq) / flux;  // slip w_e - w_r
+      }
+    }
+
+    for(int m = 0; m < MOT_PER_F3 && !acim; m++) {
       sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
       float mud = ua * cm + ub * sm;
       float muq = -ua * sm + ub * cm;

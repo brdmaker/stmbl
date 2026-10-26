@@ -1,0 +1,5 @@
+hv0.sim_type = 1
+hv0.sim_rr = 39
+hv0.sim_lm = 1.2
+hv0.sim_udc = 325
+hv0.sim_f = 0.01

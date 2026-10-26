@@ -1878,3 +1878,74 @@ Entry format:
   (sim_supply 0 changes nothing). No linear motor to compare on hardware.
 - Fix:     gen_linear_soak.py uses the branch's gains (--tune runs id_pid).
   The linear tests wait 3 s for probe phasing (it takes ~2 s here).
+
+## 2026-10-14  uf (V/f) template: slip from |i|, stale angle, voltage derating
+- Area:    `conf/template/uf.txt`, `shared/comps/uf2.c` (comp `uf`),
+           `conf/template/sserial_uf.txt`, `conf/asyc_uf_3kw.txt`
+- Status:  Open (uf unchanged; acvf avoids all of these)
+- Symptom: On the simulated 100 W induction motor: +1.1% speed at no load,
+  -32% at rated load (50 Hz), stall at 25 Hz with half load, then the
+  rotor driven backwards and a motor overtemperature fault.
+- Cause:   Slip compensation scales with |i|, which counts the magnetizing
+  current as load and has no resistive-drop boost. hv0.vel is not set, so
+  between 5 kHz packets the F3 holds a stale angle. uf0.scale =
+  fault0.scale scales the voltage: thermal derating collapses the flux, a
+  hot motor cannot restart. sserial_uf reports the command back as
+  vel_fb and no pos_fb. asyc_uf_3kw.txt sets ramp0.max_speed, which does
+  not exist (ramp0.max_vel), and never ramp0.en.
+- Fix:     New acvf (see "acvf / idacim"). Fixing uf in place would change
+  existing machines; left as is.
+
+## 2026-10-14  acvf / idacim: induction motor V/f and autotune
+- Area:    `shared/comps/acvf.c`, `shared/comps/idacim.c`, templates acvf,
+           sserial_acvf, id_acim; sim `hv0.sim_type = 1`; branch
+           `claude/acim-conveyor`
+- Status:  Note (sim only)
+- Symptom: (design notes) Found while building it on the sim:
+- Cause:   (1) Slip compensation is positive feedback: filtered at 20 Hz it
+  hunts above ~100 rad/s (5 Hz now). (2) r * id compensation hunts on the
+  larger motors (370 W: 17, 750 W: 79 rad/s peak to peak) where plain V/f
+  is stable or marginal: active damping (torque high-pass on the frequency,
+  damp 0.5..4) stops it. (3) At zero frequency u = r * id holds any dc
+  current forever: faded in only above 3 * u_boost. (4) idacim's rotor
+  step: the current takes ~20 ms to settle, so a fit that assumes constant
+  current read tau_r +19%; the fit now uses the measured current.
+  (5) Without cur_bw (uf-derived templates leave it 0) current mode gives
+  no voltage: id_acim sets hv0.cur_bw.
+- Fix:     4 motors (100 W 4p .. 750 W 2p): autotune rs 0.5%, rr/lm/tau_r
+  ~3%, leakage ~6% (sigma*ls +5%: the rotor flux partly follows the square
+  wave); speed within 1% with the autotuned values, travel within 1%.
+  Untested: hardware, regenerative overvoltage on fast stops, field
+  weakening, the ARM build.
+
+## 2026-10-14  Test infra: float sim position, HAL query prefixes, link echoes
+- Area:    `host/hw/hv.c` (sim_abs_pos), `host/tests/run_tests.py`
+- Status:  Fixed / Note
+- Symptom: The belt travel check failed by 2% only late in a run; queries
+  showed "wrong" values in index-based checks.
+- Cause:   sim_abs_pos summed in float: near 2000 rad one ulp is 2.4e-4
+  rad against ~1.8e-3 rad per 12.5 us step, a biased rounding of ~7% per
+  add. A console query prints every pin with that prefix (acvf0.vel also
+  prints vel_cmd, vel_n, vel_sync), and the boot's link echo "OK sink <=
+  source = v" is parsed as a value of sink, shifting [k] indices.
+- Fix:     sim_abs_pos accumulates in double. Index linked pins from the
+  end ([-1]); avoid pin names that prefix others (acvf: blocked,
+  block_time, jtimer).
+
+## 2026-10-26  acvf: the current limit never acted under master's F3 current clamp
+- Area:    `shared/comps/acvf.c` (induction V/f), F3 `curpid.c` voltage mode, host `hw/hv.c`
+- Status:  Fixed (simulated; no induction motor on the bench)
+- Symptom: Merging claude/acim-conveyor into master, acim_100w_4p_speed: a
+  belt jammed with 4x rated friction stalled, but acvf0.blocked (sserial
+  in2) never came: acvf0.lim stayed 0, the frequency kept rising (vel_sync
+  115 rad/s, u_cmd 178 V) with the rotor at 0.
+- Cause:   acvf pulls the frequency back only while the current is above
+  max_cur. Since the branch was made the F3's current loop in voltage mode
+  (curpid.c, and the simulator's stand-in) scales its voltage down above
+  max_cur itself, so the current sits at max_cur and never above it: the
+  V/f limit, and with it the blocked-belt detection, never engaged. The
+  same on a real drive.
+- Fix:     acvf0.lim_share (0.9): the limit acts at 0.9 x max_cur x scale,
+  below the F3's clamp. Test: acim_100w_4p_speed.test (blocked == 1 at the
+  jam; fails without it). The induction model now uses the simulator's
+  mech_step (friction, brake, end stops) and a stiff sim_udc bus.
