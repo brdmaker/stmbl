@@ -119,11 +119,13 @@ check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
-# profile in closed loop (tests/gen_soak_tests.py). Generated into gen/soak.
+# profile in closed loop (tests/gen_soak_tests.py), and the linear axis
+# (tests/gen_linear_soak.py). Generated into gen/soak.
 # make soak SOAK_CYCLES=20 for a longer run.
 SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
+	@$(PYTHON) tests/gen_linear_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
 
 # Emergency braking (docs/emergency_stop.md): the hand-written tests in

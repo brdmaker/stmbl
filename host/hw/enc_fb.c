@@ -13,6 +13,12 @@
  * (stuck encoder, broken line), sim_scale multiplies its changes (lost or
  * extra counts, slipping coupling; default 1), sim_offset adds to it (a step
  * when changed). With the defaults the counts are the shaft's.
+ *
+ * Reference marks (sim_ref_mode) on the unwrapped position sim_abs_pos:
+ * 0 = once per revolution at sim_index (above); 1 = a single mark at
+ * sim_ref_pos (a linear scale with one reference actuator); 2 = marks every
+ * sim_ref_period from sim_ref_pos (a scale with periodic marks). On a mark
+ * the counter is latched, as on the drive.
  */
 #include "enc_fb_comp.h"
 #include "hal.h"
@@ -56,6 +62,10 @@ HAL_PIN(sim_fail);   // 1: the encoder is broken (cable): position frozen, error
 HAL_PIN(sim_freeze);  // fault: angle held
 HAL_PIN(sim_scale);   // fault: gain on angle changes (1 = none)
 HAL_PIN(sim_offset);  // fault: added angle [rad]
+HAL_PIN(sim_abs_pos);     // unwrapped shaft position [rad] (hv0.sim_abs_pos)
+HAL_PIN(sim_ref_mode);    // 0 per revolution, 1 single, 2 periodic
+HAL_PIN(sim_ref_pos);     // mark position on sim_abs_pos [rad]
+HAL_PIN(sim_ref_period);  // mark spacing, mode 2 [rad]
 
 struct enc_fb_ctx_t {
   int init;
@@ -64,6 +74,8 @@ struct enc_fb_ctx_t {
   float absoffset;
   float last_raw;  // shaft angle at the last call
   float off;       // what the injected faults added to the shaft angle
+  double last_abs;
+  int abs_init;    // last_abs valid
 };
 
 static int32_t count_of(float angle, int32_t res) {
@@ -129,6 +141,26 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     crossed = k == ic;
   }
   ctx->count = c;
+
+  // reference marks on the unwrapped position
+  int mode = (int)PIN(sim_ref_mode);
+  if(mode == 1 || mode == 2) {
+    double a = PIN(sim_abs_pos), b = ctx->last_abs;
+    double lo = a < b ? a : b, hi = a < b ? b : a;
+    crossed  = 0;
+    double m = PIN(sim_ref_pos);
+    if(mode == 2 && PIN(sim_ref_period) > 0.0) {  // nearest mark at or above lo
+      double per = PIN(sim_ref_period);
+      m += ceil((lo - m) / per) * per;
+    }
+    if(ctx->abs_init && m >= lo && m <= hi && hi > lo) {
+      crossed = 1;
+      float raw_m = PIN(sim_rev) > 0.0 ? -(float)m : (float)m;
+      ic          = count_of(raw_m - ctx->boot, res);
+    }
+  }
+  ctx->last_abs = PIN(sim_abs_pos);
+  ctx->abs_init = 1;
 
   PIN(index) = crossed;
   if(crossed && PIN(en_index) > 0.0) {
