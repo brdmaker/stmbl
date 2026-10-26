@@ -858,6 +858,258 @@ Entry format:
 - Fix:     `run_script` flushes stdout after each line read from stdin
   (file scripts unchanged).
 
+## 2026-10-15  Arm: start-up phasing under gravity load trips POS_ERROR
+- Area:    drive commutation at enable (`fb_switch`, incremental encoder),
+           `host/arm` (simulated ARC Mate)
+- Status:  Known
+- Symptom: Simulated arm at a raised pose, no friction: J2's drive faulted
+  (fault 5) right after enable, and the brake then let the arm sag.
+- Cause:   With an incremental encoder (enc_fb state 1) the drive phases
+  (fb_switch current_com_pos 4) by moving the motor; on a gravity-loaded
+  joint with the brake released the arm moves during phasing.
+- Fix:     Absolute encoders (FANUC serial pulse coders: commutation known
+  at power-on); sim `enc_fb0.sim_absolute = 1`. On the real arm with an
+  incremental encoder, phase only with the arm supported or at a
+  gravity-neutral pose.
+
+## 2026-10-15  Several simulated drives in one process: dlmopen
+- Area:    `host/arm` (arm_sim, libstmbl_drive.so)
+- Status:  Note
+- Symptom: The firmware HAL is one set of globals: one drive per process.
+- Cause:   by design (one drive per MCU).
+- Fix:     Build the drive as `libstmbl_drive.so` (only `stmbl_sim_*`
+  exported) and load it once per drive with `dlmopen(LM_ID_NEWLM)`: each
+  copy has its own globals, no source change. No threads in the copies
+  (boot with `stmbl_sim_boot`, not `stmbl_sim_open`); flush the copy's own
+  stdout via `stmbl_sim_cmd`.
+
+## 2026-10-15  LinuxCNC in the cloud container: build and run notes
+- Area:    `hwtest/arcmate-sim`, branch `linuxcnc-bin`
+- Status:  Workaround
+- Symptom: (1) LinuxCNC master (2.10-pre) changed the HAL C API
+  (`hal_float_t` pins gone, `hal_real_t` refs), so `stmbl_sim`/`stmbl_arm`
+  do not build; (2) configure picks python3.13 while Boost.Python is 3.12;
+  (3) the 2.9 build wants `a2x` (asciidoc/docbook) for man pages;
+  (4) `rtapi_app` refuses to run as root; (5) without a tty `linuxcnc`
+  writes all output to /tmp/linuxcnc.debug.* (and ~/linuxcnc_debug.txt),
+  and a DISPLAY program's stdout is lost; (6) it needs
+  `configs/common/linuxcnc.nml`.
+- Cause:   as listed.
+- Fix:     Build branch 2.9 (the bench runs 2.9.1); `PYTHON_BIN=python3.12
+  ./configure ... --disable-gtk2`; a stub a2x on PATH; run as user `lcnc`;
+  the test display writes its TAP to a file; pack `configs/common`. See
+  `build_linuxcnc.sh` on `linuxcnc-bin` and `hwtest/arcmate-sim/README.md`.
+
+## 2026-10-15  Collision residual at standstill: gearbox stiction
+- Area:    `shared/robot/collide.c`, `linuxcnc/armcollide`
+- Status:  Known
+- Symptom: Simulated ARC Mate, detector with the exact model: the
+  residual is ~1-4 Nm while moving but 15-25 Nm on J1-J3 at standstill,
+  with no contact.
+- Cause:   Stiction in the gears holds an unknown part (up to the
+  breakaway friction) of the load once a joint stops; the motor torque the
+  servo leaves is not the model's.
+- Fix:     Thresholds with a stiction band near zero speed (`thresh J thr0
+  thr_v thr_s vs`); the detector is less sensitive at rest. Set it from the
+  measured floor (MEASUREMENT_PLAN Phase 7).
+
+## 2026-10-15  arm_sim / stmbl_arm: joint offsets taken from the first packet
+- Area:    `host/arm/armcore.c` (absolute-encoder offsets)
+- Status:  Fixed
+- Symptom: LinuxCNC's joint feedback off by up to one motor turn / ratio
+  (J2: 1.06 deg) from the true motor angle, depending on start-up order.
+- Cause:   The offset (joint = feedback + off) was set at the first
+  exchange, where the drive still reports position 0.
+- Fix:     Set it at the 5th exchange.
+
+## 2026-10-15  Collision detector false trips under LinuxCNC's trapezoids
+- Area:    `shared/robot/collide.c` (thresholds)
+- Status:  Fixed
+- Symptom: Fine with smooth test moves, but LinuxCNC joint jogs (full
+  300 deg/s^2 from standstill, jerk steps) tripped it on the simulated arm.
+- Cause:   Three effects of the jerk: (1) model errors (inertia +-15 %)
+  scale with the dynamic torque; (2) through elastic gears the rotor runs
+  ahead of the link (~arm_jj * qdd, 26 Nm on J1 for ~15 ms) and torque
+  coupled from other joints' accelerations hits joints held by stiction;
+  (3) the gears ring at ~20 Hz afterwards, longer than the observer's
+  1/k. And the residual lags the torque by 1/k, so a threshold following
+  the torque instantly drops when the acceleration reverses.
+- Fix:     Threshold terms thr_rel * peak(max(|tau - g|, |(M qdd)_j|)) and
+  thr_rot * peak(arm_jj |qdd|), peaks decaying over `envelope` (0.15 s).
+  Test moves now include LinuxCNC's trapezoids (`jog`, `tmove`).
+
+## 2026-10-15  genserkins: tool orientation at C = +-180 turns J6 a full turn
+- Area:    `hwtest/arcmate-sim` (LinuxCNC 2.9 genserkins), arm flange frame
+- Status:  Workaround
+- Symptom: After a stop LinuxCNC reported the pose with C = +180 (was
+  -180); the next G1 ... C-180 is a 360 deg move of C: "Linear move would
+  exceed joint 5's negative limit".
+- Cause:   A/B/C come from the rotation matrix: at +-180 the sign is
+  arbitrary, and LinuxCNC treats C as a linear axis.
+- Fix:     Keep working orientations away from +-180: the flange frame is
+  turned (J6 theta0 180): the home orientation is A0 B0 C0.
+
+## 2026-10-15  Collision estop request missed by LinuxCNC's I/O controller
+- Area:    `linuxcnc/armcollide`, estop chain in `hwtest/arcmate-sim`
+- Status:  Fixed
+- Symptom: A collision during a program ended with the machine off (task
+  state 2), not estop.
+- Cause:   `collision` cleared as soon as the drives were disabled: the
+  drop of `emc-enable-in` lasted a few ms; iocontrol samples it every
+  [EMCIO] CYCLE_TIME (100 ms).
+- Fix:     `collision` latched until `armcollide.0.reset` (wired to
+  `iocontrol.0.user-request-enable`, the estop reset).
+
+## 2026-10-15  Arm geometry: bodies two links apart overlap by design
+- Area:    `shared/robot/geom.c` (self-clearance), `host/arm/arcmate`
+- Status:  Note
+- Symptom: Self-clearance -92 mm at the home pose.
+- Cause:   Only bodies on neighbouring links are skipped (selfskip 1); the
+  pedestal (link 0) and the upper arm (link 2) overlap at the shoulder, the
+  forearm (3) and the wrist (5) at the wrist.
+- Fix:     `selfignore 0 2`, `selfignore 3 4` in the arm's geometry; check a
+  new arm's self-clearance at a few poses before relying on it.
+
+## 2026-10-15  Collision prevention: stop-path check, findings
+- Area:    `shared/robot/guard.c` (rb_guard_watch), arm soak
+- Status:  Note
+- Symptom: With prevention on, random joint moves within the joint limits
+  were stopped (protective stop) though the true clearance stayed > 50 mm.
+- Cause:   (1) The check uses the guard's real stop: with the default 5
+  rad/s^2 the fast wrist would coast ~33 deg, into the fold of the torch on
+  the forearm. (2) The random targets themselves folded the forearm onto
+  the lower arm: with the guessed bodies that happens from q3 ~ 85 deg,
+  inside the guessed J3 limit (160).
+- Fix:     astop per joint = what the drives can do in a stop (sim: 2 x
+  MAX_ACCELERATION); random targets keep q3 <= 60, q2 + q3 <= 110,
+  |q5| <= 100. On the real arm: measure J3's range (the hard stop will be
+  earlier) and the bodies; check self-clearance over the range.
+
+## 2026-10-15  Collision detector: 20 % model error too tight for fast multi-joint moves
+- Area:    `host/arm/arcmate/model_exact.arm` (threl)
+- Status:  Fixed
+- Symptom: A false collision in a long random-move soak (J2 residual 58 Nm
+  against 55 Nm) with J2 and J3 both near 0.7 of their speed limits.
+- Cause:   The joint torque swings by ~300 Nm within ~70 ms there (elastic
+  gears, coupling); 20 % of the dynamic torque left too little margin.
+- Fix:     threl 0.3 on J1-J3 (worst residual/threshold 0.90 over 36 random
+  moves); detection tests unchanged.
+
+## 2026-10-15  sserial position feedback is raw while the drive is disabled
+- Area:    `shared/comps/sserial.c`, `fb_switch`; `host/arm/arm_sim.c` (gripper)
+- Status:  Known
+- Symptom: The simulated gripper drive faulted with POS_ERROR at enable, and
+  closing reported "gripped" at once, at 78 mm.
+- Cause:   While disabled, `fb_switch` makes the drive's command track
+  LinuxCNC's command, not the motor, and sserial's pos_fb is the raw
+  `mot_fb_no_offset` plus revolutions (linrev) scaled by the `scale` LinuxCNC
+  sends. arm_sim sent the gripper's command and scale only while enabled, so
+  the scale was 0 while disabled. At enable the raw encoder fraction (9.4
+  turns) then appeared as a position jump. The arm joints only escaped
+  because their motors sit at whole turns at home.
+- Fix:     LinuxCNC (and arm_sim) must keep sending pos_cmd = feedback and
+  the scale while disabled. The gripper block in arm_sim's servo now runs
+  before the `!en` return.
+
+## 2026-10-15  stmbl config files take no comments
+- Area:    drive config (`host/arm/arcmate/gripper.conf`), `shared/config.c`
+- Status:  Known
+- Symptom: `conf0.max_sat = 0` in gripper.conf had no effect
+  (`conf0.max_sat` read back 0.2), so the gripper still saturation-faulted.
+- Cause:   `#` comment lines in the config break the boot's parsing of the
+  lines after them. Nothing is reported, since the boot echo is silenced
+  in armcore.
+- Fix:     Keep configs comment-free and put notes in the `.tool` / `.arm`
+  file. armcore strips comments only from the sim file.
+
+## 2026-10-15  Gripper drive: holding a part is saturation, squeeze vs max_pos_error
+- Area:    `host/arm/arcmate/gripper.conf`, `shared/robot/gripper.c`
+- Status:  Note
+- Symptom: Gripping faulted the drive after 0.2 s with SAT_ERROR (fault 6).
+  A 4 mm squeeze gave POS_ERROR (fault 5).
+- Cause:   A gripper holds its fingers at the current limit (the grip force)
+  for as long as it holds a part, and the default `max_sat` is 0.2 s. A
+  squeeze is a following error: 4 mm of gap is 0.5 motor turns (8 mm/turn),
+  over the stock `max_pos_error` of 1.5 rad (1.9 mm).
+- Fix:     gripper.conf sets `conf0.max_sat = 0`. Squeeze is 1.2 mm and
+  lost_tol 0.8 mm: a part slipping out still lets the fingers close past
+  lost_tol (LOST).
+
+## 2026-10-15  Payload check: no measurement at standstill; accuracy = model floor
+- Area:    `shared/robot/gripper.c` (rb_grip_payload)
+- Status:  Note
+- Symptom: Measured after the grip at standstill, a 2 kg part read 4.2 kg
+  (5.7 kg relative to a pre-grip baseline). The 6-DOF flange wrench gave
+  2.6 kg even with the exact model.
+- Cause:   1. At standstill, static friction takes an unknown share of a new
+  load: J2's gear torque rose 2.2 Nm of the ~12 Nm expected.
+  2. The flange wrench has 6 unknowns, so every joint's model error becomes
+  mass (J5's 0.8 Nm alone reads 0.8 kg).
+  3. On the lift itself the residual floor (J3 ~2 Nm exact, ~5 Nm perturbed)
+  is a constant offset: +0.3 / +0.8 kg for any mass from 0.5 to 4 kg.
+- Fix:     On a grip the model takes the declared part at once. The mass is
+  checked while moving: a 1-parameter least-squares fit (r = dm * gravity
+  torque per kg at the part's centre of mass) over the joints faster than
+  0.15 rad/s (3x the Stribeck speed). Tolerance is 1 kg; a smaller error
+  stays under the collision thresholds anyway.
+
+## 2026-10-15  arcmate.arm split into arm + tool; readers without `include`
+- Area:    `host/arm/arcmate/*.arm`, `*.tool`, `host/tests/robot/test_robot.c`
+- Status:  Note
+- Symptom: The genserkins cross-check in test_robot failed (no DH read) once
+  arcmate.arm became `include arcmate_base.arm` + `include torch.tool`.
+- Cause:   armcore supports `include`, but test_robot's DH reader and
+  `rb_collide_load` (a `detector` file) do not.
+- Fix:     test_robot reads arcmate_base.arm. Detector models stay
+  self-contained (model_exact.arm, model_perturbed.arm).
+
+## 2026-10-15  Gripper housing vs forearm: self-clearance at low poses
+- Area:    `hwtest/arcmate-sim/cell_grip.txt`, `host/arm/arcmate/gripper.tool`
+- Status:  Known (guessed geometry)
+- Symptom: In lcnc_grip_test, a G0 to the flange at (850, 50, 1050) mm,
+  flange up, was stopped by collision prevention (armguard reason 2).
+- Cause:   With the flange up, lower poses tilt the forearm. The gripper
+  housing (r 45 mm, vs the torch's 25 mm) then comes within the 10 mm
+  margin of the forearm capsule. Both bodies are guesses.
+- Fix:     The test's second part sits higher (flange at z 1200). Re-check
+  once the real housing and forearm are measured.
+
+## 2026-10-15  Tool changer docks: flange-up hits the forearm, flange-forward is the wrist singularity
+- Area:    `host/arm/arcmate/tools.txt`, `arcmate_changer.arm`
+- Status:  Known (guessed geometry)
+- Symptom: Flange-up docks at z 1050 caused protective stops: the forearm
+  vs the changer plate, with self-clearance 10 mm at z 1000 and negative
+  at 950. With docks flange-forward (B 90), J4 overspeed-faulted (off 1)
+  moving to a part.
+- Cause:   Flange up at low poses tilts the forearm towards the plate.
+  Flange forward with the forearm level is J5 = 0, the wrist singularity:
+  a small Cartesian change spins J4 and J6.
+- Fix:     Docks and working poses at B 45 (J5 -41 to -66 deg, clearance
+  56 mm or more). Changer plate r 40 mm. Re-check with the real geometry.
+
+## 2026-10-15  LinuxCNC 2.9: tool TCP through switchable kinematics works
+- Area:    `linuxcnc/armkins`, `hwtest/arcmate-sim/toolchange.ngc`
+- Status:  Note
+- Symptom: genserkins has no tool orientation, and a TCP change mid-program
+  would make the Cartesian position jump.
+- Cause:   --
+- Fix:     armkins exports kinematicsSwitchable() / kinematicsSwitch(type)
+  with type = tool ID. `M68 E3 Q<tool>` drives motion.switchkins-type, then
+  `M66 E0 L0`: motion recomputes the Cartesian position from the joints
+  and the interpreter resyncs (checked: the position jumps to the TCP,
+  later moves are clean, back to 0 too). M64/M65/M68 are immediate (not
+  queued with motion), so each needs an `M66 E0 L0` before it, or the lock
+  would open while the arm still moves into the dock.
+
+## 2026-10-15  armtool: kinematics check tripped on the settling at enable
+- Area:    `linuxcnc/armtool/armtool.c`
+- Status:  Fixed
+- Symptom: After a lost tool, the machine went straight back to estop at
+  enable (reason 5), so the kinematics could not be put back to the flange.
+- Cause:   "Moving" was any joint over 0.01 deg/s; the settling after
+  enable exceeds that.
+- Fix:     Moving = a joint over 0.1 deg in 50 ms. Standing still, the
+  operator can set `M68 E3 Q0`, `M66 E0 L0`, `M61 Q0`.
 ## 2026-10-15  pe (power estimation) was never loaded and computed wrong
 - Area:    `shared/comps/pe.c`, `conf/template/pid.txt`, `mpid.txt`
 - Status:  Fixed
@@ -1949,3 +2201,121 @@ Entry format:
   below the F3's clamp. Test: acim_100w_4p_speed.test (blocked == 1 at the
   jam; fails without it). The induction model now uses the simulator's
   mech_step (friction, brake, end stops) and a stiff sim_udc bus.
+
+## 2026-10-15  stmbl_arm hung in its first servo call after a struct change
+- Area:    `host/arm/lcnc/Makefile`, `host/lcnc/stmbl_sim_api.h`
+- Status:  Fixed
+- Symptom: After master's `power` field came in, every arm LinuxCNC config
+  failed with "USRMOT: ERROR: command timeout". A bare halrun showed the
+  servo thread's time stuck at 0: stmbl-arm.0 never returned.
+- Cause:   `stmbl_sim_pd_t` grew a field. armcore.o and stmbl_arm_rt.o did
+  not depend on stmbl_sim_api.h, so an incremental build kept the old
+  layout in them while libstmbl_drive.so had the new one.
+- Fix:     Both now depend on stmbl_sim_api.h. After a header change in
+  host/lcnc, `make clean` is the safe way.
+
+## 2026-10-18  vis3d: offscreen GL here, and what core GL leaves out
+- Area:    `linuxcnc/vis3d` (vis3d_render, tests)
+- Status:  Note
+- Symptom: Mesa's surfaceless EGL platform offered no EGLConfig at all, so
+  eglCreateContext failed; PyQt5's xcb plugin wouldn't load ("could not
+  load the Qt platform plugin xcb even though it was found"); the TCP trail
+  drawn as GL_LINE_STRIP was a hair-thin line.
+- Cause:   surfaceless contexts need EGL_KHR_no_config_context; the PyQt5
+  wheel's xcb plugin wants libxcb-icccm4, -image0, -keysyms1,
+  -render-util0, -xinerama0, -xkb1 and libxkbcommon-x11-0; core profiles
+  have no wide lines (glLineWidth > 1).
+- Fix:     create the context with EGL_NO_CONFIG_KHR and render into an
+  FBO; install those packages for `make qt-check`; draw the trail as a
+  ribbon facing the camera.
+
+## 2026-10-18  armguard clearance is mm; clearance-stop is not a limit
+- Area:    `linuxcnc/armguard` pins, `linuxcnc/arm6hmi`, `linuxcnc/vis3d/qtvcp/vis3d_widget.py`
+- Status:  Fixed
+- Symptom: the first ARM-6 screen showed "clearance 33797 mm" and a wrong guard
+  state.
+- Cause:   two mistakes in the screen:
+  - it read `.clearance` as metres, but armguard gives mm;
+  - it used `.clearance-stop` as the limit, but that pin is the clearance
+    along the stop path. The limit is `prevent MM` in the cell file.
+- Fix:     the screen and the widget take `armguard.0.state` (non-zero:
+  stopped, `.reason` 1 collision / 2 protective stop) plus `.clearance` in mm
+  against the cell's `prevent` (parsed with its includes; INI `PREVENT_MM`
+  overrides it). NEAR is shown below twice the limit.
+
+## 2026-10-18  QtVCP joint jog on genserkins: warning but it works
+- Area:    QtVCP `Action.DO_JOG`, `linuxcnc/arm6hmi`
+- Status:  Known
+- Symptom: joint jogging logs "Joint jogging not supported for non-identity
+  kinematics".
+- Cause:   QtVCP warns for any non-identity kinematics. The jog is still sent
+  in joint mode (teleop off) and moves the joint.
+- Fix:     none needed; arm6hmi's self-test jogs J1 +10 deg through it.
+
+## 2026-10-18  LinuxCNC stat.joint has max_ferror, not ferror_limit
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py`
+- Status:  Fixed
+- Symptom: the screen's 100 ms refresh silently stopped (nothing updated past
+  the first joint).
+- Cause:   `stat.joint[N]["ferror_limit"]` doesn't exist in 2.9 (the keys are
+  `ferror_current`, `ferror_highmark`, `max_ferror`, `min_ferror`). A QTimer
+  slot that raises dies quietly in QtVCP.
+- Fix:     use `max_ferror`. `_update` now wraps the refresh in try/except and
+  logs the traceback once.
+
+## 2026-10-18  Incremental jog cancelled by the button release
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py` (jog rows)
+- Status:  Fixed
+- Symptom: an incremental jog (e.g. 10 deg) moved only a fraction of a degree.
+- Cause:   the release handler sent a jog stop, which also aborts an
+  incremental jog in progress.
+- Fix:     on release, stop only in continuous mode.
+
+## 2026-10-18  QtVCP in the cloud image needs PyQt5 for python3.12
+- Area:    `hwtest/arcmate-sim` `make hmi` / `test-hmi`, cloud session
+- Status:  Workaround
+- Symptom: `qtvcp` fails to import PyQt5 (LinuxCNC's modules are python3.12;
+  Ubuntu's python3-pyqt5 doesn't match it). Then the xcb platform plugin
+  fails to load.
+- Cause:   `linuxcnc_restore.sh` installs no Qt.
+- Fix:     install by hand:
+  - `python3.12 -m pip install --break-system-packages PyQt5 QScintilla PyOpenGL`
+  - `apt-get install xvfb libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0`
+
+  Idea: add both to the restore script.
+
+## 2026-10-19  A HAL pin sits on one signal: postgui nets join the existing one
+- Area:    `linuxcnc/arm6hmi/arm6_changer_postgui.hal`, `hwtest/arcmate-sim/changer.hal`
+- Status:  Fixed
+- Symptom: with the tool changer config LinuxCNC quit while starting the
+  screen, showing only its error dialog (show_errors.tcl). `test-hmi` hung
+  until its timeout with an empty log.
+- Cause:   `net arm6-tool armtool.0.mounted => arm6.vis3d.tool` in the postgui
+  file: `changer.hal` already has `armtool.0.mounted` on the signal
+  `tool-mounted` ("Pin ... was already linked"). The message is only in
+  /tmp/linuxcnc.debug.*, which is deleted when the dialog closes.
+- Fix:     `net tool-mounted => arm6.vis3d.tool`. To read such errors, cat
+  /tmp/linuxcnc.print.* and /tmp/linuxcnc.debug.* while the dialog is up.
+
+## 2026-10-19  Checking a world jog right after a joint jog: use the commanded position
+- Area:    `linuxcnc/arm6hmi/arm6_selftest.py` (jog pad)
+- Status:  Fixed
+- Symptom: X -10 mm from the jog pad measured -9.905 mm, now and then (the
+  step timed out).
+- Cause:   the start X came from `actual_position` right after a J2 +10 deg
+  jog. The simulated arm's feedback was still settling, and a J2 move
+  changes X a lot. The jog itself was exact.
+- Fix:     wait 0.6 s after the joint jog, then check the world jog on
+  `stat.position` (commanded): -10.000 mm.
+
+## 2026-10-19  Long status labels set the window's minimum width
+- Area:    `linuxcnc/arm6hmi` (subtitle, events, footer)
+- Status:  Fixed
+- Symptom: the screen grew to 1836 px, then 2490 px wide (wider than the
+  1600 px Xvfb screen). The subtitle showed armkins' whole
+  `model=... tools=...` line.
+- Cause:   a QLabel's minimum width is its text's width.
+- Fix:     `setMinimumWidth(40)` on the status labels, so they are clipped
+  rather than widening the window. The subtitle shows only the kinematics
+  module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
+  stretch.) Now 1448 px.

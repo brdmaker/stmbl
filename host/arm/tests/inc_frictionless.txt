@@ -1,0 +1,19 @@
+# no friction, brakes or gear damping anywhere (energy is conserved)
+motor 1 120 0.00035 0 0
+motor 2 120 0.00035 0 0
+motor 3 100 0.00035 0 0
+motor 4 80 0.00003 0 0
+motor 5 80 0.00003 0 0
+motor 6 50 0.00003 0 0
+gear 1 2e5 0 1
+gear 2 2e5 0 1
+gear 3 1.5e5 0 1
+gear 4 2e4 0 3
+gear 5 2e4 0 3
+gear 6 1e4 0 3
+fric 1 0 0 0 0
+fric 2 0 0 0 0
+fric 3 0 0 0 0
+fric 4 0 0 0 0
+fric 5 0 0 0 0
+fric 6 0 0 0 0

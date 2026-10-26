@@ -1,0 +1,3 @@
+# FANUC ARC Mate (A05B-1203-B255) with the welding torch, for arm_sim
+include arcmate_base.arm
+include torch.tool

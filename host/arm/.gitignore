@@ -1,0 +1,7 @@
+gen/
+obj/
+*.so
+*.o
+*.tmp
+arm_sim
+*.ver

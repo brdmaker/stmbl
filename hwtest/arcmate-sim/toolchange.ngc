@@ -1,0 +1,43 @@
+; M6 with the pneumatic tool changer (arcmate.ini: REMAP=M6 modalgroup=6
+; ngc=toolchange; changer.hal). Tool numbers are the changer's tool IDs
+; (host/arm/arcmate/tools.txt). On the flange's kinematics: the current
+; tool goes back into its dock (above its fork, down into it, unlock, the
+; bare flange out along the approach), then the selected one is picked
+; (approach, into the dock, lock expecting it, lift out of the fork); the
+; kinematics then run on its TCP. The outputs are immediate (M64/M65/M68):
+; M66 E0 L0 first waits for the motion before them.
+o<toolchange> sub
+#<from> = #<_current_tool>
+#<to> = #<_selected_tool>
+o100 if [#<from> EQ #<to>]
+  o<toolchange> return [1]
+o100 endif
+M66 E0 L0
+M68 E3 Q0
+M66 E0 L0
+o110 if [#<from> GT 0]
+  o<dockread> call [#<from>]
+  G90 G1 X#<_dk9> Y#<_dk10> Z#<_dk11> A#<_dk3> B#<_dk4> C#<_dk5> F6000
+  G1 X#<_dk0> Y#<_dk1> Z#<_dk2> F2000
+  M66 E0 L0
+  M68 E4 Q0
+  M65 P1
+  M66 P3 L3 Q2
+  G1 X#<_dk6> Y#<_dk7> Z#<_dk8> F3000
+o110 endif
+o120 if [#<to> GT 0]
+  o<dockread> call [#<to>]
+  G90 G1 X#<_dk6> Y#<_dk7> Z#<_dk8> A#<_dk3> B#<_dk4> C#<_dk5> F6000
+  G1 X#<_dk0> Y#<_dk1> Z#<_dk2> F2000
+  M66 E0 L0
+  M68 E4 Q#<to>
+  M64 P1
+  M66 P2 L3 Q2
+  G1 X#<_dk9> Y#<_dk10> Z#<_dk11> F3000
+o120 endif
+M66 E0 L0
+M61 Q#<to>
+M68 E3 Q#<to>
+M66 E0 L0
+o<toolchange> endsub [1]
+M2

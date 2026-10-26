@@ -1,0 +1,28 @@
+# ARM-6 with the pneumatic tool changer as LinuxCNC sees it
+# (hwtest/arcmate-sim make hmi-tool: armkins, joints in DH theta). The
+# master plate on the flange; the tools' looks below. Their tool points
+# and docks come from the tool table (host/arm/arcmate/tools.txt), which
+# the cell file includes: the screen loads the cell, and a tool is drawn
+# on the flange while armtool says it is mounted, else in its dock.
+include arm6_arm.vis
+joints theta
+
+# the changer's master plate (80 mm, 40 mm thick)
+part 6 cylinder 0.04 0.035 at 0 0 0.0175 material metal
+part 6 ring 0.042 0.005 0.006 at 0 0 0.03 material accent
+
+# tool 1: the welding torch, bent neck (tip at 0 40 290 mm)
+part 6 cylinder 0.045 0.012 at 0 0 0.041 material dark tool 1
+part 6 capsule 0 0 0.05   0 0 0.20   0.024 material dark tool 1
+part 6 ring 0.026 0.004 0.008 at 0 0 0.19 material accent tool 1
+part 6 capsule 0 0 0.20   0 0.035 0.27   0.013 material metal tool 1
+part 6 capsule 0 0.035 0.27   0 0.040 0.287   0.008 material warn tool 1
+
+# tool 2: the electric gripper (jaws 190 mm out)
+part 6 cylinder 0.045 0.012 at 0 0 0.041 material dark tool 2
+part 6 box 0.09 0.05 0.07 at 0 0 0.085 material dark tool 2
+part 6 box 0.014 0.03 0.07 at 0.025 0 0.155 material grip tool 2
+part 6 box 0.014 0.03 0.07 at -0.025 0 0.155 material grip tool 2
+
+# closer, from the front left: the arm and its docks (x = 1 m) side by side
+camera -35 20 3.0 target 0.45 0.2 0.8

@@ -43,7 +43,14 @@ CFLAGS  += -DSSCON_TXSIZE=32768 -std=gnu11 -Wall -Wno-format -fno-strict-aliasin
            -include host_compat.h $(INCLUDES)
 LDLIBS   = -lm -lpthread
 
-all: stmbl_host servoterm
+all: stmbl_host servoterm test_robot
+
+# shared/robot (arm dynamics) and its tests (tests/robot/test_robot.c)
+ROBOT_SRCS = $(ROOT)/shared/robot/robot.c $(ROOT)/shared/robot/kin.c $(ROOT)/shared/robot/geom.c $(ROOT)/shared/robot/gripper.c \
+             $(ROOT)/shared/robot/tool.c $(ROOT)/shared/robot/collide.c
+test_robot: tests/robot/test_robot.c $(ROBOT_SRCS) $(ROOT)/shared/robot/robot.h $(ROOT)/shared/robot/kin.h $(ROOT)/shared/robot/geom.h $(ROOT)/shared/robot/gripper.h \
+            $(ROOT)/shared/robot/tool.h $(ROOT)/shared/robot/collide.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(ROOT)/shared/robot -o $@ tests/robot/test_robot.c $(ROBOT_SRCS) -lm
 
 stmbl_host: $(GEN)/commandslist.h $(COMP_HDRS) $(ALL_SRCS) *.h hw/*.c $(ROOT)/shared/*.h
 	$(CC) $(CFLAGS) $(ALL_SRCS) -o $@ $(LDLIBS)
@@ -104,7 +111,7 @@ test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan
+check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan
 	@./test_ssq
 	@./test_sscon
 	@./test_cur_offset
@@ -116,17 +123,25 @@ check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_sserial_table.py
 	@$(PYTHON) tests/test_comp_names.py
 	@./test_quota
-	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test
+	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
+	@$(PYTHON) tests/robot/test_step2cell.py
+	@$(MAKE) -s -C arm all
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
-# profile in closed loop (tests/gen_soak_tests.py), and the linear axis
-# (tests/gen_linear_soak.py). Generated into gen/soak.
+# profile in closed loop (tests/gen_soak_tests.py), the linear axis
+# (tests/gen_linear_soak.py), and the simulated arm: movement patterns and
+# error scenarios (arm/tests/gen_arm_soak.py). Generated into gen/soak and
+# gen/arm_soak.
 # make soak SOAK_CYCLES=20 for a longer run.
 SOAK_CYCLES ?= 1
 soak: stmbl_host
 	@$(PYTHON) tests/gen_soak_tests.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/gen_linear_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/soak
 	@$(PYTHON) tests/run_tests.py $(GEN)/soak/*.test
+	@$(MAKE) -s -C arm all
+	@$(PYTHON) arm/tests/gen_arm_soak.py --cycles $(SOAK_CYCLES) --out $(GEN)/arm_soak
+	@$(PYTHON) tests/run_tests.py $(GEN)/arm_soak/*.test
 
 # Emergency braking (docs/emergency_stop.md): the hand-written tests in
 # tests/ebrake (also part of check), then every motor in tests/motors.py
@@ -142,6 +157,7 @@ test: all check
 	  ./stmbl_host --drive $(ROOT)/hwtest/burnin/ECMA-C30604FS/stmbl.conf $$f | grep -v "^OK \|^not found"; done
 
 clean:
-	rm -rf $(GEN) stmbl_host servoterm
+	rm -rf $(GEN) stmbl_host servoterm test_robot
+	$(MAKE) -C arm clean
 
 .PHONY: ebrake all check soak test clean

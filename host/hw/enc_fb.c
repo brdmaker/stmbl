@@ -66,6 +66,7 @@ HAL_PIN(sim_abs_pos);     // unwrapped shaft position [rad] (hv0.sim_abs_pos)
 HAL_PIN(sim_ref_mode);    // 0 per revolution, 1 single, 2 periodic
 HAL_PIN(sim_ref_pos);     // mark position on sim_abs_pos [rad]
 HAL_PIN(sim_ref_period);  // mark spacing, mode 2 [rad]
+HAL_PIN(sim_absolute);  // 1: an absolute encoder, state 3 from the start
 
 struct enc_fb_ctx_t {
   int init;
@@ -122,6 +123,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(!ctx->init) {
     ctx->init  = 1;
     ctx->count = c;
+  }
+  if(PIN(sim_absolute) > 0.0 && PIN(state) < 3.0) {
+    PIN(state)     = 3.0;
+    ctx->absoffset = mod(ic * 2.0f * M_PI / res);
   }
 
   // index pulse: the count stepped onto, or across, the index count

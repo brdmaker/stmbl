@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARM-6 teach pendant</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;background:#070A0E}
+a{color:#7FE6DE}a:hover{color:#B8F3EE}
+.lbl{font:600 10px/1 'Space Grotesk',sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#7D8C9B}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.btn{font:600 13px/1 'Space Grotesk',sans-serif;letter-spacing:.06em;color:#DCE6EF;background:#141C25;border:1px solid #2A3845;border-radius:6px;min-height:48px;padding:0 10px;cursor:pointer}
+.btn.on{background:#13302F;border-color:#2BD4C9;color:#7FE6DE}
+.jog{min-height:56px;font:600 20px/1 'JetBrains Mono',monospace;color:#DCE6EF;background:#141C25;border:1px solid #2A3845;border-radius:8px;cursor:pointer}
+.jog:active{background:#13302F;border-color:#2BD4C9}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+</style>
+</helmet>
+
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #070A0E; color: #DCE6EF; font-family: 'Space Grotesk', sans-serif; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 28px; border: 2px solid #1C2733">
+
+  <header style="display: flex; align-items: center; justify-content: space-between">
+    <div>
+      <div style="font-size: 15px; font-weight: 700; letter-spacing: .04em">ARM-6 · PENDANT</div>
+      <div class="lbl" style="margin-top: 3px">{{modeText}} · deadman {{deadText}}</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #1C2733; border-radius: 4px">
+      <span class="dot" style="background: {{stateColor}}"></span>
+      <span style="font-size: 11px; font-weight: 600; letter-spacing: .08em">{{stateText}}</span>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; background: #0E141B; border: 1px solid #1C2733; border-radius: 6px; padding: 8px">
+    <sc-for list="{{pose}}" as="p" hint-placeholder-count="6">
+      <div>
+        <div class="lbl" style="color: #4F6070">{{p.name}}</div>
+        <div class="mono" style="font-size: 15px; font-weight: 600; margin-top: 2px">{{p.val}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; gap: 6px" role="group" aria-label="Jog frame">
+    <sc-for list="{{frames}}" as="f" hint-placeholder-count="3">
+      <button class="btn {{f.cls}}" style="flex: 1" onClick="{{f.pick}}">{{f.name}}</button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; gap: 6px" role="group" aria-label="Jog increment">
+    <sc-for list="{{incs}}" as="i" hint-placeholder-count="4">
+      <button class="btn {{i.cls}}" style="flex: 1; min-height: 40px" onClick="{{i.pick}}">{{i.name}}</button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; flex: 1">
+    <sc-for list="{{axes}}" as="a" hint-placeholder-count="6">
+      <div style="display: grid; grid-template-columns: 1fr 96px 1fr; gap: 6px; align-items: center">
+        <button class="jog" onClick="{{a.minus}}" aria-label="Jog {{a.name}} negative">−</button>
+        <div style="text-align: center">
+          <div class="mono" style="font-size: 14px; color: #7FE6DE">{{a.name}}</div>
+          <div class="mono" style="font-size: 12px; color: #8FA0B0">{{a.pos}}</div>
+        </div>
+        <button class="jog" onClick="{{a.plus}}" aria-label="Jog {{a.name}} positive">+</button>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+    <button class="btn" onClick="{{record}}">Record point</button>
+    <button class="btn {{gripCls}}" onClick="{{toggleGrip}}">{{gripText}}</button>
+    <button class="btn" onClick="{{home}}">Go home</button>
+  </div>
+
+  <div style="display: flex; gap: 6px; align-items: stretch">
+    <button class="btn {{deadCls}}" style="flex: 1; min-height: 64px" onClick="{{toggleDead}}" aria-pressed="{{deadPressed}}">DEADMAN<br><span class="lbl" style="color: inherit">hold to move</span></button>
+    <button class="btn" style="flex: 1; min-height: 64px; background: {{estopBg}}; border-color: {{estopBorder}}; color: #FFF; font-size: 15px" onClick="{{toggleEstop}}" aria-pressed="{{estopPressed}}">{{estopText}}</button>
+  </div>
+
+  <div class="mono" style="font-size: 11px; color: #4F6070; display: flex; justify-content: space-between">
+    <span>points: {{points}}</span><span>guard 92 mm</span><span>speed 25%</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2BD4C9"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = { frame: 'JOINT', inc: 1, dead: false, estop: false, grip: 'closed', points: 12,
+                   j: [12.4, -35.2, 48.75, 0, 76.1, -12.4], c: [612.0, -240.5, 302.0, 180.0, 0.0, 45.0] };
+  }
+  renderVals() {
+    const s = this.state;
+    const joint = s.frame === 'JOINT';
+    const names = joint ? ['J1', 'J2', 'J3', 'J4', 'J5', 'J6'] : ['X', 'Y', 'Z', 'A', 'B', 'C'];
+    const nudge = (i, d) => () => {
+      if(!s.dead || s.estop) { return; }  // the deadman gates every move
+      const key = joint ? 'j' : 'c';
+      const v = s[key].slice();
+      v[i] += d * s.inc;
+      this.setState({ [key]: v });
+    };
+    const axes = names.map((n, i) => ({ name: n, pos: (joint ? s.j[i] : s.c[i]).toFixed(joint ? 2 : 1) + (joint ? '°' : ''),
+                                        plus: nudge(i, 1), minus: nudge(i, -1) }));
+    return {
+      accent: this.props.accent ?? '#2BD4C9',
+      modeText: 'TEACH', deadText: s.dead ? 'held' : 'released',
+      stateColor: s.estop ? '#FF6B6B' : '#8BEB5A', stateText: s.estop ? 'E-STOP' : 'MACHINE ON',
+      pose: ['X', 'Y', 'Z', 'A', 'B', 'C'].map((n, i) => ({ name: n, val: s.c[i].toFixed(1) })),
+      frames: ['JOINT', 'WORLD', 'TOOL'].map((f) => ({ name: f, cls: s.frame === f ? 'on' : '', pick: () => this.setState({ frame: f }) })),
+      incs: [0.1, 1, 10, 45].map((v) => ({ name: v + (joint ? '°' : 'mm'), cls: s.inc === v ? 'on' : '', pick: () => this.setState({ inc: v }) })),
+      axes,
+      record: () => this.setState({ points: s.points + 1 }), points: s.points,
+      home: () => this.setState({ j: [0, 0, 0, 0, 0, 0], c: [450.0, 0.0, 620.0, 180.0, 0.0, 0.0] }),
+      toggleGrip: () => this.setState({ grip: s.grip === 'open' ? 'closed' : 'open' }),
+      gripText: s.grip === 'open' ? 'Grip: open' : 'Grip: closed', gripCls: s.grip === 'open' ? '' : 'on',
+      toggleDead: () => this.setState({ dead: !s.dead }), deadCls: s.dead ? 'on' : '', deadPressed: s.dead ? 'true' : 'false',
+      toggleEstop: () => this.setState({ estop: !s.estop }),
+      estopBg: s.estop ? '#B3261E' : '#7A1B15', estopBorder: s.estop ? '#FF6B6B' : '#B3261E',
+      estopText: s.estop ? 'RESET' : 'E-STOP', estopPressed: s.estop ? 'true' : 'false',
+    };
+  }
+}
+</script>
+</body>
+</html>

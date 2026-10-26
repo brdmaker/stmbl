@@ -1,0 +1,20 @@
+# A slow approach (~2.7 mm/s, below the guard's "moving" speed): the
+# backoff direction comes from the contact force estimated from the
+# collision residuals (flange wrench), here mostly -x (the wall's normal):
+# the arm backs off 20 mm, no force left.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+@include arm/tests/inc_wall.txt
+guard on
+lmove 2 930 0 1271 0 0 0
+run 2.2
+mark
+tlmove 15 960 0 1271 0 0 0
+run 15
+print clear contact guard off
+@expect arm.off_reason == 2
+@expect arm.guard_dx < -0.8
+@expect arm.contact_f == 0
+@expect arm.contact_max < 200
+@expect arm.clear > 10
+@reject ^ERROR

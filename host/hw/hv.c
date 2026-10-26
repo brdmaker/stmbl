@@ -152,6 +152,12 @@ HAL_PIN(sense_off_b);
 HAL_PIN(sim_type);       // 0 = PMSM, 1 = induction motor
 HAL_PIN(sim_rr);         // induction: rotor resistance [ohm]
 HAL_PIN(sim_lm);         // induction: magnetizing inductance [H]
+// sim_ext = 1: the mechanics are simulated outside (host/arm). Before every
+// rt cycle the host sets sim_pos and sim_vel; within the cycle the rotor
+// advances at sim_vel, and sim_te_int accumulates te * dt for the host to
+// read and clear. sim_j/d/f/load/brake are then unused.
+HAL_PIN(sim_ext);
+HAL_PIN(sim_te_int);
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -248,6 +254,12 @@ static float sense(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float i, flo
 
 // the rotor: electrical torque te for dt, coulomb friction, brake, load
 static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
+  if(PIN(sim_ext) > 0.0) {  // the host's mechanics (host/arm): it sets sim_pos and sim_vel
+    PIN(sim_pos)     = mod(PIN(sim_pos) + PIN(sim_vel) * dt);
+    PIN(sim_te_int) += te * dt;
+    PIN(sim_torque)  = te;
+    return;
+  }
   float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
