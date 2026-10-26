@@ -11,7 +11,8 @@ D1,1,PMEG6010CEH,D_SOD-123F,,reverse polarity
 D2,1,SMF33A,D_SMF,,TVS ✱ (pad 1 the cathode)
 D3,1,green,LED_0603_1608Metric,,seen through the potting? ✱
 FB1 FB2,2,600R@100MHz,L_0402_1005Metric,,MCU analog; the accelerometer's own supply
-J1,1,M8 LEADS,PinHeader_1x04_P2.00mm_Vertical,,"the M8 socket's leads, M8 order: 1 V+, 2 CAN_H, 3 GND, 4 CAN_L ✱"
+J1,1,M8 IN,PinHeader_1x04_P2.00mm_Vertical,,"the IN socket's leads (M8 male), M8 order: 1 V+, 2 CAN_H, 3 GND, 4 CAN_L ✱"
+J3,1,M8 OUT,PinHeader_1x04_P2.00mm_Vertical,,the OUT socket's leads (M8 female): the bus and the supply go on to the next sensor; the last one takes a terminator plug (120 ohm)
 L1,1,10u,L_Taiyo-Yuden_NR-30xx,,"✱ NR3015, >= 0.3 A"
 R1,1,88.7k 1%,R_0402_1005Metric,,5.02 V with 22.1k (VREF 1.00 V)
 R2,1,22.1k 1%,R_0402_1005Metric,,
@@ -20,7 +21,6 @@ R4,1,10k 1%,R_0402_1005Metric,,
 R5 R9,2,10k,R_0402_1005Metric,,PB8-BOOT0 low until the option bytes are set; ALERT is open drain
 R6,1,1k,R_0402_1005Metric,,
 R7 R8,2,4.7k,R_0402_1005Metric,,
-R10,1,120,R_0402_1005Metric,,
 U1,1,STM32G473CEU6,QFN-48-1EP_7x7mm_P0.5mm_EP5.6x5.6mm,,"exposed pad: the only VSS / VSSA; vias to the GND plane. PA0 VIN_SENSE, PA4-7 SPI1, PB0/PB1 INT1/2, PA8/9 I2C2, PA10 ALERT, PB8/9 FDCAN1, PB12 LED, PB13 STB"
 U2,1,TPS560430XDBVR,SOT-23-6,,"buck to 5 V, as brdstepper's ✱"
 U3,1,TLV75533PDBVR,SOT-23-5,,3.3 V

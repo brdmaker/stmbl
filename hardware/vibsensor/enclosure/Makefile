@@ -15,10 +15,11 @@ stl/shard-%.stl: shard.scad
 
 render: shard.scad
 	@mkdir -p render
-	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/front.png $(VIEW) --camera=-2,0,6,62,0,38,135 shard.scad
-	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/rear.png $(VIEW) --camera=-2,0,6,58,0,212,135 shard.scad
-	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/top.png $(VIEW) --camera=-2,0,6,0,0,0,135 shard.scad
-	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/bottom.png $(VIEW) --camera=-2,0,6,180,0,0,135 shard.scad
+	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/front.png $(VIEW) --camera=-2,0,6,62,0,38,150 shard.scad
+	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/rear.png $(VIEW) --camera=-2,0,6,58,0,212,150 shard.scad
+	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/top.png $(VIEW) --camera=-2,0,6,0,0,0,150 shard.scad
+	$(XVFB) $(SCAD) -D 'part="assembly"' -o render/bottom.png $(VIEW) --camera=-2,0,6,180,0,0,150 shard.scad
+	$(XVFB) $(SCAD) -D 'part="terminated"' -o render/terminated.png $(VIEW) --camera=-6,0,6,55,0,150,150 shard.scad
 	$(XVFB) $(SCAD) -D 'part="exploded"' -o render/exploded.png $(VIEW) --camera=-2,0,6,70,0,30,165 shard.scad
 
 clean:

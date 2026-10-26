@@ -2227,3 +2227,14 @@ Entry format:
   fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
   classes (no violation there).
 
+
+## 2026-10-26  kigen: connector rows at 45 degrees collide in a chamfered tail
+- Area:    hardware/vibsensor/gen/board.py (two M8 sockets IN / OUT)
+- Status:  Note
+- Symptom: J1 / J3 rotated 45 degrees to face the tail's chamfers gave 26
+  courtyard violations; placed near the corner, "overlaps where fixed".
+- Cause:   kigen's courtyards are axis-aligned boxes, so a 45-degree row
+  grows its box into the M2 hole and the other row; its corner crossed
+  the tail chamfer.
+- Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
+  rotation 90; the socket's leads bend to them inside the potting.

@@ -13,10 +13,11 @@ DOC = "docs/vibsensor.md"
 DATE = "2026-10-26"
 REV = "0.1"
 NOTE = ("vibsensor: STM32G473 + IIS3DWB + TMP117 + TCAN1044V on a round board, potted in the sensor's housing.\n"
-        "M8 4-pin (1 V+, 2 CAN_H, 3 GND, 4 CAN_L) soldered to J1. Node number and name over the bus (no jumpers).\n"
+        "Two M8 4-pin sockets (1 V+, 2 CAN_H, 3 GND, 4 CAN_L): IN (J1) and OUT (J3), the bus and supply passed through;\n"
+        "the last sensor's OUT takes a terminator plug (120 ohm). Node number and name over the bus (no jumpers).\n"
         "Connections are by net name (net labels): docs/vibsensor.md and vibsensor/inc/vs.h are the reference.")
 NETCLASS_POWER = ("VIN", "24V_IN", "5V", "SW")  # not GND: the IIS3DWB's pads are 0.15 mm apart
-NOT_FITTED = {"H1", "H2", "JP1", "J2"}  # holes; the termination jumper per bus end; SWD pads
+NOT_FITTED = {"H1", "H2", "J2"}  # holes; SWD pads
 
 FP_R = "Resistor_SMD:R_0402_1005Metric"
 FP_C = "Capacitor_SMD:C_0402_1005Metric"
@@ -36,8 +37,11 @@ def C(ref, value, a, b, fp=FP_C, note=""):
 SHEETS = {
     # ------------------------------------------------------------ the bus's supply: 24 V -> 5 V -> 3.3 V
     "power": [
-        ("J1", "Connector_Generic:Conn_01x04", "M8 LEADS", "Connector_PinHeader_2.00mm:PinHeader_1x04_P2.00mm_Vertical",
-         {"1": "24V_IN", "2": "CANH", "3": "GND", "4": "CANL"}, "the M8 socket's leads, M8 order: 1 V+, 2 CAN_H, 3 GND, 4 CAN_L ✱"),
+        ("J1", "Connector_Generic:Conn_01x04", "M8 IN", "Connector_PinHeader_2.00mm:PinHeader_1x04_P2.00mm_Vertical",
+         {"1": "24V_IN", "2": "CANH", "3": "GND", "4": "CANL"}, "the IN socket's leads (M8 male), M8 order: 1 V+, 2 CAN_H, 3 GND, 4 CAN_L ✱"),
+        ("J3", "Connector_Generic:Conn_01x04", "M8 OUT", "Connector_PinHeader_2.00mm:PinHeader_1x04_P2.00mm_Vertical",
+         {"1": "24V_IN", "2": "CANH", "3": "GND", "4": "CANL"},
+         "the OUT socket's leads (M8 female): the bus and the supply go on to the next sensor; the last one takes a terminator plug (120 ohm)"),
         ("D1", "Device:D_Schottky", "PMEG6010CEH", "Diode_SMD:D_SOD-123F", {"1": "VIN", "2": "24V_IN"}, "reverse polarity"),
         ("D2", "Diode:SMF33A", "SMF33A", "Diode_SMD:D_SMF", {"1": "VIN", "2": "GND"}, "TVS ✱ (pad 1 the cathode)"),
         C("C1", "4.7u 50V", "VIN", "GND", FP_C1206, "input"),
@@ -107,18 +111,15 @@ SHEETS = {
          "CAN FD to 5 Mbit/s; the TJA1042T-3's pinout, as the TCAN1044V's ✱"),
         C("C21", "100n", "5V", "GND", note="VCC"),
         C("C22", "100n", "3V3", "GND", note="VIO"),
-        ("JP1", "Jumper:SolderJumper_2_Open", "TERM", "Jumper:SolderJumper-2_P1.3mm_Open_RoundedPad1.0x1.5mm",
-         {"1": "CANH", "2": "CAN_TERM"}, "closed on the sensor at a bus end, before potting"),
-        R("R10", "120", "CAN_TERM", "CANL"),
         ("H1", "Mechanical:MountingHole", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "to the housing"),
         ("H2", "Mechanical:MountingHole", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, ""),
     ],
 }
 
-TITLES = {"power": "Supply: reverse polarity, TVS, buck 5 V, LDO 3.3 V, filtered rails, bus voltage",
+TITLES = {"power": "Supply: M8 IN / OUT (passed through), reverse polarity, TVS, buck 5 V, LDO 3.3 V, filtered rails, bus voltage",
           "mcu": "MCU STM32G473CEU6: clock, reset, LED, SWD",
           "sensors": "IIS3DWB accelerometer (SPI1), TMP117 thermometer (I2C2)",
-          "can": "CAN FD transceiver, termination, mounting"}
+          "can": "CAN FD transceiver, mounting (termination: a plug in the last sensor's OUT)"}
 
 # nets with no power output on them: ERC needs a PWR_FLAG
 PWR_FLAGS = ["VIN", "GND", "5V", "VDDA", "3V3_ACC"]

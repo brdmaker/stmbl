@@ -43,7 +43,7 @@ On the spindle, x and y are radial and z is axial.
 - **Board:** a KiCad project, [hardware/vibsensor](../hardware/vibsensor/README.md):
   the schematic, checked against its part list, and a 32 × 18 mm board,
   placed, not routed. The enclosure concept "Shard" (faceted, bolted flat
-  by two M4 lugs or onto an M6 stud, M8 in the tail):
+  by two M4 lugs or onto an M6 stud, two M8 sockets IN / OUT on the tail):
   [hardware/vibsensor/enclosure](../hardware/vibsensor/enclosure/README.md).
 - **Not yet:** routing, and a board on the bench. See [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
@@ -55,10 +55,10 @@ On the spindle, x and y are radial and z is axial.
 | MCU | STM32G473CEU6 (as brdstepper) | FDCAN (CAN FD), 170 MHz with FPU, 128 KB RAM: a 4096-point FFT and its buffers take ~70 KB. An STM32G431 (32 KB RAM) would do up to 2048 points. |
 | accelerometer | IIS3DWB | 3 axes, 26.667 kHz output rate, flat to ~6.3 kHz ✱, ±2/4/8/16 g, 16 bit, 3 KB FIFO (~19 ms of x y z), SPI up to 10 MHz, −40…105 °C. |
 | temperature | TMP117 (I²C, ±0.1 °C) on the mounting face | The IIS3DWB's own temperature is its die's, not the machine's. |
-| CAN | TCAN1044V (CAN FD, as brdstepper), 120 Ω by solder jumper | A separate measurement bus (§3). |
-| connector | M8 A-coded 4-pin, male on the sensor: 1 V+ (brown), 2 CAN_H (white), 3 GND (blue), 4 CAN_L (black) ✱ | Small, enough for a 24 V supply and the bus (M8 4-pin: 4 A, 60 V ✱). M8 has no CiA pinout: this one keeps the supply on the opposite pins 1 and 3 and the pair on 2 and 4. There is no shield pin; the shield goes to the metal coupling nut and housing. Use 4-wire twisted-pair CAN cable (CAN_H/CAN_L one pair) and M8 T-pieces for the line; no stubs over ~0.3 m at 5 Mbit/s ✱. |
+| CAN | TCAN1044V (CAN FD, as brdstepper), no termination on the board | A separate measurement bus (§3). |
+| connectors | two M8 A-coded 4-pin sockets wired 1:1, IN male and OUT female: 1 V+ (brown), 2 CAN_H (white), 3 GND (blue), 4 CAN_L (black) ✱ | Small, enough for a 24 V supply and the bus (M8 4-pin: 4 A, 60 V ✱). M8 has no CiA pinout: this one keeps the supply on the opposite pins 1 and 3 and the pair on 2 and 4. There is no shield pin; the shield goes to the metal coupling nut and housing. The sensors daisy-chain on standard M8 4-pin cables (female to male, 4-wire twisted pair, CAN_H/CAN_L one pair): the bus goes through each sensor, so there are no stubs and no T-pieces. The last sensor's OUT takes a terminator plug: an M8 male plug with 120 Ω between pins 2 and 4 (field-wireable and potted, unless a stock one with this pinout is found ✱). |
 | power | 24 V from the bus, a buck to 3.3 V, an LDO or filter for the IIS3DWB | — |
-| mechanics | the "Shard" housing (hardware/vibsensor/enclosure): milled aluminium base with a solid floor, two M4 lugs (or an M6 stud), the board on two bosses over the floor, potted, a faceted cover with a light pipe; M8 in the tail | The sensor's path to the machine is short and stiff: board, bosses, potting, solid floor. The housing must resonate well above 6.3 kHz ✱ (to check). A magnet mount is fine for surveys, but caps the usable band at about 2 kHz ✱. |
+| mechanics | the "Shard" housing (hardware/vibsensor/enclosure): milled aluminium base with a solid floor, two M4 lugs (or an M6 stud), the board on two bosses over the floor, potted, a faceted cover with a light pipe; the two M8 sockets on the tail's angled faces | The sensor's path to the machine is short and stiff: board, bosses, potting, solid floor. The housing must resonate well above 6.3 kHz ✱ (to check). A magnet mount is fine for surveys, but caps the usable band at about 2 kHz ✱. |
 
 **On the MCU:**
 - **SPI1:** the IIS3DWB with DMA. Its INT1, the FIFO watermark, starts the
@@ -144,8 +144,14 @@ keeps both simple.
 
 **Bus settings:**
 - **Bit rates:** CAN FD, 1 Mbit/s arbitration, 5 Mbit/s data.
-- **Topology:** the four sensors on one line, the PC at one end.
-- **Termination:** 120 Ω at both ends.
+- **Topology:** a daisy chain. The PC's adapter and the 24 V feed at one
+  end, then base, Y, X and spindle sensors, each cable from one sensor's
+  OUT to the next one's IN. Supply and bus pass through every sensor (the
+  last one carries the sum of the currents, well under the M8's 4 A).
+- **Termination:** 120 Ω at both ends: the PC's adapter at its end, the
+  terminator plug in the last sensor's OUT. Without the plug the bus
+  may work on short lines, but the 5 Mbit/s data phase rings and frames
+  get lost.
 
 ### 3.1 Node numbers: found and given over the bus
 

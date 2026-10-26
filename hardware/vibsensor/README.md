@@ -22,20 +22,21 @@ the enclosure, and a BOM. The enclosure concept is in [enclosure/](enclosure/REA
   - the TCAN1044V, drawn with the TJA1042T-3 symbol (same pinout);
   - the buck converter's inductor;
   - the crystal's load capacitors;
-  - the M8 socket's pin order (no CiA standard for M8 4-pin).
+  - the M8 sockets' pin order (no CiA standard for M8 4-pin).
 
 ## The circuit
 
 | section | parts |
 |---|---|
-| supply | J1, the M8 socket's four leads (1 V+, 2 CAN_H, 3 GND, 4 CAN_L); D1 reverse polarity; D2 TVS; U2 TPS560430 buck to 5 V (the transceiver); U3 TLV75533 to 3.3 V; ferrite-filtered VDDA and the accelerometer's own 3V3_ACC; R3 / R4, the bus voltage to PA0 |
+| supply | J1 (IN) and J3 (OUT), the two M8 sockets' leads, wired 1:1 (1 V+, 2 CAN_H, 3 GND, 4 CAN_L), so supply and bus pass through to the next sensor; D1 reverse polarity; D2 TVS; U2 TPS560430 buck to 5 V (the transceiver); U3 TLV75533 to 3.3 V; ferrite-filtered VDDA and the accelerometer's own 3V3_ACC; R3 / R4, the bus voltage to PA0 |
 | MCU | U1 STM32G473CEU6, pins as `vibsensor/inc/vs.h`; 8 MHz crystal; LED; J2 Tag-Connect TC2030 pads for SWD (programmed before potting) |
 | sensors | U4 IIS3DWB on SPI1 (PA4-7, INT1 / INT2 on PB0 / PB1); U5 TMP117 on I2C2 (PA8 / PA9, ALERT on PA10), address 0x48 |
-| CAN | U6 TCAN1044V (VCC 5 V, VIO 3.3 V, STB on PB13); 120 Ω through JP1, closed on the sensor at a bus end |
+| CAN | U6 TCAN1044V (VCC 5 V, VIO 3.3 V, STB on PB13); no termination on the board: the last sensor's OUT takes an M8 terminator plug (120 Ω inside) |
 
 **On the board:**
-- **Top:** the MCU at the centre, the supply, SWD; the M8 leads' pads (J1)
-  at the tail, where the socket is.
+- **Top:** the MCU at the centre, the supply, SWD; the M8 leads' pads in
+  two rows along the long edges by the tail's corners, J1 (IN, −y) and J3
+  (OUT, +y), where the sockets are.
 - **Bottom** (facing the enclosure's floor, over the M6 hole):
   - the IIS3DWB at the centre;
   - the TMP117 beside it;

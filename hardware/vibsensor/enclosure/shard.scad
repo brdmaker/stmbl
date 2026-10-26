@@ -1,16 +1,18 @@
 // vibsensor enclosure, concept "Shard" (docs/vibsensor.md, hardware/vibsensor).
 //
 // A milled aluminium base with a solid floor, bolted flat to the machine by
-// two swept-back lugs (M4), or screwed onto an M6 stud; the board on two M2
-// bosses of the floor, the accelerometer over the stud axis; the cavity
-// potted; a faceted cover with a light-pipe slit along its ridge; the M8
-// socket in the tail, tilted up 15 degrees so the cable leaves clear of the
-// mounting face. The pointed nose is the sensor's +X axis.
+// two M4 lugs on the X axis (nose and tail), or screwed onto an M6 stud; the
+// board on two M2 bosses of the floor, the accelerometer over the stud axis;
+// the cavity potted; a faceted cover with a light-pipe slit along its ridge.
+// Two M8 sockets on the tail's angled faces, IN (-y, male) and OUT (+y,
+// female), pointing back and out at 45 degrees and tilted up: sensors chain
+// on standard M8 cables, the last one's OUT takes a terminator plug (120 ohm
+// inside). The nose is the sensor's +X axis.
 //
 // Coordinates: x along the length (nose +x), y across, z up; the mounting
 // face at z = 0, the board's centre over the origin.
 //
-//   openscad -D 'part="assembly"' shard.scad      (assembly, exploded, base, cover, pcb)
+//   openscad -D 'part="assembly"' shard.scad      (assembly, terminated, exploded, base, cover, pcb)
 //   make -C hardware/vibsensor/enclosure          STLs and renders
 //
 // Concept: dimensions follow the board (gen/board.py) and are to be checked
@@ -21,7 +23,7 @@ part = "assembly";
 explode = 0;          // mm, the cover and board lifted apart
 
 // ---- the board (hardware/vibsensor/gen/board.py)
-pcb_l = 32; pcb_w = 18; pcb_nose = 4; pcb_tail = 2.5; pcb_t = 1.6;
+pcb_l = 32; pcb_w = 18; pcb_nose = 4; pcb_tail = 5; pcb_t = 1.6;
 hole_x = 9;           // the board's M2 holes at +-9 on the long axis
 
 // ---- the base
@@ -30,12 +32,16 @@ wall = 2.4;
 floor_t = 5;          // solid floor: the accelerometer's path to the machine
 standoff = 2.2;       // floor to board: the bottom-side parts (SOIC 1.75)
 cavity_top = floor_t + standoff + pcb_t + 2.6;   // board top + its tallest part + potting cover
-nose_ext = 7;         // the pointed nose beyond the cavity
 flare = 1.6;          // the walls' outward draft at the foot
+half_w = pcb_w/2 + gap + wall;   // the body's half width
+nose_c = 26.5;        // the nose faces: x + |y| = nose_c (45 degrees)
+tail_c = 24.5;        // the tail faces: -x + |y| = tail_c
+tip = 3;              // half width of the nose's and tail's flats
 lug_t = 5;            // the lugs' thickness
+lug_x = [28.5, -27.5];   // the M4 lugs on the X axis: nose, tail
 m4 = 4.5; m4_cb = 8.2; m4_cb_d = 2.2;
 m6_tap = 5.0; m6_depth = 4.0;    // M6 thread core, blind from below
-m8_tilt = 15; m8_d = 8; m8_boss = 13; m8_len = 7;
+m8_tilt = 10; m8_d = 8; m8_boss = 13; m8_len = 6; m8_z = 8.6;
 
 // ---- the cover
 ridge_h = 5.5;        // above the cavity's top
@@ -52,30 +58,26 @@ function pcb_pts() = [[-pcb_l/2 + pcb_tail, -pcb_w/2], [pcb_l/2 - pcb_nose, -pcb
 module pcb_outline() { polygon(pcb_pts()); }
 module pocket() { offset(delta = gap) pcb_outline(); }
 
-// the body's footprint: the pocket grown by the wall, the nose drawn out to a point
-module footprint() {
-    hull() {
-        offset(delta = gap + wall, chamfer = true) pcb_outline();
-        translate([pcb_l/2 + gap + wall + nose_ext, 0]) circle(d = 2.4, $fn = 6);
-    }
-}
+// the body's footprint: the pocket grown by the wall, cut at 45 degrees at
+// the nose (to a flat tip) and at the tail (two faces for the M8 sockets)
+function body_pts() = [[nose_c - half_w, -half_w], [nose_c - tip, -tip], [nose_c - tip, tip], [nose_c - half_w, half_w],
+                       [-(tail_c - half_w), half_w], [-(tail_c - tip), tip], [-(tail_c - tip), -tip], [-(tail_c - half_w), -half_w]];
+module footprint() { polygon(body_pts()); }
 
-// swept-back lugs at the tail's sides, with the M4 holes
-lug_pts = [[-6, 0], [-21, 0], [-25, 11], [-14, 11]];
-function lug_hole(s) = [-18.5, s * (pcb_w/2 + gap + wall + 4.6)];
+// the lugs on the X axis, with the M4 holes
 module lugs2d() {
-    for (s = [-1, 1]) hull() {
-        translate([-6, s * (pcb_w/2 + gap)]) square([0.1, 0.1], center = true);
-        translate([-22, s * (pcb_w/2 + gap)]) square([0.1, 0.1], center = true);
-        translate(lug_hole(s) + [-1.5, 0]) circle(d = 9.5, $fn = 6);
-        translate([-9, s * (pcb_w/2 + gap + wall + 1.5)]) circle(d = 2, $fn = 6);
+    for (i = [0, 1]) hull() {
+        translate([lug_x[i] - sign(lug_x[i]) * 9, 0]) square([2, 2 * tip + 4], center = true);
+        translate([lug_x[i], 0]) circle(d = 10, $fn = 8);
     }
 }
 
-module m8_axis() {
-    translate([-pcb_l/2 - gap - wall + 1.5, 0, floor_t + standoff + pcb_t + 1.2]) rotate([0, -90 - m8_tilt, 0]) children();
+// an M8 socket's place: on the tail face's middle, its axis out of the face
+// (back and out at 45 degrees), tilted up m8_tilt; s = -1 IN, +1 OUT
+function face_mid(s) = [-(tail_c - (half_w + tip) / 2), s * (half_w + tip) / 2];
+module m8_axis(s) {
+    translate(concat(face_mid(s), m8_z)) rotate([0, 0, 180 + s * -45]) rotate([0, 90 - m8_tilt, 0]) children();
 }
-
 module base() {
     difference() {
         union() {
@@ -90,20 +92,20 @@ module base() {
                 linear_extrude(lug_t - 1) lugs2d();
                 linear_extrude(lug_t) offset(delta = -1) lugs2d();
             }
-            // the M8 socket's boss
-            m8_axis() cylinder(d = m8_boss, h = m8_len, $fn = 6);
+            // the M8 sockets' bosses
+            for (s = [-1, 1]) m8_axis(s) translate([0, 0, -2]) cylinder(d = m8_boss, h = m8_len + 2, $fn = 6);
         }
         // the cavity, potted
         translate([0, 0, floor_t]) linear_extrude(cavity_top) pocket();
         // M4 counterbored through holes
-        for (s = [-1, 1]) translate(concat(lug_hole(s), 0)) {
+        for (lx = lug_x) translate([lx, 0, 0]) {
             translate([0, 0, -1]) cylinder(d = m4, h = lug_t + 2);
             translate([0, 0, lug_t - m4_cb_d]) cylinder(d = m4_cb, h = m4_cb_d + 1);
         }
         // M6 stud thread, blind from below, under the accelerometer
         translate([0, 0, -1]) cylinder(d = m6_tap, h = m6_depth + 1);
-        // M8 socket bore into the cavity
-        m8_axis() translate([0, 0, -6]) cylinder(d = m8_d, h = m8_len + 10);
+        // M8 socket bores into the cavity
+        for (s = [-1, 1]) m8_axis(s) translate([0, 0, -8]) cylinder(d = m8_d, h = m8_len + 12);
         // the parting line: a fine groove under the cover
         translate([0, 0, cavity_top - 1.2]) linear_extrude(0.4) difference() { offset(delta = 1) footprint(); offset(delta = -0.35) footprint(); }
     }
@@ -149,24 +151,33 @@ module pcb() {
     }
 }
 
-module m8_socket() {
-    color([0.75, 0.76, 0.78]) m8_axis() {
-        translate([0, 0, m8_len]) cylinder(d = m8_d, h = 6);
+module m8_socket(s) {   // IN: male pins in a threaded sleeve; OUT: female, a short threaded neck
+    color([0.75, 0.76, 0.78]) m8_axis(s) {
+        translate([0, 0, m8_len]) cylinder(d = m8_d, h = s < 0 ? 7 : 5);
         translate([0, 0, m8_len]) cylinder(d = 10.5, h = 1.2, $fn = 6);
     }
 }
 
-module assembly(e = 0) {
+module terminator() {   // M8 male plug with the 120 ohm inside, on OUT
+    m8_axis(1) translate([0, 0, m8_len + 3]) {
+        color([0.2, 0.2, 0.22]) cylinder(d = 10, h = 14, $fn = 24);
+        color([1.0, 0.45, 0.1]) translate([0, 0, 9]) cylinder(d = 10.4, h = 1.6, $fn = 24);
+    }
+}
+
+module assembly(e = 0, term = false) {
     color([0.17, 0.18, 0.2]) base();
     translate([0, 0, e]) pcb();
     translate([0, 0, 2.2 * e]) {
         color([0.88, 0.9, 0.92]) cover();
         color([1.0, 0.45, 0.1, 0.9]) light_pipe();
     }
-    m8_socket();
+    for (s = [-1, 1]) m8_socket(s);
+    if (term) terminator();
 }
 
 if (part == "assembly") assembly(0);
+else if (part == "terminated") assembly(0, true);
 else if (part == "exploded") assembly(explode > 0 ? explode : 9);
 else if (part == "base") base();
 else if (part == "cover") cover();
