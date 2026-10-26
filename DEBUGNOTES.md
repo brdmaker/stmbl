@@ -2738,3 +2738,19 @@ Entry format:
 - Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
   it alters every drive's reported position; check it on the bench first
   (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).
+
+## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
+- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
+- Status:  Open
+- Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
+  psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
+  but j 24 % high and friction at half. With 3x the inertia every value is
+  within tolerance.
+- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
+  less than the electrical time constant l / r = 2.3 ms: the drive
+  segments are mostly current rise, and the momentum fit trades j against
+  friction.
+- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
+  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
+  unit and the load add inertia.
+

@@ -297,10 +297,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cycles", type=int, default=1)
     ap.add_argument("--no-tune", action="store_true")
+    ap.add_argument("--only", action="append", default=[], help="only this motor (repeatable)")
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gen", "soak"))
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    for name, r, l, psi, pp, j, imax in MOTORS:
+    motors = [m for m in MOTORS if not args.only or m[0] in args.only]
+    for name, r, l, psi, pp, j, imax in motors:
         t_peak = 1.5 * pp * psi * imax
         f = round(0.02 * t_peak, 4)
         d = float("%.3g" % (2.8e-5 * t_peak))
@@ -336,7 +338,7 @@ def main():
             vlim=1.2 * vmax, ilim=1.05 * imax)
         with open(os.path.join(args.out, "soak_%s.test" % name), "w") as fh:
             fh.write(text)
-    print("wrote %d soak tests (%d cycle(s)) to %s" % (len(MOTORS), args.cycles, args.out))
+    print("wrote %d soak tests (%d cycle(s)) to %s" % (len(motors), args.cycles, args.out))
 
 
 if __name__ == "__main__":
