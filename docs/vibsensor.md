@@ -33,8 +33,10 @@ On the spindle, x and y are radial and z is axial.
   (`shared/comps/vnode.c`), all tested in the host.
 - **Firmware:** `vibsensor/` (G473: FDCAN, IIS3DWB, TMP117, console on the
   bus) builds; not yet run on a board.
-- **Not yet:** the PC's `vibmon`, the millweb page, the board. See
-  [What's next](#whats-next).
+- **PC:** `tools/vibmon/` (numbering, machine state, frames, trends, crash
+  latch, watchdog, HAL pins, a JSON socket), tested against simulated
+  sensors running the sensor's own code.
+- **Not yet:** the millweb page, the board. See [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
 
 ## 1. Hardware
@@ -208,7 +210,7 @@ So all four report all the time, and one at a time streams raw for a
 detailed look. Classic CAN could carry the features, but not the raw
 stream.
 
-**The PC's side** (not yet written):
+**The PC's side:** `tools/vibmon/` (README there).
 - **Hardware:** SocketCAN with an MCP2518FD on the Raspberry Pi, or a USB
   CAN FD adapter (gs_usb / candleLight, PEAK) ✱.
 - **Daemon:** a userspace daemon (`vibmon`). It:
@@ -278,9 +280,7 @@ parameters) and `test_vibproto`. Both are in `make -C host check`.
 
 1. **Firmware on a board:** bring-up of `vibsensor/` (README there), SPI
    DMA for the FIFO, USB for development.
-2. **The PC's side:**
-   - `vibmon` on SocketCAN: machine state out, frames in, trends, HAL pins;
-   - a simulated bus, so it runs against `stmbl_host` sensors.
+2. **The PC's side:** done, `tools/vibmon/` (README there).
 3. **millweb:** a Measure page with live levels per sensor, spectra and
    waterfalls against rpm and feed, raw capture, alarms and the
    parameters.
