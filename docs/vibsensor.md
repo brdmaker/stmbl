@@ -36,7 +36,11 @@ On the spindle, x and y are radial and z is axial.
 - **PC:** `tools/vibmon/` (numbering, machine state, frames, trends, crash
   latch, watchdog, HAL pins, a JSON socket), tested against simulated
   sensors running the sensor's own code.
-- **Not yet:** the millweb page, the board. See [What's next](#whats-next).
+- **millweb:** the Measure page (`[MILLWEB] VIBMON`; webui/mill/README.md):
+  cards, trends, spectra with the spindle's orders marked, alarms, naming
+  the sensors by tapping them, a console; millweb sends vibmon the machine
+  state.
+- **Not yet:** the board. See [What's next](#whats-next).
 - **✱ marks values to check against a datasheet.**
 
 ## 1. Hardware
@@ -98,8 +102,8 @@ x y z ──hp (2 Hz)──┬── rms, peak, crest, kurtosis per axis ──�
 | `env`, `env_f` | g, Hz | bearing band RMS; the repetition rate in its envelope | bearing defects (BPFO, BPFI, BSF) |
 | `crash`, `shock` | –, g | latched over `shock_lim`; the largest \|a\| since | crashes |
 | `taps` | count | knocks over `tap_g`, 0.3 s apart | naming a sensor (§3.1) |
-| `level` | 0/1/2 | largest `vel_*` against `vel_warn` / `vel_alarm` | severity alarm |
-| `temp_level` | 0/1/2 | `temp` against `temp_warn` / `temp_alarm` | temperature alarm |
+| `level` | 0/1/2 | largest `vel_*` against `vel_warn` / `vel_alarm`; judged after the filters' first 0.5 s, falls back only 10 % below a threshold | severity alarm |
+| `temp_level` | 0/1/2 | `temp` against `temp_warn` / `temp_alarm`, 2 °C of hysteresis | temperature alarm |
 | `reports`, `ffts`, `lost` | count | intervals, FFT blocks, blocks or samples lost | health |
 
 **Parameters** (pins, so set from the config, or the console over the bus):
@@ -281,8 +285,6 @@ parameters) and `test_vibproto`. Both are in `make -C host check`.
 1. **Firmware on a board:** bring-up of `vibsensor/` (README there), SPI
    DMA for the FIFO, USB for development.
 2. **The PC's side:** done, `tools/vibmon/` (README there).
-3. **millweb:** a Measure page with live levels per sensor, spectra and
-   waterfalls against rpm and feed, raw capture, alarms and the
-   parameters.
+3. **millweb:** done, the Measure page.
 4. **The board:** a KiCad project made from this document, as for
    brdstepper.

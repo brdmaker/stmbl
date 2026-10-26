@@ -79,6 +79,7 @@ class Monitor:
         self.last_state = -1e9
         self.con_seq = 0
         self.identifying = False
+        self.on_machine = []   # fn(machine) when the machine state changes (--sim: the simulated spindle)
         self.t0 = self.clock()
 
     # ---------------------------------------------------------------- setup
@@ -125,7 +126,11 @@ class Monitor:
 
     # ---------------------------------------------------------------- commands
     def set_machine(self, **kw):
+        before = dict(self.machine)
         self.machine.update(kw)
+        if self.machine != before:
+            for fn in self.on_machine:
+                fn(self.machine)
 
     def console(self, node, line):
         for can_id, data in vp.console_frames(node, self.con_seq, line.rstrip("\n") + "\n"):
@@ -418,14 +423,21 @@ def main():
     ap.add_argument("--sock", help="JSON socket for millweb")
     ap.add_argument("--hal", action="store_true", help="the vibmon HAL component")
     a = ap.parse_args()
+    sims = []
     if a.sim:
         import simbus
-        bus = simbus.SimBus([simbus.SimSensor("%024x" % (0x5EA50000 + i)) for i in range(a.sim)])
+        sims = [simbus.SimSensor("%024x" % (0x5EA50000 + i)) for i in range(a.sim)]
+        for i, sim in enumerate(sims):  # each sees some unbalance of the spindle, the last one most
+            sim.cmd("vibsim0.unb = %g" % (0.25 * (i + 1)))
+            sim.cmd("vibsim0.noise = 0.01")
+        bus = simbus.SimBus(sims)
     elif a.can:
         bus = vibaddr.SocketCanBus(a.can)
     else:
         ap.error("--can IFACE or --sim N")
     mon = Monitor(bus, config_path=a.config)
+    for sim in sims:  # the simulated spindle turns as the machine state says
+        mon.on_machine.append(lambda m, sim=sim: sim.cmd("vibsim0.rpm = %g" % (m["rpm"] if m["spindle"] else 0)))
     for uid, what in mon.start():
         print("vibmon: %s %s" % (uid, what), flush=True)
     if a.hal:

@@ -2189,3 +2189,15 @@ Entry format:
   `tmp1170.temp` as comp tmp, instance 1170): the TMP117's component is
   `thermo`.
 
+## 2026-10-26  Vibration levels flipped at a threshold, and tripped on the filters' start
+- Area:    shared/comps/vib.c (level, temp_level), host/tests/vib/levels.test
+- Status:  Fixed
+- Symptom: (vibmon --sim) a sensor at 4.4 mm/s, next to vel_warn 4.5, sent
+  a level event most reports, each a line in millweb's event log. With
+  hysteresis added, a steady 11.04 mm/s then stayed at alarm (11.2): the
+  first report after start had passed it.
+- Cause:   no hysteresis; and the high pass and velocity filters ring for a
+  few hundred ms after start (gravity's 1 g step on z).
+- Fix:     a level falls back only 10 % below its threshold (temperature
+  2 degC); levels are judged from 0.5 s after the filters were (re)made.
+

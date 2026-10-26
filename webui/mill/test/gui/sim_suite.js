@@ -9,7 +9,7 @@ const { test, run } = require("./runner");
 
 const MILL = path.resolve(__dirname, "../..");
 const URL = "file://" + path.join(MILL, "index.html");
-const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "config", "set"];
+const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "meas", "stat", "debug", "config", "set"];
 
 // ------------------------------------------------------------ helpers
 const idle = (t, ms = 15000) => t.until(() => (st.run === "idle" || st.run === "done") && !st.motion, null, ms);
@@ -723,6 +723,36 @@ test("Debug page, drives (simulation): cards, the console, history, a command th
   await t.click('#dc-quick [data-c="showconf"]');
   t.check(await t.until(() => /linrev0\.scale=10/.test(document.getElementById("dc-out").textContent)), "a quick button: showconf");
   await t.click('#dbg-tab button[data-t="hal"]');
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Measure (simulation): four sensors, levels, the spectrum with its markers, tap to name, a crash, the console", async (t) => {
+  await t.nav("meas");
+  t.check(await t.until(() => document.querySelectorAll("#ms-cards .ms-card").length === 4), "four sensor cards");
+  t.check((await t.text("#ms-link")) === "SIMULATED", "SIMULATED");
+  t.check(await t.until(() => /mm\/s/.test(document.querySelector('.ms-card[data-node="4"] [data-k="vel"]').textContent)), "a card: velocity in mm/s");
+  t.check(await t.ev(() => document.querySelector('.ms-card[data-node="1"] [data-k="vel"]').classList.contains("ok")), "the base sensor's level: ok (green)");
+  t.check(await t.until(() => (ms.trend[4] || []).length > 3), "a trend builds up");
+  await t.click('.ms-card[data-node="4"] [data-spec]');
+  t.check(await t.until(() => ms.spec[4] && /peak/.test(document.getElementById("ms-spec-info").textContent)), "Spectrum: the spindle's arrives");
+  const pk = +(await t.ev(() => document.getElementById("ms-spec-cv").dataset.peak));
+  t.check(Math.abs(pk - 150) < 15, `its peak at the 1st order, 150 Hz at 9000 rpm (${pk})`);
+  await t.click('#ms-spec-range button[data-r="1000"]');
+  t.check(await t.ev(() => ms.range === 1000), "range 1 kHz");
+  await t.click("#ms-ident");
+  t.check(await t.until(() => ms.tapped && document.querySelector("#ms-sensors tr.tapped")), "Identify, a tap: its row lights up");
+  const row = '#ms-sensors tr.tapped';
+  await t.page.fill(`${row} [data-k="name"]`, "main spindle");
+  await t.click(`${row} [data-assign]`);
+  t.check(await t.until(() => /main spindle/.test(document.querySelector('.ms-card[data-node="4"] .h b').textContent)), "Save: the card has the name");
+  await t.click("#ms-ident");
+  await t.ev(() => vibSim.crash(4));
+  t.check(await t.until(() => /CRASH/.test(document.getElementById("ms-alarms").textContent) && document.querySelector('#nav button[data-p="meas"]').classList.contains("alarm")), "a crash: the alarm, the nav button red");
+  await t.click("#ms-reset");
+  t.check(await t.until(() => !/CRASH/.test(document.getElementById("ms-alarms").textContent)), "Reset crash");
+  await t.page.selectOption("#ms-con-node", "2");
+  await t.page.fill("#ms-con-in", "vib0.fft_n = 4096"); await t.page.press("#ms-con-in", "Enter");
+  t.check(await t.until(() => /> vib0\.fft_n = 4096\nOK/.test(document.getElementById("ms-con-out").textContent)), "the console: a line, its answer");
   t.check(t.errors.length === 0, "no script errors");
 });
 

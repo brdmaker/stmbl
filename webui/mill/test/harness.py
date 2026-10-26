@@ -31,6 +31,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(MILL))  # the repo
 def _find_linuxcnc():
     """A run-in-place tree (LINUXCNC=path, or ~/linuxcnc-2.9), else "": an installed LinuxCNC on PATH."""
     if "LINUXCNC" in os.environ:
@@ -100,8 +101,10 @@ class Machine:
     DRIVE_INI = ["JOINT_0.MAX_VELOCITY=200", "JOINT_0.MAX_ACCELERATION=1500", "JOINT_0.FERROR=5", "JOINT_0.MIN_FERROR=2.5",
                  "AXIS_X.MAX_VELOCITY=200", "AXIS_X.MAX_ACCELERATION=1500"]
 
-    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False, supervised=False, machine=None):
+    def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False, supervised=False, machine=None,
+                 vib=0):
         self.ini_set, self.keep, self.hal_extra, self.drive = list(ini_set), keep, hal_extra, drive
+        self.vib, self.vibmon = vib, None  # vib: this many simulated vibration sensors, through vibmon --sim
         self.supervised, self.machine_json = supervised, machine  # machine: a machine.json (dict) in place of test/machine's
         self.port = port or free_port()
         self.host = host
@@ -125,6 +128,12 @@ class Machine:
             hal_extra += "\n" + open(os.path.join(self.dir, "drive.hal")).read().replace("@DIR@", self.dir)
             ini_set = self.DRIVE_INI + ["MILLWEB.DRIVE=X stmbl-sim.0.current stmbl-sim.0.power stmbl-sim.0.fault",
                                         "MILLWEB.DRIVE_LINK=X %s/drive-x stmbl-sim.0" % self.dir] + ini_set
+        if self.vib:
+            sock = os.path.join(self.dir, "vibmon.sock")
+            self.vibmon = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools", "vibmon", "vibmon.py"), "--sim", str(self.vib),
+                                            "--config", os.path.join(self.dir, "sensors.json"), "--sock", sock],
+                                           stdout=open(os.path.join(self.dir, "vibmon.log"), "w"), stderr=subprocess.STDOUT)
+            ini_set = ["MILLWEB.VIBMON=" + sock] + ini_set
         # millweb through a wrapper that keeps its output (LinuxCNC's own log
         # file is deleted when it exits)
         wrap = os.path.join(self.dir, "millweb-display")
@@ -226,6 +235,9 @@ class Machine:
             except subprocess.TimeoutExpired:
                 os.killpg(self.proc.pid, signal.SIGKILL)
                 ok = False
+        if self.vibmon:
+            self.vibmon.terminate()
+            self.vibmon.wait(10)
         if self.keep or exc[0] is not None:
             print("(kept %s)" % self.dir, flush=True)
         elif self.dir:

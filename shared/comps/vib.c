@@ -32,7 +32,8 @@
 //                  largest |a| since; reset = 1 clears both
 //   taps           counts knocks over tap_g at least 0.3 s apart: tapping a
 //                  sensor names it while the PC identifies (shared/vibaddr.h)
-//   level          0 ok, 1 vel_warn, 2 vel_alarm (largest vel_*)
+//   level          0 ok, 1 vel_warn, 2 vel_alarm (largest vel_*); it falls
+//                  back only 10 % below a threshold
 //   temp_level     0 ok, 1 temp_warn, 2 temp_alarm
 // Every parameter is a pin: set it from the config, the console, or over CAN.
 // The FFTs run in nrt; rt only filters and sums. One instance: one sensor.
@@ -116,6 +117,7 @@ struct vib_ctx_t {
   float vint[3], leak;
   vib_mom_t acc[3], vel[3], envm;
   uint32_t n_int;      // samples in this interval
+  uint32_t settled;    // samples since the filters were made: levels count after 0.5 s
   uint32_t since_tap;  // samples
   int fill, fill_n, blk_w;
   volatile int ready;  // -1 none, else the buffer nrt is to do
@@ -183,6 +185,7 @@ static void setup(struct vib_ctx_t *ctx, struct vib_pin_ctx_t *pins, float fs) {
   PIN(fft_n) = ctx->n;
   ctx->set[7] = PIN(fft_n) + 10 * PIN(fft_axis);
   ctx->fill = ctx->efill = ctx->edec = 0;  // a block from before is of other samples
+  ctx->settled = 0;
 }
 
 static void report(struct vib_ctx_t *ctx, struct vib_pin_ctx_t *pins) {
@@ -204,7 +207,11 @@ static void report(struct vib_ctx_t *ctx, struct vib_pin_ctx_t *pins) {
   }
   PIN(env) = vib_mom_rms(&ctx->envm);
   memset(&ctx->envm, 0, sizeof(vib_mom_t));
-  PIN(level) = vmax >= PIN(vel_alarm) ? 2 : vmax >= PIN(vel_warn) ? 1 : 0;
+  // a level falls back only 10 % below its threshold: a machine running
+  // right at a limit doesn't flip its level (and its events) every report
+  int lv = vmax >= PIN(vel_alarm) ? 2 : vmax >= PIN(vel_warn) ? 1 : 0;
+  int hold = PIN(level) >= 2 && vmax >= 0.9f * PIN(vel_alarm) ? 2 : PIN(level) >= 1 && vmax >= 0.9f * PIN(vel_warn) ? 1 : 0;
+  PIN(level) = ctx->settled >= (uint32_t)(0.5f * vibbuf.fs) ? MAX(lv, hold) : 0;  // not on the filters' start
   PIN(reports)++;
 }
 
@@ -219,7 +226,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(shock)  = 0;
     PIN(reset) = 0;
   }
-  PIN(temp_level) = PIN(temp) >= PIN(temp_alarm) ? 2 : PIN(temp) >= PIN(temp_warn) ? 1 : 0;
+  {  // with 2 degC of hysteresis, as level
+    int lv   = PIN(temp) >= PIN(temp_alarm) ? 2 : PIN(temp) >= PIN(temp_warn) ? 1 : 0;
+    int hold = PIN(temp_level) >= 2 && PIN(temp) >= PIN(temp_alarm) - 2.0f ? 2 : PIN(temp_level) >= 1 && PIN(temp) >= PIN(temp_warn) - 2.0f ? 1 : 0;
+    PIN(temp_level) = MAX(lv, hold);
+  }
   if(PIN(en) <= 0.0f) {
     vibbuf.rd = vibbuf.wr;
     return;
@@ -278,6 +289,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       } else {
         PIN(lost)++;  // nrt still has the other one: this block is written over
       }
+    }
+    if(ctx->settled < 0xFFFFFFFFu) {
+      ctx->settled++;
     }
     if(++ctx->n_int >= per_int) {
       ctx->n_int = 0;
