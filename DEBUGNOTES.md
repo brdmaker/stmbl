@@ -2741,16 +2741,50 @@ Entry format:
 
 ## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
 - Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
-- Status:  Open
+- Status:  Fixed
 - Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
   psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
   but j 24 % high and friction at half. With 3x the inertia every value is
   within tolerance.
-- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
-  less than the electrical time constant l / r = 2.3 ms: the drive
-  segments are mostly current rise, and the momentum fit trades j against
-  friction.
-- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
-  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
-  unit and the load add inertia.
+- Cause:   not the l/r (that guess was wrong: the drive current adapts down
+  to 0.32 A and segments last ~40 ms). Each segment lasted between SEG_MIN
+  and 4 * SEG_MIN, so drive_cur never changed and state 4 settled into a
+  limit cycle of identical segments: the momentum fit had only two distinct
+  equations (drive, coast, mirrored) for four unknowns, and |v| always
+  within max_vel / 2..max_vel made friction and damping 0.994 correlated.
+  It traded friction into damping; state 5 then used that friction as
+  feedforward, the rotor stuck at test_vel / 10, and read friction low too.
+- Fix:     every other pair of drive segments stops at max_vel / 2 (only
+  full-speed segments adapt drive_cur). j +5 %, friction +2 % (was +24 %,
+  -55 %); the other motors' friction errors shrink (rx60_456 -9 -> +1 %,
+  p50b -8 -> -0.5 %). Test: motor_sew_cmp40m.test (no longer @todo).
+
+## 2026-10-26  rlpsij state 5: a start-up kick winds the speed integrator
+- Area:    shared/comps/rlpsij.c (state 5)
+- Status:  Fixed
+- Symptom: with the state 4 fix above alone, p50b, weiler_x and
+  syn_servo_2kw read friction 25-60 % low; which motors fail depends on
+  the direction state 4's brake ends in.
+- Cause:   in the simulated drive the current loop barely follows the brake
+  (iq ~0 for a -1.5 A command) and overshoots when state 5 starts (0.9 A for
+  a 0.1 A command): the rotor kicks to ~20 rad/s, and the speed integrator
+  (gain jq * vel_bw^2 / 4, slow) winds ~-0.13 A while it slows down. At
+  test_vel / 10 the rotor then stands still with negative current, and the
+  phase reads a wrong friction current.
+- Fix:     state 5 integrates the speed error only within test_vel / 2 of
+  the command or below test_vel / 2 (breakaway). Tests:
+  motor_p50b.test, motor_weiler_x.test, motor_syn_servo_2kw.test fail
+  without it (with the state 4 fix in).
+
+## 2026-10-26  make check: test_step2cell.py needs libGLU (gmsh)
+- Area:    host/tests/robot/test_step2cell.py, cloud containers
+- Status:  Note
+- Symptom: `make -C host check` stops at test_step2cell.py with
+  "OSError: libGLU.so.1: cannot open shared object file"; the .test suite
+  after it never runs.
+- Cause:   the gmsh Python package loads libGLU, which the container lacks.
+- Fix:     install libglu1-mesa, or run the remaining check steps by hand
+  (`make -s -C arm all; make -s -C portal all; python3 tests/run_tests.py
+  tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test
+  portal/tests/*.test`).
 
