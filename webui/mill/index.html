@@ -401,6 +401,15 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 /* LinuxCNC down, the supervisor serving: only the Configure page */
 .sup-mode .app { grid-template-columns: 78px minmax(0, 1fr); grid-template-areas: "head head" "nav page" "foot foot"; }
 .sup-mode .ctl, .sup-mode .page-pane:not(#p-config) { display: none !important; }
+.sys-card { grid-column: 1 / -1; }
+.sys-card .bar { height: 6px; }
+.sys-rel { border-top: 1px solid var(--line); padding: 6px 0 2px; }
+.sys-rel-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sys-notes { font-size: 12px; color: var(--ink-dim); padding: 4px 0 4px 10px; }
+.sys-notes h4 { margin: 6px 0 2px; font-size: 12px; color: var(--ink); }
+.sys-notes ul { margin: 2px 0; padding-left: 18px; }
+.sys-notes p { margin: 2px 0; }
+#ch-update { cursor: pointer; }
 .sup-mode .nav button:not([data-p="config"]) { opacity: .35; pointer-events: none; }
 .sup-mode #b-power, .sup-mode #ch-home, .sup-mode #ch-mode, .sup-mode #ch-run { display: none; }
 @media (max-width: 960px) { .sup-mode .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "nav" "page" "foot"; } }
@@ -531,6 +540,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       <span class="chip-st" id="ch-mode"><i></i><span>AUTO</span></span>
       <span class="chip-st" id="ch-run"><i></i><span>IDLE</span></span>
       <span class="chip-st" id="ch-link" hidden><i></i><span>LIVE</span></span>
+      <span class="chip-st warn" id="ch-update" hidden title="A new system version is available (Settings, System)"><i></i><span>UPDATE</span></span>
     </div>
     <div class="prog-name"><span class="label">Program</span><span class="num" id="h-prog">—</span></div>
     <div class="spacer"></div>
@@ -1031,6 +1041,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
 <script src="js/drives.js"></script>
 <script src="js/measure.js"></script>
 <script src="js/config.js"></script>
+<script src="js/sysupdate.js"></script>
 <script src="js/live.js"></script>
 
 </body>

@@ -39,7 +39,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
 WEBROOT = MILL
 sys.path.insert(0, HERE)
-import machineconf  # noqa: E402
+import machineconf
+import sysupdate  # noqa: E402
 import wsserver  # noqa: E402
 
 VERSION = "0.1"
@@ -294,6 +295,7 @@ class Supervisor:
         self.quit = asyncio.Event()
         self.logf = None
         machineconf.init(self.mdir)
+        self.sys = sysupdate.SysUpdate(self.broadcast, self.event)  # while this serves the console
 
     # -------------------------------------------------- state
     def status(self):
@@ -548,6 +550,7 @@ class Supervisor:
         for _ in range(100):  # millweb may still hold it a moment
             try:
                 self.server = await wsserver.Server(WEBROOT, self.handle).serve(host, port)
+                self.sys.start()
                 return
             except OSError:
                 await asyncio.sleep(0.2)
@@ -556,6 +559,7 @@ class Supervisor:
     async def unserve(self):
         if not self.server:
             return
+        self.sys.stop()
         self.server.close()
         for c in list(self.clients.values()):
             try:
@@ -573,7 +577,10 @@ class Supervisor:
         except (machineconf.Invalid, OSError):
             token = ""
         await ws.send_json({"t": "hello", "you": c.id, "machine": None, "supervisor": self.status(), "control": self.control,
-                            "token_required": bool(token), "events": self.events[-60:]})
+                            "token_required": bool(token), "events": self.events[-60:],
+                            "sysupdate": self.sys.enabled})
+        if self.sys.status is not None:
+            await ws.send_json(self.sys.snapshot())
         try:
             while True:
                 text = await ws.recv()
@@ -623,7 +630,10 @@ class Supervisor:
                 return await reply(**self.ops.version(m.get("version")))
             if op == "mmodel_get":
                 return await reply(**await loop.run_in_executor(None, self.ops.model_get, m.get("name")))
-            if op not in ("config_save", "bitstream_save", "bitstream_delete", "mmodel_save", "mmodel_delete", "lcnc_start", "lcnc_restart", "lcnc_stop"):
+            if op in sysupdate.READ_OPS:
+                r = await self.sys.op(op, m, c.name)
+                return await reply(r) if isinstance(r, str) else await reply(**r)
+            if op not in ("config_save", "bitstream_save", "bitstream_delete", "mmodel_save", "mmodel_delete", "lcnc_start", "lcnc_restart", "lcnc_stop") + sysupdate.OPS:
                 return await reply("LinuxCNC isn't running (%s): only the Configure page works" % self.state)
             if self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -645,6 +655,9 @@ class Supervisor:
                 return await reply(self.ops.model_delete(m.get("name")), models=self.ops.models())
             if op == "bitstream_delete":
                 return await reply(self.ops.bitstream_delete(m.get("name")), bitstreams=self.ops.bitstreams())
+            if op in sysupdate.OPS:
+                r = await self.sys.op(op, m, c.name)
+                return await reply(r) if isinstance(r, str) else await reply(**r)
             if op in ("lcnc_start", "lcnc_restart"):
                 self.start()
                 return await reply()

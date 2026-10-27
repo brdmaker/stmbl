@@ -16,6 +16,32 @@ Entry format:
 
 ---
 
+## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
+- Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
+- Status:  Fixed
+- Symptom: On the EBAZ4205 images 2026.10.26.1/.2 the System card showed the
+  version but Check, Upgrade and Restart did nothing; the page got no answer.
+- Cause:   Three things. The card called `Live.sys` (the API is `Live.L`); a
+  first fix used the global `LIVE`, which is still null when the hello arrives,
+  so every page load threw (the whole live suite failed on it). And the
+  replies merged the `{"t": "sys", ...}` snapshot into `{"t": "reply", ...}`,
+  so the reply's type was overwritten and the page never matched it.
+- Fix:     `Live.L.sys`; replies carry `status`/`check` only. Tests:
+  `server/tests/test_sysupdate.py` (`test_replies_dont_carry_a_message_type`),
+  `test/gui/live_suite.js` "system updates: ..." with
+  `MILLWEB_UPDATE_CMD=test/fake-update-helper`.
+
+## 2026-10-26  Live GUI suite on the EBAZ4205: some cases fail only in the full run
+- Area:    `webui/mill/test/gui/live_suite.js` (remote, Chromium on a Pi 400 against the board)
+- Status:  Open
+- Symptom: In a full `make test-gui-live REMOTE=board:8080` run, "file page" (run
+  with the cycle buttons, file management), "3D models" and "scope" failed; run
+  alone (`-k`) the same cases pass, with and without the system-update change
+  (the branch without it failed "3D models" alone once, too).
+- Cause:   Not known; timing under load (a slow board and a software-rendering
+  browser) is the likely one.
+- Fix:     Open: find the waits that are too short in those cases.
+
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
 - Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)

@@ -31,6 +31,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
 | `js/machmodel.js` | the machine's own 3D model in the view: parts that move with the axes |
 | `js/config.js` | the Configure page: machine.json in forms and as text, Check, history, Restart |
+| `js/sysupdate.js` | the System card (Settings; the Configure page while LinuxCNC is down): system version, releases and their notes, upgrade, downgrade, restart |
 | `js/scope.js` | the Debug page's scope (triggering, drawing, cursor), its tabs and saved views |
 | `js/live.js` | the live machine: the WebSocket client behind the same actions; decides live or simulated at start |
 | `millweb` | the backend's launcher: LinuxCNC's display program |
@@ -42,6 +43,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `server/supervisor.py` | millweb-supervisor: the bitstream, the INI and HAL, LinuxCNC's runs; the page while LinuxCNC is down |
 | `server/machineconf.py` | machine.json: checking it, the INI and HAL made of it, saving with a history |
 | `server/fpga_load.py` | loads a bitstream through Linux's FPGA manager (root, via sudo) |
+| `server/sysupdate.py` | system updates through the controller's update helper (`ebaz-update` on the EBAZ4205 image) |
 | `server/sampler.py` | the scope's sampler: HAL values at a steady rate, in a process of its own |
 | `server/preview.py` | a program's toolpath from LinuxCNC's interpreter (the `gcode` module, as AXIS previews) |
 | `server/wsserver.py` | HTTP(S) and WebSocket on asyncio (RFC 6455), standard library only |
@@ -188,6 +190,29 @@ the INI is configured by hand):
 | `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
+
+## System updates
+
+On a controller whose image has an update helper (the EBAZ4205 A/B image:
+`/usr/local/sbin/ebaz-update`, hostmot2 repo `ebaz4205/doc/ota.md`), the
+**System** card on the Settings page (the Configure page while LinuxCNC is
+down) updates the whole controller system: Linux, LinuxCNC, this console.
+
+- **This system:** its version, slot, components; how the last update ended
+  (updated, or rolled back because the new version didn't start).
+- **Releases** from the update server, newest first, each with its notes
+  (**What's new**): **Upgrade to latest**, or **Upgrade** / **Downgrade** to
+  any listed version. The header's **UPDATE** chip says a newer one is there
+  (checked at start and every hour).
+- **Installing** goes into the other system slot while this one keeps
+  running (progress on the card); **Restart now** then starts it. If it
+  doesn't come up, the controller goes back to the running version by itself.
+- Installing and restarting need control and no program running; any browser
+  sees the releases.
+
+The ops: `sys_status`, `sys_check` (reading), `sys_install` (`version`),
+`sys_reboot`; browsers get `{"t": "sys", "status", "check"}`.
+`MILLWEB_UPDATE_CMD` names another helper (or, empty, switches it off).
 
 ## The protocol
 

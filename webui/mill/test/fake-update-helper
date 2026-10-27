@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+# A stand-in for the controller's update helper (ebaz-update), for the tests: MILLWEB_UPDATE_CMD=test/fake-update-helper
+# (server/tests/test_sysupdate.py, test/gui/live_suite.js). State in $FAKE_DIR (default: /tmp/millweb-fake-update).
+import json, os, sys
+d = os.environ.get("FAKE_DIR", "/tmp/millweb-fake-update"); os.makedirs(d, exist_ok=True); p = os.path.join(d, "state.json")
+s = json.load(open(p)) if os.path.exists(p) else {"version": "1.0", "install": None}
+a = sys.argv[1:]
+open(os.path.join(d, "calls"), "a").write(" ".join(a) + "\n")
+rel = [{"version": "1.1", "date": "2026-10-26", "notes": "## New\n- faster", "bundle": "b/1.1.raucb"},
+       {"version": "1.0", "date": "2026-10-20", "notes": "first", "bundle": "b/1.0.raucb"},
+       {"version": "0.9", "date": "2026-10-10", "notes": "old", "bundle": "b/0.9.raucb"}]
+if a == ["status"]:
+    print(json.dumps({"version": s["version"], "slot": "A", "install": s["install"], "last": None}))
+elif a == ["check"]:
+    for r in rel:
+        r["current"] = r["version"] == s["version"]; r["newer"] = r["version"] > s["version"]
+    print(json.dumps({"ok": True, "current": s["version"], "latest": "1.1", "update_available": s["version"] < "1.1", "releases": rel}))
+elif a[:1] == ["install"]:
+    if a[1] not in [r["version"] for r in rel]:
+        print(json.dumps({"ok": False, "error": "no release " + a[1]}))
+    else:
+        s["install"] = {"state": "running", "version": a[1], "percent": 10, "message": "Checking bundle"}
+        print(json.dumps({"ok": True, "started": a[1]}))
+elif a == ["reboot"]:
+    print(json.dumps({"ok": True}))
+json.dump(s, open(p, "w"))
