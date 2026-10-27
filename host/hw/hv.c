@@ -52,6 +52,7 @@
 #include "vbrake.h"
 #include "common.h"
 #include "f3hw.h"
+#include "mtemp.h"
 #include <math.h>
 #include "version_number.h"
 
@@ -113,6 +114,8 @@ HAL_PIN(sim_f);      // coulomb friction [Nm]
 HAL_PIN(sim_load);   // external load torque [Nm]
 HAL_PIN(sim_brake);  // holding brake torque [Nm], applied while not released
 HAL_PIN(sim_brake_release);  // brake output (io0.out0), 1 = released
+HAL_PIN(sim_brake_delay);    // [s] the brake grips / releases this long after the output
+HAL_PIN(sim_brake_on);       // out: the brake grips (mechanically)
 HAL_PIN(sim_phase_rev);  // phase order reversed (cancelled by rev = 1)
 HAL_PIN(sim_udc);        // sim_supply 0 (and the stepper): the supply voltage [V]
 HAL_PIN(sim_supply);     // 0: stiff sim_udc, 1: rectified mains into the drive's capacitors
@@ -153,6 +156,11 @@ HAL_PIN(sim_sense_gain);    // IPROPI gain error, share: + on A, - on B (DRV8876
 HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods] (0: off)
 HAL_PIN(sense_off_a);       // the offsets it found [A]
 HAL_PIN(sense_off_b);
+// the motor's temperature sensor (shared/mtemp.h): mot_temp is its resistance [ohm], as the F3 reports it
+HAL_PIN(sim_temp);         // winding temperature [degC]
+HAL_PIN(sim_temp_sensor);  // its sensor type (mtemp.h), 0: none fitted (the input reads open, -1)
+HAL_PIN(sim_temp_wire);    // 0 ok, 1 open wire, 2 shorted
+HAL_PIN(sim_temp_tnat);    // PTC / switch: trip temperature [degC]
 
 HAL_PIN(sim_type);       // 0 = PMSM, 1 = induction motor
 HAL_PIN(sim_rr);         // induction: rotor resistance [ohm]
@@ -172,6 +180,7 @@ HAL_PIN(sim_max_pos);
 HAL_PIN(sim_stop_hits);  // end stop contacts
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
+HAL_PIN(sim_turn); // a hand on the shaft: turns it by this much [rad], at 1 rev/s, counting down to 0
 HAL_PIN(sim_acc);
 HAL_PIN(sim_upos);  // unwrapped mechanical position [rad] (sim_pos = mod(sim_upos))
 HAL_PIN(sim_torque);  // electrical torque [Nm]
@@ -218,6 +227,7 @@ struct hv_ctx_t {
   float mains_ph;  // mains phase, 0..1
   float ov_err;    // io.c's err_filter state
   int hv_fault;    // the F3's own fault (over-voltage), until the F4 disables it
+  float hbrake_t;  // [s] since the holding brake's output changed
   int chop;        // the chopper is on
   double abs0;      // upos where sim_abs_pos is 0 (the start)
   int abs0_set;
@@ -265,7 +275,7 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_torque)  = te;
     return;
   }
-  float tf     = PIN(sim_f) + (PIN(sim_brake_release) > 0.0 ? 0.0 : PIN(sim_brake));
+  float tf     = PIN(sim_f) + (PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0);
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
   if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside
@@ -417,11 +427,30 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(max_duty) = 0.95;
   PIN(sense_window) = 0.1;
   PIN(sense_thr)    = 0.01;
+  PIN(sim_temp)      = 25;
+  PIN(sim_temp_tnat) = 130;
+  PIN(mot_temp)      = -1;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_ctx_t *ctx      = (struct hv_ctx_t *)ctx_ptr;
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
+
+  // the motor's temperature sensor
+  int ts = (int)PIN(sim_temp_sensor), tw = (int)PIN(sim_temp_wire);
+  PIN(mot_temp) = ts <= 0 || tw == 1 ? -1.0 : tw == 2 ? 0.5 : mtemp_r_of(ts, PIN(sim_temp), 10000.0, 3950.0, PIN(sim_temp_tnat));
+
+  // the holding brake follows its output after sim_brake_delay
+  int want = PIN(sim_brake_release) <= 0.0;
+  if(want != (PIN(sim_brake_on) > 0.0)) {
+    ctx->hbrake_t += period;
+    if(ctx->hbrake_t >= PIN(sim_brake_delay)) {
+      PIN(sim_brake_on) = want;
+      ctx->hbrake_t     = 0.0;
+    }
+  } else {
+    ctx->hbrake_t = 0.0;
+  }
 
   // --- F4 side, as in src/comps/hv.c: what goes into the packet to the F3
   float d_cmd = PIN(d_cmd);
@@ -709,6 +738,16 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
 feedback:
+  if(PIN(sim_turn) != 0.0 && PIN(sim_brake_on) > 0.0 && PIN(sim_brake) > 0.0) {
+    PIN(sim_turn) = 0.0;  // a closed brake: the hand can't turn it
+  }
+  if(PIN(sim_turn) != 0.0) {  // the hand wins over the motor
+    float step = SIGN(PIN(sim_turn)) * MIN(fabsf(PIN(sim_turn)), 2.0 * M_PI * period);
+    PIN(sim_pos)  = mod(PIN(sim_pos) + step);
+    PIN(sim_dist) += step;
+    PIN(sim_turn) -= step;
+    PIN(sim_vel)  = 0.0;
+  }
   // --- back to the F4, as src/comps/hv.c reports it, optionally delayed
   ctx->fb_pos = (ctx->fb_pos + 1) % (FB_DELAY_MAX + 1);
   if(PIN(sim_cur_noise) > 0.0) {  // xorshift32: same noise on every run

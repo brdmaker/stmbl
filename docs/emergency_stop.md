@@ -67,6 +67,20 @@ them in the drive config after the `link` lines, as with any pin.
   outputs go off.
 - **Holding brake:** `fault0.mot_brake` stays released during a stop. It
   engages once the motor stands still and the outputs go off.
+- **`fault0.brake_time` [s]:** a holding brake grips tens of ms after its
+  output. A vertical axis falls in between if the outputs go off at the
+  same instant: 18.7 rad (3 turns) on the burn-in axis with a 50 ms brake
+  and a 0.5 Nm hanging load.
+  - **With `brake_time` > 0:** when the drive disables, or a stop ends,
+    the brake is told to grip, and the axis is still held for that long:
+    the quick stop holding its position, or the dynamic brake still
+    shorting. Then the outputs go off (`fault0.brake_hold` shows it).
+  - **No hold:** HV faults, and a feedback fault without the dynamic brake,
+    switch off at once.
+  - **Enabling again** ends the hold.
+  - **0 (the default):** the old behaviour.
+  - **Setting it:** the setup wizard measures it (docs/setup_wizard.md);
+    otherwise use the brake's engage time × 1.5 + 20 ms.
 
 ## Quick stop (`qstop`)
 
@@ -430,6 +444,7 @@ The hand-written `estop_*` tests (`host/tests/ebrake/`):
 | `f4dead`, `f4dead_coast` | the F3 braking on its own when the F4 is lost, and coasting without the flag |
 | `reverse`, `standstill`, `reenable` | the quick stop moving backwards, at standstill, and re-enabling after it (enable is ignored while a stop runs) |
 | `holding_brake` | the holding brake stays released while braking, grips at standstill, and then holds a hanging load |
+| `brake_time` | a 50 ms brake under a hanging load: without `brake_time` the axis falls 3 turns at disable, with 80 ms it doesn't move |
 | `bus_high`, `giveup` | rv backs off towards a short when the bus is high, but not past the current target; the brake gives up when the current can't be held |
 | `f4dead_standstill`, `f4_returns` | the F3 brake at standstill; the F4 coming back after it |
 | `hv_during` | an HV fault during a quick stop ends it at once |

@@ -12,6 +12,12 @@ Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 | [capture_scope.md](capture_scope.md) | `scope0`: capture in the drive, download over any console; pins, triggers, modes, dump format |
 | [sserial_bootloader.md](sserial_bootloader.md) | firmware updates: in-band over the console (`fwup`, `servoterm-cli --update`) and recovery with `setsserial flash`; flash layout, the single-bank stall |
 
+Setup (branch `setup-wizard`):
+
+| doc | what |
+|---|---|
+| [setup_wizard.md](setup_wizard.md) | `servoterm-cli --wizard`: sets up a drive and its motor step by step from the nameplate, measures the rest, wiring help, version check; the library for a GUI; tested on 35 simulated motors |
+
 brdstepper (branch `brdstepper`):
 
 | doc | what |
