@@ -3164,6 +3164,10 @@ Entry format:
 - Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
   it alters every drive's reported position; check it on the bench first
   (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).
+- Also:    2026-10-27, the simulated CN 720 (host/mill, ball screws, SEW
+  CMP40M) merged with master: mill_move's following error 16.9 / 17.2 um
+  against 15 (the branch: under 15); with pos_advance 0.0006 10/10. Marked
+  @todo there too.
 
 ## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
 - Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
