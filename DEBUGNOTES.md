@@ -2238,3 +2238,14 @@ Entry format:
   the tail chamfer.
 - Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
   rotation 90; the socket's leads bend to them inside the potting.
+
+## 2026-10-27  SEW CMP40M resolver cable: pairs found by resistance
+- Area:    conf/sew_cmp40m.txt (RH1M resolver on res_fb0)
+- Status:  Note
+- Symptom: SEW's green resolver cable cut off its D-sub; which pair is
+  excitation, sin and cos.
+- Cause:   colours only; SEW's tables disagree on pins.
+- Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
+  out is the excitation (grey/pink 77.4 ohm), sin and cos match
+  (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
+  comments. KTY (violet/black) still to be measured.
