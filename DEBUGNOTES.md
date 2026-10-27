@@ -3596,3 +3596,15 @@ Entry format:
   made 31, the tests' two scales 33. `hal` shows it: "HAL_MAX_COMPS 31/32".
 - Fix:     HAL_MAX_COMPS 40 (~0.5 KB RAM on the F4). A user's config
   loading extra comps would have hit the same limit.
+
+## 2026-10-27  call_cmd: a long command argument overflowed the stack
+- Area:    `shared/commands.c` (call_cmd), every console (drive, F3, host, vibration sensor)
+- Status:  Fixed
+- Symptom: tests/vib/node.test failed on the bench Pi (32-bit ARM), also on
+  claude/mill-webui alone: the sensor never took its node number; on x86 it
+  passed.
+- Cause:   call_cmd split a line with sscanf(" %[a-zA-Z_0-9] %[ -~]") into
+  64-byte buffers, unbounded: the SET frame's 67-character argument ran past
+  `a` on the stack. Where it landed decided whether anything broke.
+- Fix:     bounded fields (%63, %127; `a` is 128 bytes). Test:
+  tests/vib/node.test (fails on ARM without it).

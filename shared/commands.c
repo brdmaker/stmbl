@@ -128,8 +128,10 @@ COMMAND("ident", ident_print, "the drive's name and motor type (machine-readable
 
 uint32_t call_cmd(char *s) {
   char c[64];
-  char a[64];
-  uint32_t matches = sscanf(s, " %[a-zA-Z_0-9] %[ -~]", c, a);
+  char a[128];
+  // bounded: an argument longer than the buffer overflowed the stack (a
+  // 67-character vnin frame broke the vibration sensor's test on 32-bit ARM)
+  uint32_t matches = sscanf(s, " %63[a-zA-Z_0-9] %127[ -~]", c, a);
   switch(matches) {
     case 0:
       return (0);

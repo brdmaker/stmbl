@@ -743,7 +743,11 @@ feedback:
   }
   if(PIN(sim_turn) != 0.0) {  // the hand wins over the motor
     float step = SIGN(PIN(sim_turn)) * MIN(fabsf(PIN(sim_turn)), 2.0 * M_PI * period);
-    PIN(sim_pos)  = mod(PIN(sim_pos) + step);
+    // on the unwrapped position: mech_step makes sim_pos from it
+    ctx->upos += step;
+    PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
+    PIN(sim_pos)  = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
+    PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
     PIN(sim_dist) += step;
     PIN(sim_turn) -= step;
     PIN(sim_vel)  = 0.0;
