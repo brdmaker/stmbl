@@ -177,6 +177,13 @@ void cmd_nrt(char *ptr) {
 }
 COMMAND("nrt", cmd_nrt, "run one non-realtime pass");
 
+void cmd_autonrt(char *ptr) {
+  int on = 1;
+  sscanf(ptr, " %i", &on);
+  drive_set_nrt(on);
+}
+COMMAND("autonrt", cmd_autonrt, "autonrt [0|1]: run nrt about once per ms during run/step, as the device's main loop");
+
 void cmd_time(char *ptr) {
   (void)ptr;
   printf("sim time: %.6f s (%llu ms)\n", drive_time(), (unsigned long long)systime);

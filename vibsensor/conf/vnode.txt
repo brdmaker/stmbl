@@ -1,0 +1,37 @@
+load vib
+load vnode
+vib0.rt_prio = 2
+vnode0.rms_x = vib0.rms_x
+vnode0.rms_y = vib0.rms_y
+vnode0.rms_z = vib0.rms_z
+vnode0.peak_x = vib0.peak_x
+vnode0.peak_y = vib0.peak_y
+vnode0.peak_z = vib0.peak_z
+vnode0.vel_x = vib0.vel_x
+vnode0.vel_y = vib0.vel_y
+vnode0.vel_z = vib0.vel_z
+vnode0.kurt_x = vib0.kurt_x
+vnode0.kurt_y = vib0.kurt_y
+vnode0.kurt_z = vib0.kurt_z
+vnode0.env = vib0.env
+vnode0.env_f = vib0.env_f
+vnode0.temp = vib0.temp
+vnode0.level = vib0.level
+vnode0.temp_level = vib0.temp_level
+vnode0.crash = vib0.crash
+vnode0.shock = vib0.shock
+vnode0.taps = vib0.taps
+vnode0.reports = vib0.reports
+vnode0.ffts = vib0.ffts
+vnode0.fft_n = vib0.fft_n
+vnode0.fft_axis = vib0.fft_axis
+vnode0.fft_f = vib0.fft_f
+vnode0.fft_a = vib0.fft_a
+vnode0.ord1 = vib0.ord1
+vnode0.ord2 = vib0.ord2
+vnode0.ord3 = vib0.ord3
+vnode0.tpf = vib0.tpf
+vnode0.chat_f = vib0.chat_f
+vnode0.chat_a = vib0.chat_a
+vib0.rpm = vnode0.rpm
+vib0.teeth = vnode0.teeth

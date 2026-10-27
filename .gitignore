@@ -38,7 +38,9 @@ host/test_cur_offset
 host/test_bootloader
 host/test_bip
 host/test_stmblcan
+host/test_vibproto
 brdstepper/obj
+vibsensor/obj
 host/servoterm
 host/test_robot
 host/servoterm.dSYM/

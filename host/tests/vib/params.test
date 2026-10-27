@@ -1,0 +1,45 @@
+# Every parameter is a pin, so the console, the config or the bus set it
+# while it runs:
+# - fft_n 4096 (6.5 Hz bins) and fft_axis 2 (z): a ball screw turning at
+#   7500 mm/min / 5 mm = 25 Hz shows on z;
+# - fft_n 3000 is not a power of two: the nearest below, 2048;
+# - vel_lp 50 Hz: the 100 Hz velocity falls to 1/sqrt(1 + 2^4) = 0.243;
+# - interval 0.5 s: two reports a second;
+# - temperature levels.
+@include tests/vib/setup.inc
+vibsim0.rpm = 6000
+vibsim0.unb = 1
+vibsim0.feed = 7500
+vibsim0.screw_a = 0.5
+vib0.fft_n = 4096
+vib0.fft_axis = 2
+run 2
+vib0.fft_f
+vib0.fft_a
+vib0.fft_n = 3000
+run 0.1
+vib0.fft_n
+vib0.vel_x
+vib0.vel_lp = 50
+run 1
+vib0.vel_x
+vib0.interval = 0.5
+vib0.reports = 0
+run 2
+vib0.reports
+vib0.temp_level
+vibsim0.temp = 65
+step 1
+vib0.temp_level
+vibsim0.temp = 85
+step 1
+vib0.temp_level
+@expect vib0.fft_f ~ 25 0.5
+@expect vib0.fft_a ~ 0.3536 5%
+@expect vib0.fft_n == 2048
+@expect vib0.vel_x[1] ~ 11.04 2%
+@expect vib0.vel_x[2] ~ 2.68 5%
+@expect vib0.reports ~ 4 0
+@expect vib0.temp_level[1] == 0
+@expect vib0.temp_level[2] == 1
+@expect vib0.temp_level[3] == 2

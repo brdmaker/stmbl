@@ -17,7 +17,7 @@ const MILL = path.join(__dirname, "..", "..");
 const URL = process.env.TABLET_URL || "file://" + path.join(MILL, "index.html");
 const BAR = 64;
 const TABLETS = [["iPad mini", 744, 1133], ["iPad 10.2", 810, 1080], ["iPad Air", 820, 1180], ["iPad Pro 11", 834, 1194], ["iPad Pro 12.9", 1024, 1366], ["Android 10 in", 800, 1280]];
-const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug:hal", "debug:scope", "debug:drives", "config", "set"];
+const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "meas", "stat", "debug:hal", "debug:scope", "debug:drives", "config", "set"];
 
 // in the page: what a finger can't reach
 function audit() {

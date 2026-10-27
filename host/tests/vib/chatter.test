@@ -1,0 +1,29 @@
+# Milling at 12000 rpm with 2 teeth: the tooth passing at 400 Hz (0.5 g),
+# a little unbalance, noise, and chatter at 1730 Hz (0.4 g peak = 0.283 g
+# RMS), which is no harmonic of the spindle's 200 Hz: found, at its own
+# frequency. Without the chatter, what the search finds is noise.
+@include tests/vib/setup.inc
+vibsim0.rpm = 12000
+vibsim0.teeth = 2
+vibsim0.tpf_a = 0.5
+vibsim0.unb = 0.3
+vibsim0.noise = 0.02
+vibsim0.chat_f = 1730
+vibsim0.chat_a = 0.4
+run 1
+vib0.chat_f
+vib0.chat_a
+vib0.tpf
+vib0.ord1
+vibspec 4
+vibsim0.chat_a = 0
+run 1
+vib0.chat_a
+vib0.tpf
+@expect vib0.chat_f[1] ~ 1730 3
+@expect vib0.chat_a[1] ~ 0.2828 5%
+@expect vib0.tpf[1] ~ 0.3536 3%
+@expect vib0.ord1[1] ~ 0.2121 3%
+@expect vib0.chat_a[2] < 0.02
+@expect vib0.tpf[2] ~ 0.3536 3%
+@match ^\s+17(29|30)\.\d Hz

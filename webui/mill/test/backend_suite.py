@@ -64,6 +64,7 @@ PROFILES = {
     "drivewrite": dict(drive=True, ini_set=["MILLWEB.DRIVE_WRITE=yes"]),
     "supervised": dict(supervised=True),
     "drivefw2": dict(drive=True, ini_set=["MILLWEB.DRIVE_FW=2"]),
+    "vib": dict(vib=2),
     "remote": dict(ini_set=["MILLWEB.REMOTE_ENABLE_PIN=remote-key.in0", "MILLWEB.AIR_PIN=air.in0"],
                    hal_extra="loadrt or2 names=remote-key,air\nsetp remote-key.in0 1"),
 }
@@ -1063,6 +1064,47 @@ def drv(c, name="X"):
 
 def douts(c, mark, name="X"):
     return "".join(m["text"] for m in c.msgs[mark:] if m["t"] == "dout" and m["n"] == name)
+
+
+def vibst(c):
+    m = c.last("vib")
+    return (m or {}).get("status") or {}
+
+
+def vibsensor(c, node):
+    return next((x for x in vibst(c).get("sensors", []) if x["node"] == node), None)
+
+
+@case("vibration sensors through vibmon: numbered, the spindle's speed from LinuxCNC into their order tracking, a spectrum, a parameter with control", profile="vib")
+async def _(t):
+    a, b = t.a, await t.open()
+    t.check(a.hello["machine"]["vibmon"] is True, "hello: vibmon set up")
+    t.check(await a.until(lambda c: len(vibst(c).get("sensors", [])) == 2 and all(x["features"] for x in vibst(c)["sensors"]), 20),
+            "two sensors, reporting (%s)" % [x["node"] for x in vibst(a).get("sensors", [])])
+    t.check((a.last("vib") or {}).get("up") is True, "millweb is connected to vibmon")
+    mk = a.mark()
+    await t.mdi("M3 S6000")
+    t.check(await a.until(lambda c: vibst(c)["machine"]["rpm"] == 6000 and vibst(c)["machine"]["spindle"], 5), "vibmon has the spindle: 6000 rpm, on")
+    # the second simulated sensor sees 0.5 g of unbalance: its 1st order 0.354 g at 100 Hz
+    t.check(await a.until(lambda c: (vibsensor(c, 2)["summary"] or {}).get("rpm") == 6000
+                          and abs(vibsensor(c, 2)["summary"]["ord"][0] - 0.3536) < 0.015, 10),
+            "sensor 2: 1st order 0.354 g at the machine's 6000 rpm (%s)" % (vibsensor(a, 2) or {}).get("summary"))
+    mb = b.mark()
+    t.ok(await b.call("vib_spectrum", node=2), "a spectrum, without control")
+    t.check(await b.until(lambda c: c.since(mb, lambda m: m["t"] == "vibspectrum" and m["node"] == 2 and m["spectrum"]), 10), "it comes")
+    sp = b.since(mb, lambda m: m["t"] == "vibspectrum" and m["node"] == 2)["spectrum"]
+    k = max(range(1, len(sp["rms"])), key=lambda i: sp["rms"][i])
+    t.check(len(sp["rms"]) == 1025 and abs(k * sp["df"] - 100) <= sp["df"], "1025 bins, the peak at 100 Hz (%.1f)" % (k * sp["df"]))
+    t.refused(await b.call("vib_console", node=2, line="vib0.fft_n = 4096"), "a parameter without control", "control")
+    t.ok(await a.call("vib_console", node=2, line="vib0.fft_n = 4096"), "a parameter with control")
+    t.check(await a.until(lambda c: (vibsensor(c, 2)["summary"] or {}).get("fft_n") == 4096, 10), "the sensor runs 4096-point FFTs")
+    t.check(await a.until(lambda c: c.ev(mk, "to vibration sensor 2: vib0.fft_n = 4096") is not None, 5), "logged")
+    t.ok(await a.call("vib_identify", on=True), "identify on")
+    t.check(await a.until(lambda c: vibst(c).get("identifying") is True, 5), "vibmon is identifying")
+    await a.call("vib_identify", on=False)
+    t.refused(await a.call("vib_console", node=2, line=""), "an empty line", "1..120")
+    await t.mdi("M5")
+    t.check(await a.until(lambda c: vibst(c)["machine"]["spindle"] is False, 5), "M5: the spindle off for vibmon too")
 
 
 @case("drive: the card (state, fault, bus, temperatures, process data), the console for every browser, reading only", profile="drive")

@@ -261,6 +261,24 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 #sc-ch .note { margin: 0; }
 .drv-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 8px; min-height: 0; flex: 1; }
 .drv-cards { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; }
+/* ---------- the Measure page */
+.ms-bar { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ms-alarms { display: flex; gap: 6px; flex-wrap: wrap; }
+.ms-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; flex-shrink: 0; }
+.ms-card { cursor: pointer; }
+.ms-card.sel { border-color: var(--accent); }
+.ms-card .h { display: flex; align-items: center; gap: 6px; }
+.ms-card .h b { font: 600 15px var(--f-head, var(--f-body)); letter-spacing: .04em; margin-right: auto; }
+.ms-card .ft { display: flex; gap: 6px; flex-wrap: wrap; }
+.ms-big { font: 600 26px var(--f-mono); font-variant-numeric: tabular-nums; }
+.ms-big small { font-size: 12px; color: var(--ink-dim); }
+.ms-big.ok { color: var(--ok); } .ms-big.warn { color: var(--warn); } .ms-big.bad { color: var(--stop); }
+.ms-spark { width: 100%; height: 34px; display: block; }
+.ms-spec-wrap { position: relative; height: 240px; }
+.ms-spec-wrap canvas { width: 100%; height: 100%; display: block; }
+.ms-sensors input { width: 10em; } .ms-sensors tr.tapped td { background: var(--accent-dim); }
+#ms-con-out { max-height: 160px; min-height: 60px; }
+.nav button.alarm { color: var(--stop); border-color: var(--stop); }
 .drv-card { flex-shrink: 0; }
 .drv-card .h { display: flex; align-items: center; gap: 6px; }
 .drv-card .h b { font: 600 15px var(--f-head, var(--f-body)); letter-spacing: .04em; margin-right: auto; }
@@ -847,6 +865,45 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
     </section>
 
     <!-- STATUS -->
+    <!-- MEASURE: the vibration sensors (docs/vibsensor.md, through vibmon) -->
+    <section class="page-pane" id="p-meas" hidden>
+      <div class="panel ms-bar">
+        <span class="label">Vibration</span><span class="pill off" id="ms-link">—</span><span class="ms-alarms" id="ms-alarms"></span>
+        <span class="muted" id="ms-machine"></span>
+        <span class="grow"></span>
+        <button class="btn sm" id="ms-reset" title="Clear every sensor's crash alarm">Reset crash</button>
+        <button class="btn sm" id="ms-ident" aria-pressed="false" title="Tap a sensor on the machine to see which it is">Identify</button>
+        <button class="btn sm" id="ms-rescan" title="Find the sensors again and number new ones">Rescan</button>
+      </div>
+      <div class="ms-cards" id="ms-cards"></div>
+      <div class="panel ms-spec">
+        <h2>Spectrum <small id="ms-spec-info">—</small></h2>
+        <div class="row">
+          <select id="ms-spec-node" aria-label="Sensor"></select>
+          <div class="seg" id="ms-spec-range" role="group" aria-label="Range"><button data-r="1000" aria-pressed="false">1 kHz</button><button data-r="5000" aria-pressed="true">5 kHz</button><button data-r="0" aria-pressed="false">all</button></div>
+          <button class="btn sm accent" id="ms-spec-get">Get</button>
+          <label class="muted"><input type="checkbox" id="ms-spec-auto"> every second</label>
+          <span class="grow"></span><span class="mono muted" id="ms-spec-read"></span>
+        </div>
+        <div class="ms-spec-wrap"><canvas id="ms-spec-cv" aria-label="Spectrum"></canvas></div>
+        <p class="note">g RMS per bin. Markers: the spindle's orders 1× 2× 3× (rpm / 60), tooth passing TP (teeth × rpm / 60), chatter (the strongest peak that is no spindle harmonic).</p>
+      </div>
+      <div class="panel ms-setup">
+        <h2>Sensors <small>which is where</small></h2>
+        <div class="wrapx"><table class="t ms-sensors" id="ms-sensors"></table></div>
+        <p class="note" id="ms-ident-note"></p>
+      </div>
+      <div class="panel ms-con">
+        <h2>Sensor console</h2>
+        <form class="row" id="ms-con-form" autocomplete="off">
+          <select id="ms-con-node" aria-label="Sensor"></select>
+          <input id="ms-con-in" class="grow" placeholder="vib0.fft_n = 4096 · vib0.shock_lim = 10 · appendconf … · flashsaveconf" maxlength="120" spellcheck="false" aria-label="Sensor command">
+          <button class="btn sm accent" type="submit">Send</button>
+        </form>
+        <pre class="drv-out" id="ms-con-out" aria-live="polite"></pre>
+      </div>
+    </section>
+
     <section class="page-pane" id="p-stat" hidden>
       <div class="panel">
         <h2>Events <span class="row"><span class="seg" id="ev-filter" role="group" aria-label="Show"><button data-f="all" aria-pressed="true">All</button><button data-f="warn" aria-pressed="false">Warnings</button><button data-f="bad" aria-pressed="false">Faults</button></span><button class="btn sm" id="ev-clear">Clear</button></span></h2>
@@ -972,6 +1029,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
 <script src="js/hal.js"></script>
 <script src="js/scope.js"></script>
 <script src="js/drives.js"></script>
+<script src="js/measure.js"></script>
 <script src="js/config.js"></script>
 <script src="js/live.js"></script>
 

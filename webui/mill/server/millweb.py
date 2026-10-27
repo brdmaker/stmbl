@@ -22,6 +22,7 @@ import binascii
 import concurrent.futures
 import datetime
 import json
+import re
 import os
 import shlex
 import signal
@@ -34,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import driveconf  # noqa: E402
 import drives as drives_mod  # noqa: E402
+import vibmon_link  # noqa: E402
 import supervisor as supervisor_mod  # noqa: E402
 import machine as machine_mod  # noqa: E402
 import preview  # noqa: E402
@@ -103,6 +105,13 @@ class Hub:
         self.fw_said = {}            # drive -> the problems told in the event log
         self.drive_jobs = {}         # drive -> what its config job does
         # run by millweb-supervisor (supervisor.py): machine.json, restarts
+        # the vibration sensors, through vibmon (vibmon_link.py): [MILLWEB] VIBMON
+        vpath = cfg.get("MILLWEB", "VIBMON")
+        self.vib = vibmon_link.VibLink(vpath, self.vib_msg, self.vib_state) if vpath else None
+        self.vib_said = {}           # (node, kind) -> the level last told in the event log
+        self.vib_state_on = (cfg.get("MILLWEB", "VIBMON_STATE", "yes") or "yes").lower() not in ("no", "0", "false")
+        self.vib_last_machine, self.vib_last_sent = None, 0.0
+        self.vib_teeth = (None, None)  # (tool, its teeth)
         mdir = cfg.get("MILLWEB", "MACHINE_DIR")
         self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
         self.drive_sig = None
@@ -130,6 +139,7 @@ class Hub:
         info["drive_links"] = list(self.links)
         info["drive_write"] = self.drive_write
         info["supervised"] = bool(self.conf)
+        info["vibmon"] = bool(self.vib)
         if self.conf:
             info["supervisor"] = self.conf.status()
         await ws.send_json({"t": "hello", "you": c.id, "machine": info, "control": self.control,
@@ -144,6 +154,8 @@ class Hub:
         await ws.send_json({"t": "views", "views": self.m.views()})
         if self.links:
             await ws.send_json({"t": "drv", "drives": self.drive_status()})
+        if self.vib:
+            await ws.send_json({"t": "vib", "up": self.vib.up, "status": self.vib.status})
         if self.program:
             await ws.send(self.program)
         self.event("info", "Browser connected: %s" % c.name)
@@ -216,7 +228,8 @@ class Hub:
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
-                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
+                      "vib_spectrum", "vib_trend", "vib_console_read"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -709,6 +722,112 @@ class Hub:
             raise ValueError("this LinuxCNC isn't run by millweb-supervisor: configure it through its INI")
         return self.conf
 
+    # ------------------------------------------------------------ vibration sensors (vibmon)
+    def vib_state(self, up):
+        self.event("info" if up else "warn", "Vibration sensors: vibmon %s" % ("connected" if up else "not reachable"))
+        self.broadcast({"t": "vib", "up": up, "status": None})
+
+    def vib_msg(self, m):
+        """What vibmon says: the status to every browser; alarms into the event
+        log; spectra, trends and console text to the browsers too."""
+        t = m.get("type")
+        if t == "status":
+            self.broadcast({"t": "vib", "up": True, "status": m})
+        elif t == "event":
+            e = m["event"]
+            k, key = e.get("type"), e.get("key", "?")
+            if k == "event:crash":
+                self.event("bad", "Vibration: CRASH at the %s sensor (%.1f g)" % (key, e.get("x", 0)))
+            elif k in ("event:level", "event:temp"):
+                what = "vibration" if k == "event:level" else "temperature"
+                v = e.get("value", 0)
+                if self.vib_said.get((key, k)) != v:
+                    self.vib_said[(key, k)] = v
+                    self.event(("info", "warn", "bad")[min(v, 2)], "Vibration: %s at the %s sensor %s (%.1f %s)" % (
+                        what, key, ("back to normal", "WARN", "ALARM")[min(v, 2)], e.get("x", 0), "mm/s" if k == "event:level" else "°C"))
+            elif k == "lost":
+                self.event("warn", "Vibration: the %s sensor is silent" % key)
+            elif k == "back":
+                self.event("info", "Vibration: the %s sensor is back" % key)
+            elif k == "numbering":
+                self.event("info", "Vibration: sensor %s %s" % (e.get("uid", "")[-6:], e.get("what", "")))
+            elif k == "spectrum" and self.vib:
+                self.vib.send({"cmd": "get_spectrum", "node": e.get("node")})
+            self.broadcast({"t": "vibev", "event": e})
+        elif t in ("spectrum", "trend", "console"):
+            self.broadcast(dict(m, t="vib" + t))
+        elif t == "error":
+            self.event("warn", "vibmon: %s: %s" % (m.get("cmd"), m.get("error")))
+
+    def vib_machine(self, st):
+        """The machine state to vibmon, for the sensors' order tracking: spindle
+        speed, feed, tool and its teeth (a "3-flute" in the tool's comment),
+        five times a second. Off with [MILLWEB] VIBMON_STATE = no (vibmon --hal
+        reads it from HAL instead)."""
+        if not (self.vib and self.vib.up and self.vib_state_on):
+            return
+        sp = st.get("spin") or {}
+        m = {"rpm": float(sp.get("s") or 0), "spindle": bool(sp.get("enabled")), "feed": float(st.get("vel") or 0),
+             "tool": int(st.get("tool") or 0), "running": st.get("run") == "run"}
+        teeth = self.tool_teeth(m["tool"])
+        if teeth:
+            m["teeth"] = teeth
+        t = time.time()
+        if m != self.vib_last_machine or t - self.vib_last_sent > 0.2:
+            self.vib_last_machine, self.vib_last_sent = m, t
+            self.vib.send(dict(m, cmd="machine"))
+
+    def tool_teeth(self, tool):
+        if self.vib_teeth[0] != tool:  # the tool table is read when the tool changes
+            self.vib_teeth = (tool, self.find_teeth(tool))
+        return self.vib_teeth[1]
+
+    def find_teeth(self, tool):
+        for t in (self.tools_msg().get("tools") or []):
+            if t.get("t") == tool:
+                mt = re.search(r"(\d+)[- ]?(?:flute|fl\b|teeth|tooth|z\b)", str(t.get("comment", "")), re.I)
+                return int(mt.group(1)) if mt else None
+        return None
+
+    def vib_send(self, cmd):
+        if not self.vib:
+            return "no vibration sensors here ([MILLWEB] VIBMON)"
+        return self.vib.send(cmd)
+
+    async def op_vib_spectrum(self, c, m):
+        """Ask a sensor for its spectrum: it comes as a "vibspectrum" message."""
+        return self.vib_send({"cmd": "spectrum", "node": int(m["node"])})
+
+    async def op_vib_trend(self, c, m):
+        return self.vib_send({"cmd": "trend", "node": int(m["node"])})
+
+    async def op_vib_console_read(self, c, m):
+        return self.vib_send({"cmd": "console_read", "node": int(m["node"])})
+
+    async def op_vib_console(self, c, m):
+        """A console line to a sensor (its parameters): with control."""
+        line = str(m.get("line", "")).strip()
+        if not line or len(line) > 120:
+            return "a console line of 1..120 characters"
+        self.event("info", "%s to vibration sensor %s: %s" % (c.name, m.get("node"), line))
+        return self.vib_send({"cmd": "console", "node": int(m["node"]), "line": line})
+
+    async def op_vib_reset(self, c, m):
+        self.event("info", "%s reset the vibration crash alarm" % c.name)
+        return self.vib_send({"cmd": "reset", "node": m.get("node")})
+
+    async def op_vib_identify(self, c, m):
+        return self.vib_send({"cmd": "identify", "on": bool(m.get("on", True))})
+
+    async def op_vib_assign(self, c, m):
+        return self.vib_send({"cmd": "assign", "uid": str(m["uid"]), "name": m.get("name"), "position": m.get("position")})
+
+    async def op_vib_replace(self, c, m):
+        return self.vib_send({"cmd": "replace", "old": str(m["old"]), "new": str(m["new"])})
+
+    async def op_vib_rescan(self, c, m):
+        return self.vib_send({"cmd": "rescan"})
+
     async def op_sup_status(self, c, m):
         return {"status": self.need_conf().status()}
 
@@ -1003,6 +1122,7 @@ class Hub:
                 if st["homed"] != prev.get("homed") and all(st["homed"]):
                     self.event("ok", "All axes homed")
             prev = st
+            self.vib_machine(st)
             # a new program: its preview, once
             if st.get("file") and st["file"] != self.program_file:
                 self.program_file = st["file"]
@@ -1099,6 +1219,8 @@ async def amain(args):
             pass
     tasks = [asyncio.ensure_future(hub.poll_loop()), asyncio.ensure_future(hub.slow_loop()), asyncio.ensure_future(hub.hal_loop()),
              asyncio.ensure_future(hub.drive_loop())]
+    if hub.vib:
+        tasks.append(asyncio.ensure_future(hub.vib.run(hub.quit)))
     await quit_event.wait()
     await hub.shutdown()
     for t in tasks:

@@ -68,6 +68,14 @@ added:
 - `canstat`: the link counters;
 - `canplug 0|1`: takes the drive off the bus and back.
 
+## Vibration sensor
+
+`vibsim` (a simulated IIS3DWB on a machine: unbalance, tooth passing,
+chatter, a bearing defect, a crash) feeds `vib`, the vibration sensor's
+processing (docs/vibsensor.md). `autonrt 1` runs nrt during `run` as on the
+device (the FFTs are there); `vibspec N` prints the strongest peaks. Tests:
+`tests/vib/`, `test_vibproto`.
+
 ## Build
 
 ```sh

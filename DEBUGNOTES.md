@@ -3164,3 +3164,145 @@ Entry format:
 - Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
   it alters every drive's reported position; check it on the bench first
   (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).
+
+## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
+- Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
+- Status:  Workaround
+- Symptom: `kicad-cli sch erc` / `pcb drc` don't exist (KiCad 7.0.11, the
+  apt version here; the KiCad 8 PPA is blocked). `ZONE_FILLER.Fill`
+  segfaults in a headless pcbnew; `FOOTPRINT.Flip` segfaults on a footprint
+  not yet on a board; `SaveBoard` rewrites the .kicad_pro and drops its net
+  classes and sheet list.
+- Cause:   ERC/DRC came to kicad-cli in KiCad 8; the others are pcbnew 7's
+  Python bindings.
+- Fix:     check.py checks KiCad's own netlist against parts.py plus ERC's
+  pin-type rules; drc.py runs DRC through pcbnew.WriteDRCReport; the GND
+  plane is left unfilled; footprints are added to the board before they are
+  flipped; pcb.py writes its net classes back after saving.
+- Note:    the *_ThermalVias QFN footprints have a copper pad on the far
+  side as well: a QFN on the bottom puts copper on the top. And 28 x 28 mm
+  with both variants' connectors (USB-C, 3 GH, XH 3) and the M2.5 holes'
+  6 mm courtyards is full: J3 is pads and J7 the 1.27 mm 5-pin (both
+  options the document allows), U4 turned 90° so J2's pins pass beside it.
+
+## 2026-10-25  vibration sensor: a strong tone's skirt read as chatter
+- Area:    shared/vibdsp.c (vib_peak), shared/comps/vib.c (chat_f, chat_a)
+- Status:  Fixed
+- Symptom: (simulator) milling without chatter still reported chat_a
+  0.29 g at 436 Hz: next to the 400 Hz tooth passing.
+- Cause:   the search skipped bins within 3 of a spindle harmonic, but then
+  summed +-3 bins around the bin it found, which reached back into the
+  excluded tone's Hann main lobe.
+- Fix:     exclude +-4 bins, and leave excluded bins out of the sum. Chatter
+  within 4 bins of a spindle harmonic (52 Hz at fft_n 2048, 26 Hz at
+  4096) is not separated from it.
+
+## 2026-10-25  The console prints every pin a name starts with
+- Area:    the console (hal_parse), host tests (@expect PIN[k])
+- Status:  Note
+- Symptom: `vib0.crash` printed crash_g, crash_reset, crash and crash_peak,
+  so a test's crash_peak[1] was the value printed with the crash query.
+- Cause:   pin queries match by prefix.
+- Fix:     name pins so that an alarm's name is no prefix of others
+  (vib0.crash, shock, shock_lim, reset).
+
+## 2026-10-25  vibsensor: 4096-point FFTs and the HAL's pools didn't fit 128 KB
+- Area:    vibsensor/ (Makefile HAL_SIZES), shared/comps/vib.c, shared/vibbuf.h, shared/comps/vnode.c
+- Status:  Fixed
+- Symptom: the first link overflowed RAM by 58 KB.
+- Cause:   the FFT input double buffer (32 KB) plus a copy for the FFT
+  (16 KB) and im (16 KB), a 4096-sample vibbuf (24 KB), a spectrum copy
+  and frame array for vnspec (13 KB), and the HAL's default pools
+  (1024 pins, 16 KB of contexts: 26 KB).
+- Fix:     the FFT works in the collected block; vibbuf 1024 samples
+  (38 ms; rt drains it every 0.2 ms); vnspec builds frames one at a time;
+  the sensor's HAL pools -DHAL_MAX_PINS=320 -DHAL_MAX_COMPS=8
+  -DHAL_MAX_CTX=4096; config text 6 KB, Tx ring 64. Now 108 KB.
+- Note:    a component name must not contain a digit (the console reads
+  `tmp1170.temp` as comp tmp, instance 1170): the TMP117's component is
+  `thermo`.
+
+## 2026-10-26  Vibration levels flipped at a threshold, and tripped on the filters' start
+- Area:    shared/comps/vib.c (level, temp_level), host/tests/vib/levels.test
+- Status:  Fixed
+- Symptom: (vibmon --sim) a sensor at 4.4 mm/s, next to vel_warn 4.5, sent
+  a level event most reports, each a line in millweb's event log. With
+  hysteresis added, a steady 11.04 mm/s then stayed at alarm (11.2): the
+  first report after start had passed it.
+- Cause:   no hysteresis; and the high pass and velocity filters ring for a
+  few hundred ms after start (gravity's 1 g step on z).
+- Fix:     a level falls back only 10 % below its threshold (temperature
+  2 degC); levels are judged from 0.5 s after the filters were (re)made.
+
+## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
+- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
+- Status:  Open
+- Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
+  psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
+  but j 24 % high and friction at half. With 3x the inertia every value is
+  within tolerance.
+- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
+  less than the electrical time constant l / r = 2.3 ms: the drive
+  segments are mostly current rise, and the momentum fit trades j against
+  friction.
+- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
+  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
+  unit and the load add inertia.
+
+## 2026-10-26  kigen: GND in a wide-clearance net class fails fine-pitch parts
+- Area:    hardware/kigen (sch.py net classes), hardware/vibsensor/gen/parts.py
+- Status:  Note
+- Symptom: DRC on the vibration sensor's board: four clearance errors
+  between the IIS3DWB's own pads (0.5 mm pitch, 0.15 mm apart).
+- Cause:   GND was in the "Power" net class (0.2 mm clearance), and LGA /
+  QFN pads of the same part sit closer than that.
+- Fix:     a board's NETCLASS_POWER (gen/parts.py) leaves GND out where
+  fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
+  classes (no violation there).
+
+
+## 2026-10-26  kigen: connector rows at 45 degrees collide in a chamfered tail
+- Area:    hardware/vibsensor/gen/board.py (two M8 sockets IN / OUT)
+- Status:  Note
+- Symptom: J1 / J3 rotated 45 degrees to face the tail's chamfers gave 26
+  courtyard violations; placed near the corner, "overlaps where fixed".
+- Cause:   kigen's courtyards are axis-aligned boxes, so a 45-degree row
+  grows its box into the M2 hole and the other row; its corner crossed
+  the tail chamfer.
+- Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
+  rotation 90; the socket's leads bend to them inside the potting.
+
+## 2026-10-27  SEW CMP40M resolver cable: pairs found by resistance
+- Area:    conf/sew_cmp40m.txt (RH1M resolver on res_fb0)
+- Status:  Note
+- Symptom: SEW's green resolver cable cut off its D-sub; which pair is
+  excitation, sin and cos.
+- Cause:   colours only; SEW's tables disagree on pins.
+- Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
+  out is the excitation (grey/pink 77.4 ohm), sin and cos match
+  (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
+  comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
+  violet/black: that pair reads 1 ohm, a bridge at the motor end.
+
+## 2026-10-27  servoterm-cli ignored SIGTERM in interactive mode
+- Area:    servoterm-cli/servoterm-cli.c (the interactive select loop)
+- Status:  Fixed
+- Symptom: `kill` on an interactive servoterm-cli did nothing; a test
+  driving it through a pty hung until its timeout.
+- Cause:   the loop retried select() on EINTR without looking at stop_req,
+  which the signal handler sets.
+- Fix:     the loop runs while !stop_req. Found by
+  host/tests/test_servoterm_ident.py (drive name in the prompt).
+
+## 2026-10-27  millweb: a moving-table machine in the 3D view
+- Area:    webui/mill/js/app.js (buildBuiltin, workG), machmodel.js
+- Status:  Note
+- Symptom: the 3D view drew everything in the work's frame with a gantry
+  moving over it; a fixed-bridge machine (CN 720) would show its base and
+  bridge sliding in Y.
+- Cause:   one frame for both layouts.
+- Fix:     machine.json `type` (gantry | bridge). For a bridge the view keeps
+  the base and bridge still (the tool at y 0) and moves workG (fixtures,
+  toolpath, trail, travel box) and the built-in table with -Y. Anything that
+  turns a view position back into machine Y must add workG.position.y (the
+  follow camera does).

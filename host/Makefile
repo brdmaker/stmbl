@@ -17,6 +17,10 @@ include lcnc/comps.mak
 COMP_SRCS = $(addprefix $(ROOT)/shared/comps/,$(addsuffix .c,$(COMPS))) \
             $(addprefix hw/,$(addsuffix .c,$(HW_COMPS))) $(ROOT)/src/comps/conf.c
 COMP_HDRS = $(addprefix $(GEN)/,$(addsuffix _comp.h,$(COMPS) $(HW_COMPS) conf))
+# The vibration sensor (docs/vibsensor.md): its processing and a simulated
+# IIS3DWB on a machine. In stmbl_host only, not in the drive's LinuxCNC module.
+COMP_SRCS += $(ROOT)/shared/comps/vib.c $(ROOT)/shared/comps/vnode.c hw/vibsim.c
+COMP_HDRS += $(GEN)/vib_comp.h $(GEN)/vnode_comp.h $(GEN)/vibsim_comp.h
 
 # Config templates for 'link', as in the firmware, plus the sim-only board.
 TEMPLATES = $(wildcard $(ROOT)/conf/template/*.txt) sim_board.txt
@@ -25,10 +29,10 @@ CORE_SRCS = $(ROOT)/shared/hal.c $(ROOT)/shared/commands.c $(ROOT)/shared/angle.
             $(ROOT)/shared/config.c $(ROOT)/shared/ringbuf.c $(ROOT)/shared/sscon.c \
             $(ROOT)/shared/fwstage.c $(ROOT)/shared/bip_loop.c \
             $(ROOT)/linuxcnc/stmblcan/mcp2515.c $(ROOT)/linuxcnc/stmblcan/stmblcan_bus.c \
-            $(ROOT)/linuxcnc/stmblcan/candesc.c
+            $(ROOT)/linuxcnc/stmblcan/candesc.c $(ROOT)/shared/vibdsp.c $(ROOT)/shared/vibaddr.c
 # Everything but main.c also goes into the stmbl_sim LinuxCNC module (lcnc/).
 DRIVE_SRCS = drive.c cdc_host.c pty.c fwup_host.c can_host.c mcp2515_sim.c
-HOST_SRCS = main.c $(DRIVE_SRCS)
+HOST_SRCS = main.c $(DRIVE_SRCS) vnode_host.c
 ALL_SRCS  = $(HOST_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_templates.c
 
 # Sources scanned by create_cmd.py for COMMAND() registrations.
@@ -109,26 +113,35 @@ STMBLCAN = ../linuxcnc/stmblcan
 test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp2515.c $(STMBLCAN)/mcp2515.h $(STMBLCAN)/stmblcan_bus.c $(STMBLCAN)/stmblcan_bus.h $(STMBLCAN)/candesc.c $(STMBLCAN)/candesc.h ../shared/canproto.h ../shared/sscon.c
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -I$(STMBLCAN) -I. -o $@ tests/test_stmblcan.c mcp2515_sim.c $(STMBLCAN)/mcp2515.c $(STMBLCAN)/stmblcan_bus.c $(STMBLCAN)/candesc.c ../shared/sscon.c -lm
 
+# shared/vibproto.h: the vibration sensors' measurement bus (docs/vibsensor.md)
+test_vibproto: tests/test_vibproto.c ../shared/vibproto.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_vibproto.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan
+check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto
 	@./test_ssq
 	@./test_sscon
 	@./test_cur_offset
 	@./test_bootloader
 	@./test_bip
 	@./test_stmblcan
+	@./test_vibproto
+	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
+	@$(PYTHON) ../tools/vibmon/test_vibmon.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
+	@$(MAKE) -s -C ../servoterm-cli
+	@$(PYTHON) tests/test_servoterm_ident.py
 	@./test_quota
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
 	@$(MAKE) -s -C portal all
-	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test portal/tests/*.test
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test portal/tests/*.test tests/vib/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py), the linear axis

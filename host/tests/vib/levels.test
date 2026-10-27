@@ -1,0 +1,33 @@
+# Levels with hysteresis (judged once the filters settled, 0.5 s): a machine running right at a limit doesn't flip
+# its level every report. Unbalance at 100 Hz: 0.6 g peak = 6.6 mm/s (warn,
+# over 4.5); 0.38 g = 4.2 mm/s, under 4.5 but within 10 %: still warn;
+# 0.3 g = 3.3 mm/s: back to ok. Temperature: 61 warn (60), 59 still warn
+# (2 degC), 57 ok.
+@include tests/vib/setup.inc
+vibsim0.rpm = 6000
+vibsim0.unb = 0.6
+run 1
+vib0.level
+vibsim0.unb = 0.38
+run 0.5
+vib0.vel_x
+vib0.level
+vibsim0.unb = 0.3
+run 0.5
+vib0.level
+vibsim0.temp = 61
+step 1
+vib0.temp_level
+vibsim0.temp = 59
+step 1
+vib0.temp_level
+vibsim0.temp = 57
+step 1
+vib0.temp_level
+@expect vib0.level[1] == 1
+@expect vib0.vel_x < 4.5
+@expect vib0.level[2] == 1
+@expect vib0.level[3] == 0
+@expect vib0.temp_level[1] == 1
+@expect vib0.temp_level[2] == 1
+@expect vib0.temp_level[3] == 0

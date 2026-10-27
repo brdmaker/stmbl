@@ -146,6 +146,27 @@ class Machine(unittest.TestCase):
         self.assertNotIn("postgui.hal", f)
         self.assertNotIn("POSTGUI_HALFILE", f["mill.ini"])
 
+    def test_bridge_type(self):
+        """A fixed bridge over a table moving in Y (machines/cn720): one joint an axis, the type to the console."""
+        m = json.load(open(os.path.join(MILL, "machines", "cn720", "machine.json")))
+        f = self.gen(m)
+        ini = ini_sections(f["mill.ini"])
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["trivkins coordinates=XYZ"])
+        self.assertEqual(ini["EMCMOT"]["SERVO_PERIOD"], ["500000"])
+        self.assertEqual(ini_sections(self.gen(mc.DEFAULT)["mill.ini"])["MILLWEB"]["MACHINE_TYPE"], ["gantry"])
+        two = copy.deepcopy(mc.DEFAULT)
+        two["type"] = "bridge"
+        two["joints"].append(copy.deepcopy(two["joints"][1]))
+        with self.assertRaises(mc.Invalid) as e:
+            mc.validate(two)
+        self.assertIn(("axes.Y", "a fixed-bridge machine moves Y with one joint (2 here: that's a gantry)"), e.exception.errors)
+        bad = copy.deepcopy(mc.DEFAULT)
+        bad["type"] = "router"
+        with self.assertRaises(mc.Invalid) as e:
+            mc.validate(bad)
+        self.assertEqual([w for w, _ in e.exception.errors], ["type"])
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}

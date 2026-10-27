@@ -57,6 +57,10 @@ const Live = (() => {
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
       case "drv": return drivesShow(m.drives);
+      case "vib": return vibShow(m.up, m.status);
+      case "vibev": return vibEvent(m.event);
+      case "vibspectrum": return vibSpectrumIn(m.node, m.spectrum);
+      case "vibconsole": return vibConsoleIn(m.node, m.text);
       case "sup": if (L.kind) supBrand(m.status); return cfgStatus(m.status);
       case "dout": if (m.n === drv.watching) drvText(m.text); return;
       case "control": holder = m.holder; return controlUi();
@@ -74,6 +78,7 @@ const Live = (() => {
     connected = true; me = m.you; holder = m.control; info = m.machine;
     const lim = info.limits;
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
+    if (R) { if (R.type !== (info.type || "gantry")) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
     document.querySelector(".brand b").textContent = info.name.toUpperCase();
     document.querySelector(".brand span").textContent = `${info.coords} · LinuxCNC · millweb ${info.version}`;
     $("f-src").textContent = `live · ${location.host}`;
@@ -369,6 +374,7 @@ const Live = (() => {
   L.viewsSave = (views) => send("views_save", { views });
   // the Configure page: machine.json, bitstreams, LinuxCNC's restarts (millweb-supervisor)
   L.supervised = () => !!(info && info.supervised);
+  L.info = () => info || {};
   L.conf = {
     get: () => send("config_get"),
     check: (text, custom) => send("config_check", { text, custom }),
@@ -396,6 +402,19 @@ const Live = (() => {
     detach: (name, on) => send("drive_detach", { name, on, seconds: 600 }),
     conf: (name, action, x = {}) => send("drive_conf", { name, action, ...x }),
     writable: () => !!(info && info.drive_write) && holder === me,
+  };
+  // the Measure page: the vibration sensors through vibmon ("vib", "vibev", "vibspectrum", "vibconsole")
+  L.hasVib = () => !!(info && info.vibmon);
+  L.vib = {
+    spectrum: (node) => send("vib_spectrum", { node }),
+    trend: (node) => send("vib_trend", { node }),
+    console: (node, line) => send("vib_console", { node, line }),
+    consoleRead: (node) => send("vib_console_read", { node }),
+    reset: (node) => send("vib_reset", { node }),
+    identify: (on) => send("vib_identify", { on }),
+    assign: (uid, name, position) => send("vib_assign", { uid, name, position }),
+    replace: (old, nu) => send("vib_replace", { old, new: nu }),
+    rescan: () => send("vib_rescan", {}),
   };
   L.halWritable = () => !!(info && info.hal_write) && holder === me;
   L.toolMeasure = () => act("tool_measure", {}, "Tool setter");

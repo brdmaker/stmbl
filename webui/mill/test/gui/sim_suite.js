@@ -9,7 +9,7 @@ const { test, run } = require("./runner");
 
 const MILL = path.resolve(__dirname, "../..");
 const URL = "file://" + path.join(MILL, "index.html");
-const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "stat", "debug", "config", "set"];
+const PAGES = ["main", "file", "wiz", "off", "tool", "probe", "dyn", "meas", "stat", "debug", "config", "set"];
 
 // ------------------------------------------------------------ helpers
 const idle = (t, ms = 15000) => t.until(() => (st.run === "idle" || st.run === "done") && !st.motion, null, ms);
@@ -726,6 +726,36 @@ test("Debug page, drives (simulation): cards, the console, history, a command th
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("Measure (simulation): four sensors, levels, the spectrum with its markers, tap to name, a crash, the console", async (t) => {
+  await t.nav("meas");
+  t.check(await t.until(() => document.querySelectorAll("#ms-cards .ms-card").length === 4), "four sensor cards");
+  t.check((await t.text("#ms-link")) === "SIMULATED", "SIMULATED");
+  t.check(await t.until(() => /mm\/s/.test(document.querySelector('.ms-card[data-node="4"] [data-k="vel"]').textContent)), "a card: velocity in mm/s");
+  t.check(await t.ev(() => document.querySelector('.ms-card[data-node="1"] [data-k="vel"]').classList.contains("ok")), "the base sensor's level: ok (green)");
+  t.check(await t.until(() => (ms.trend[4] || []).length > 3), "a trend builds up");
+  await t.click('.ms-card[data-node="4"] [data-spec]');
+  t.check(await t.until(() => ms.spec[4] && /peak/.test(document.getElementById("ms-spec-info").textContent)), "Spectrum: the spindle's arrives");
+  const pk = +(await t.ev(() => document.getElementById("ms-spec-cv").dataset.peak));
+  t.check(Math.abs(pk - 150) < 15, `its peak at the 1st order, 150 Hz at 9000 rpm (${pk})`);
+  await t.click('#ms-spec-range button[data-r="1000"]');
+  t.check(await t.ev(() => ms.range === 1000), "range 1 kHz");
+  await t.click("#ms-ident");
+  t.check(await t.until(() => ms.tapped && document.querySelector("#ms-sensors tr.tapped")), "Identify, a tap: its row lights up");
+  const row = '#ms-sensors tr.tapped';
+  await t.page.fill(`${row} [data-k="name"]`, "main spindle");
+  await t.click(`${row} [data-assign]`);
+  t.check(await t.until(() => /main spindle/.test(document.querySelector('.ms-card[data-node="4"] .h b').textContent)), "Save: the card has the name");
+  await t.click("#ms-ident");
+  await t.ev(() => vibSim.crash(4));
+  t.check(await t.until(() => /CRASH/.test(document.getElementById("ms-alarms").textContent) && document.querySelector('#nav button[data-p="meas"]').classList.contains("alarm")), "a crash: the alarm, the nav button red");
+  await t.click("#ms-reset");
+  t.check(await t.until(() => !/CRASH/.test(document.getElementById("ms-alarms").textContent)), "Reset crash");
+  await t.page.selectOption("#ms-con-node", "2");
+  await t.page.fill("#ms-con-in", "vib0.fft_n = 4096"); await t.page.press("#ms-con-in", "Enter");
+  t.check(await t.until(() => /> vib0\.fft_n = 4096\nOK/.test(document.getElementById("ms-con-out").textContent)), "the console: a line, its answer");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("Configure (simulation): an example machine, forms and text, joints, problems, save in this browser", async (t) => {
   await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
   await t.nav("config");
@@ -799,6 +829,35 @@ test("Configure (simulation): the machine's 3D model: upload parts, they move wi
   t.check(await t.until(() => JSON.parse(localStorage.getItem("pmc.machine") || "{}").model?.parts?.length === 2), "saved");
   await t.nav("main");
   t.check(await t.until(() => document.getElementById("viewer").closest("#p-main") && mm3d.nodes.filter(Boolean).length === 2 && !mm3d.builtin), "the main page: the saved model, the view back home");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it; the table and the work move with Y, the tool stays under the bridge", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  t.check(await t.ev(() => R.type === "gantry"), "the gantry to start with");
+  await t.page.selectOption('[data-path="type"]', "bridge");
+  t.check(await t.until(() => R.type === "bridge" && R.tableG && R.tableG.children.length > 10), "Machine: fixed bridge: the built-in bridge, its table");
+  await t.click("#cf-check");
+  t.check(await t.until(() => cfg.errors.some(([w, e]) => w === "axes.Y" && /one joint \(2 here/.test(e))), "two Y joints (the example's gantry pair): a problem for a bridge");
+  // the CN 720 (machines/cn720) as the saved machine: the main page draws it
+  const cn720 = require("fs").readFileSync(path.join(MILL, "machines", "cn720", "machine.json"), "utf8");
+  await t.ev((x) => localStorage.setItem("pmc.machine", x), cn720);
+  await t.page.reload();
+  t.check(await t.until(() => typeof R !== "undefined" && R && R.type === "bridge" && R.tableG), "the saved CN 720: the bridge on the main page");
+  t.check(await t.ev(() => TRAVEL.x[1] === 700 && TRAVEL.y[1] === 430 && TRAVEL.z[0] === -200), "its travel from machine.json (700 x 430 x 200)");
+  await t.nav("main");
+  // the tool at the bridge's line (y 0 in the view); the work (and the table) moved by -Y, so in the work's frame the tool is at machine Y
+  const pose = () => t.ev(() => { const w = new THREE.Vector3(); R.toolG.getWorldPosition(w); const l = R.workG.worldToLocal(w.clone()); return { wy: w.y, ly: l.y, lx: l.x, table: R.tableG.position.y, work: R.workG.position.y, bridge: R.bridge.position.y, cx: R.carriage.position.x }; });
+  let p = await pose();
+  t.check(Math.abs(p.wy) < 0.5 && p.bridge === 0 && p.table === p.work, `the tool under the fixed bridge (y ${p.wy.toFixed(2)}), table and work together`);
+  t.check(Math.abs(p.ly + p.work) < 0.5 && Math.abs(p.lx - p.cx) < 0.5, `in the work's frame the tool is at machine X ${p.lx.toFixed(1)} Y ${p.ly.toFixed(1)}`);
+  await t.ev(() => setCam("top", true));
+  await t.nav("config");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !R.tableG), "back to the gantry");
+  t.check(await t.until(() => R.workG.position.y === 0), "its work stands still");
   await t.ev(() => { localStorage.removeItem("pmc.machine"); });
   t.check(t.errors.length === 0, "no script errors");
 });

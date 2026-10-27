@@ -57,7 +57,8 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz" })}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
       ${fld("spindle.type", "Spindle", "sel", { choices: [["none", "none"], ["sim", "simulated (answers at once)"]] })}
       ${fld("spindle.max_rpm", "Spindle max (rpm)", "num")}
       ${fld("display.max_feed_override", "Feed override max", "num", { help: "2: 200 %" })}
@@ -151,7 +152,7 @@ const TABS = {
     }).join("");
     return `<div class="cf-model"><div class="cf-body">
         <p class="note">The machine in the 3D view: its parts as STL or OBJ files, each placed as it is with the machine at X0 Y0 Z0 and the <b>tool tip at the origin</b>, moving with the axes it rides on. Changes show in the view at once; Save keeps them.</p>
-        ${fld("model.builtin", "The built-in gantry (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${fld("model.builtin", "The built-in machine, a gantry or a fixed bridge as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
         ${cards || `<p class="note">No parts yet: upload a file, then Add part.</p>`}
         <div class="row"><button class="btn sm" id="cf-addpart">Add part</button><input type="file" id="cf-mfile" accept=".stl,.obj" hidden><button class="btn sm" id="cf-mup">Upload a model…</button>
           ${cfg.models.map((x) => `<button class="btn sm" data-mdel="${esc(x.name)}" title="Delete ${esc(x.name)}">× ${esc(x.name)}</button>`).join("")}</div>
@@ -191,7 +192,7 @@ function renderCfg() {
   $$("#cf-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === cfg.tab)));
   $("cf-body").innerHTML = TABS[cfg.tab]();
   markErrors();
-  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet); }
+  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry"); }
   renderCfgBar();
 }
 function cfgText() { return cfg.m ? JSON.stringify(cfg.m, null, 2) + "\n" : cfg.text; }
@@ -301,7 +302,7 @@ $("cf-body").addEventListener("change", (e) => {
   cset(cfg.m, el.dataset.path, readField(el));
   cfg.text = cfgText();
   if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
-  if (el.dataset.path.startsWith("model")) mm3dApply(cfg.m.model, cfgSrc().modelGet);  // the view follows the form
+  if (el.dataset.path.startsWith("model") || el.dataset.path === "type") mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry");  // the view follows the form
 });
 $("cf-body").addEventListener("input", (e) => { if (e.target.id === "cf-json" || e.target.id === "cf-custom") { syncFromEditors(); renderCfgBar(); } });
 $("cf-body").addEventListener("click", async (e) => {
@@ -411,6 +412,8 @@ const cfgSim = (() => {
       if (!m.name) errs.push(["name", "a name"]);
       for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
       for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
+      if (m.type && !["gantry", "bridge"].includes(m.type)) errs.push(["type", "gantry or bridge"]);
+      if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
     },
     save: (text, c, note) => { hist.unshift({ id: String(Date.now()), time: new Date().toLocaleString(), who: "this browser", note, text: saved, custom }); saved = text; custom = c; try { localStorage.setItem("pmc.machine", text); localStorage.setItem("pmc.custom", c); } catch (e) { /* storage blocked */ } return ok({}); },

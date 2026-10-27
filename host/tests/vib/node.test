@@ -1,0 +1,71 @@
+# The sensor on its bus (shared/comps/vnode.c, docs/vibsensor.md §3):
+# - without a number it is silent, but answers the PC's numbering
+#   (shared/vibaddr.h): SCAN, SET node 3 "spindle", STORE (into flash);
+# - with it: features (0x103) and summaries (0x143) as vib0 reports, an
+#   event (0x013) for the level it has (warn) and on a crash;
+# - the machine state (0x050) gives vib0 its rpm (6000: 1st order 0.707 g),
+#   which goes to 0 once the state is older than 0.5 s;
+# - a console line over the bus (0x603) sets a parameter;
+# - vnspec sends the spectrum: 1025 bins in 40 frames;
+# - with identify on, a tap answers with the uid.
+# uid 203847561000510041303412 (host/vnode_host.c). vib0.rpm[1] is its link.
+@include tests/vib/node.inc
+vibsim0.rpm = 6000
+vibsim0.unb = 1
+run 0.5
+vnout
+vnode0.node
+# SCAN, all sensors, 0 bits
+vnin 0x7e5 1001000000000000000000000000
+# SET node 3, name "spindle"
+vnin 0x7e5 22203847561000510041303412 03 7370696e646c6500000000000000000003
+vnin 0x7e5 24203847561000510041303412
+run 0.01
+vnout
+vnflash
+vnode0.node
+# machine state: rpm 6000.0 (0x45bb8000), feed 0, teeth 2, flags spindle
+vnin 0x050 00000000 0080bb45 00000000 02 01 0000
+run 0.3
+vib0.rpm
+vib0.ord1
+vnout
+vnspec
+vnout
+# console: "vib0.fft_n = 4096\n"
+vnin 0x603 01 12 76696230 2e6666745f6e203d20343039360a
+run 0.1
+vib0.fft_n
+run 0.5
+vib0.rpm
+vnode0.state_age
+vibsim0.crash_g = 20
+vibsim0.crash = 1
+run 0.05
+vnout
+# identify on, then a tap
+run 0.5
+vnin 0x7e5 2801
+vibsim0.crash_g = 3
+vibsim0.crash = 1
+run 0.05
+vnout
+@expect vnode0.node[1] == 0
+@match ^vnout 0 frames
+@match ^vnout 0x7e4 1 11$
+@match ^vnout 0x7e4 32 232038475610005100413034120301007370696e646c65
+@match ^vnout 0x7e4 16 2520384756100051004130341203
+@match ^vnflash stored node 3 name spindle
+@expect vnode0.node[2] == 3
+@expect vib0.rpm[2] == 6000
+@expect vib0.ord1 ~ 0.7071 2%
+@match ^vnout 0x103 64
+@match ^vnout 0x143 48
+@match ^vnout 0x013 8 0201
+@match ^vnspec: 1025 bins in 40 frames
+@match ^vnout 0x303 64
+@expect vib0.fft_n == 4096
+@expect vib0.rpm[3] == 0
+@expect vnode0.state_age > 0.5
+@match ^vnout 0x013 8 0101
+@match ^vnout 0x7e4 16 2920384756100051004130341203

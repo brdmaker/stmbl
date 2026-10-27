@@ -102,6 +102,7 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. In the INI as `[MILLWEB] MACHINE_TYPE` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
@@ -113,7 +114,7 @@ it):
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
 | `stmbl` | the drives' firmware: `fw` (null: this checkout's `STMBL_FW_VERSION`), `block` (a mismatch keeps the machine off; default true) |
-| `model` | the machine in the 3D view: `builtin` (the built-in gantry, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
+| `model` | the machine in the 3D view: `builtin` (the built-in machine of `type`, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
 | `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
 
 The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
@@ -182,6 +183,8 @@ the INI is configured by hand):
 | `DRIVE_FW` | this checkout's `STMBL_FW_VERSION` | the stmbl firmware version the console expects of its drives (docs/firmware_versions.md) |
 | `DRIVE_FW_BLOCK` | yes | a drive with another firmware (or HV board, or a config needing a patch) keeps the machine off; `no`: only said |
 | `DRIVE_POLL_MS` | 250 | a drive's card values are asked one at a time, at most this often, while its console is quiet |
+| `VIBMON` | | vibmon's socket (tools/vibmon): the Measure page, the vibration sensors (docs/vibsensor.md) |
+| `VIBMON_STATE` | yes | send vibmon the machine state (spindle speed, feed, tool and its teeth from a "3-flute" in the tool's comment) five times a second; `no` when vibmon reads it from HAL (`--hal`) |
 | `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
@@ -262,6 +265,52 @@ HAL debugging in the browser, as LinuxCNC's `halshow`, `halmeter` and `halscope`
 **Views** keep the watch list and the scope's set-up under a name. **Save view** saves the current ones (an existing name is replaced); a click on a view, or **Alt+1…9**, opens it; **×** deletes it. On a machine they are kept for every browser (`[MILLWEB] DEBUG_VIEWS`, no control needed: they don't touch the machine); in the simulation they are kept in this browser.
 
 The structure comes from `halcmd show` (millweb runs in LinuxCNC's environment), the values from the `hal` module.
+
+## The Measure page
+
+The vibration sensors (docs/vibsensor.md) through vibmon (`tools/vibmon`,
+`[MILLWEB] VIBMON`).
+
+- **The bar:** vibmon's link, the alarms (crash, a sensor lost, vibration
+  and temperature levels), the machine state the sensors get (rpm, teeth,
+  feed). Buttons: **Reset crash**, **Identify**, **Rescan**. A crash or an
+  alarm level turns the MEASURE button red on every page.
+- **A card per sensor:**
+  - velocity (mm/s, ISO's measure), coloured by its level, with a two-minute
+    trend;
+  - acceleration RMS per axis, peak, kurtosis, temperature;
+  - the spindle's 1× 2× 3× orders, tooth passing, chatter (frequency and
+    level), the bearing band.
+- **Spectrum:** a sensor's spectrum on request or every second, over 1 kHz,
+  5 kHz or all. Markers show the spindle's orders, tooth passing and the
+  chatter peak; hovering reads a frequency and level.
+- **Sensors:** each one's unique ID, node, name and position.
+  - **Identify,** then tap a sensor on the machine: its row lights up; give
+    it a name and a position and **Save** (kept in the sensor and in
+    vibmon's sensors.json).
+  - **replaces…** hands a missing sensor's place to a new one.
+- **Sensor console:** a line to a sensor (`vib0.fft_n = 4096`,
+  `vib0.shock_lim = 10`, `appendconf …`, `flashsaveconf`) and its answer.
+
+**Who may do what:** reading, the spectrum and the trend are open to
+everyone. The console, Reset, Identify, naming and Rescan need control, and
+console lines are logged. Crashes, lost sensors and level changes go into
+the event log.
+
+**Simulation:** four simulated sensors on a spindle at 9000 rpm.
+
+**Ops:**
+- `vib_spectrum` {node}, `vib_trend` {node}, `vib_console_read` {node}:
+  reading.
+- `vib_console` {node, line}, `vib_reset` {node | null}, `vib_identify` {on},
+  `vib_assign` {uid, name, position}, `vib_replace` {old, new},
+  `vib_rescan`: with control.
+
+**Messages:**
+- `vib` {up, status}: vibmon's status, every 0.2 s;
+- `vibev` {event};
+- `vibspectrum` {node, spectrum: {df, rms}};
+- `vibtrend`, `vibconsole`.
 
 ## The 3D setup
 
