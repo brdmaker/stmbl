@@ -3306,3 +3306,70 @@ Entry format:
   toolpath, trail, travel box) and the built-in table with -Y. Anything that
   turns a view position back into machine Y must add workG.position.y (the
   follow camera does).
+
+## 2026-10-27  mill_sim: a 2 kHz servo thread looked jittery, the harness wasn't
+- Area:    host/mill/mill_sim.c (servo_period, tool_mm)
+- Status:  Fixed
+- Symptom: at 2 kHz the tool seemed to ripple 5.3 um rms against the command
+  at 6.3 m/min (1 kHz: 0.3 um), exactly v x 100 us / 2.
+- Cause:   the harness measured the tool after 2 or 3 rt cycles (0.5 ms is 2.5
+  of them) but compared it with the command at the nominal time; it also
+  handed the drive each packet at the rt cycle before its send time.
+- Fix:     packets arrive `latency` (50 us) after their send time, taken at
+  the next rt cycle; the tool is moved back along its velocity to LinuxCNC's
+  time. The real ripple: 0.27 um at 1 and 2 kHz. A vel_int option that puts
+  the packets on the servo grid changed nothing and was dropped.
+
+## 2026-10-27  mill_sim: a second feedback read a cycle late
+- Area:    host/mill/mill_sim.c (tick: enc_fb1.sim_pos)
+- Status:  Fixed
+- Symptom: with a linear scale blended into the loop, a Y rapid at 27 m/min
+  ended 85 um off; the scale lagged the motor by 0.056 rad at speed.
+- Cause:   hv0 moves the simulated rotor over the rt cycle before enc_fb0
+  reads it (the drive sees the end of the cycle); the harness gave enc_fb1
+  the load's position at the start: 200 us apart.
+- Fix:     the scale is read at the end of the cycle too (s + v RT). Any
+  simulated second feedback needs the same.
+
+## 2026-10-27  Ball-screw axes: the screw sets the velocity bandwidth
+- Area:    host/mill (CN 720 model), pid0.vel_bw
+- Status:  Note
+- Symptom: vel_bw 800 rad/s rings, 1200 trips (Y: the 40 kg table on about
+  45 N/um, motor side ~20 kg equivalent).
+- Cause:   the screw-load mode between motor and table.
+- Fix:     vel_bw 500, pos_bw 60 (host/mill/machine/x.conf ...). Retune with
+  the real masses; tap-test the screws' modes.
+
+## 2026-10-27  A 10 um scale in the position loop hunts; blend it instead
+- Area:    shared/comps/fb_switch.c (joint_tc), host/mill
+- Status:  Note
+- Symptom: position loop on a 10 um scale: contours 2-3 x worse than on the
+  resolver, the tool 3-4 um off at rest (it hunts within a count).
+- Cause:   the scale's quantization in a loop of pos_bw 60 and the screw's
+  wind-up between the motor and the scale.
+- Fix:     fb_switch0.joint_tc > 0: the loop on the motor's feedback, pulled
+  to the scale over joint_tc. 0.2 s: a warm screw's 38 um error -> 4 um,
+  circles 3.7 um rms; 3 s: circles as the resolver's, slow on lead error.
+  Lead error belongs in LinuxCNC's screw compensation, measured once with
+  the scale; the blend then only follows temperature.
+
+## 2026-10-27  halsampler's first line can be "overrun"
+- Area:    hwtest/mill-sim/mill_test.py (any halsampler recording)
+- Status:  Workaround
+- Symptom: numpy.loadtxt failed on every program's recording but the first;
+  the runs looked like they had no samples.
+- Cause:   halsampler prints "overrun" when the sampler's FIFO filled before
+  it read (samples from before the enable); it is a line of text first.
+- Fix:     read only the rows with all the columns, and count gaps in the
+  sample numbers while cutting (mill_test.py fails a run with gaps).
+
+## 2026-10-27  stmbl_mill: the drives' cmd_freq follows the servo thread
+- Area:    host/mill/millcore.c (mccore_servo), real drives' configs
+- Status:  Note
+- Symptom: a 2 kHz servo thread with vel_int0.cmd_freq left at 1000 makes
+  the drive's command interpolation (vel_int mode 1) take the packets for
+  twice as far apart: its velocity comes out half, its acceleration a
+  quarter.
+- Cause:   cmd_freq is a setting, not measured.
+- Fix:     the simulation sets it from the period; on a real drive put
+  vel_int0.cmd_freq = 2000 in the config for a 2 kHz thread.

@@ -1,0 +1,14 @@
+# The screws limit the velocity loop: at vel_bw 1200 rad/s the Y table's
+# screw mode (the 40 kg table on ~45 N/um) goes unstable and the drive
+# trips; mill_circle.test runs the default 500 (machine/x.conf ...).
+@program mill/mill_sim
+@args mill/machine/cn720.mill
+drv all pid0.vel_bw = 1200
+lcnc 1
+run 0.3
+mark
+move 0.3 340 205 -20
+run 0.5
+print fault max_ferr_y
+@expect mill.fault == 1
+@expect mill.max_ferr_y > 50

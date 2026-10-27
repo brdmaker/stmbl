@@ -141,7 +141,8 @@ check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
 	@$(MAKE) -s -C portal all
-	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test portal/tests/*.test tests/vib/*.test
+	@$(MAKE) -s -C mill all
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test portal/tests/*.test mill/tests/*.test tests/vib/*.test
 
 # Soak: every motor in tests/motors.py, tuned with id_pid, through a motion
 # profile in closed loop (tests/gen_soak_tests.py), the linear axis

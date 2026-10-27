@@ -46,6 +46,14 @@ HAL_PIN(joint_rev);
 HAL_PIN(joint_fb_no_offset);
 
 HAL_PIN(mot_joint_ratio);
+// joint_tc > 0 [s]: with a joint feedback (a linear scale on the screw's
+// load), pos_fb is the motor's position plus a correction to the joint's,
+// low-passed over joint_tc, instead of the joint's alone. The loop stays
+// as smooth as the motor feedback (no hunting between a coarse scale's
+// counts), the scale fixes what the motor can't see over time (lead
+// error, a warm screw). Needs mot_joint_ratio 1 (same units).
+HAL_PIN(joint_tc);
+HAL_PIN(joint_corr);  // out: the correction [rad]
 
 HAL_PIN(phase_time);
 HAL_PIN(phase_cur);
@@ -74,6 +82,7 @@ struct fb_switch_ctx_t {
   float cmd_com_offset;
   float cmd_mot_offset;
   float cmd_joint_offset;
+  float joint_corr;
   float com_offset;
   float phase_timer;
   int32_t phase_state;
@@ -281,7 +290,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   PIN(id) = 0.0;
 
-  if(PIN(joint_state) == 1.0 || PIN(joint_state) == 3.0){
+  if((PIN(joint_state) == 1.0 || PIN(joint_state) == 3.0) && PIN(joint_tc) > 0.0 && (PIN(mot_state) == 1.0 || PIN(mot_state) == 3.0)){
+    float m = mod(mot_pos + ctx->cmd_mot_offset), j = mod(joint_pos + ctx->cmd_joint_offset);
+    ctx->joint_corr += minus(minus(j, m), ctx->joint_corr) * MIN(period / PIN(joint_tc), 1.0);
+    PIN(joint_corr) = ctx->joint_corr;
+    PIN(pos_fb) = mod(m + ctx->joint_corr);
+    PIN(plot_fb_pos) = PIN(joint_fb);
+  }
+  else if(PIN(joint_state) == 1.0 || PIN(joint_state) == 3.0){
     PIN(pos_fb) = mod(joint_pos + ctx->cmd_joint_offset);
     PIN(plot_fb_pos) = PIN(joint_fb);
   }
@@ -311,6 +327,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       ctx->cmd_com_offset      = minus(PIN(cmd_pos), com_pos);
       ctx->cmd_mot_offset      = minus(PIN(cmd_pos), mot_pos);
       ctx->cmd_joint_offset    = minus(PIN(cmd_pos), joint_pos);
+      ctx->joint_corr          = 0.0;  // motor and joint both at cmd_pos now
     }
     PIN(plot_fb_pos)          = mod(mot_pos);
   } else {

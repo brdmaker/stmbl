@@ -1,0 +1,12 @@
+# Z (15 kg on a 5 mm screw) with its brake: the drive disabled, the brake
+# grips (fault0.mot_brake) and Z stays where it was; without a brake it
+# runs down to its end stop.
+@program mill/mill_sim
+@args mill/machine/cn720.mill
+lcnc 1
+run 0.3
+lcnc 0
+run 0.5
+print tz fault
+brake z
+@expect mill.tz ~ -20 0.01
