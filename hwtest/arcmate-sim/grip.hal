@@ -1,0 +1,58 @@
+# The electric gripper (with host/arm/arcmate/arcmate_gripper.arm and
+# cell_grip.txt; a second HALFILE after arcmate.hal): armgrip runs the
+# fingers on the gripper's stmbl drive (stmbl-arm.0.grip.*, gap in mm) and
+# checks the payload, giving armcollide's model the part.
+#
+# G-code: M68 E0 Q<width mm>, M68 E1 Q<mass kg> (0: weigh it), M68 E2
+# Q<centre of mass z, m, flange frame> while open; M64 P0 close, M65 P0
+# open; M66 P0 L3 Q5 waits for "gripped", M66 P1 L3 waits for the payload
+# check (on the lift after the grip). A grip fault (6 payload mismatch,
+# 7 part lost, 8 wrong / no part) drops the estop chain like a collision.
+loadrt armgrip model=[ARMCOLLIDE]MODEL
+addf armgrip.0 servo-thread
+
+net grip-gap-cmd  armgrip.0.gap-cmd      => stmbl-arm.0.grip.pos-cmd
+net grip-gap-vel  armgrip.0.gap-vel      => stmbl-arm.0.grip.vel-cmd
+net grip-drv-en   armgrip.0.drive-enable => stmbl-arm.0.grip.enable
+net grip-gap-fb   stmbl-arm.0.grip.pos-fb => armgrip.0.gap-fb
+net machine-enabled => armgrip.0.enable
+
+net j0-drv-fb => armgrip.0.0.pos
+net j0-vel-fb => armgrip.0.0.vel
+net j0-residual => armgrip.0.0.residual
+net j1-drv-fb => armgrip.0.1.pos
+net j1-vel-fb => armgrip.0.1.vel
+net j1-residual => armgrip.0.1.residual
+net j2-drv-fb => armgrip.0.2.pos
+net j2-vel-fb => armgrip.0.2.vel
+net j2-residual => armgrip.0.2.residual
+net j3-drv-fb => armgrip.0.3.pos
+net j3-vel-fb => armgrip.0.3.vel
+net j3-residual => armgrip.0.3.residual
+net j4-drv-fb => armgrip.0.4.pos
+net j4-vel-fb => armgrip.0.4.vel
+net j4-residual => armgrip.0.4.residual
+net j5-drv-fb => armgrip.0.5.pos
+net j5-vel-fb => armgrip.0.5.vel
+net j5-residual => armgrip.0.5.residual
+
+# the payload into the collision detector's model
+net grip-pay-m    armgrip.0.payload-mass => armcollide.0.payload-mass
+net grip-pay-cx   armgrip.0.payload-cx   => armcollide.0.payload-cx
+net grip-pay-cy   armgrip.0.payload-cy   => armcollide.0.payload-cy
+net grip-pay-cz   armgrip.0.payload-cz   => armcollide.0.payload-cz
+net grip-mute     armgrip.0.mute         => armcollide.0.mute
+
+# G-code interface
+net grip-close    motion.digital-out-00 => armgrip.0.close
+net grip-width    motion.analog-out-00  => armgrip.0.width-expect
+net grip-mass     motion.analog-out-01  => armgrip.0.mass-expect
+net grip-cz       motion.analog-out-02  => armgrip.0.cz
+net grip-gripped  armgrip.0.gripped     => motion.digital-in-00
+net grip-pay-ok   armgrip.0.pay-ok      => motion.digital-in-01
+
+# a grip fault into the estop chain (after the collision guard's)
+net estop-reset => armgrip.0.reset
+unlinkp iocontrol.0.emc-enable-in
+net estop-chain => armgrip.0.chain-in
+net grip-chain    armgrip.0.chain-out => iocontrol.0.emc-enable-in

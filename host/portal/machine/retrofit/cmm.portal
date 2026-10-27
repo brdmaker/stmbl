@@ -1,0 +1,21 @@
+# cmm: an imaginary bridge-type coordinate measuring machine on a granite
+# table (1000 x 800 mm), on air bearings, retrofitted with ironless linear
+# motors and stmbl for fast scanning. Air bearings have almost no friction,
+# so nothing damps the probe's long Z ram: low, lightly damped modes. The
+# granite stands stiffly on three feet. Numbers are made up.
+#@dynwiz 3000 3000 500
+drive y1 cmm_y.conf ../sim.txt 60.96
+drive y2 cmm_y.conf ../sim.txt 60.96
+drive x cmm_x.conf ../sim.txt 60.96
+origin 400 500
+stroke -5 1005 -5 805
+frame 2500 900 25 22 28 0.04
+rails 1.1
+bridge 45 4.5
+carriage 8 0.05
+racking 8e5 0.01
+head 10 0.05 22 26 17 0.012
+guidey 0.5 5
+guidex 0.3 3
+bus 1410 230 1.0
+home 400 500

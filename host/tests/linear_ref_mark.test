@@ -1,0 +1,39 @@
+# Ironless linear axis (examples/linear_axis.conf: 60 mm electrical period,
+# 5 um encoder, 1 m stroke with end stops) with one reference mark at
+# -477 mm. Starts autophased (enc_fb0.state 1), jogs at -120 mm/s across
+# the mark, which switches commutation to absolute (state 3) using
+# conf0.mot_fb_offset, and back to the start: no fault, no following-error
+# step at the switch (fault0.pos_error is pid0.pos_error, sampled across
+# the mark), never at an end stop. The larger peaks of pid0.pos_error are
+# the instantaneous velocity steps at the start and the reversal.
+@args --drive examples/linear_axis.conf --sim examples/linear_axis_sim.txt
+debug_level 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+# probe autophasing (phase_mode 1, master since 2026-10-17) takes ~2 s here
+run 3.0
+enc_fb0.state
+lcnc 1 -120
+@sample pid0.pos_error 0.05 3.7
+@sample fault0.pos_error 0.005 0.4
+hv0.sim_abs_pos
+enc_fb0.state
+fb_switch0.current_com_pos
+lcnc 1 120
+@sample pid0.pos_error 0.05 4.1
+lcnc 1 0
+run 0.5
+hv0.sim_abs_pos
+pid0.pos_error
+hv0.sim_stop_hits
+fault0.fault
+@expect enc_fb0.state[1] == 1
+@expect enc_fb0.state[2] == 3
+@expect fb_switch0.current_com_pos == 1
+@expect hv0.sim_abs_pos[1] ~ -51.5 0.3
+@expect hv0.sim_abs_pos ~ 0 0.3
+@expect max|fault0.pos_error| < 0.002
+@expect max|pid0.pos_error| < 0.025
+@expect hv0.sim_stop_hits == 0
+@expect fault0.fault == 0

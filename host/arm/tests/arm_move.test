@@ -1,0 +1,48 @@
+# Six simulated drives on the simulated ARC Mate (arm/arcmate, values
+# guessed): enable at the home pose, hold against gravity, a smooth 1.5 s
+# move of all joints (J6 up to 225 deg/s), hold, disable. The drives see
+# the motors only: arm.ferr (LinuxCNC command - link angle) includes the
+# gear deflection under gravity and the backlash. On disable the brakes
+# engage and hold the arm.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+all fault0.state
+all io0.out0
+print ferr
+move 1.5 60 40 30 90 -30 180
+run 0.75
+print ferr
+run 1.25
+print ferr q fault hits
+lcnc 0
+run 0.2
+print q
+run 1.0
+print q
+all io0.out0
+@expect d1_fault0.state[1] == 1
+@expect d6_fault0.state[1] == 1
+@expect d2_io0.out0[1] == 1
+@expect max|arm.ferr1| < 0.05
+@expect max|arm.ferr2| < 0.15
+@expect max|arm.ferr3| < 0.1
+@expect max|arm.ferr4| < 0.1
+@expect max|arm.ferr5| < 0.1
+@expect max|arm.ferr6| < 0.15
+@expect arm.q1[1] ~ 60 0.05
+@expect arm.q2[1] ~ 40 0.1
+@expect arm.q6[1] ~ 180 0.05
+@expect max arm.fault1 == 0
+@expect max arm.fault2 == 0
+@expect max arm.fault6 == 0
+@expect max arm.hits2 == 0
+@expect max arm.hits3 == 0
+@expect d2_io0.out0[2] == 0
+@expect arm.q2[3] ~ 40 0.1
+@expect arm.q2[2] ~ 40 0.1
+@expect arm.q3[3] ~ 30 0.1
+@reject ^ERROR

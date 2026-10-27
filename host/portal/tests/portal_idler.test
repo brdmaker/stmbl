@@ -1,0 +1,20 @@
+# One Y motor (Y1), the other side an idler rail with its own friction and
+# a passive scale (drive y2 none): a Y move twists the bridge, more with the
+# carriage far from the driven side; the passive scale shows it.
+@program portal/portal_sim
+@args portal/machine/portal.portal
+drive y2 none
+guidey2 15 10
+run 0.05
+lcnc 1
+run 0.2
+move 0.5 900 300
+run 0.3
+mark
+move 0.6 900 700
+print max_rack y1 y2 max_cur_y1 cur_y2 fault
+@expect portal.max_rack > 100
+@expect portal.y2 ~ 700 0.2
+@expect portal.cur_y2 == 0
+@expect portal.fault == 0
+@reject ^ERROR

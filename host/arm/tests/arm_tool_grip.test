@@ -1,0 +1,55 @@
+# The gripper as tool 2 on the changer (arcmate_changer.arm: its drive,
+# jaws 190 mm out = its TCP; `gripper tool 2`): picked from its dock, a
+# 2 kg part gripped at the TCP (flange forward and up, B 45: the
+# part turned with it), weighed on the lift on top of the tool's own 1.8 kg (both
+# in the detector's model: tool from the changer's monitor, part from the
+# grip), put down, released; the gripper back in its dock: its jaws do
+# nothing there (closing empty). No collision hit, no fault.
+@program arm/arm_sim
+@args arm/arcmate/arcmate_changer.arm
+part box1 1.15 0 1.10   0.015 0.02 0.02   2.0   0 45 0
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark
+@include arm/tests/inc_tool_pick2.txt
+lmove 2 1150 -100 1100 0 45 0
+run 2.2
+lmove 1 1150 0 1100 0 45 0
+run 1.2
+grip expect 30 2.0 0 0 0.19
+grip close
+run 1.5
+tlmove 1.0 1150 0 1250 0 45 0
+run 1.2
+print grip
+tlmove 1.0 1150 0 1100 0 45 0
+run 1.2
+grip open
+run 1.5
+lmove 1 1150 -100 1100 0 45 0
+run 1.2
+print grip
+@include arm/tests/inc_tool_drop2.txt
+grip expect 0 0 0 0 0.19
+grip close
+run 2.5
+print grip tool coll off
+@expect arm.grip_state[1] == 2
+@expect arm.grip_width[1] > 29.5
+@expect arm.grip_width[1] < 30.2
+@expect arm.pay_state[1] == 3
+@expect arm.pay_meas[1] > 1.0
+@expect arm.pay_meas[1] < 3.0
+@expect arm.part_z[1] > 1240
+@expect arm.grip_state[2] == 0
+@expect arm.pay_model[2] == 0
+@expect arm.grip_held[2] == -1
+@expect arm.tool_mounted[-1] == 0
+@expect arm.grip_held[-1] == -1
+@expect arm.grip_state[-1] == 4
+@expect arm.coll == 0
+@expect arm.off_reason == 0
+@reject ^ERROR

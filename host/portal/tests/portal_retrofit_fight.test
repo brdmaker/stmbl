@@ -1,0 +1,17 @@
+# laser3015 with the default current loop (cur_bw 1000 instead of its
+# config's 2000): Y1 and Y2 fight in the bridge's yaw, where each motor
+# moves a quarter of the mass it is tuned for (DEBUGNOTES 2026-10-21). This
+# documents the effect that dynwiz's mass step detects (an oscillation).
+@program portal/portal_sim
+@args portal/machine/retrofit/laser3015.portal
+drv y1 conf0.cur_bw = 1000
+drv y2 conf0.cur_bw = 1000
+run 0.05
+lcnc 1
+run 0.3
+mark
+move 4 750 1540
+print max_cur_y1 max_cur_y2
+@expect portal.max_cur_y1 > 3
+@expect portal.max_cur_y2 > 3
+@reject ^ERROR

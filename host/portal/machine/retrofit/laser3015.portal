@@ -1,0 +1,31 @@
+# laser3015: an imaginary 3 x 1.5 m fiber laser flatbed from the 2000s,
+# retrofitted: its linear-motor gantry and scales kept, the drives and the
+# controller replaced by stmbl and LinuxCNC. The gantry runs along the 3 m
+# (Y) on two iron-core Baldor LMBL18B (one per side), the cutting head's
+# carriage on an LMBL14B along the 1.5 m bridge (X). Iron-core motors cog
+# (45.72 mm period: a ripple every half of it). The welded frame carries a
+# slat table and stands on six levelling feet. Masses, modes and friction
+# are made up, of a plausible size.
+#@dynwiz 10000 10000 1500
+drive y1 laser3015_y.conf ../sim.txt 45.72
+drive y2 laser3015_y.conf ../sim.txt 45.72
+drive x laser3015_x.conf ../sim.txt 45.72
+origin 750 1500
+stroke -5 3005 -5 1505
+frame 4500 6150 15 13 16 0.05
+rails 1.9
+# a welded steel bridge 1.9 m long, the carriage with its Z axis and the
+# cutting head (the head's own modes: on its Z slide and the bridge)
+bridge 110 33
+carriage 22 0.15
+racking 2e6 0.02
+head 14 0.08 38 42 19 0.025
+# bellows and two heavy cable chains
+guidey 60 120
+guidex 35 40
+cogging y1 28 22.86 30
+cogging y2 26 22.86 75
+cogging x 18 22.86 0
+# the supply's 2200 uF and the drives' own 3 x 470 uF; a brake chopper
+bus 3610 230 0.5 360 22
+home 750 1500

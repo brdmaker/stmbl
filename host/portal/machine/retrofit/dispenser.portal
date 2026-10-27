@@ -1,0 +1,26 @@
+# dispenser: an imaginary benchtop fluid dispenser / light pick-and-place,
+# 600 x 400 mm, retrofitted with stmbl. One Y motor (an ironless Baldor
+# LMCF06E) drives the bridge from one side; the other side runs on an
+# idler rail with its own scale. An LMCF04C moves the head (a dispensing
+# valve and a camera) along the bridge. Aluminium extrusion frame on rubber
+# feet on an ordinary bench: the frame moves. Numbers are made up.
+#@dynwiz 20000 20000 1000
+drive y1 dispenser_y.conf ../sim.txt 60.96
+drive y2 none
+drive x dispenser_x.conf ../sim.txt 60.96
+origin 300 200
+stroke -5 405 -5 605
+frame 90 4.5 7 6 8 0.08
+rails 0.75
+bridge 6.5 0.3
+carriage 1.8 0.004
+# with one motor the bridge's yaw is held by the guide blocks alone
+racking 1.5e5 0.03
+head 1.2 0.002 110 140 85 0.04
+guidey 8 10
+guidey2 5 6
+guidex 4 5
+# the drives' own 3 x 470 uF and a small brake chopper: at 2 g braking
+# pumped the bus over the drives' 380 V
+bus 1410 230 1.0 360 47
+home 300 200

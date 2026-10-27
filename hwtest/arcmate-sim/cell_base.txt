@@ -1,0 +1,30 @@
+# The cell around the simulated ARC Mate without a tool (cell.txt adds the
+# torch, cell_grip.txt the gripper), for armguard (collision reaction and
+# prevention) and, its obstacles, for the simulated plant (stmbl_arm
+# cell=). Metres, link frames as host/arm/arcmate/arcmate_base.arm.
+#
+# the arm's bodies (as arcmate_base.arm)
+body 0 capsule 0 0 0      0 0 0.40     0.16   # pedestal (base)
+body 1 capsule 0 0 -0.05  0.15 0 0     0.13   # turret
+body 2 capsule 0 0 0      0.60 0 0     0.09   # upper arm
+body 3 capsule 0.06 0 0   0.12 0.55 0  0.075  # forearm (to the wrist)
+body 5 sphere  0 0 0      0.06                # wrist
+selfignore 0 2
+selfignore 3 4
+#
+# collision reaction: retract 20 mm in 0.4 s; stop decelerations as the
+# joints' MAX_ACCELERATION [deg/s^2]
+backoff 20 0.4
+astop 1 300
+astop 2 300
+astop 3 300
+astop 4 600
+astop 5 600
+astop 6 900
+#
+# collision prevention: stop if the arm could not stop more than 10 mm
+# from an obstacle or itself
+prevent 10
+#
+# obstacles: a fixture plate on the arm's right (face at y = -350 mm)
+obstacle fixture box 0.85 -0.40 1.15 0.30 0.05 0.30

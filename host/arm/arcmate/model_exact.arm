@@ -1,0 +1,61 @@
+# Collision detector model of the simulated ARC Mate: EXACTLY the
+# plant's values (arcmate.arm), for the residual floor. A real model comes
+# from identification; model_perturbed.arm stands in for one.
+observer 50 0.3 0.01
+# motor torque per amp: 1.5 * pole pairs * psi (j1.conf .. j6.conf)
+kt 1 1.1112
+kt 2 1.1112
+kt 3 1.1112
+kt 4 0.36
+kt 5 0.36
+kt 6 0.36
+# thresholds: J thr0 [Nm] thr_v [Nm s/rad] thr_s [Nm] vs [rad/s]
+# (0: not checked); ~1.5 x the residual floor of model_perturbed.arm
+# over tests/inc_motion_suite.txt: moving (thr0), and the stiction band
+# near standstill (thr_s, gone by ~2 vs)
+thresh 1 14 0 15 0.15
+thresh 2 17 0 21 0.15
+thresh 3 13 0 18 0.15
+thresh 4 2.7 0 2.5 0.15
+thresh 5 2.8 0 2 0.15
+thresh 6 0.9 0 1.2 0.15
+# plus 30 % (J1-J3; 20 % the wrist) of the dynamic torque |tau - g(q)|: inertia errors at full
+# acceleration from standstill (LinuxCNC's trapezoidal moves and jogs)
+threl 1 0.3
+threl 2 0.3
+threl 3 0.3
+threl 4 0.2
+threl 5 0.2
+threl 6 0.2
+# plus the rotors' acceleration torque: through the elastic gears the
+# rotor runs ahead of the link at every jerk (LinuxCNC's trapezoids)
+thrrot 1 1
+thrrot 2 1
+thrrot 3 1
+thrrot 4 1
+thrrot 5 1
+thrrot 6 1
+dh 1 0     0    0.45 0
+dh 2 0.15 -90   0    -90
+dh 3 0.60  0    0    0
+dh 4 0.12 -90   0.65 0
+dh 5 0     90   0    0
+dh 6 0    -90   0.10 180
+link 1 40  0     0     -0.10  1.2  1.2  0.8  0 0 0
+link 2 25  0.30  0     0.05   0.20 1.00 1.00 0 0 0
+link 3 15  0.05  0.10  0      0.40 0.40 0.15 0 0 0
+link 4 6   0     0     0.15   0.06 0.06 0.02 0 0 0
+link 5 3   0     0.03  0      0.01 0.01 0.01 0 0 0
+link 6 1   0     0     0.04   0.002 0.002 0.002 0 0 0
+motor 1 120 0.00035 0.02 8
+motor 2 120 0.00035 0.02 8
+motor 3 100 0.00035 0.02 8
+motor 4 80  0.00003 0.01 1.5
+motor 5 80  0.00003 0.01 1.5
+motor 6 50  0.00003 0.01 1.5
+fric 1 10 15 0.05 20
+fric 2 12 18 0.05 25
+fric 3 8  12 0.05 15
+fric 4 1  1.5 0.05 1
+fric 5 1  1.5 0.05 1
+fric 6 0.5 0.8 0.05 0.5

@@ -1,0 +1,99 @@
+# hwtest/arcmate-sim: six joints on the simulated arm (stmbl_arm runs
+# the six simulated drives and the arm in the servo thread). The pins are
+# a drive's smart-serial pins (as hm2_*.stbl.*), per joint.
+loadrt [KINS]KINEMATICS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS num_dio=8 num_aio=16
+loadrt stmbl_arm arm=[STMBL_ARM]ARM lib=[STMBL_ARM]LIB cell=[ARMGUARD]CELL
+loadrt armcollide model=[ARMCOLLIDE]MODEL
+loadrt armguard model=[ARMCOLLIDE]MODEL cell=[ARMGUARD]CELL
+loadrt not names=coll-not
+loadrt and2 names=estop-and
+
+addf motion-command-handler servo-thread
+addf motion-controller      servo-thread
+addf armguard.0             servo-thread
+addf stmbl-arm.0            servo-thread
+addf armcollide.0           servo-thread
+addf coll-not               servo-thread
+addf estop-and              servo-thread
+
+net j0-pos-cmd joint.0.motor-pos-cmd  => armguard.0.0.motion-cmd
+net j0-vel-cmd joint.0.vel-cmd        => armguard.0.0.motion-vel
+net j0-drv-cmd armguard.0.0.cmd => stmbl-arm.0.0.pos-cmd
+net j0-drv-vel armguard.0.0.vel => stmbl-arm.0.0.vel-cmd
+net j0-drv-fb  stmbl-arm.0.0.pos-fb => armguard.0.0.drive-fb armcollide.0.0.pos
+net j0-pos-fb  joint.0.motor-pos-fb  <=  armguard.0.0.fb
+net j0-residual armcollide.0.0.residual => armguard.0.0.residual
+net j0-vel-fb  stmbl-arm.0.0.vel-fb => armcollide.0.0.vel
+net j0-current stmbl-arm.0.0.current => armcollide.0.0.current
+net j0-enable  joint.0.amp-enable-out => stmbl-arm.0.0.enable
+net j0-fault   joint.0.amp-fault-in  <=  stmbl-arm.0.0.fault
+net j1-pos-cmd joint.1.motor-pos-cmd  => armguard.0.1.motion-cmd
+net j1-vel-cmd joint.1.vel-cmd        => armguard.0.1.motion-vel
+net j1-drv-cmd armguard.0.1.cmd => stmbl-arm.0.1.pos-cmd
+net j1-drv-vel armguard.0.1.vel => stmbl-arm.0.1.vel-cmd
+net j1-drv-fb  stmbl-arm.0.1.pos-fb => armguard.0.1.drive-fb armcollide.0.1.pos
+net j1-pos-fb  joint.1.motor-pos-fb  <=  armguard.0.1.fb
+net j1-residual armcollide.0.1.residual => armguard.0.1.residual
+net j1-vel-fb  stmbl-arm.0.1.vel-fb => armcollide.0.1.vel
+net j1-current stmbl-arm.0.1.current => armcollide.0.1.current
+net j1-enable  joint.1.amp-enable-out => stmbl-arm.0.1.enable
+net j1-fault   joint.1.amp-fault-in  <=  stmbl-arm.0.1.fault
+net j2-pos-cmd joint.2.motor-pos-cmd  => armguard.0.2.motion-cmd
+net j2-vel-cmd joint.2.vel-cmd        => armguard.0.2.motion-vel
+net j2-drv-cmd armguard.0.2.cmd => stmbl-arm.0.2.pos-cmd
+net j2-drv-vel armguard.0.2.vel => stmbl-arm.0.2.vel-cmd
+net j2-drv-fb  stmbl-arm.0.2.pos-fb => armguard.0.2.drive-fb armcollide.0.2.pos
+net j2-pos-fb  joint.2.motor-pos-fb  <=  armguard.0.2.fb
+net j2-residual armcollide.0.2.residual => armguard.0.2.residual
+net j2-vel-fb  stmbl-arm.0.2.vel-fb => armcollide.0.2.vel
+net j2-current stmbl-arm.0.2.current => armcollide.0.2.current
+net j2-enable  joint.2.amp-enable-out => stmbl-arm.0.2.enable
+net j2-fault   joint.2.amp-fault-in  <=  stmbl-arm.0.2.fault
+net j3-pos-cmd joint.3.motor-pos-cmd  => armguard.0.3.motion-cmd
+net j3-vel-cmd joint.3.vel-cmd        => armguard.0.3.motion-vel
+net j3-drv-cmd armguard.0.3.cmd => stmbl-arm.0.3.pos-cmd
+net j3-drv-vel armguard.0.3.vel => stmbl-arm.0.3.vel-cmd
+net j3-drv-fb  stmbl-arm.0.3.pos-fb => armguard.0.3.drive-fb armcollide.0.3.pos
+net j3-pos-fb  joint.3.motor-pos-fb  <=  armguard.0.3.fb
+net j3-residual armcollide.0.3.residual => armguard.0.3.residual
+net j3-vel-fb  stmbl-arm.0.3.vel-fb => armcollide.0.3.vel
+net j3-current stmbl-arm.0.3.current => armcollide.0.3.current
+net j3-enable  joint.3.amp-enable-out => stmbl-arm.0.3.enable
+net j3-fault   joint.3.amp-fault-in  <=  stmbl-arm.0.3.fault
+net j4-pos-cmd joint.4.motor-pos-cmd  => armguard.0.4.motion-cmd
+net j4-vel-cmd joint.4.vel-cmd        => armguard.0.4.motion-vel
+net j4-drv-cmd armguard.0.4.cmd => stmbl-arm.0.4.pos-cmd
+net j4-drv-vel armguard.0.4.vel => stmbl-arm.0.4.vel-cmd
+net j4-drv-fb  stmbl-arm.0.4.pos-fb => armguard.0.4.drive-fb armcollide.0.4.pos
+net j4-pos-fb  joint.4.motor-pos-fb  <=  armguard.0.4.fb
+net j4-residual armcollide.0.4.residual => armguard.0.4.residual
+net j4-vel-fb  stmbl-arm.0.4.vel-fb => armcollide.0.4.vel
+net j4-current stmbl-arm.0.4.current => armcollide.0.4.current
+net j4-enable  joint.4.amp-enable-out => stmbl-arm.0.4.enable
+net j4-fault   joint.4.amp-fault-in  <=  stmbl-arm.0.4.fault
+net j5-pos-cmd joint.5.motor-pos-cmd  => armguard.0.5.motion-cmd
+net j5-vel-cmd joint.5.vel-cmd        => armguard.0.5.motion-vel
+net j5-drv-cmd armguard.0.5.cmd => stmbl-arm.0.5.pos-cmd
+net j5-drv-vel armguard.0.5.vel => stmbl-arm.0.5.vel-cmd
+net j5-drv-fb  stmbl-arm.0.5.pos-fb => armguard.0.5.drive-fb armcollide.0.5.pos
+net j5-pos-fb  joint.5.motor-pos-fb  <=  armguard.0.5.fb
+net j5-residual armcollide.0.5.residual => armguard.0.5.residual
+net j5-vel-fb  stmbl-arm.0.5.vel-fb => armcollide.0.5.vel
+net j5-current stmbl-arm.0.5.current => armcollide.0.5.current
+net j5-enable  joint.5.amp-enable-out => stmbl-arm.0.5.enable
+net j5-fault   joint.5.amp-fault-in  <=  stmbl-arm.0.5.fault
+
+# collision detection and reaction (machine protection): on a collision
+# armguard stops the arm, backs it off 20 mm, then drops emc-enable-in,
+# i.e. estop: drives off, brakes on. Otherwise estop follows the GUI (no
+# hardware watchdog in the simulation).
+net machine-enabled motion.motion-enabled => armcollide.0.enable armguard.0.enable
+net collision      armcollide.0.collision => armguard.0.collision
+net guard-estop    armguard.0.estop => coll-not.in
+net estop-reset    iocontrol.0.user-request-enable => armcollide.0.reset armguard.0.reset
+net no-collision   coll-not.out => estop-and.in1
+net estop-loop     iocontrol.0.user-enable-out => estop-and.in0
+net estop-chain    estop-and.out => iocontrol.0.emc-enable-in
+net tool-prep-loop iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
+net tool-change-loop iocontrol.0.tool-change => iocontrol.0.tool-changed

@@ -1,0 +1,18 @@
+# portal.portal made ideal for comparison: the frame on rigid feet, a rigid
+# head; the drives, the bus and the bridge's racking as in portal.portal.
+# What's left of the path error is the planner and the servo loops.
+drive y1 y.conf sim.txt 60.96
+drive y2 y.conf sim.txt 60.96
+drive x x.conf sim.txt 60.96
+origin 500 500
+stroke -5 1005 -5 1005
+frame 600 200 400 400 400 0.05
+rails 1.2
+bridge 30 3.6
+carriage 5 0.02
+racking 2e5 0.02
+head 7 0.02 1500 1500 1500 0.03
+guidey 25 30
+guidex 15 15
+bus 1410 230 1.0
+home 500 500

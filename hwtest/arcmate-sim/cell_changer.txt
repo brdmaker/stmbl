@@ -1,0 +1,7 @@
+# The cell with the pneumatic tool changer (host/arm/arcmate/arcmate_changer.arm,
+# changer.hal): cell_base.txt, the changer's master plate, and the tools'
+# bodies from the tool table (`body ... tool N`: there while tool N is on;
+# armguard.0.tool says which).
+include cell_base.txt
+body 6 capsule 0 0 0.005   0 0 0.035   0.04   # changer master plate (80 mm)
+include ../../host/arm/arcmate/tools.txt

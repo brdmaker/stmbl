@@ -858,6 +858,258 @@ Entry format:
 - Fix:     `run_script` flushes stdout after each line read from stdin
   (file scripts unchanged).
 
+## 2026-10-15  Arm: start-up phasing under gravity load trips POS_ERROR
+- Area:    drive commutation at enable (`fb_switch`, incremental encoder),
+           `host/arm` (simulated ARC Mate)
+- Status:  Known
+- Symptom: Simulated arm at a raised pose, no friction: J2's drive faulted
+  (fault 5) right after enable, and the brake then let the arm sag.
+- Cause:   With an incremental encoder (enc_fb state 1) the drive phases
+  (fb_switch current_com_pos 4) by moving the motor; on a gravity-loaded
+  joint with the brake released the arm moves during phasing.
+- Fix:     Absolute encoders (FANUC serial pulse coders: commutation known
+  at power-on); sim `enc_fb0.sim_absolute = 1`. On the real arm with an
+  incremental encoder, phase only with the arm supported or at a
+  gravity-neutral pose.
+
+## 2026-10-15  Several simulated drives in one process: dlmopen
+- Area:    `host/arm` (arm_sim, libstmbl_drive.so)
+- Status:  Note
+- Symptom: The firmware HAL is one set of globals: one drive per process.
+- Cause:   by design (one drive per MCU).
+- Fix:     Build the drive as `libstmbl_drive.so` (only `stmbl_sim_*`
+  exported) and load it once per drive with `dlmopen(LM_ID_NEWLM)`: each
+  copy has its own globals, no source change. No threads in the copies
+  (boot with `stmbl_sim_boot`, not `stmbl_sim_open`); flush the copy's own
+  stdout via `stmbl_sim_cmd`.
+
+## 2026-10-15  LinuxCNC in the cloud container: build and run notes
+- Area:    `hwtest/arcmate-sim`, branch `linuxcnc-bin`
+- Status:  Workaround
+- Symptom: (1) LinuxCNC master (2.10-pre) changed the HAL C API
+  (`hal_float_t` pins gone, `hal_real_t` refs), so `stmbl_sim`/`stmbl_arm`
+  do not build; (2) configure picks python3.13 while Boost.Python is 3.12;
+  (3) the 2.9 build wants `a2x` (asciidoc/docbook) for man pages;
+  (4) `rtapi_app` refuses to run as root; (5) without a tty `linuxcnc`
+  writes all output to /tmp/linuxcnc.debug.* (and ~/linuxcnc_debug.txt),
+  and a DISPLAY program's stdout is lost; (6) it needs
+  `configs/common/linuxcnc.nml`.
+- Cause:   as listed.
+- Fix:     Build branch 2.9 (the bench runs 2.9.1); `PYTHON_BIN=python3.12
+  ./configure ... --disable-gtk2`; a stub a2x on PATH; run as user `lcnc`;
+  the test display writes its TAP to a file; pack `configs/common`. See
+  `build_linuxcnc.sh` on `linuxcnc-bin` and `hwtest/arcmate-sim/README.md`.
+
+## 2026-10-15  Collision residual at standstill: gearbox stiction
+- Area:    `shared/robot/collide.c`, `linuxcnc/armcollide`
+- Status:  Known
+- Symptom: Simulated ARC Mate, detector with the exact model: the
+  residual is ~1-4 Nm while moving but 15-25 Nm on J1-J3 at standstill,
+  with no contact.
+- Cause:   Stiction in the gears holds an unknown part (up to the
+  breakaway friction) of the load once a joint stops; the motor torque the
+  servo leaves is not the model's.
+- Fix:     Thresholds with a stiction band near zero speed (`thresh J thr0
+  thr_v thr_s vs`); the detector is less sensitive at rest. Set it from the
+  measured floor (MEASUREMENT_PLAN Phase 7).
+
+## 2026-10-15  arm_sim / stmbl_arm: joint offsets taken from the first packet
+- Area:    `host/arm/armcore.c` (absolute-encoder offsets)
+- Status:  Fixed
+- Symptom: LinuxCNC's joint feedback off by up to one motor turn / ratio
+  (J2: 1.06 deg) from the true motor angle, depending on start-up order.
+- Cause:   The offset (joint = feedback + off) was set at the first
+  exchange, where the drive still reports position 0.
+- Fix:     Set it at the 5th exchange.
+
+## 2026-10-15  Collision detector false trips under LinuxCNC's trapezoids
+- Area:    `shared/robot/collide.c` (thresholds)
+- Status:  Fixed
+- Symptom: Fine with smooth test moves, but LinuxCNC joint jogs (full
+  300 deg/s^2 from standstill, jerk steps) tripped it on the simulated arm.
+- Cause:   Three effects of the jerk: (1) model errors (inertia +-15 %)
+  scale with the dynamic torque; (2) through elastic gears the rotor runs
+  ahead of the link (~arm_jj * qdd, 26 Nm on J1 for ~15 ms) and torque
+  coupled from other joints' accelerations hits joints held by stiction;
+  (3) the gears ring at ~20 Hz afterwards, longer than the observer's
+  1/k. And the residual lags the torque by 1/k, so a threshold following
+  the torque instantly drops when the acceleration reverses.
+- Fix:     Threshold terms thr_rel * peak(max(|tau - g|, |(M qdd)_j|)) and
+  thr_rot * peak(arm_jj |qdd|), peaks decaying over `envelope` (0.15 s).
+  Test moves now include LinuxCNC's trapezoids (`jog`, `tmove`).
+
+## 2026-10-15  genserkins: tool orientation at C = +-180 turns J6 a full turn
+- Area:    `hwtest/arcmate-sim` (LinuxCNC 2.9 genserkins), arm flange frame
+- Status:  Workaround
+- Symptom: After a stop LinuxCNC reported the pose with C = +180 (was
+  -180); the next G1 ... C-180 is a 360 deg move of C: "Linear move would
+  exceed joint 5's negative limit".
+- Cause:   A/B/C come from the rotation matrix: at +-180 the sign is
+  arbitrary, and LinuxCNC treats C as a linear axis.
+- Fix:     Keep working orientations away from +-180: the flange frame is
+  turned (J6 theta0 180): the home orientation is A0 B0 C0.
+
+## 2026-10-15  Collision estop request missed by LinuxCNC's I/O controller
+- Area:    `linuxcnc/armcollide`, estop chain in `hwtest/arcmate-sim`
+- Status:  Fixed
+- Symptom: A collision during a program ended with the machine off (task
+  state 2), not estop.
+- Cause:   `collision` cleared as soon as the drives were disabled: the
+  drop of `emc-enable-in` lasted a few ms; iocontrol samples it every
+  [EMCIO] CYCLE_TIME (100 ms).
+- Fix:     `collision` latched until `armcollide.0.reset` (wired to
+  `iocontrol.0.user-request-enable`, the estop reset).
+
+## 2026-10-15  Arm geometry: bodies two links apart overlap by design
+- Area:    `shared/robot/geom.c` (self-clearance), `host/arm/arcmate`
+- Status:  Note
+- Symptom: Self-clearance -92 mm at the home pose.
+- Cause:   Only bodies on neighbouring links are skipped (selfskip 1); the
+  pedestal (link 0) and the upper arm (link 2) overlap at the shoulder, the
+  forearm (3) and the wrist (5) at the wrist.
+- Fix:     `selfignore 0 2`, `selfignore 3 4` in the arm's geometry; check a
+  new arm's self-clearance at a few poses before relying on it.
+
+## 2026-10-15  Collision prevention: stop-path check, findings
+- Area:    `shared/robot/guard.c` (rb_guard_watch), arm soak
+- Status:  Note
+- Symptom: With prevention on, random joint moves within the joint limits
+  were stopped (protective stop) though the true clearance stayed > 50 mm.
+- Cause:   (1) The check uses the guard's real stop: with the default 5
+  rad/s^2 the fast wrist would coast ~33 deg, into the fold of the torch on
+  the forearm. (2) The random targets themselves folded the forearm onto
+  the lower arm: with the guessed bodies that happens from q3 ~ 85 deg,
+  inside the guessed J3 limit (160).
+- Fix:     astop per joint = what the drives can do in a stop (sim: 2 x
+  MAX_ACCELERATION); random targets keep q3 <= 60, q2 + q3 <= 110,
+  |q5| <= 100. On the real arm: measure J3's range (the hard stop will be
+  earlier) and the bodies; check self-clearance over the range.
+
+## 2026-10-15  Collision detector: 20 % model error too tight for fast multi-joint moves
+- Area:    `host/arm/arcmate/model_exact.arm` (threl)
+- Status:  Fixed
+- Symptom: A false collision in a long random-move soak (J2 residual 58 Nm
+  against 55 Nm) with J2 and J3 both near 0.7 of their speed limits.
+- Cause:   The joint torque swings by ~300 Nm within ~70 ms there (elastic
+  gears, coupling); 20 % of the dynamic torque left too little margin.
+- Fix:     threl 0.3 on J1-J3 (worst residual/threshold 0.90 over 36 random
+  moves); detection tests unchanged.
+
+## 2026-10-15  sserial position feedback is raw while the drive is disabled
+- Area:    `shared/comps/sserial.c`, `fb_switch`; `host/arm/arm_sim.c` (gripper)
+- Status:  Known
+- Symptom: The simulated gripper drive faulted with POS_ERROR at enable, and
+  closing reported "gripped" at once, at 78 mm.
+- Cause:   While disabled, `fb_switch` makes the drive's command track
+  LinuxCNC's command, not the motor, and sserial's pos_fb is the raw
+  `mot_fb_no_offset` plus revolutions (linrev) scaled by the `scale` LinuxCNC
+  sends. arm_sim sent the gripper's command and scale only while enabled, so
+  the scale was 0 while disabled. At enable the raw encoder fraction (9.4
+  turns) then appeared as a position jump. The arm joints only escaped
+  because their motors sit at whole turns at home.
+- Fix:     LinuxCNC (and arm_sim) must keep sending pos_cmd = feedback and
+  the scale while disabled. The gripper block in arm_sim's servo now runs
+  before the `!en` return.
+
+## 2026-10-15  stmbl config files take no comments
+- Area:    drive config (`host/arm/arcmate/gripper.conf`), `shared/config.c`
+- Status:  Known
+- Symptom: `conf0.max_sat = 0` in gripper.conf had no effect
+  (`conf0.max_sat` read back 0.2), so the gripper still saturation-faulted.
+- Cause:   `#` comment lines in the config break the boot's parsing of the
+  lines after them. Nothing is reported, since the boot echo is silenced
+  in armcore.
+- Fix:     Keep configs comment-free and put notes in the `.tool` / `.arm`
+  file. armcore strips comments only from the sim file.
+
+## 2026-10-15  Gripper drive: holding a part is saturation, squeeze vs max_pos_error
+- Area:    `host/arm/arcmate/gripper.conf`, `shared/robot/gripper.c`
+- Status:  Note
+- Symptom: Gripping faulted the drive after 0.2 s with SAT_ERROR (fault 6).
+  A 4 mm squeeze gave POS_ERROR (fault 5).
+- Cause:   A gripper holds its fingers at the current limit (the grip force)
+  for as long as it holds a part, and the default `max_sat` is 0.2 s. A
+  squeeze is a following error: 4 mm of gap is 0.5 motor turns (8 mm/turn),
+  over the stock `max_pos_error` of 1.5 rad (1.9 mm).
+- Fix:     gripper.conf sets `conf0.max_sat = 0`. Squeeze is 1.2 mm and
+  lost_tol 0.8 mm: a part slipping out still lets the fingers close past
+  lost_tol (LOST).
+
+## 2026-10-15  Payload check: no measurement at standstill; accuracy = model floor
+- Area:    `shared/robot/gripper.c` (rb_grip_payload)
+- Status:  Note
+- Symptom: Measured after the grip at standstill, a 2 kg part read 4.2 kg
+  (5.7 kg relative to a pre-grip baseline). The 6-DOF flange wrench gave
+  2.6 kg even with the exact model.
+- Cause:   1. At standstill, static friction takes an unknown share of a new
+  load: J2's gear torque rose 2.2 Nm of the ~12 Nm expected.
+  2. The flange wrench has 6 unknowns, so every joint's model error becomes
+  mass (J5's 0.8 Nm alone reads 0.8 kg).
+  3. On the lift itself the residual floor (J3 ~2 Nm exact, ~5 Nm perturbed)
+  is a constant offset: +0.3 / +0.8 kg for any mass from 0.5 to 4 kg.
+- Fix:     On a grip the model takes the declared part at once. The mass is
+  checked while moving: a 1-parameter least-squares fit (r = dm * gravity
+  torque per kg at the part's centre of mass) over the joints faster than
+  0.15 rad/s (3x the Stribeck speed). Tolerance is 1 kg; a smaller error
+  stays under the collision thresholds anyway.
+
+## 2026-10-15  arcmate.arm split into arm + tool; readers without `include`
+- Area:    `host/arm/arcmate/*.arm`, `*.tool`, `host/tests/robot/test_robot.c`
+- Status:  Note
+- Symptom: The genserkins cross-check in test_robot failed (no DH read) once
+  arcmate.arm became `include arcmate_base.arm` + `include torch.tool`.
+- Cause:   armcore supports `include`, but test_robot's DH reader and
+  `rb_collide_load` (a `detector` file) do not.
+- Fix:     test_robot reads arcmate_base.arm. Detector models stay
+  self-contained (model_exact.arm, model_perturbed.arm).
+
+## 2026-10-15  Gripper housing vs forearm: self-clearance at low poses
+- Area:    `hwtest/arcmate-sim/cell_grip.txt`, `host/arm/arcmate/gripper.tool`
+- Status:  Known (guessed geometry)
+- Symptom: In lcnc_grip_test, a G0 to the flange at (850, 50, 1050) mm,
+  flange up, was stopped by collision prevention (armguard reason 2).
+- Cause:   With the flange up, lower poses tilt the forearm. The gripper
+  housing (r 45 mm, vs the torch's 25 mm) then comes within the 10 mm
+  margin of the forearm capsule. Both bodies are guesses.
+- Fix:     The test's second part sits higher (flange at z 1200). Re-check
+  once the real housing and forearm are measured.
+
+## 2026-10-15  Tool changer docks: flange-up hits the forearm, flange-forward is the wrist singularity
+- Area:    `host/arm/arcmate/tools.txt`, `arcmate_changer.arm`
+- Status:  Known (guessed geometry)
+- Symptom: Flange-up docks at z 1050 caused protective stops: the forearm
+  vs the changer plate, with self-clearance 10 mm at z 1000 and negative
+  at 950. With docks flange-forward (B 90), J4 overspeed-faulted (off 1)
+  moving to a part.
+- Cause:   Flange up at low poses tilts the forearm towards the plate.
+  Flange forward with the forearm level is J5 = 0, the wrist singularity:
+  a small Cartesian change spins J4 and J6.
+- Fix:     Docks and working poses at B 45 (J5 -41 to -66 deg, clearance
+  56 mm or more). Changer plate r 40 mm. Re-check with the real geometry.
+
+## 2026-10-15  LinuxCNC 2.9: tool TCP through switchable kinematics works
+- Area:    `linuxcnc/armkins`, `hwtest/arcmate-sim/toolchange.ngc`
+- Status:  Note
+- Symptom: genserkins has no tool orientation, and a TCP change mid-program
+  would make the Cartesian position jump.
+- Cause:   --
+- Fix:     armkins exports kinematicsSwitchable() / kinematicsSwitch(type)
+  with type = tool ID. `M68 E3 Q<tool>` drives motion.switchkins-type, then
+  `M66 E0 L0`: motion recomputes the Cartesian position from the joints
+  and the interpreter resyncs (checked: the position jumps to the TCP,
+  later moves are clean, back to 0 too). M64/M65/M68 are immediate (not
+  queued with motion), so each needs an `M66 E0 L0` before it, or the lock
+  would open while the arm still moves into the dock.
+
+## 2026-10-15  armtool: kinematics check tripped on the settling at enable
+- Area:    `linuxcnc/armtool/armtool.c`
+- Status:  Fixed
+- Symptom: After a lost tool, the machine went straight back to estop at
+  enable (reason 5), so the kinematics could not be put back to the flange.
+- Cause:   "Moving" was any joint over 0.01 deg/s; the settling after
+  enable exceeds that.
+- Fix:     Moving = a joint over 0.1 deg in 50 ms. Standing still, the
+  operator can set `M68 E3 Q0`, `M66 E0 L0`, `M61 Q0`.
 ## 2026-10-15  pe (power estimation) was never loaded and computed wrong
 - Area:    `shared/comps/pe.c`, `conf/template/pid.txt`, `mpid.txt`
 - Status:  Fixed
@@ -2178,3 +2430,737 @@ Entry format:
   cleared when it fires or the request goes away. Tests:
   host/tests/index_rehome.test (fails before: found after 3 periods),
   index_rehome_creep.test.
+
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
+- Status:  Fixed
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
+
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
+- Status:  Known
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
+
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
+- Status:  Fixed
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
+
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
+
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
+- Status:  Known
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
+
+
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
+
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Fixed (compiles for the F4; not yet run on a drive)
+- Symptom: none seen; found by reading the code. Relevant for fast linear
+  scales: 1 µm at 4–5 m/s is 4–5 M counts/s.
+- Cause:   Three problems:
+  - TIM_ICInit (ICFilter = 0xF) ran before
+    RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC), so its writes were lost
+    unless res.c had already enabled TIM4. The inputs ran unfiltered.
+  - `TIM_Channel_1 | TIM_Channel_2` is TIM_Channel_2 (Channel_1 is 0), so
+    TIM_ICInit only ever reached B.
+  - Its BothEdge polarity sets CC2NP, which TIM_EncoderInterfaceConfig
+    leaves set. Encoder mode must not use that.
+  Just moving the clock enable would have applied a 3 µs filter to B
+  only (0xF: fDTS/32, N = 8: about 0.65 m/s at 1 µm), in both-edges mode.
+- Fix:     Enable the clock first and drop TIM_ICInit. After
+  TIM_EncoderInterfaceConfig, write IC1F/IC2F in CCMR1 from the new pin
+  `enc_fb0.input_filter` (set at load; default 3 = 8 samples at 84 MHz,
+  ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
+  Still to check on a drive: counts against distance at speed, and the
+  direction.
+
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Fixed (by "No emergency braking: every fault coasted the motor"
+  above: qstop, dbrake, the F3 braking on its own; the claude/linear-motor
+  branch's note, merged after)
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
+
+## 2026-10-26  Linear axis: id_pid tunes lower on master
+- Area:    `shared/comps/ids.c` (id_pid), host simulator, `host/tests/gen_linear_soak.py`
+- Status:  Open
+- Symptom: Merging claude/linear-motor into master: id_pid on the simulated
+  linear axis (examples/linear_axis.conf) now ends at pos_bw 20, vel_bw 77,
+  vel_d 1.75; on the branch it reached pos_bw 101, vel_bw 1000, vel_d 1. With
+  master's gains the linear soak's following error is 0.33 rad (3 mm) against
+  a 0.021 limit; with the branch's gains it passes 12/12 on master.
+- Cause:   Not found. ids.c is the same on both; the first scored cycle
+  already costs more than kt x the warm-up's, so vel_bw is cut at once
+  (100 x kd). Master's plant and loop differ since the branch: probe
+  autophasing (phase_mode 1), vel2.en = fb_switch0.state, qstop / dbrake in
+  pid.txt, the simulated motor's coulomb friction hold, the mains-fed bus
+  (sim_supply 0 changes nothing). No linear motor to compare on hardware.
+- Fix:     gen_linear_soak.py uses the branch's gains (--tune runs id_pid).
+  The linear tests wait 3 s for probe phasing (it takes ~2 s here).
+
+## 2026-10-14  uf (V/f) template: slip from |i|, stale angle, voltage derating
+- Area:    `conf/template/uf.txt`, `shared/comps/uf2.c` (comp `uf`),
+           `conf/template/sserial_uf.txt`, `conf/asyc_uf_3kw.txt`
+- Status:  Open (uf unchanged; acvf avoids all of these)
+- Symptom: On the simulated 100 W induction motor: +1.1% speed at no load,
+  -32% at rated load (50 Hz), stall at 25 Hz with half load, then the
+  rotor driven backwards and a motor overtemperature fault.
+- Cause:   Slip compensation scales with |i|, which counts the magnetizing
+  current as load and has no resistive-drop boost. hv0.vel is not set, so
+  between 5 kHz packets the F3 holds a stale angle. uf0.scale =
+  fault0.scale scales the voltage: thermal derating collapses the flux, a
+  hot motor cannot restart. sserial_uf reports the command back as
+  vel_fb and no pos_fb. asyc_uf_3kw.txt sets ramp0.max_speed, which does
+  not exist (ramp0.max_vel), and never ramp0.en.
+- Fix:     New acvf (see "acvf / idacim"). Fixing uf in place would change
+  existing machines; left as is.
+
+## 2026-10-14  acvf / idacim: induction motor V/f and autotune
+- Area:    `shared/comps/acvf.c`, `shared/comps/idacim.c`, templates acvf,
+           sserial_acvf, id_acim; sim `hv0.sim_type = 1`; branch
+           `claude/acim-conveyor`
+- Status:  Note (sim only)
+- Symptom: (design notes) Found while building it on the sim:
+- Cause:   (1) Slip compensation is positive feedback: filtered at 20 Hz it
+  hunts above ~100 rad/s (5 Hz now). (2) r * id compensation hunts on the
+  larger motors (370 W: 17, 750 W: 79 rad/s peak to peak) where plain V/f
+  is stable or marginal: active damping (torque high-pass on the frequency,
+  damp 0.5..4) stops it. (3) At zero frequency u = r * id holds any dc
+  current forever: faded in only above 3 * u_boost. (4) idacim's rotor
+  step: the current takes ~20 ms to settle, so a fit that assumes constant
+  current read tau_r +19%; the fit now uses the measured current.
+  (5) Without cur_bw (uf-derived templates leave it 0) current mode gives
+  no voltage: id_acim sets hv0.cur_bw.
+- Fix:     4 motors (100 W 4p .. 750 W 2p): autotune rs 0.5%, rr/lm/tau_r
+  ~3%, leakage ~6% (sigma*ls +5%: the rotor flux partly follows the square
+  wave); speed within 1% with the autotuned values, travel within 1%.
+  Untested: hardware, regenerative overvoltage on fast stops, field
+  weakening, the ARM build.
+
+## 2026-10-14  Test infra: float sim position, HAL query prefixes, link echoes
+- Area:    `host/hw/hv.c` (sim_abs_pos), `host/tests/run_tests.py`
+- Status:  Fixed / Note
+- Symptom: The belt travel check failed by 2% only late in a run; queries
+  showed "wrong" values in index-based checks.
+- Cause:   sim_abs_pos summed in float: near 2000 rad one ulp is 2.4e-4
+  rad against ~1.8e-3 rad per 12.5 us step, a biased rounding of ~7% per
+  add. A console query prints every pin with that prefix (acvf0.vel also
+  prints vel_cmd, vel_n, vel_sync), and the boot's link echo "OK sink <=
+  source = v" is parsed as a value of sink, shifting [k] indices.
+- Fix:     sim_abs_pos accumulates in double. Index linked pins from the
+  end ([-1]); avoid pin names that prefix others (acvf: blocked,
+  block_time, jtimer).
+
+## 2026-10-26  acvf: the current limit never acted under master's F3 current clamp
+- Area:    `shared/comps/acvf.c` (induction V/f), F3 `curpid.c` voltage mode, host `hw/hv.c`
+- Status:  Fixed (simulated; no induction motor on the bench)
+- Symptom: Merging claude/acim-conveyor into master, acim_100w_4p_speed: a
+  belt jammed with 4x rated friction stalled, but acvf0.blocked (sserial
+  in2) never came: acvf0.lim stayed 0, the frequency kept rising (vel_sync
+  115 rad/s, u_cmd 178 V) with the rotor at 0.
+- Cause:   acvf pulls the frequency back only while the current is above
+  max_cur. Since the branch was made the F3's current loop in voltage mode
+  (curpid.c, and the simulator's stand-in) scales its voltage down above
+  max_cur itself, so the current sits at max_cur and never above it: the
+  V/f limit, and with it the blocked-belt detection, never engaged. The
+  same on a real drive.
+- Fix:     acvf0.lim_share (0.9): the limit acts at 0.9 x max_cur x scale,
+  below the F3's clamp. Test: acim_100w_4p_speed.test (blocked == 1 at the
+  jam; fails without it). The induction model now uses the simulator's
+  mech_step (friction, brake, end stops) and a stiff sim_udc bus.
+
+## 2026-10-15  stmbl_arm hung in its first servo call after a struct change
+- Area:    `host/arm/lcnc/Makefile`, `host/lcnc/stmbl_sim_api.h`
+- Status:  Fixed
+- Symptom: After master's `power` field came in, every arm LinuxCNC config
+  failed with "USRMOT: ERROR: command timeout". A bare halrun showed the
+  servo thread's time stuck at 0: stmbl-arm.0 never returned.
+- Cause:   `stmbl_sim_pd_t` grew a field. armcore.o and stmbl_arm_rt.o did
+  not depend on stmbl_sim_api.h, so an incremental build kept the old
+  layout in them while libstmbl_drive.so had the new one.
+- Fix:     Both now depend on stmbl_sim_api.h. After a header change in
+  host/lcnc, `make clean` is the safe way.
+
+## 2026-10-18  vis3d: offscreen GL here, and what core GL leaves out
+- Area:    `linuxcnc/vis3d` (vis3d_render, tests)
+- Status:  Note
+- Symptom: Mesa's surfaceless EGL platform offered no EGLConfig at all, so
+  eglCreateContext failed; PyQt5's xcb plugin wouldn't load ("could not
+  load the Qt platform plugin xcb even though it was found"); the TCP trail
+  drawn as GL_LINE_STRIP was a hair-thin line.
+- Cause:   surfaceless contexts need EGL_KHR_no_config_context; the PyQt5
+  wheel's xcb plugin wants libxcb-icccm4, -image0, -keysyms1,
+  -render-util0, -xinerama0, -xkb1 and libxkbcommon-x11-0; core profiles
+  have no wide lines (glLineWidth > 1).
+- Fix:     create the context with EGL_NO_CONFIG_KHR and render into an
+  FBO; install those packages for `make qt-check`; draw the trail as a
+  ribbon facing the camera.
+
+## 2026-10-18  armguard clearance is mm; clearance-stop is not a limit
+- Area:    `linuxcnc/armguard` pins, `linuxcnc/arm6hmi`, `linuxcnc/vis3d/qtvcp/vis3d_widget.py`
+- Status:  Fixed
+- Symptom: the first ARM-6 screen showed "clearance 33797 mm" and a wrong guard
+  state.
+- Cause:   two mistakes in the screen:
+  - it read `.clearance` as metres, but armguard gives mm;
+  - it used `.clearance-stop` as the limit, but that pin is the clearance
+    along the stop path. The limit is `prevent MM` in the cell file.
+- Fix:     the screen and the widget take `armguard.0.state` (non-zero:
+  stopped, `.reason` 1 collision / 2 protective stop) plus `.clearance` in mm
+  against the cell's `prevent` (parsed with its includes; INI `PREVENT_MM`
+  overrides it). NEAR is shown below twice the limit.
+
+## 2026-10-18  QtVCP joint jog on genserkins: warning but it works
+- Area:    QtVCP `Action.DO_JOG`, `linuxcnc/arm6hmi`
+- Status:  Known
+- Symptom: joint jogging logs "Joint jogging not supported for non-identity
+  kinematics".
+- Cause:   QtVCP warns for any non-identity kinematics. The jog is still sent
+  in joint mode (teleop off) and moves the joint.
+- Fix:     none needed; arm6hmi's self-test jogs J1 +10 deg through it.
+
+## 2026-10-18  LinuxCNC stat.joint has max_ferror, not ferror_limit
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py`
+- Status:  Fixed
+- Symptom: the screen's 100 ms refresh silently stopped (nothing updated past
+  the first joint).
+- Cause:   `stat.joint[N]["ferror_limit"]` doesn't exist in 2.9 (the keys are
+  `ferror_current`, `ferror_highmark`, `max_ferror`, `min_ferror`). A QTimer
+  slot that raises dies quietly in QtVCP.
+- Fix:     use `max_ferror`. `_update` now wraps the refresh in try/except and
+  logs the traceback once.
+
+## 2026-10-18  Incremental jog cancelled by the button release
+- Area:    `linuxcnc/arm6hmi/arm6_handler.py` (jog rows)
+- Status:  Fixed
+- Symptom: an incremental jog (e.g. 10 deg) moved only a fraction of a degree.
+- Cause:   the release handler sent a jog stop, which also aborts an
+  incremental jog in progress.
+- Fix:     on release, stop only in continuous mode.
+
+## 2026-10-18  QtVCP in the cloud image needs PyQt5 for python3.12
+- Area:    `hwtest/arcmate-sim` `make hmi` / `test-hmi`, cloud session
+- Status:  Workaround
+- Symptom: `qtvcp` fails to import PyQt5 (LinuxCNC's modules are python3.12;
+  Ubuntu's python3-pyqt5 doesn't match it). Then the xcb platform plugin
+  fails to load.
+- Cause:   `linuxcnc_restore.sh` installs no Qt.
+- Fix:     install by hand:
+  - `python3.12 -m pip install --break-system-packages PyQt5 QScintilla PyOpenGL`
+  - `apt-get install xvfb libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0`
+
+  Idea: add both to the restore script.
+
+## 2026-10-19  A HAL pin sits on one signal: postgui nets join the existing one
+- Area:    `linuxcnc/arm6hmi/arm6_changer_postgui.hal`, `hwtest/arcmate-sim/changer.hal`
+- Status:  Fixed
+- Symptom: with the tool changer config LinuxCNC quit while starting the
+  screen, showing only its error dialog (show_errors.tcl). `test-hmi` hung
+  until its timeout with an empty log.
+- Cause:   `net arm6-tool armtool.0.mounted => arm6.vis3d.tool` in the postgui
+  file: `changer.hal` already has `armtool.0.mounted` on the signal
+  `tool-mounted` ("Pin ... was already linked"). The message is only in
+  /tmp/linuxcnc.debug.*, which is deleted when the dialog closes.
+- Fix:     `net tool-mounted => arm6.vis3d.tool`. To read such errors, cat
+  /tmp/linuxcnc.print.* and /tmp/linuxcnc.debug.* while the dialog is up.
+
+## 2026-10-19  Checking a world jog right after a joint jog: use the commanded position
+- Area:    `linuxcnc/arm6hmi/arm6_selftest.py` (jog pad)
+- Status:  Fixed
+- Symptom: X -10 mm from the jog pad measured -9.905 mm, now and then (the
+  step timed out).
+- Cause:   the start X came from `actual_position` right after a J2 +10 deg
+  jog. The simulated arm's feedback was still settling, and a J2 move
+  changes X a lot. The jog itself was exact.
+- Fix:     wait 0.6 s after the joint jog, then check the world jog on
+  `stat.position` (commanded): -10.000 mm.
+
+## 2026-10-19  Long status labels set the window's minimum width
+- Area:    `linuxcnc/arm6hmi` (subtitle, events, footer)
+- Status:  Fixed
+- Symptom: the screen grew to 1836 px, then 2490 px wide (wider than the
+  1600 px Xvfb screen). The subtitle showed armkins' whole
+  `model=... tools=...` line.
+- Cause:   a QLabel's minimum width is its text's width.
+- Fix:     `setMinimumWidth(40)` on the status labels, so they are clipped
+  rather than widening the window. The subtitle shows only the kinematics
+  module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
+  stretch.) Now 1448 px.
+
+
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
+- Status:  Fixed
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
+
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
+- Status:  Known
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
+
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
+- Status:  Fixed
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
+
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
+
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
+- Status:  Known
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
+
+
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
+
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Fixed (compiles for the F4; not yet run on a drive)
+- Symptom: none seen; found by reading the code. Relevant for fast linear
+  scales: 1 µm at 4–5 m/s is 4–5 M counts/s.
+- Cause:   Three problems:
+  - TIM_ICInit (ICFilter = 0xF) ran before
+    RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC), so its writes were lost
+    unless res.c had already enabled TIM4. The inputs ran unfiltered.
+  - `TIM_Channel_1 | TIM_Channel_2` is TIM_Channel_2 (Channel_1 is 0), so
+    TIM_ICInit only ever reached B.
+  - Its BothEdge polarity sets CC2NP, which TIM_EncoderInterfaceConfig
+    leaves set. Encoder mode must not use that.
+  Just moving the clock enable would have applied a 3 µs filter to B
+  only (0xF: fDTS/32, N = 8: about 0.65 m/s at 1 µm), in both-edges mode.
+- Fix:     Enable the clock first and drop TIM_ICInit. After
+  TIM_EncoderInterfaceConfig, write IC1F/IC2F in CCMR1 from the new pin
+  `enc_fb0.input_filter` (set at load; default 3 = 8 samples at 84 MHz,
+  ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
+  Still to check on a drive: counts against distance at speed, and the
+  direction.
+
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Known
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
+
+## 2026-10-20  Linear motors: conf0.j must be the whole moving mass
+- Area:    drive config (`conf0.j`, `vel1` observer), `host/portal/machine/*.conf`
+- Status:  Fixed (portal configs); Known for any linear-motor config
+- Symptom: on the simulated portal the axes rang at 15-25 Hz while moving,
+  with up to 2 mm of following error. Raising pos_bw above about 40 made it
+  a limit cycle. Holding position was quiet.
+- Cause:   `vel1.j = conf0.j`: the velocity observer predicts acceleration
+  from torque / conf0.j. With j = the coil (1.5 kg on X) and the load in
+  j_sys, it expects 8 x too much acceleration; its velocity lags and
+  overshoots (23.6 vs 25.9 rad/s seen). On a rotary motor j is the rotor
+  and the load hangs on a coupling; a linear motor's coil is the load.
+- Fix:     j = the whole moving mass (as rotary: m (p/2pi)^2), j_sys = 0.
+  Cruise error dropped from about 5 to 0.4 um rms, and stable gains went up
+  to pos_bw 150 / vel_bw 1000 on a rigid load.
+
+## 2026-10-20  A loop that rings in motion can hold quietly (friction damps it)
+- Area:    servo tuning, `host/portal`
+- Status:  Note
+- Symptom: gains with a 20 Hz limit cycle in motion held position within
+  2 um at standstill.
+- Cause:   the guides' Coulomb friction acts as very heavy damping around
+  zero speed; in motion it is a constant force and damps nothing.
+- Fix:     judge tuning with the axis moving (constant speed and after
+  acceleration steps), not on a held position.
+
+## 2026-10-20  No acceleration feedforward over smart-serial by default
+- Area:    `conf/template/sserial.txt` (`vel0.en = 0`)
+- Status:  Known
+- Symptom: following error during acceleration of a/(pos_bw vel_bw)
+  (1.2 mm at 0.9 g, pos_bw 25, vel_bw 300).
+- Cause:   pid0.acc_ext_cmd comes from vel0 (the derivative of the
+  command), which the sserial template disables.
+- Fix:     `vel0.en = 1` in the config gives it (the portal's configs do).
+  It is filtered (vel0.lp 50 Hz) and helps about 25 %; feedforward of the
+  planner's own acceleration would help more.
+
+## 2026-10-20  Gantry: racking limits the Y gains
+- Area:    `host/portal` (Y1/Y2 as separate drives)
+- Status:  Known
+- Symptom: Y gains above vel_bw 300 / pos_bw 60 made the bridge oscillate
+  in yaw (0.6-1.3 mrad); without the guides' yaw stiffness it ran away.
+- Cause:   each Y drive is tuned for its 21 kg share of the bridge. In the
+  racking mode a motor moves only the bridge's yaw inertia over (L/2)^2,
+  about 5 kg: the same gains are 4 x too high there.
+- Fix:     tune Y for the racking mode, or a cross-coupled gantry loop
+  (mean and difference of Y1/Y2 controlled separately).
+
+## 2026-10-20  sampler.0.enable defaults to on: halsampler records from startup
+- Area:    `hwtest/portal-sim/portal.hal`
+- Status:  Fixed
+- Symptom: the benchmark's samples started at LinuxCNC's start: 500 mm of
+  "following error" (command 0 before homing) and a program time that
+  included the startup.
+- Cause:   `sampler.N.enable` is true when loaded.
+- Fix:     `setp sampler.0.enable 0` in the HAL file; portal_run.py sets it
+  while a program runs. Also: axis.x.pos-cmd read 0 here, so the HAL file
+  records joint.N.motor-pos-cmd (trivkins, absolute scales: the same).
+
+## 2026-10-20  Headless linuxcnc: its output goes to /tmp/linuxcnc.print.*
+- Area:    LinuxCNC's `scripts/linuxcnc`, `hwtest/portal-sim/bench.py`
+- Status:  Note
+- Symptom: `linuxcnc portal.ini > log` exited 255 with an empty log.
+- Cause:   without a terminal the script redirects itself into
+  /tmp/linuxcnc.print.* / linuxcnc.debug.* and deletes them at exit. On an
+  error without X it copies them to ~/linuxcnc_print.txt and
+  ~/linuxcnc_debug.txt (here: a pin already on a signal in portal.hal).
+- Fix:     read ~/linuxcnc_debug.txt after a failed headless start.
+
+## 2026-10-20  Acceleration leads: which way each one points
+- Area:    `host/portal/pcomp.c` (command conditioning)
+- Status:  Note
+- Symptom: two of the three leads made the path worse at first (a circle
+  shrank further: -401 instead of -236 um).
+- Cause:   sign. A smoothing filter, and a servo that lags under
+  acceleration, behave like an average along the path: they end up
+  displaced towards the acceleration (inside a curve), s = x + s2/2 a. The
+  head's lag is inertial: it bends against the acceleration.
+- Fix:     out = s + a (1/w^2 - tau2 - s2/2). Leads also need a smooth
+  acceleration: on LinuxCNC's stepping acceleration (even after a ZV
+  shaper) they jump the command by K da (0.5 mm) and double the current;
+  a moving average after the shaper turns the steps into ramps.
+
+## 2026-10-20  halsampler stopped mid-line: numpy.loadtxt rejects the whole file
+- Area:    `hwtest/portal-sim/bench.py`
+- Status:  Fixed
+- Symptom: every run but the first per LinuxCNC session scored "no samples".
+- Cause:   portal_run.py terminates halsampler, which leaves a partial last
+  line; loadtxt raises, and the analysis read that as an empty file.
+- Fix:     keep only rows with all the columns.
+
+## 2026-10-20  A command filter between motion and the drives: three traps
+- Area:    `linuxcnc/pcomp` (any component that changes the command after motion)
+- Status:  Fixed
+- Symptom: LinuxCNC with pcomp: amplifier faults at machine on; following
+  error aborts out of rapids, even at 0.25 g (1.1 mm, proportional to v).
+- Cause:   three, one after the other:
+  1. Wind-up. With the drives off, motion makes its command follow the
+     feedback. pcomp hands back fb + (in - out), and through the filter's
+     delay that loop integrates; at startup (absolute scales: 0 -> 500 mm)
+     it wound up.
+  2. Stale velocity. A backward difference of the output is half a servo
+     period late: v dt/2 of drive lag (0.8 mm at 1.6 m/s).
+  3. Feedback pairing. pcomp reads the drives' feedback before they run (it
+     shows where they got to with pcomp's previous output), and motion
+     compares it with this period's command. fb + (in - out) of the same
+     period, or of the period before, both leave v dt (1 mm at 1 m/s).
+- Fix:     1. enable = the amplifiers' enable; restart at standstill.
+  2. the shaped path's central difference (one period back) + the lead's
+  rate. 3. fb_out = fb + (in now - out the period before).
+  The servo lag constant tau2 had to be recalibrated after 2 (1.45e-5 ->
+  2.15e-5 s^2): the stale velocity had been part of it.
+
+## 2026-10-21  Velocity observer lags under acceleration (2 d a / w); vel_bw ceiling 556
+- Area:    `shared/comps/vel.c` (vel1: pid0.vel_fb), every drive
+- Status:  Workaround (opt-in `vel1.bc = 1`; default unchanged)
+- Symptom: the portal and the linear axis held a position error
+  proportional to acceleration that tuning couldn't remove; acceleration
+  feedforward made circles worse; vel_bw above about 550 was unstable on
+  every load; the vel_bw a config said wasn't the loop's real bandwidth.
+- Cause:   the observer's torque model only acts above `lp` (50 Hz). A
+  steady acceleration a is tracked with an error a/w^2, and the reported
+  velocity (acc_sum, without the proportional correction 2 d w e) lags the
+  true one by 2 d a / w (1.8 ms x a at w 1000, d 0.9). In the speed loop
+  that is positive acceleration feedback: the effective inertia is
+  j (1 - 2 d vel_bw / w), so the real bandwidth is vel_bw / (1 - 2 d vel_bw / w)
+  (650 for a configured 300), unstable at vel_bw = w / 2d = 556. It also
+  stands in for missing acceleration feedforward, which is why feedforward
+  alone looked harmful.
+- Fix:     `vel1.bc = 1` adds the correction to the reported velocity
+  (`vel1.bc_lp` [Hz] filters it against quantization). Use it together with
+  acceleration feedforward (`vel_int0.mode = 1`) and retune: vel_bw is then
+  the real bandwidth. Portal: following error 115 -> 7 um at 0.7 g;
+  linear axis at 2 m/s^2: 3.7 -> 0.5 mrad (`tests/acc_ff_linear.test`). With
+  bc on by default the host suite's motors all still pass; only configs
+  tuned with the lag in place (portal, two arm detector thresholds) move,
+  so it stays opt-in.
+
+## 2026-10-21  LinuxCNC's vel-cmd is half a servo period late; acc feedforward over sserial
+- Area:    `shared/comps/vel_int.c`, `conf/template/sserial.txt`
+- Status:  Fixed (opt-in `vel_int0.mode = 1`)
+- Symptom: velocity feedforward lagged; no acceleration feedforward over
+  smart-serial (vel0 is off in sserial.txt; on, it is a filtered derivative).
+- Cause:   joint.N.vel-cmd is the average over the last period. LinuxCNC's
+  planner moves with constant acceleration between updates.
+- Fix:     mode 1: velocity and acceleration from the last three positions
+  (exact for the planner: a = (d1 - d0)/T^2, v = d1/T + a T/2, T =
+  1/cmd_freq), quadratic interpolation, acc_out -> rev0.out_dd ->
+  pid0.acc_ext_cmd. Mode 0 passes vel0.acc through, as before.
+
+## 2026-10-21  vel_int mode 1: a jump while standing kicks the next move (POS_ERROR)
+- Area:    `shared/comps/vel_int.c` (mode 1)
+- Status:  Fixed
+- Symptom: on some portal origins (X 400 and 450, not 420 or 500) the
+  first move faulted with POS_ERROR at once; the drive ran backwards.
+- Cause:   standing still, LinuxCNC's packets repeat and aren't "new", so
+  the history p2 kept whatever came before the stop. After a jump in the
+  command while stopped (here portal_sim's unsynced first command, the raw
+  scale, then the offset one), the next move's first packet computed
+  a = (d1 - jump) / T^2, about 2.7e6 rad/s^2.
+- Fix:     a stop (v = 0 or no change) sets p2 = p: the history is
+  "standing at p". `host/tests/acc_ff_jump.test` (fails before).
+
+## 2026-10-21  portal_sim sent an unsynced command before the scale offsets were set
+- Area:    `host/portal/portalcore.c` (`ptcore_set_cmd`)
+- Status:  Fixed
+- Symptom: as above; with mode 0 harmless.
+- Cause:   until the offsets were known (5 exchanges), the command was the
+  raw machine position (400 mm), then about 0: a jump LinuxCNC never sends.
+- Fix:     until synced, each drive gets its own feedback as command (as
+  LinuxCNC follows the feedback while disabled).
+
+## 2026-10-21  portal files: `cogging` lines never parsed; fault_code crashed without a Y2 drive
+- Area:    `host/portal/portalcore.c`, `host/portal/portal_sim.c`
+- Status:  Fixed
+- Symptom: `cogging y1 28 22.86 30` -> "bad line"; `print fault_code` on a
+  file with only `drive y2 none` segfaulted.
+- Cause:   the number parser started at the motor's name (n = 0 numbers);
+  fault_code called the unloaded drive's `pin()` (NULL).
+- Fix:     parse the numbers after the name; skip drives that never
+  loaded. `host/portal/tests/portal_retrofit*.test`.
+
+## 2026-10-21  Gantry: Y1 and Y2 fight at 160-235 Hz in the bridge's yaw
+- Area:    gantry drive tuning (`conf0.vel_bw`, `conf0.cur_bw`), `host/portal/machine/retrofit`
+- Status:  Fixed in simulation with the gantry link (`shared/comps/gantry.c`);
+  Workaround on hardware until the drive-to-drive link exists (cur_bw 2000
+  or a lower vel_bw)
+- Symptom: Y1 and Y2 currents opposite, +-4 to +-7 A at 160-235 Hz, while
+  moving (laser3015, cmm) or after reversing at slow speed (pcbdrill); with
+  one Y motor, against the bridge's twist (dispenser). Masses, modes, the
+  portal's own machine fine.
+- Cause:   each Y drive is tuned for its share of the moving mass; in the
+  yaw (Y1 against Y2) it moves only 2 J / L^2 of the bridge (18 of 73 kg on
+  the laser, 4.7 of 21.5 kg on the driller): the velocity loop is 4-5x as
+  fast there and meets the default current loop (1000 rad/s). Guide
+  friction damps it on some machines (it appeared without friction on the
+  laser: 11.5 A).
+- Fix:     `conf0.cur_bw = 2000`, or `conf0.vel_bw` 200-300. dynwiz's
+  `mass` and `cogging` steps detect it (a sustained line in the current)
+  and `write` proposes vel_bw x 0.6. The real fix: the gantry link (next
+  entries): the two Y drives exchange position error and velocity, and
+  each feeds its pid the yaw at r_vel ~ m_yaw / m_side of the velocity
+  gain. The fight is gone at the default gains on laser3015, cmm and
+  pcbdrill (cmm: 10 A at 208 Hz -> 0.01 A, rack 118 -> 2.4 urad), and
+  vel_bw can double. `host/portal/tests/portal_gantry*.test`.
+
+## 2026-10-21  Brake chopper above the drives' max_dc_volt never helps
+- Area:    `host/portal` `bus` lines, real supplies
+- Status:  Note
+- Symptom: HV_VOLT_ERROR at 2 g with a chopper set to switch on at 390 V.
+- Cause:   `conf0.max_dc_volt` is 380 (conf/template/conf.txt): the
+  drives trip before the chopper conducts.
+- Fix:     chopper on below it (360 V in the retrofit files); on a real
+  machine, check the resistor module's threshold against max_dc_volt.
+
+## 2026-10-21  Moving mass from the current: a ringing head biases a per-sample fit
+- Area:    `linuxcnc/dynwiz/dynident.py` (`mass_fit`)
+- Status:  Fixed
+- Symptom: X masses 14 % high (cmm) or 18 % low (pcbdrill); dynwiz would
+  have proposed a wrong conf0.j.
+- Cause:   the head swinging on its springs adds a force that, over the
+  short accelerations (36 ms at 2 g), sits at whatever phase it has.
+- Fix:     fit the impulse: both sides summed over each move's samples;
+  the head's part then is its momentum, which stays small. All five
+  simulated machines within 3 %.
+
+## 2026-10-21  Step-response modes: the base and the servo look like the head
+- Area:    `linuxcnc/dynwiz` (`modes`)
+- Status:  Workaround
+- Symptom: the strongest ring after a step was 17 Hz at the bridge's ends
+  (pcbdrill: its frame on its feet) or 15 Hz everywhere (dispenser: the
+  position loop's own settling, pos_bw 100 rad/s), not the head.
+- Cause:   the scales are on the frame and only see the head through its
+  reaction on the servo-held carriage; a light, stiff head (1.2 kg at
+  85-140 Hz on 1.8 kg) barely shows at all.
+- Fix:     the three strongest peaks per position; a frequency within 3 %
+  at every position is the base's and is left out; the current is used
+  where it is clearer than the scale; a fit that doesn't bend like a bridge
+  is marked doubtful and not written; `--use-tool` for a sensor on the head.
+
+## 2026-10-21  HAL sampler: a second instance needs its own depth
+- Area:    LinuxCNC `sampler` (2.9)
+- Status:  Note
+- Symptom: `loadrt sampler depth=20000 cfg=...,...` then `addf sampler.1`:
+  "function 'sampler.1' not found".
+- Cause:   depth is per instance; an instance without one isn't created.
+- Fix:     `depth=20000,20000`.
+
+## 2026-10-21  Gantry link: the partner's data must arrive within ~1 ms
+- Area:    `shared/comps/gantry.c`, `host/portal` (`glink DELAY EVERY`)
+- Status:  Known
+- Symptom: with the link's latency at 2 ms the fight came back at the
+  bridge's middle; at 3 ms (a relay through LinuxCNC and smart-serial at
+  1 kHz) it is as bad as without, SAT_ERROR at 4 ms.
+- Cause:   the partner's velocity feeds the fast loop, where the fight is
+  (200 Hz: 2 ms is 144 degrees).
+- Fix:     a drive-to-drive link, not LinuxCNC: classic CAN between the two
+  Y drives (stmbl v4 P10: CAN1 without a transceiver, can-support branch),
+  an 8-byte frame each way every 400 us (68 % of 1 Mbit/s), ~600 us
+  latency: simulated as `glink 3 2`, stable. Stability with the link: the
+  yaw's velocity bandwidth vel_bw r_vel / (m_yaw / m_side) up to about
+  1.8 cur_bw.
+
+## 2026-10-21  Gantry: what didn't help (inertia split, load-split lead)
+- Area:    `pid0.j_mot / j_sys / j_lpf`, pcomp
+- Status:  Note
+- Symptom/Cause: (1) the pid's frequency split of the inertia (j_mot = the
+  yaw's mass, j_sys the rest, above j_lpf only j_mot) can't tell the yaw
+  from the common mode, and its low-pass sits at the speed loop's crossover:
+  worse, POS_ERROR. (2) A per-side lead in pcomp for the carriage's load
+  split (Y1/Y2 apart by G (X - x0)/L a): rack grew with either sign. The
+  stiff Y drives already hold the quasi-static split (16 urad at 1 g with
+  the carriage off-centre); the rack left is dynamic.
+- Fix:     none needed; the gantry link instead. Removed from pcomp.
+
+## 2026-10-26  Portal: the linear motors run out of bus voltage at 1.3 m/s
+- Area:    host/portal (claude/portal-dynamics), host `hw/hv.c` (the F3's voltage limit)
+- Status:  Open (simulation; no portal hardware)
+- Symptom: Merging claude/portal-dynamics into master: portal_move's tool
+  path error 177 um (limit 100, the branch 60), the frame moving 562 um (114);
+  portal_racking's Y1 current 1.06 x (limit 1.05); portal_momentum's second
+  move ends elsewhere. Marked @todo.
+- Cause:   Master's simulated F3 limits the output voltage vector to what the
+  bus can make (vbus / sqrt 3); the branch's limited ud and uq one by one, up
+  to 1.34 x that. The Baldor LMCF08F at 1.3 m/s needs ~130 V back-EMF plus
+  R i (10.5 ohm) against 188 V from a 325 V bus: the moves are voltage
+  limited. Without the vector limit the merge reproduces the branch's numbers
+  (60 um, 114 um). portal_momentum faults (POS_ERROR) on its second move on
+  both; it only checks momentum and frame travel, and master brakes after the
+  fault where the branch coasted.
+- Fix:     Not yet: slower or lower-acceleration moves, a higher bus (a PFC
+  front end, 400 V), or motors with a lower Kf. Then drop the @todo lines.
+- Also:    linuxcnc/dynwiz `make test-sim` (not in host check): 4 of 8 fail
+  on the branch itself on the bench Pi (dispenser: "the scales can't see the
+  head"; pcbdrill, write_confs: "math domain error"; write); after the merge
+  test_portal fails instead of test_write ("math domain error", likely the
+  same voltage limit). `make test` (dynident) 6/6.
+
+## 2026-10-26  sserial pos_advance is 0.2 ms long since idx_home runs before linrev
+- Area:    `conf/template/sserial.txt` (sserial0.pos_advance 0.0008), idx_home rt_prio
+- Status:  Open (needs the bench)
+- Symptom: The portal simulation's following error (LinuxCNC's command
+  minus the drive's reported position) grew from ~8 to ~228 um at 0.7 g on
+  master; the motion itself was the same.
+- Cause:   sserial0.pos_fb is extrapolated by pos_advance (0.8 ms) for the
+  link's latency. Since idx_home0.rt_prio went to 2.05 (2026-10-17, index
+  homing) linrev reports the position one rt cycle (0.2 ms) fresher, so the
+  same advance now leads by 0.2 ms: at 1 m/s that reads as 0.2 mm.
+- Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
+  it alters every drive's reported position; check it on the bench first
+  (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).

@@ -1,0 +1,29 @@
+# Self-collision: folding the wrist (J5 towards its limit) brings the torch
+# against the forearm. Prevention (margin 10 mm) stops J5 before; the true
+# torch-forearm clearance stays positive. Unfolding again is allowed.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark
+prevent 10
+tmove 1.5 0 0 0 0 -129 0
+run 2
+print off prevent q
+lcnc 0
+run 0.3
+lcnc 1
+run 1
+mark
+move 1 0 0 0 0 -90 0
+run 1.2
+print off q
+@expect arm.off_reason[1] == 5
+@expect arm.prev_self[1] == 1
+@expect arm.clear_min[1] > 2
+@expect arm.q5[1] > -125
+@expect arm.off_reason[2] == 0
+@expect arm.q5[2] ~ -90 0.2
+@reject ^ERROR

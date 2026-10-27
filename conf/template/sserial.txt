@@ -30,6 +30,10 @@ rev0.in = vel_int0.pos_out
 rev0.in_d = vel_int0.vel_out
 qstop0.vel_in = rev0.out_d
 qstop0.hold2 = vel_int0.error
+# vel_int mode 1: the acceleration, via qstop to pid0
+vel_int0.acc_in = vel0.acc
+rev0.in_dd = vel_int0.acc_out
+qstop0.acc_in = rev0.out_dd
 vel_int0.wd = 0.002
 vel0.en = 0
 velbuf0.rt_prio = 0

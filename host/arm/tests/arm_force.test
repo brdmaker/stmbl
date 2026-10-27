@@ -1,0 +1,33 @@
+# A 190 N push on the flange (link 6, 50 mm out along its z) while the
+# drives hold the arm (absolute encoders: no phasing). Without friction
+# the links are in static balance: every gear torque changes by -J^T f
+# (arm.gres = change + J^T f ~ 0; J2 takes ~180 Nm, J3 ~90 Nm). The drives
+# hold without a fault; the links deflect by the gear elasticity only.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+fric 1 0 0 0 0
+fric 2 0 0 0 0
+fric 3 0 0 0 0
+fric 4 0 0 0 0
+fric 5 0 0 0 0
+fric 6 0 0 0 0
+home 0 20 10 30 -60 0
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark
+force 6 100 -50 -150 0 0 0.05
+run 1.0
+print gres jtf ferr fault
+@expect arm.jtf2 > 150
+@expect max|arm.gres1| < 0.5
+@expect max|arm.gres2| < 0.5
+@expect max|arm.gres3| < 0.5
+@expect max|arm.gres4| < 0.2
+@expect max|arm.gres5| < 0.2
+@expect max|arm.gres6| < 0.2
+@expect max|arm.ferr2| < 0.15
+@expect max arm.fault2 == 0
+@expect max arm.fault3 == 0
+@reject ^ERROR

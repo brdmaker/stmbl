@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ARM-6 live view: a real-time WebGL preview of the six-axis arm (docs/hmi/README.md). Opens from disk; three.js from cdnjs. -->
+<title>ARM-6 Live View</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* layout: a full-height 3D viewport with an instrument column beside it; dark-first, the viewport stays dark in both themes */
+:root {
+  --bg: #080C11; --panel: #0E151C; --line: #1D2A37; --fg: #D9E3EC; --mute: #7E8E9D; --dim: #4A5B6B;
+  --accent: #27CFC3; --accent-ink: #072A28; --warn: #F0AE3F; --crit: #FF6B6B; --good: #7FDD5A;
+  --display: 'Chakra Petch', 'Segoe UI', sans-serif; --body: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #EEF2F5; --panel: #FFFFFF; --line: #D3DCE4; --fg: #15202B; --mute: #5A6B7B; --dim: #8A9AAA;
+  --accent: #0E9C92; --accent-ink: #FFFFFF; --warn: #B27300; --crit: #C8322B; --good: #2E8B1E; color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: #EEF2F5; --panel: #FFFFFF; --line: #D3DCE4; --fg: #15202B; --mute: #5A6B7B; --dim: #8A9AAA;
+  --accent: #0E9C92; --accent-ink: #FFFFFF; --warn: #B27300; --crit: #C8322B; --good: #2E8B1E; color-scheme: light }
+
+html, body { height: 100% }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); display: flex; flex-direction: column; gap: 12px;
+  padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); box-sizing: border-box }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px }
+h1 { font: 700 20px/1 var(--display); letter-spacing: .06em; margin: 0; text-transform: uppercase }
+.sub { font: 400 13px/1.3 var(--body); color: var(--mute) }
+.pill { display: inline-flex; align-items: center; gap: 8px; font: 600 12px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px; margin-left: auto }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good) }
+.dot.warn { background: var(--warn) } .dot.crit { background: var(--crit) }
+
+main { flex: 1; display: flex; flex-wrap: wrap; gap: 12px; min-height: 0 }
+#view { flex: 1 1 560px; min-width: 0; min-height: 440px; position: relative; background: #070A0E; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; touch-action: none }
+#view canvas { display: block; width: 100%; height: 100% }
+.hud { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 6px; pointer-events: none }
+.hud .row { display: flex; gap: 10px; align-items: baseline; font-family: var(--mono); font-variant-numeric: tabular-nums; color: #D9E3EC; font-size: 13px; background: rgba(7, 10, 14, .72); padding: 6px 10px; border-radius: 4px }
+.hud .k { color: #7E8E9D; font: 600 10px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; width: 54px }
+.hud .v { font-weight: 600 }
+.hud .u { color: #7E8E9D; font-size: 11px }
+.guard { position: absolute; right: 12px; top: 12px; font: 600 12px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; padding: 9px 12px; border-radius: 4px; background: rgba(7, 10, 14, .72); color: #7FDD5A; border: 1px solid rgba(127, 221, 90, .4); pointer-events: none }
+.guard.slow { color: #F0AE3F; border-color: rgba(240, 174, 63, .5) } .guard.stop { color: #FF6B6B; border-color: rgba(255, 107, 107, .5) }
+.rate { position: absolute; left: 12px; bottom: 12px; font: 400 11px/1.4 var(--mono); color: #7E8E9D; background: rgba(7, 10, 14, .72); padding: 6px 10px; border-radius: 4px; pointer-events: none }
+.hint { position: absolute; right: 12px; bottom: 12px; font: 400 11px/1.4 var(--body); color: #7E8E9D; background: rgba(7, 10, 14, .72); padding: 6px 10px; border-radius: 4px; pointer-events: none }
+
+aside { flex: 0 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 12px }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px }
+.lbl { font: 600 11px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--mute) }
+.btns { display: flex; gap: 6px }
+button { font: 600 13px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 4px; min-height: 44px; padding: 0 14px; cursor: pointer; flex: 1 }
+button:hover { border-color: var(--mute) }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) }
+.joint { display: grid; grid-template-columns: 30px 1fr 74px; align-items: center; gap: 10px }
+.joint label { font: 500 13px/1 var(--mono); color: var(--accent) }
+.joint output { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; text-align: right }
+input[type=range] { width: 100%; accent-color: var(--accent); min-height: 24px }
+.kv { display: flex; justify-content: space-between; font-size: 13px }
+.kv span:last-child { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.kv .m { color: var(--mute) }
+.chk { display: flex; align-items: center; gap: 10px; font-size: 13px; min-height: 28px }
+.note { font-size: 12px; line-height: 1.5; color: var(--mute) }
+.note b { color: var(--fg); font-weight: 500 }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+img{max-width:100%}[hidden]{display:none!important}
+</style>
+
+</head>
+<body>
+<header>
+  <div>
+    <h1>ARM-6 live view</h1>
+    <div class="sub">Six stmbl joints and a gripper, drawn from joint positions at the servo rate</div>
+  </div>
+  <div class="pill"><span class="dot" id="stateDot"></span><span id="stateText">Machine on</span></div>
+</header>
+
+<main>
+  <div id="view" aria-label="3D view of the robot arm, drag to orbit, scroll to zoom">
+    <div class="hud" aria-live="off">
+      <div class="row"><span class="k">TCP X</span><span class="v" id="tx">0.0</span><span class="u">mm</span><span class="k" style="width:auto">Y</span><span class="v" id="ty">0.0</span><span class="u">mm</span><span class="k" style="width:auto">Z</span><span class="v" id="tz">0.0</span><span class="u">mm</span></div>
+      <div class="row"><span class="k">Speed</span><span class="v" id="tv">0</span><span class="u">mm/s</span><span class="k" style="width:auto">Clear.</span><span class="v" id="tc">0</span><span class="u">mm</span></div>
+    </div>
+    <div class="guard" id="guard">Guard armed</div>
+    <div class="rate" id="rate">servo 1000 Hz · render 60 fps</div>
+    <div class="hint">drag to orbit · wheel to zoom</div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <div class="lbl">Motion</div>
+      <div class="btns">
+        <button id="btnRun" class="on" aria-pressed="true">Run cycle</button>
+        <button id="btnHold" aria-pressed="false">Hold</button>
+        <button id="btnHome">Home</button>
+      </div>
+      <div class="joint"><label for="ovr">OVR</label><input id="ovr" type="range" min="5" max="150" value="100"><output for="ovr" id="ovrOut">100 %</output></div>
+    </div>
+
+    <div class="panel">
+      <div class="lbl">Joints · deg</div>
+      <div class="joint"><label for="j1">J1</label><input id="j1" type="range" min="-170" max="170" value="0" step="0.1"><output id="o1">0.00</output></div>
+      <div class="joint"><label for="j2">J2</label><input id="j2" type="range" min="-90" max="120" value="0" step="0.1"><output id="o2">0.00</output></div>
+      <div class="joint"><label for="j3">J3</label><input id="j3" type="range" min="-150" max="75" value="0" step="0.1"><output id="o3">0.00</output></div>
+      <div class="joint"><label for="j4">J4</label><input id="j4" type="range" min="-180" max="180" value="0" step="0.1"><output id="o4">0.00</output></div>
+      <div class="joint"><label for="j5">J5</label><input id="j5" type="range" min="-120" max="120" value="0" step="0.1"><output id="o5">0.00</output></div>
+      <div class="joint"><label for="j6">J6</label><input id="j6" type="range" min="-360" max="360" value="0" step="0.1"><output id="o6">0.00</output></div>
+      <div class="note">Moving a slider takes over from the cycle (manual jog).</div>
+    </div>
+
+    <div class="panel">
+      <div class="lbl">Collision guard</div>
+      <div class="joint"><label for="clr" style="font-size:11px">MIN</label><input id="clr" type="range" min="0" max="250" value="60" step="5"><output id="clrOut">60 mm</output></div>
+      <div class="kv"><span class="m">Nearest object</span><span id="nearest">conveyor</span></div>
+      <div class="kv"><span class="m">Speed scale</span><span id="scale">100 %</span></div>
+      <label class="chk"><input id="showCol" type="checkbox" checked> Show collider boxes</label>
+      <label class="chk"><input id="showTrail" type="checkbox" checked> Show TCP trail</label>
+      <div class="note">Raise the minimum clearance until the cycle stops at the conveyor: the guard slows from 2× the limit and stops at it, as <b>armguard</b> does.</div>
+    </div>
+
+    <div class="panel">
+      <div class="lbl">Data path</div>
+      <div class="note">Joint positions come from HAL at the servo period (1 kHz here) and are integrated in a fixed-step loop; the scene renders at the display's rate with the newest sample. Forward kinematics runs in the page, so the TCP, the clearance and the trail need no extra pins.</div>
+    </div>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var view = document.getElementById('view');
+  var W = view.clientWidth, H = view.clientHeight;
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(W, H);
+  view.insertBefore(renderer.domElement, view.firstChild);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x070a0e);
+  scene.fog = new THREE.Fog(0x070a0e, 18, 40);
+  var camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  var target = new THREE.Vector3(0, 3.2, 0);
+  var orbit = { theta: 0.75, phi: 1.15, r: 15 };
+  function placeCamera() {
+    camera.position.set(target.x + orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta), target.y + orbit.r * Math.cos(orbit.phi), target.z + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta));
+    camera.lookAt(target);
+  }
+  placeCamera();
+
+  scene.add(new THREE.HemisphereLight(0x9fb4c8, 0x0b0f14, 0.9));
+  var key = new THREE.DirectionalLight(0xffffff, 0.8); key.position.set(6, 12, 5); scene.add(key);
+  var rim = new THREE.DirectionalLight(0x27cfc3, 0.35); rim.position.set(-8, 6, -6); scene.add(rim);
+
+  var grid = new THREE.GridHelper(30, 30, 0x1d2a37, 0x141c25); scene.add(grid);
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0x0a1016, roughness: 1 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -0.01; scene.add(floor);
+
+  // ---- the arm: a kinematic chain, lengths in mm / 100 ----
+  var L = { base: 3.3, shoulderX: 0.5, upper: 4.4, fore: 4.4, wrist: 0.8 };
+  var body = new THREE.MeshStandardMaterial({ color: 0x3a4654, roughness: 0.55, metalness: 0.35 });
+  var dark = new THREE.MeshStandardMaterial({ color: 0x1b242e, roughness: 0.7, metalness: 0.2 });
+  var ring = new THREE.MeshStandardMaterial({ color: 0x27cfc3, emissive: 0x0d6f69, roughness: 0.4 });
+  var finger = new THREE.MeshStandardMaterial({ color: 0xf0ae3f, roughness: 0.5 });
+  function cyl(r, h, mat) { return new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat); }
+  function box(x, y, z, mat) { return new THREE.Mesh(new THREE.BoxGeometry(x, y, z), mat); }
+
+  var root = new THREE.Group(); scene.add(root);
+  var pedestal = cyl(1.3, 0.5, dark); pedestal.position.y = 0.25; root.add(pedestal);
+  var j1 = new THREE.Group(); j1.position.y = 0.5; root.add(j1);
+  var turret = cyl(1.0, 1.2, body); turret.position.y = 0.6; j1.add(turret);
+  var r1 = cyl(1.05, 0.12, ring); r1.position.y = 1.22; j1.add(r1);
+  var column = box(1.1, L.base - 1.7, 0.9, body); column.position.set(L.shoulderX, 1.2 + (L.base - 1.7) / 2, 0); j1.add(column);
+
+  var j2 = new THREE.Group(); j2.position.set(L.shoulderX, L.base, 0); j1.add(j2);
+  var hub2 = cyl(0.55, 1.1, ring); hub2.rotation.x = Math.PI / 2; j2.add(hub2);
+  var upper = box(0.7, L.upper, 0.55, body); upper.position.y = L.upper / 2; j2.add(upper);
+
+  var j3 = new THREE.Group(); j3.position.y = L.upper; j2.add(j3);
+  var hub3 = cyl(0.45, 0.95, ring); hub3.rotation.x = Math.PI / 2; j3.add(hub3);
+  var j4 = new THREE.Group(); j3.add(j4);  // roll about the forearm axis (+X)
+  var fore = cyl(0.3, L.fore, body); fore.rotation.z = -Math.PI / 2; fore.position.x = L.fore / 2; j4.add(fore);
+  var r4 = cyl(0.36, 0.14, ring); r4.rotation.z = -Math.PI / 2; r4.position.x = 1.2; j4.add(r4);
+
+  var j5 = new THREE.Group(); j5.position.x = L.fore; j4.add(j5);
+  var hub5 = cyl(0.3, 0.7, ring); hub5.rotation.x = Math.PI / 2; j5.add(hub5);
+  var j6 = new THREE.Group(); j5.add(j6);
+  var wrist = cyl(0.22, L.wrist, dark); wrist.rotation.z = -Math.PI / 2; wrist.position.x = L.wrist / 2; j6.add(wrist);
+  var flange = cyl(0.3, 0.1, ring); flange.rotation.z = -Math.PI / 2; flange.position.x = L.wrist; j6.add(flange);
+  var fA = box(0.5, 0.08, 0.12, finger), fB = box(0.5, 0.08, 0.12, finger);
+  fA.position.set(L.wrist + 0.3, 0, 0.2); fB.position.set(L.wrist + 0.3, 0, -0.2); j6.add(fA); j6.add(fB);
+  var tcp = new THREE.Object3D(); tcp.position.x = L.wrist + 0.55; j6.add(tcp);
+
+  // ---- colliders (axis-aligned boxes in robot space): conveyor, pallet, fence post ----
+  var colliders = [
+    { name: 'conveyor', min: new THREE.Vector3(4.6, 0, -1.2), max: new THREE.Vector3(7.6, 1.1, 1.2) },
+    { name: 'pallet', min: new THREE.Vector3(-1.2, 0, 3.4), max: new THREE.Vector3(1.2, 0.5, 5.8) },
+    { name: 'post', min: new THREE.Vector3(-5.0, 0, -5.0), max: new THREE.Vector3(-4.6, 2.5, -4.6) }
+  ];
+  var colGroup = new THREE.Group(); scene.add(colGroup);
+  colliders.forEach(function (c) {
+    var size = new THREE.Vector3().subVectors(c.max, c.min);
+    var m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color: 0x2a2416, roughness: 0.9, transparent: true, opacity: 0.55 }));
+    m.position.copy(c.min).add(size.clone().multiplyScalar(0.5));
+    var e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0xb58a3a }));
+    e.position.copy(m.position);
+    colGroup.add(m); colGroup.add(e);
+  });
+  function distToBox(p, c) {
+    var dx = Math.max(c.min.x - p.x, 0, p.x - c.max.x), dy = Math.max(c.min.y - p.y, 0, p.y - c.max.y), dz = Math.max(c.min.z - p.z, 0, p.z - c.max.z);
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  // clearance ring and trail
+  var ringGeo = new THREE.RingGeometry(0.95, 1, 48);
+  var clearRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x7fdd5a, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+  scene.add(clearRing);
+  var TRAIL = 600, trailPos = new Float32Array(TRAIL * 3), trailN = 0;
+  var trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3)); trailGeo.setDrawRange(0, 0);
+  var trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xf0ae3f, transparent: true, opacity: 0.8 })); scene.add(trail);
+
+  // ---- motion: a pick-and-place cycle in joint space, run in 1 ms servo steps ----
+  var DEG = Math.PI / 180;
+  var home = [0, 0, 0, 0, 0, 0];
+  var q = [0, -20, -40, 0, 60, 0];       // joint positions [deg]
+  var cycle = [                            // target, dwell [s]
+    [[0, -20, -40, 0, 60, 0], 0.4],
+    [[-8, 32, -70, 0, 40, 10], 0.2],      // over the conveyor
+    [[-8, 46, -74, 0, 30, 10], 0.6],      // down onto the part
+    [[-8, 20, -55, 0, 40, 10], 0.1],
+    [[62, 10, -45, 20, 55, -30], 0.2],    // swing to the pallet
+    [[62, 42, -60, 20, 24, -30], 0.6],    // place
+    [[62, 10, -45, 20, 55, -30], 0.1]
+  ];
+  var seg = 0, segT = 0, dwellT = 0, from = q.slice(), segDur = 1.4;
+  var running = true, manual = false, ovr = 1, minClear = 0.6, guardScale = 1;
+  var MAXV = [120, 100, 110, 200, 180, 240];  // deg/s per joint, the planner's limits
+  function startSeg(i) { seg = i % cycle.length; from = q.slice(); segT = 0; dwellT = 0;
+    var dmax = 0; for (var k = 0; k < 6; k++) { dmax = Math.max(dmax, Math.abs(cycle[seg][0][k] - from[k]) / MAXV[k]); }
+    segDur = Math.max(0.3, dmax * 1.25); }
+  function servoStep(dt) {
+    if (!running || manual) { return; }
+    var to = cycle[seg][0];
+    if (segT < segDur) {
+      segT += dt * ovr * guardScale;
+      var s = Math.min(segT / segDur, 1); s = 0.5 - 0.5 * Math.cos(s * Math.PI);  // S-curve
+      for (var k = 0; k < 6; k++) { q[k] = from[k] + (to[k] - from[k]) * s; }
+    } else {
+      dwellT += dt * ovr;
+      if (dwellT >= cycle[seg][1]) { startSeg(seg + 1); }
+    }
+  }
+  startSeg(0);
+
+  // ---- UI ----
+  var sliders = [], outs = [];
+  for (var i = 1; i <= 6; i++) { sliders.push(document.getElementById('j' + i)); outs.push(document.getElementById('o' + i)); }
+  sliders.forEach(function (sl, k) { sl.addEventListener('input', function () { manual = true; setRun(false); q[k] = parseFloat(sl.value); }); });
+  var btnRun = document.getElementById('btnRun'), btnHold = document.getElementById('btnHold');
+  function setRun(on) { running = on; btnRun.classList.toggle('on', on); btnHold.classList.toggle('on', !on); btnRun.setAttribute('aria-pressed', on); btnHold.setAttribute('aria-pressed', !on); }
+  btnRun.addEventListener('click', function () { manual = false; startSeg(seg); setRun(true); });
+  btnHold.addEventListener('click', function () { setRun(false); });
+  document.getElementById('btnHome').addEventListener('click', function () { manual = true; setRun(false); q = home.slice(); });
+  var ovrEl = document.getElementById('ovr'), ovrOut = document.getElementById('ovrOut');
+  ovrEl.addEventListener('input', function () { ovr = ovrEl.value / 100; ovrOut.value = ovrEl.value + ' %'; });
+  var clrEl = document.getElementById('clr'), clrOut = document.getElementById('clrOut');
+  clrEl.addEventListener('input', function () { minClear = clrEl.value / 100; clrOut.value = clrEl.value + ' mm'; });
+  document.getElementById('showCol').addEventListener('change', function (e) { colGroup.visible = e.target.checked; });
+  document.getElementById('showTrail').addEventListener('change', function (e) { trail.visible = e.target.checked; if (!e.target.checked) { trailN = 0; trailGeo.setDrawRange(0, 0); } });
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setRun(false); }
+
+  // orbit: drag rotates, wheel / pinch zooms
+  var drag = null, pinch = null;
+  view.addEventListener('pointerdown', function (e) { if (e.button !== 0 && e.pointerType === 'mouse') { return; } drag = { x: e.clientX, y: e.clientY }; view.setPointerCapture(e.pointerId); });
+  view.addEventListener('pointermove', function (e) { if (!drag) { return; } orbit.theta -= (e.clientX - drag.x) * 0.006; orbit.phi = Math.min(1.5, Math.max(0.2, orbit.phi - (e.clientY - drag.y) * 0.006)); drag = { x: e.clientX, y: e.clientY }; placeCamera(); });
+  view.addEventListener('pointerup', function () { drag = null; }); view.addEventListener('pointercancel', function () { drag = null; });
+  view.addEventListener('wheel', function (e) { e.preventDefault(); orbit.r = Math.min(30, Math.max(5, orbit.r * (1 + e.deltaY * 0.001))); placeCamera(); }, { passive: false });
+  view.addEventListener('touchstart', function (e) { if (e.touches.length === 2) { pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); drag = null; } }, { passive: true });
+  view.addEventListener('touchmove', function (e) { if (e.touches.length === 2 && pinch) { var d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); orbit.r = Math.min(30, Math.max(5, orbit.r * pinch / d)); pinch = d; placeCamera(); } }, { passive: true });
+  view.addEventListener('touchend', function () { pinch = null; }, { passive: true });
+
+  if (window.ResizeObserver) { new ResizeObserver(function () { W = view.clientWidth; H = view.clientHeight; if (!W || !H) { return; } renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix(); }).observe(view); }
+
+  // ---- loop: fixed 1 ms servo steps, render at the display rate ----
+  var el = { tx: document.getElementById('tx'), ty: document.getElementById('ty'), tz: document.getElementById('tz'), tv: document.getElementById('tv'), tc: document.getElementById('tc'),
+             guard: document.getElementById('guard'), rate: document.getElementById('rate'), nearest: document.getElementById('nearest'), scale: document.getElementById('scale'),
+             dot: document.getElementById('stateDot'), state: document.getElementById('stateText') };
+  var last = performance.now(), acc = 0, frames = 0, steps = 0, statT = 0, fps = 60, hz = 1000;
+  var tcpWorld = new THREE.Vector3(), tcpPrev = new THREE.Vector3(), p5 = new THREE.Vector3(), p3 = new THREE.Vector3(), speed = 0;
+  function frame(now) {
+    var dt = Math.min((now - last) / 1000, 0.1); last = now; acc += dt;
+    while (acc >= 0.001) { servoStep(0.001); acc -= 0.001; steps++; }
+
+    j1.rotation.y = q[0] * DEG; j2.rotation.z = -q[1] * DEG; j3.rotation.z = -q[2] * DEG;
+    j4.rotation.x = q[3] * DEG; j5.rotation.z = -q[4] * DEG; j6.rotation.x = q[5] * DEG;
+    root.updateMatrixWorld(true);
+    tcp.getWorldPosition(tcpWorld); j5.getWorldPosition(p5); j3.getWorldPosition(p3);
+
+    // guard: the closest collider to the TCP, the wrist or the elbow
+    var best = 1e9, who = '';
+    colliders.forEach(function (c) { var d = Math.min(distToBox(tcpWorld, c), distToBox(p5, c) - 0.3, distToBox(p3, c) - 0.45); if (d < best) { best = d; who = c.name; } });
+    best = Math.max(best, 0);
+    guardScale = best <= minClear ? 0 : best >= 2 * minClear ? 1 : (best - minClear) / minClear;
+    if (manual) { guardScale = 1; }
+    var st = guardScale === 0 && running && !manual ? 'stop' : guardScale < 1 && running && !manual ? 'slow' : 'ok';
+    el.guard.className = 'guard' + (st === 'ok' ? '' : ' ' + st);
+    el.guard.textContent = st === 'stop' ? 'Protective stop · ' + who : st === 'slow' ? 'Guard slowing · ' + who : 'Guard armed';
+    clearRing.position.copy(tcpWorld); clearRing.rotation.x = -Math.PI / 2; clearRing.position.y = 0.02;
+    var rr = Math.max(minClear, 0.05); clearRing.scale.set(rr, rr, 1);
+    clearRing.material.color.set(st === 'stop' ? 0xff6b6b : st === 'slow' ? 0xf0ae3f : 0x7fdd5a);
+
+    if (trail.visible && tcpWorld.distanceTo(tcpPrev) > 0.01) {
+      if (trailN < TRAIL) { trailPos.set([tcpWorld.x, tcpWorld.y, tcpWorld.z], trailN * 3); trailN++; }
+      else { trailPos.copyWithin(0, 3); trailPos.set([tcpWorld.x, tcpWorld.y, tcpWorld.z], (TRAIL - 1) * 3); }
+      trailGeo.setDrawRange(0, trailN); trailGeo.attributes.position.needsUpdate = true;
+    }
+    speed = speed * 0.8 + (tcpWorld.distanceTo(tcpPrev) / Math.max(dt, 1e-3)) * 100 * 0.2;
+    tcpPrev.copy(tcpWorld);
+
+    frames++; statT += dt;
+    if (statT >= 0.5) { fps = Math.round(frames / statT); hz = Math.round(steps / statT); frames = 0; steps = 0; statT = 0;
+      el.rate.textContent = 'servo ' + hz + ' Hz · render ' + fps + ' fps'; }
+    // robot frame: X forward, Y left, Z up (three.js is Y up)
+    el.tx.textContent = (tcpWorld.x * 100).toFixed(1); el.ty.textContent = (-tcpWorld.z * 100).toFixed(1); el.tz.textContent = (tcpWorld.y * 100).toFixed(1);
+    el.tv.textContent = Math.round(speed); el.tc.textContent = Math.round(best * 100);
+    el.nearest.textContent = who; el.scale.textContent = Math.round(guardScale * 100) + ' %';
+    for (var k = 0; k < 6; k++) { outs[k].value = q[k].toFixed(2); if (!manual) { sliders[k].value = q[k].toFixed(1); } }
+    el.dot.className = 'dot' + (st === 'stop' ? ' crit' : st === 'slow' ? ' warn' : '');
+    el.state.textContent = st === 'stop' ? 'Protective stop' : running && !manual ? 'Auto · running' : 'Manual jog';
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

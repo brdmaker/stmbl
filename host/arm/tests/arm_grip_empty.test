@@ -1,0 +1,18 @@
+# Closing with a 30 mm part expected and nothing between the jaws: the
+# fingers close to 0, EMPTY, the machine goes off (off_reason 8).
+@program arm/arm_sim
+@args arm/arcmate/arcmate_gripper.arm
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+grip expect 30 2.0 0 0 0.15
+grip close
+run 2.5
+print grip off
+@expect arm.grip_state == 4
+@expect arm.grip_width < 1
+@expect arm.pay_model == 0
+@expect arm.off_reason == 8
+@reject ^ERROR

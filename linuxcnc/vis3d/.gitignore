@@ -1,0 +1,5 @@
+libvis3d.so
+vis3d_render
+tests/test_vis3d
+tests/tmp/
+__pycache__/

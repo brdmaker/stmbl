@@ -1,0 +1,632 @@
+#!/usr/bin/env python3
+"""Generate the arm soak suite: the simulated ARC Mate (host/arm, six
+simulated stmbl drives) through movement patterns and error scenarios, with
+the collision detector (model_perturbed.arm: identification-sized model
+errors) and LinuxCNC's reactions emulated (amp fault / link loss / following
+error -> machine off, collision -> estop, moves over a joint's speed limit
+aborted). One test per scenario, into gen/arm_soak (make soak).
+
+Movement scenarios (no reaction may fire; collision prevention on, margin
+10 mm, against the arm itself):
+  joint_smooth      the joint motion suite (smooth profiles, reversals,
+                    slow moves, pauses)
+  joint_trapezoid   LinuxCNC-like trapezoids: joint jogs at 30 deg/s and the
+                    joints' max acceleration, synchronised trapezoids
+  joint_random      random joint moves within the limits and away from the
+                    arm's own folds (seeded), smooth and trapezoidal, up to
+                    ~70 % of each motor's speed
+  cart_lines        straight lines through the workspace (a cube's edges),
+                    smooth and trapezoidal
+  cart_reorient     tool reorientation about the tool point, +-20 deg
+  cart_arcs         full circles in three planes, partial arcs
+  weld_weave        welding weaves along lines (2-6 mm, 1-3 Hz, 10 mm/s)
+  pick_place        a pick-and-place cycle repeated (the end pose must
+                    repeat to 0.05 mm: no drift)
+  payload_declared  5 kg on the flange, declared to the detector
+  grip_cycles       the electric gripper (arcmate_gripper.arm): parts of
+                    random mass (0.5-4 kg, declared) picked, lifted (the
+                    payload check), carried, placed and released, back and
+                    forth between two places
+  grip_learn        the same with parts of undeclared mass: learnt on the
+                    lift
+  tool_cycles       the tool changer (arcmate_changer.arm): torch and
+                    gripper picked from their docks and put back in turn,
+                    random moves on each tool's TCP in between (with a
+                    reorientation about it)
+  current_noise     0.3 A noise on every current measurement
+Error scenarios (the expected reaction must fire, the arm must stop safely):
+  collide_moving_*  pushes on links 3, 4 and 6 in several directions mid-move
+                    (detected within 50 ms, estop, no stop hit)
+  collide_rest      150 N at rest
+  contact_light     5 N while moving: below the detector's sensitivity
+  payload_undeclared  5 kg on the flange the detector does not know: a
+                    collision is flagged (the payload must be declared)
+  link_loss         one drive stops getting smart-serial packets mid-move
+  bus_loss          a drive loses its DC bus at rest (it faults; brakes)
+  overspeed         a joint move faster than the motor can follow (the
+                    drive faults)
+  hard_stop         J2 jogged into its hard stop (no soft limits here):
+                    the detector catches the contact
+  unreachable       a Cartesian target beyond reach: the move is aborted at
+                    the joint speed limit, the machine stays on
+  estop_weave       operator estop in the middle of a fast weave: the
+                    brakes stop the arm
+  brake_fail        machine off with J2's brake failing: the arm falls
+                    onto its stop (documents the hazard)
+  prevent_*         collision prevention (margin 10 mm): lines at a wall, a
+                    table, a fixture plate, and the wrist folded onto the
+                    forearm are stopped before contact (protective stop)
+  backoff_*         the arm runs into a wall (fast, and creeping), a table
+                    and a fixture plate, with the guard on: stop, 20 mm back
+                    (along the path, or along the estimated contact force),
+                    estop; the tool ends free and clear
+  grip_drop         the part slips out of the fingers at a random point of
+                    the carry: LOST, machine off (reason 7)
+  grip_mismatch     a part 2-3 kg lighter than declared: the lift's check
+                    (tolerance 1 kg: the model's floor) flags it, machine
+                    off (reason 6)
+  grip_wrong        a part of another width than declared: machine off at
+                    the grip (reason 8)
+  grip_empty        nothing between the jaws: fingers close, machine off
+                    (reason 8)
+  tool_slip         the tool comes off the changer at a random point of a
+                    move: machine off (reason 9, CH_LOST)
+  tool_wrong        locking onto the other tool than expected (reason 9,
+                    CH_WRONG)
+  tool_undocked     unlock requested away from the dock: kept locked,
+                    machine off (reason 9, CH_UNDOCKED)
+
+usage: gen_arm_soak.py [--cycles N] [--out DIR] [--seed S]
+"""
+import argparse
+import math
+import os
+import random
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HOST = os.path.dirname(os.path.dirname(HERE))
+
+# joint ranges [deg] (model q, arcmate.arm limits) with a margin, and the
+# joints' speed limits [deg/s]: conf max_vel / ratio
+LIMITS = [(-160, 160), (-50, 80), (-80, 150), (-180, 180), (-120, 120), (-350, 350)]
+VLIM = [250 / 120 * 57.2958, 250 / 120 * 57.2958, 250 / 100 * 57.2958,
+        400 / 80 * 57.2958, 400 / 80 * 57.2958, 400 / 50 * 57.2958]
+ACC = [300, 300, 300, 600, 600, 900]   # LinuxCNC MAX_ACCELERATION [deg/s^2]
+HOME = (0, 0, 0, 0, -90, 0)
+HOME_POSE = (799.3, 0.16, 1270.9, 0, 0, 0)   # flange at home [mm, deg]
+
+HEADER = """\
+# GENERATED by host/arm/tests/gen_arm_soak.py -- edit the scenarios there.
+# Arm soak: {name}. {doc}
+@program arm/arm_sim
+@args arm/arcmate/{arm}
+@timeout {timeout}
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark
+"""
+
+QUIET = """\
+print off fault hits ikfail speedr perr ferr
+@expect arm.en == 1
+@expect arm.off_reason == 0
+@expect arm.ikfail == 0
+@expect arm.limitabort == 0
+{joints}@reject ^ERROR
+"""
+
+
+# collision prevention on in every movement scenario; the guard's stop
+# decelerations: 2 x LinuxCNC's joint accelerations
+PREVENT = "".join("astop %d %d\n" % (j + 1, 2 * a) for j, a in enumerate(ACC)) + "prevent 10\n"
+
+
+def quiet_expects(perr=3.0, ferr=0.5):
+    out = ""
+    for j in range(1, 7):
+        out += "@expect max arm.fault%d == 0\n@expect max arm.hits%d == 0\n" % (j, j)
+        out += "@expect max arm.speedr%d < 1\n@expect max|arm.ferr%d| < %g\n" % (j, j, ferr)
+    out += "@expect arm.perr < %g\n" % perr
+    return QUIET.format(joints=out)
+
+
+def smooth_T(q0, q1, frac=0.7):
+    """time for a smooth (quintic) move within frac of the speed limits and
+    the joints' accelerations (as LinuxCNC's planner keeps them):
+    peak speed 1.875 d / T, peak acceleration 5.77 d / T^2"""
+    return max(0.4, max(max(1.875 * abs(b - a) / (frac * v), math.sqrt(5.77 * abs(b - a) / acc))
+                        for a, b, v, acc in zip(q0, q1, VLIM, ACC)))
+
+
+def trap_T(q0, q1, f=0.25, frac=0.7):
+    """synchronised trapezoid accelerating over f of the time: peak speed
+    d / (T (1 - f)), acceleration d / (f (1 - f) T^2), within the limits"""
+    return max(0.4, max(max(abs(b - a) / ((1 - f) * frac * v), math.sqrt(abs(b - a) / (f * (1 - f) * acc)))
+                        for a, b, v, acc in zip(q0, q1, VLIM, ACC)))
+
+
+def fmt(q):
+    return " ".join("%.3f" % x for x in q)
+
+
+def joint_smooth(cycles, rnd):
+    body = ""
+    for _ in range(cycles):
+        body += "@include arm/tests/inc_motion_suite.txt\n"
+    return body + quiet_expects(perr=1e9)
+
+
+def joint_trapezoid(cycles, rnd):
+    body, q = "", list(HOME)
+    seq = [(1, 30), (2, 10), (3, -20), (4, 40), (5, 30), (6, -60), (1, -75), (2, 15), (3, 35),
+           (4, -120), (6, 180), (1, 45), (2, -25), (3, -15), (4, 80), (5, -30), (6, -120)]
+    for _ in range(cycles):
+        for j, d in seq:  # jogs, LinuxCNC's free planner
+            body += "jog %d %g 30 %d\nrun %.3f\n" % (j, d, ACC[j - 1], abs(d) / 30 + 30 / ACC[j - 1] + 0.15)
+            q[j - 1] += d
+        body += "trapfrac 0.1\n"
+        for target in ((40, 20, 30, 60, -60, 90), (-40, -10, 60, -60, -110, -90), tuple(HOME)):
+            T = trap_T(q, target, 0.1)
+            body += "tmove %.3f %s\nrun %.3f\n" % (T, fmt(target), T + 0.3)
+            q = list(target)
+    return body + "print cmd\n" + quiet_expects(perr=1e9)
+
+
+def joint_random(cycles, rnd):
+    body, q = "", list(HOME)
+    for k in range(12 * cycles):
+        # within the joint limits and away from the arm's own folds
+        # (collision prevention rightly stops those): with the guessed
+        # bodies the forearm folds onto the lower arm from q3 ~ 85 deg (from
+        # ~70 with the shoulder forward), so q3 <= 60 and q2 + q3 <= 110
+        # (>= 23 mm clear; linear, so the straight joint paths between such
+        # targets keep to it too); the wrist not folded onto the forearm
+        # (|q5| <= 100)
+        while True:
+            target = [rnd.uniform(lo, hi) for lo, hi in LIMITS]
+            target[0] = rnd.uniform(-90, 90)   # stay clear of the base's cables
+            target[4] = rnd.uniform(-100, 100)
+            if target[2] <= 60 and target[1] + target[2] <= 110:
+                break
+        if k % 2:
+            body += "trapfrac %.2f\n" % rnd.uniform(0.1, 0.4)
+            T = trap_T(q, target, 0.4)
+            body += "tmove %.3f %s\n" % (T, fmt(target))
+        else:
+            T = smooth_T(q, target)
+            body += "move %.3f %s\n" % (T, fmt(target))
+        body += "run %.3f\n" % (T + rnd.choice((0.0, 0.2, 0.6)))
+        q = target
+    T = smooth_T(q, HOME)
+    body += "move %.3f %s\nrun %.3f\n" % (T, fmt(HOME), T + 0.5)
+    return body + quiet_expects(perr=1e9)
+
+
+def cart_lines(cycles, rnd):
+    c = (850, 0, 1150)
+    h = 120
+    pts = [(c[0] + sx * h, c[1] + sy * h, c[2] + sz * h) for sx, sy, sz in
+           ((-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, -1), (-1, -1, 1),
+            (1, -1, 1), (1, 1, 1), (-1, 1, 1), (-1, -1, 1), (1, 1, -1), (-1, 1, 1))]
+    body = ""
+    for k in range(cycles):
+        for i, p in enumerate(pts):
+            cmd = "tlmove" if i % 2 else "lmove"
+            T = 1.2 if i % 2 else 1.6
+            body += "%s %.2f %.1f %.1f %.1f 0 0 0\nrun %.2f\n" % (cmd, T, p[0], p[1], p[2], T + 0.2)
+    p = pts[-1]
+    body += "print pose\n@expect arm.pose_x ~ %.1f 0.05\n@expect arm.pose_y ~ %.1f 0.05\n" \
+            "@expect arm.pose_z ~ %.1f 0.05\n" % p
+    return body + quiet_expects()
+
+
+def cart_reorient(cycles, rnd):
+    body = "lmove 1.5 850 0 1150 0 0 0\nrun 1.7\n"
+    for _ in range(cycles):
+        # +-20 deg: at +-25 the torch comes within 5 mm of the forearm
+        # (collision prevention stops that, margin 10 mm)
+        for a, b, c in ((20, 0, 0), (-20, 0, 0), (0, 20, 0), (0, -20, 0), (0, 0, -30),
+                        (0, 0, 30), (15, -15, 10), (-15, 15, -10), (0, 0, 0)):
+            body += "lmove 1.2 850 0 1150 %d %d %d\nrun 1.4\n" % (a, b, c)
+    body += "print pose\n@expect arm.pose_x ~ 850 0.05\n@expect arm.pose_z ~ 1150 0.05\n" \
+            "@expect arm.pose_a ~ 0 0.01\n@expect arm.pose_b ~ 0 0.01\n"
+    return body + quiet_expects()
+
+
+def cart_arcs(cycles, rnd):
+    body = "lmove 1.5 900 0 1150 0 0 0\nrun 1.7\n"
+    for _ in range(cycles):
+        body += "arc 4 800 0 1150 0 0 1 360\nrun 4.2\n"     # horizontal circle, r 100
+        body += "arc 4 800 0 1150 0 1 0 360\nrun 4.2\n"     # vertical, XZ
+        body += "lmove 1 850 50 1150 0 0 0\nrun 1.2\n"
+        body += "arc 3 850 0 1150 1 0 0 270\nrun 3.2\narc 2 850 0 1150 1 0 0 -270\nrun 2.2\n"  # YZ
+        body += "lmove 1 900 0 1150 0 0 0\nrun 1.2\n"
+    body += "print pose\n@expect arm.pose_x ~ 900 0.05\n@expect arm.pose_y ~ 0 0.05\n"
+    return body + quiet_expects()
+
+
+def weld_weave(cycles, rnd):
+    body = "lmove 1.5 700 -200 1100 0 0 0\nrun 1.7\n"
+    seams = [((700, 200, 1100), (1, 0, 0), 4, 2), ((900, 200, 1100), (0, 1, 0), 6, 1),
+             ((900, -200, 1050), (0, 0, 1), 3, 3), ((700, -200, 1100), (0, 0, 1), 2, 2)]
+    for _ in range(cycles):
+        p = (700, -200, 1100)
+        for q, w, amp, f in seams:
+            d = math.dist(p, q)
+            T = d / 10.0   # 10 mm/s, welding
+            body += "weave %.1f %.1f %.1f %.1f %g %g %g %g %g\nrun %.1f\n" % (T, *q, amp, f, *w, T + 0.3)
+            p = q
+    return body + quiet_expects()
+
+
+def pick_place(cycles, rnd):
+    body = "lmove 1.5 850 -200 1200 0 0 0\nrun 1.7\n"
+    for _ in range(max(3, 3 * cycles)):
+        for p in ((850, -200, 1050), (850, -200, 1200), (850, 200, 1200), (850, 200, 1050),
+                  (850, 200, 1200), (850, -200, 1200)):
+            body += "tlmove 0.8 %d %d %d 0 0 0\nrun 1.0\n" % p
+    body += "print pose\n@expect arm.pose_x ~ 850 0.05\n@expect arm.pose_y ~ -200 0.05\n" \
+            "@expect arm.pose_z ~ 1200 0.05\n"
+    return body + quiet_expects()
+
+
+def payload_declared(cycles, rnd):
+    body = "payload 5 0 0 0.05\ndetset payload 5 0 0 0.05\n"
+    body += cart_lines(cycles, rnd).split("print pose")[0]
+    return body + quiet_expects()
+
+
+def current_noise(cycles, rnd):
+    body = "all hv0.sim_cur_noise = 0.3\n"
+    return body + cart_lines(cycles, rnd)
+
+
+# --- error scenarios -------------------------------------------------------
+
+def collide(link, f, r, t_move=1.0):
+    """a push mid-move; detection within 30 ms, estop, the arm stops"""
+    return ("lmove 3 1000 -150 1100 0 0 0\nrun %.2f\nmark\nprint time\n"
+            "force %d %g %g %g %g %g %g\nrun 0.5\nforce off\nprint off coll q\nrun 1\nprint q hits\n"
+            "@expect arm.off_reason == 2\n@expect arm.en == 0\n"
+            "@expect arm.coll_time > {t0}\n@expect arm.coll_time < {t1}\n"
+            "@expect max arm.hits2 == 0\n@expect max arm.hits3 == 0\n@reject ^ERROR\n") % (
+                t_move, link, *f, *r)
+
+
+def fix_times(text, t_force, window=0.03):
+    return text.replace("{t0}", "%.4f" % t_force).replace("{t1}", "%.4f" % (t_force + window))
+
+
+T0 = 2.0  # time at "mark" after the header
+
+
+# the gripper: two places (flange positions [mm]; the flange points up,
+# the jaw centre 150 mm above it); a part, 30 x 40 x 40 mm, sits between
+# the jaws at A. Each leg: in sideways (flange y) with the jaws open, close,
+# lift 100 mm (the payload check), carry, lower, open, out sideways.
+GRIP_A, GRIP_B = (850, -200, 1150), (850, 200, 1150)
+
+
+def grip_part(mass, at=GRIP_A):
+    return "part box1 %.4f %.4f %.4f 0.015 0.02 0.02 %.3f\n" % (at[0] / 1e3, at[1] / 1e3, at[2] / 1e3 + 0.15, mass)
+
+
+def grip_leg(a, b, expect, close_t=1.5, drop_at=None):
+    x, y, z = a
+    s = "tlmove 1.2 %d %d %d 0 0 0\nrun 1.4\n" % (x, y - 100, z)
+    s += "tlmove 0.8 %d %d %d 0 0 0\nrun 1.0\n" % (x, y, z)
+    s += "grip expect %s\ngrip close\nrun %g\n" % (expect, close_t)
+    s += "tlmove 0.8 %d %d %d 0 0 0\nrun 1.0\nprint grip\n" % (x, y, z + 100)
+    x2, y2, z2 = b
+    if drop_at is not None:  # the part slips out on the way
+        return s + "tlmove 1.5 %d %d %d 0 0 0\nrun %.3f\ngripdrop\nrun 0.5\n" % (x2, y2, z2 + 100, drop_at)
+    s += "tlmove 1.5 %d %d %d 0 0 0\nrun 1.7\n" % (x2, y2, z2 + 100)
+    s += "tlmove 0.8 %d %d %d 0 0 0\nrun 1.0\n" % (x2, y2, z2)
+    s += "grip open\nrun 1.5\n"
+    s += "tlmove 0.8 %d %d %d 0 0 0\nrun 1.0\nprint grip\n" % (x2, y2 + 100, z2)
+    return s
+
+
+def grip_cycles_body(cycles, rnd, learn):
+    legs = max(2, 2 * cycles)
+    masses = [round(rnd.uniform(0.5, 4.0), 2) for _ in range(legs)]
+    body = grip_part(masses[0])
+    k = 0
+    for i in range(legs):
+        a, b = (GRIP_A, GRIP_B) if i % 2 == 0 else (GRIP_B, GRIP_A)
+        if i > 0:  # the same part, another mass (as if swapped by hand)
+            body += "partmass box1 %.3f\n" % masses[i]
+        body += grip_leg(a, b, "30 0 0 0 0.15" if learn else "30 %.3f 0 0 0.15" % masses[i])
+        # after the lift (print 2k+1): gripped, checked; after the place (2k+2): released
+        k += 1
+        body += "@expect arm.grip_state[%d] == 2\n@expect arm.pay_state[%d] == 3\n" % (2 * k - 1, 2 * k - 1)
+        body += "@expect arm.pay_meas[%d] ~ %.3f 1.0\n" % (2 * k - 1, masses[i])
+        body += "@expect arm.grip_state[%d] == 0\n@expect arm.pay_model[%d] == 0\n" % (2 * k, 2 * k)
+    return body + quiet_expects()
+
+
+def grip_cycles(cycles, rnd):
+    return grip_cycles_body(cycles, rnd, False)
+
+
+def grip_learn(cycles, rnd):
+    return grip_cycles_body(cycles, rnd, True)
+
+
+ERRORS = {}
+
+
+def scen(name, doc):
+    def deco(fn):
+        ERRORS[name] = (doc, fn)
+        return fn
+    return deco
+
+
+for link, f, r, nm in ((6, (0, 0, -100), (0, 0, 0.1), "flange_down"),
+                       (6, (80, 0, 0), (0, 0, 0.1), "flange_x"),
+                       (4, (0, 120, 0), (0, 0, 0.2), "forearm_side"),
+                       (3, (0, 0, -150), (0.12, -0.4, 0), "forearm_down")):
+    def mk(link=link, f=f, r=r):
+        return lambda cycles, rnd: fix_times(collide(link, f, r), T0 + 1.0, 0.05)
+    scen("collide_moving_" + nm, "a %g N push on link %d mid-move: detected within 50 ms, estop"
+         % (math.sqrt(sum(x * x for x in f)), link))(mk())
+
+
+@scen("collide_rest", "150 N down on the flange at rest: detected, estop")
+def collide_rest(cycles, rnd):
+    return ("run 0.5\nprint time\nforce 6 0 0 -150 0 0 0.1\nrun 0.3\nprint off coll\n"
+            "@expect arm.off_reason == 2\n@expect arm.coll_time > 2.5\n@expect arm.coll_time < 2.55\n"
+            "@reject ^ERROR\n")
+
+
+@scen("contact_light", "5 N on the flange while moving: below the sensitivity, no reaction")
+def contact_light(cycles, rnd):
+    return ("lmove 3 1000 -150 1100 0 0 0\nrun 1\nforce 6 0 0 -5 0 0 0.1\nrun 2.5\n"
+            "print off\n@expect arm.off_reason == 0\n@expect arm.en == 1\n@reject ^ERROR\n")
+
+
+@scen("payload_undeclared", "5 kg on the flange the detector does not know: flagged as a collision")
+def payload_undeclared(cycles, rnd):
+    return ("payload 5 0 0 0.05\nlmove 2 950 0 1170 0 0 0\nrun 2.5\nprint off\n"
+            "@expect arm.off_reason == 2\n@expect arm.en == 0\n@reject ^ERROR\n")
+
+
+@scen("link_loss", "drive 3 stops getting packets mid-move: machine off within 5 ms (reason 4)")
+def link_loss(cycles, rnd):
+    return ("lmove 2 950 0 1170 0 0 0\nrun 0.8\nprint time\nlinkloss 3 1\nrun 1.5\nprint off perr hits\n"
+            "@expect arm.off_reason == 4\n@expect arm.off_joint == 3\n"
+            "@expect arm.off_time > 2.8\n@expect arm.off_time < 2.805\n@expect arm.perr < 5\n"
+            "@expect max arm.hits3 == 0\n@reject ^ERROR\n")
+
+
+@scen("bus_loss", "drive 2 loses its DC bus at rest: the drive faults, machine off, brakes hold")
+def bus_loss(cycles, rnd):
+    return ("run 0.5\nprint q\nd2 hv0.sim_udc = 0\nrun 2\nprint off q hits\n"
+            "@expect arm.off_reason == 1\n@expect arm.off_joint == 2\n"
+            "@expect arm.q2[2] ~ =arm.q2[1] 0.5\n@expect max arm.hits2 == 0\n@reject ^ERROR\n").replace(
+            "@expect arm.q2[2] ~ =arm.q2[1] 0.5\n", "@expect arm.q2[2] < 0.5\n@expect arm.q2[2] > -0.5\n")
+
+
+@scen("overspeed", "J1 commanded 90 deg in 0.5 s (beyond its motor): the drive faults, machine off")
+def overspeed(cycles, rnd):
+    return ("move 0.5 90 0 0 0 -90 0\nrun 1.5\nprint off speedr hits\n"
+            "@expect arm.off_reason == 1\n@expect arm.off_joint == 1\n@expect arm.speedr1 > 1\n"
+            "@expect max arm.hits1 == 0\n@reject ^ERROR\n")
+
+
+@scen("hard_stop", "J2 jogged into its hard stop (no soft limits): the detector catches the contact")
+def hard_stop(cycles, rnd):
+    return ("jog 2 100 10 300\nrun 11\nprint off hits\n"
+            "@expect arm.off_reason == 2\n@expect arm.off_joint == 2\n@reject ^ERROR\n")
+
+
+@scen("unreachable", "a target beyond reach: the move aborts at the joint speed limit, machine stays on")
+def unreachable(cycles, rnd):
+    return ("lmove 2 2500 0 1200 0 0 0\nrun 2.5\nprint off ikfail hits fault\n"
+            "@expect arm.en == 1\n@expect arm.limitabort >= 1\n@expect max arm.fault2 == 0\n"
+            "@expect max arm.hits2 == 0\n@expect max arm.hits3 == 0\n@reject ^ERROR\n")
+
+
+@scen("estop_weave", "operator estop in the middle of a weave: drives off, the brakes stop the arm")
+def estop_weave(cycles, rnd):
+    return ("lmove 1.5 700 -150 1100 0 0 0\nrun 1.7\nweave 6 900 -150 1100 4 2 0 0 1\nrun 3\nlcnc 0\n"
+            "run 0.3\nprint q\nrun 1\nprint q hits off\nall io0.out0\n"
+            "@expect arm.q1[2] ~ 0 400\n@expect d2_io0.out0 == 0\n@expect max arm.hits2 == 0\n"
+            "@reject ^ERROR\n")
+
+
+@scen("brake_fail", "machine off with J2's brake gone: the arm falls onto its stop (hazard)")
+def brake_fail(cycles, rnd):
+    return ("lmove 2 950 0 1170 0 0 0\nrun 2.3\nlcnc 0\nrun 0.5\nprint q\nmotor 2 120 0.00035 0.02 0\n"
+            "run 2\nprint q hits\n@expect arm.hits2 >= 1\n@expect arm.q2[2] > 85\n@reject ^ERROR\n")
+
+
+def backoff(obstacle, start, target, T, slow=False):
+    """run into an obstacle with the guard on: stop, back off 20 mm, estop;
+    the tool ends free (no contact force) and clear"""
+    body = "obstacle %s\nguard on\nlmove 2 %s 0 0 0\nrun 2.2\nmark\n" % (obstacle, start)
+    body += ("tlmove" if slow else "lmove") + " %g %s 0 0 0\nrun %g\n" % (T, target, T)
+    return body + ("print clear contact guard off\n"
+                   "@expect arm.off_reason == 2\n@expect arm.guard_estop == 1\n@expect arm.contact_max > 30\n"
+                   "@expect arm.contact_f == 0\n@expect arm.clear > 8\n@reject ^ERROR\n")
+
+
+@scen("backoff_wall", "the wrist runs into a wall at ~95 mm/s: stop, 20 mm back along the path, estop")
+def backoff_wall(cycles, rnd):
+    return backoff("wall box 1.05 0 1.17 0.05 0.5 0.5", "850 0 1271", "1100 0 1271", 4)
+
+
+@scen("backoff_wall_slow", "a creeping approach (~3 mm/s): backoff along the estimated contact force")
+def backoff_wall_slow(cycles, rnd):
+    return backoff("wall box 1.05 0 1.17 0.05 0.5 0.5", "930 0 1271", "960 0 1271", 15, slow=True)
+
+
+@scen("backoff_table", "the wrist goes down onto a table: stop, back off upwards 20 mm, estop")
+def backoff_table(cycles, rnd):
+    return backoff("table box 0.85 0 0.9 0.3 0.3 0.05", "850 0 1271", "850 0 1000", 4)
+
+
+@scen("backoff_side", "the wrist moves sideways into a fixture plate: back off, estop")
+def backoff_side(cycles, rnd):
+    return backoff("fixture box 0.85 -0.40 1.15 0.30 0.05 0.30", "850 -150 1150", "850 -400 1150", 4)
+
+
+def prevent(obstacle, start, target, T):
+    """move towards an obstacle with prevention on (margin 10 mm): the guard
+    stops in time, never a contact, a protective stop (off_reason 5)"""
+    # the obstacle first: prevention takes the cell as defined so far
+    body = "obstacle %s\n" % obstacle + PREVENT + "lmove 2 %s 0 0 0\nrun 2.2\nmark\n" % start
+    body += "lmove %g %s 0 0 0\nrun %g\n" % (T, target, T + 0.5)
+    return body + ("print prevent contact off clear\n@expect arm.off_reason == 5\n@expect arm.contact_max == 0\n"
+                   "@expect arm.clear_min > 3\n@reject ^ERROR\n")
+
+
+@scen("prevent_wall", "a line at a wall, prevention on: stopped before it, no contact")
+def prevent_wall(cycles, rnd):
+    return prevent("wall box 1.05 0 1.17 0.05 0.5 0.5", "850 0 1271", "1100 0 1271", 3)
+
+
+@scen("prevent_table", "down towards a table, prevention on: stopped before it")
+def prevent_table(cycles, rnd):
+    return prevent("table box 0.85 0 0.9 0.3 0.3 0.05", "850 0 1271", "850 0 1000", 3)
+
+
+@scen("prevent_side", "sideways towards a fixture plate, prevention on: stopped before it")
+def prevent_side(cycles, rnd):
+    return prevent("fixture box 0.85 -0.40 1.15 0.30 0.05 0.30", "850 -150 1150", "850 -400 1150", 3)
+
+
+@scen("prevent_self", "the wrist folded towards the forearm: stopped before the torch hits it")
+def prevent_self(cycles, rnd):
+    return (PREVENT + "tmove 1.5 0 0 0 0 -129 0\nrun 2\nprint prevent off q\n@expect arm.off_reason == 5\n"
+            "@expect arm.prev_self == 1\n@expect arm.clear_min > 2\n@reject ^ERROR\n")
+
+
+def tool_inc(kind, n):
+    return open(os.path.join(HERE, "inc_tool_%s%d.txt" % (kind, n))).read()
+
+
+def tool_moves(rnd, n):
+    """random moves of the TCP (flange forward and up, B 45, +-15 deg)"""
+    body = ""
+    for _ in range(n):
+        x, y, z = rnd.uniform(1050, 1200), rnd.uniform(-250, 250), rnd.uniform(1000, 1250)
+        a, b, c = rnd.uniform(-15, 15), 45 + rnd.uniform(-15, 15), rnd.uniform(-15, 15)
+        body += "tlmove 1.5 %.1f %.1f %.1f %.1f %.1f %.1f\nrun 1.7\n" % (x, y, z, a, b, c)
+    return body
+
+
+def tool_cycles(cycles, rnd):
+    body = ""
+    for _ in range(max(1, cycles)):
+        for t in (1, 2):
+            body += tool_inc("pick", t) + tool_moves(rnd, 3) + "print tool\n" + tool_inc("drop", t)
+    body += "print tool\n@expect arm.tool_mounted[1] == 1\n@expect arm.tool_mounted[2] == 2\n"
+    body += "@expect arm.tool_mounted[-1] == 0\n@expect arm.tool_fault == 0\n"
+    body += "@expect arm.tool_state1[-1] == 0\n@expect arm.tool_state2[-1] == 0\n"
+    # the path error is the TCP's: 290 mm out on the torch, the wrist gears'
+    # deflection counts more than at the flange
+    return body + quiet_expects(perr=5.0)
+
+
+@scen("tool_slip", "the tool comes off the changer mid-move: machine off (reason 9 / CH_LOST)")
+def tool_slip(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t) + "tlmove 2 1150 0 1150 0 45 0\nrun %.3f\ntoolslip\nrun 1\n" % rnd.uniform(0.3, 1.7) +
+            "print tool off\n@expect arm.off_reason == 9\n@expect arm.off_joint == 3\n"
+            "@expect arm.tool_state%d == 2\n@reject ^ERROR\n" % t)
+
+
+@scen("tool_wrong", "locking onto the other tool than expected: machine off (reason 9 / CH_WRONG)")
+def tool_wrong(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t).replace("toolexpect %d" % t, "toolexpect %d" % (3 - t)) +
+            "print tool off\n@expect arm.off_reason == 9\n@expect arm.off_joint == 2\n"
+            "@expect arm.tool_mounted == %d\n@reject ^ERROR\n" % t)
+
+
+@scen("tool_undocked", "unlock away from the dock: kept locked, machine off (reason 9 / CH_UNDOCKED)")
+def tool_undocked(cycles, rnd):
+    t = rnd.choice((1, 2))
+    return (tool_inc("pick", t) + tool_moves(rnd, 1) + "lock 0\nrun 0.3\nprint tool off\n"
+            "@expect arm.off_reason == 9\n@expect arm.off_joint == 4\n@expect arm.tool_plant == %d\n"
+            "@expect arm.tool_valve == 1\n@reject ^ERROR\n" % t)
+
+
+@scen("grip_drop", "the part slips out at a random point of the carry: LOST, machine off (reason 7)")
+def grip_drop(cycles, rnd):
+    m = round(rnd.uniform(0.5, 4.0), 2)
+    return (grip_part(m) + grip_leg(GRIP_A, GRIP_B, "30 %.3f 0 0 0.15" % m, drop_at=rnd.uniform(0.2, 1.3)) +
+            "print grip off coll\n@expect arm.grip_state[-1] == 6\n@expect arm.off_reason == 7\n"
+            "@expect arm.coll == 0\n@reject ^ERROR\n")
+
+
+@scen("grip_mismatch", "a part 2-3 kg lighter than declared: the lift flags it (reason 6)")
+def grip_mismatch(cycles, rnd):
+    m = round(rnd.uniform(1.0, 2.0), 2)
+    d = round(rnd.uniform(2.0, 3.0), 2)
+    return (grip_part(m) + grip_leg(GRIP_A, GRIP_B, "30 %.3f 0 0 0.15" % (m + d)) +
+            "print grip off\n@expect arm.pay_state[1] == 4\n@expect arm.off_reason == 6\n@reject ^ERROR\n")
+
+
+@scen("grip_wrong", "a 30 mm part where 40 mm was declared: machine off at the grip (reason 8)")
+def grip_wrong(cycles, rnd):
+    return (grip_part(2.0) + grip_leg(GRIP_A, GRIP_B, "40 2 0 0 0.15") +
+            "print grip off\n@expect arm.grip_state[1] == 3\n@expect arm.pay_model[1] == 0\n"
+            "@expect arm.off_reason == 8\n@reject ^ERROR\n")
+
+
+@scen("grip_empty", "nothing between the jaws: the fingers close, machine off (reason 8)")
+def grip_empty(cycles, rnd):
+    return (grip_leg(GRIP_A, GRIP_B, "30 2 0 0 0.15", close_t=2.5) +
+            "print grip off\n@expect arm.grip_state[1] == 4\n@expect arm.off_reason == 8\n@reject ^ERROR\n")
+
+
+MOVES = {
+    "joint_smooth": ("the joint motion suite: smooth profiles, reversals, slow moves", joint_smooth),
+    "joint_trapezoid": ("LinuxCNC jogs and synchronised trapezoids", joint_trapezoid),
+    "joint_random": ("random joint moves within the limits, smooth and trapezoidal", joint_random),
+    "cart_lines": ("straight lines along a cube's edges and diagonals (IK)", cart_lines),
+    "cart_reorient": ("tool reorientation about the tool point (IK)", cart_reorient),
+    "cart_arcs": ("circles and arcs in three planes (IK)", cart_arcs),
+    "weld_weave": ("welding weaves along seams, 10 mm/s (IK)", weld_weave),
+    "pick_place": ("a pick-and-place cycle repeated; the end pose must repeat", pick_place),
+    "payload_declared": ("5 kg payload, declared to the detector, through the cube lines", payload_declared),
+    "current_noise": ("0.3 A noise on every current measurement, cube lines", current_noise),
+    "grip_cycles": ("gripper pick-and-place, parts of declared random mass, checked on the lift", grip_cycles),
+    "grip_learn": ("gripper pick-and-place, parts of undeclared mass learnt on the lift", grip_learn),
+    "tool_cycles": ("tool changer: torch and gripper in turn, random moves on their TCPs", tool_cycles),
+}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cycles", type=int, default=1)
+    ap.add_argument("--seed", type=int, default=1203)
+    ap.add_argument("--out", default=os.path.join(HOST, "gen", "arm_soak"))
+    args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
+    for old in os.listdir(args.out):  # scenarios renamed or removed
+        if old.startswith("arm_") and old.endswith(".test"):
+            os.unlink(os.path.join(args.out, old))
+    n = 0
+    for name, (doc, fn) in list(MOVES.items()) + list(ERRORS.items()):
+        rnd = random.Random("%s-%d" % (name, args.seed))
+        body = fn(args.cycles, rnd)
+        if name in MOVES:  # prevention on (the arm itself; these cells are empty)
+            body = PREVENT + body
+        arm = ("arcmate_gripper.arm" if name.startswith("grip_") else
+               "arcmate_changer.arm" if name.startswith("tool_") else "arcmate.arm")
+        text = HEADER.format(name=name, doc=doc, arm=arm, timeout=300 * args.cycles) + body
+        with open(os.path.join(args.out, "arm_%s.test" % name), "w") as f:
+            f.write(text)
+        n += 1
+    print("wrote %d arm soak tests (%d cycle(s)) to %s" % (n, args.cycles, args.out))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,5 @@
+# The cell with the welding torch on the flange (host/arm/arcmate/arcmate.arm),
+# for armguard and stmbl_arm (cell=): the arm, the guard settings and the
+# obstacles in cell_base.txt, plus the torch's body (as torch.tool).
+include cell_base.txt
+body 6 capsule 0 0 0.02   0 0 0.20     0.025  # welding torch on the flange

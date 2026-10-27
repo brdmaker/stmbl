@@ -1,0 +1,12 @@
+# arcmate_changer.arm: put tool 1 back: above its fork, down into the
+# dock, unlock, the bare flange back and away.
+ktool 0
+lmove 2 1000 400 1150 0 45 0
+run 2.2
+lmove 1 1000 400 1000 0 45 0
+run 1.2
+toolexpect 0
+lock 0
+run 0.3
+lmove 1 929.29 400 929.29 0 45 0
+run 1.2

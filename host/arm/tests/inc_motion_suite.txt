@@ -1,0 +1,18 @@
+# motion suite: smooth joint moves within each motor's speed, with
+# reversals, a slow move and pauses (the arm's home pose first and last)
+move 2 60 30 30 90 -40 180
+run 2.3
+move 1.5 20 -20 70 0 -110 0
+run 1.8
+move 0.6 28 -12 62 8 -100 10
+run 0.9
+move 0.6 20 -20 70 0 -110 0
+run 0.9
+move 3 25 -15 65 5 -105 5
+run 3.3
+move 2 -50 40 10 -60 -60 -120
+run 2.3
+move 1.2 -50 10 40 -60 -90 -120
+run 1.5
+move 2 0 0 0 0 -90 0
+run 2.3

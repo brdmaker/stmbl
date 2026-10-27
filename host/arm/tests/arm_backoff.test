@@ -1,0 +1,17 @@
+# Collision reaction: the wrist runs into a wall (plant contact: 100 N/mm)
+# during a line at up to ~95 mm/s. Without the guard, LinuxCNC estops at
+# the detection and the brakes hold the arm pressed into the wall (the
+# tool stays under tension); with the guard (shared/robot/guard.c) the arm
+# stops, backs off 20 mm along its path, and only then estops: no contact
+# force left, ~15 mm clear.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+@include arm/tests/inc_wall.txt
+mark
+lmove 6 1100 0 1271 0 0 0
+run 4
+print clear contact off
+@expect arm.off_reason[1] == 2
+@expect arm.contact_f[1] > 100
+@expect arm.clear[1] < 0
+@reject ^ERROR

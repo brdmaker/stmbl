@@ -1,0 +1,25 @@
+# Collision detector (shared/robot/collide.c) on what LinuxCNC sees (drive
+# position/speed feedback, motor currents), with model_perturbed.arm: the
+# arm model with identification-sized errors. Over the whole motion suite
+# (fast moves, reversals, a slow move, pauses) no false detection; the
+# residual floor stays under the thresholds (moving ~9/11/8 Nm on J1-J3,
+# up to ~25 Nm near standstill: stiction holds part of the load).
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+mark
+@include arm/tests/inc_motion_suite.txt
+print coll rmax fault hits
+@expect arm.coll == 0
+@expect arm.rmax1 < 29
+@expect arm.rmax2 < 38
+@expect arm.rmax4 < 5.2
+@expect arm.rmax6 < 2.1
+@expect max arm.fault1 == 0
+@expect max arm.fault2 == 0
+@expect max arm.hits2 == 0
+@reject ^ERROR
