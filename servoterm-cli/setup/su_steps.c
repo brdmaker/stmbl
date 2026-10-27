@@ -265,6 +265,17 @@ char *su_build_config(const su_state_t *st, int final) {
     c = su_conf_set_num(c, "fault0.brake_time", brake_time_of(st), "brake engage");
   }
 
+  int ts = su_temp_type(su_get(st, "motor.temp_sensor"));
+  if(ts) {
+    c = su_conf_set_num(c, "conf0.mot_temp_type", ts, su_temp_ids[ts]);
+    if(ts == 4) {
+      c = put(c, st, "temp.ntc_r25", "conf0.mot_temp_ntc_r25", "setup");
+      c = put(c, st, "temp.ntc_b", "conf0.mot_temp_ntc_b", "setup");
+    }
+    c = put(c, st, "temp.warn", "conf0.high_mot_temp", "setup");
+    c = put(c, st, "temp.trip", "conf0.max_mot_temp", "setup");
+  }
+
   // supply
   if(su_get_num(st, "supply.chopper", 0.0) > 0.0) {
     double on = su_get_num(st, "supply.chopper_on", 375.0);
@@ -439,6 +450,37 @@ static int ask_brake(su_wizard_t *w) {
   return 0;
 }
 
+// the motor's temperature sensor: its type, the NTC's data, warning and trip
+// temperatures (conf0.high_mot_temp derates the current, max_mot_temp stops)
+static int ask_temp(su_wizard_t *w) {
+  int k;
+  double v;
+  if(ask_choice(w, "motor.temp_sensor",
+                "The motor's temperature sensor (type plate / datasheet: \"KTY\", \"PTC\", \"TF\" = PTC,\n"
+                "\"TH\" = thermal switch; SEW CMP ../KTY/..: KTY84-130)",
+                su_temp_ids, su_temp_names, SU_TEMP_N, 0, &k) == SU_ABORT) {
+    return SU_ABORT;
+  }
+  if(k == 0) {
+    return 0;
+  }
+  if(k == 4 && (ask_num(w, "temp.ntc_r25", "The NTC's resistance at 25 degC", "ohm", 10000.0, 100.0, 1e6, 0, &v) ==
+                    SU_ABORT ||
+                ask_num(w, "temp.ntc_b", "The NTC's B value", "K", 3950.0, 1000.0, 10000.0, 0, &v) == SU_ABORT)) {
+    return SU_ABORT;
+  }
+  if(k == 3 || k == 5) {  // these only trip: at their own temperature
+    return 0;
+  }
+  if(ask_num(w, "temp.warn", "Warning temperature: the drive lowers the current above it", "degC", 110.0, 40.0,
+             180.0, 0, &v) == SU_ABORT ||
+     ask_num(w, "temp.trip", "Trip temperature: the drive stops (class F winding: 130..155)", "degC", 130.0, v + 5.0,
+             200.0, 0, &v) == SU_ABORT) {
+    return SU_ABORT;
+  }
+  return 0;
+}
+
 static su_result_t step_motor(su_wizard_t *w) {
   say(w, SU_MSG_INFO,
       "From the motor's nameplate (or datasheet). Currents are rms, as nameplates give them.\n"
@@ -463,6 +505,9 @@ static su_result_t step_motor(su_wizard_t *w) {
   int vertical;
   if(ask_yes(w, "axis.vertical", "Does gravity pull on the axis (vertical, or a hanging load)?", &vertical) ==
      SU_ABORT) {
+    return SU_ABORTED;
+  }
+  if(ask_temp(w) == SU_ABORT) {
     return SU_ABORTED;
   }
   if(vertical && !brake) {
@@ -527,6 +572,12 @@ static su_result_t step_wiring(su_wizard_t *w) {
     say(w, SU_MSG_WIRING, "%s", t);
     free(t);
   }
+  int ts = su_temp_type(su_get(w->st, "motor.temp_sensor"));
+  if(ts) {
+    t = su_wiring_temp(ts);
+    say(w, SU_MSG_WIRING, "%s", t);
+    free(t);
+  }
   if(fb && (t = su_wiring_feedback(fb->wiring_col))) {
     say(w, SU_MSG_WIRING, "%s", t);
     free(t);
@@ -537,6 +588,34 @@ static su_result_t step_wiring(su_wizard_t *w) {
   if(w->ui->action(w->ui->user, "wiring.done", "Wire the drive as above, switch on the HV supply, then go on.",
                    w->link) == SU_ABORT) {
     return SU_ABORTED;
+  }
+  return SU_OK;
+}
+
+// the temperature sensor with the motor cold: it reads, and about the room's
+// temperature (a PTC / switch: not tripped)
+static su_result_t check_temp(su_wizard_t *w) {
+  int ts = su_temp_type(su_get(w->st, "motor.temp_sensor"));
+  if(!ts) {
+    return SU_OK;
+  }
+  drive_sleep(w, 0.5);  // the sensor's filter settles
+  double ohm, degc, err, tripped;
+  if(get(w, "hv0.mot_temp", &ohm) < 0 || get(w, "mtemp0.sensor", &degc) < 0 || get(w, "mtemp0.err", &err) < 0 ||
+     get(w, "mtemp0.tripped", &tripped) < 0) {
+    return SU_FAIL;
+  }
+  su_set_num(w->st, "temp.cold_ohm", ohm);
+  char msg[512];
+  if(su_temp_check(ts, ohm, degc, err, tripped, msg, sizeof(msg))) {
+    say(w, SU_MSG_ERROR, "%s\nCheck its wiring, or redo the motor step with the right type.", msg);
+    return SU_FAIL;
+  }
+  if(ts == 3 || ts == 5) {
+    say(w, SU_MSG_INFO, "Temperature sensor: %.0f ohm, not tripped.", ohm);
+  } else {
+    su_set_num(w->st, "temp.cold", round(degc * 10.0) / 10.0);
+    say(w, SU_MSG_INFO, "Temperature sensor: %.0f ohm, %.1f degC.", ohm, degc);
   }
   return SU_OK;
 }
@@ -554,6 +633,12 @@ static su_result_t step_base(su_wizard_t *w) {
     say(w, SU_MSG_ERROR, "The HV bus reads %.0f V, expected about %.0f V: check the HV supply and its wiring.", v,
         bus);
     return SU_FAIL;
+  }
+  // a broken or wrong temperature sensor faults the drive (MOT_TEMP_ERROR):
+  // say why first
+  su_result_t t = check_temp(w);
+  if(t != SU_OK) {
+    return t;
   }
   if(drive_fault(w, &f) > 0) {
     say(w, SU_MSG_ERROR, "The drive reports fault %.0f with the first config.", f);

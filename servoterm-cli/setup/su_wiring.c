@@ -102,3 +102,18 @@ char *su_wiring_power(int brake, double bus) {
            "    never let it reach the HV side.\n");
   return out;
 }
+
+char *su_wiring_temp(int type) {
+  char *s = malloc(1024);
+  snprintf(s, 1024,
+           "Motor temperature sensor (%s): its two wires to the HV board's 2-pin motor\n"
+           "temperature connector (3.5 mm). Either way round: the drive measures its resistance.\n"
+           "That input is on the HV side (the DC bus' potential, read by the F3): treat the\n"
+           "sensor's wires as HV wiring, never let them touch the LV side or the feedback cable.\n"
+           "(On SEW CMP motors the KTY84 is in the feedback cable, brown / white: take that pair\n"
+           "out of the feedback connector to the HV board. In the cable it then runs at the HV\n"
+           "side's potential next to the LV feedback pairs: only the wires' insulation separates\n"
+           "them, so keep the pair's ends insulated and apart from the RJ45.)\n",
+           type == 1 ? "KTY84-130" : type == 2 ? "PT1000" : type == 3 ? "PTC" : type == 4 ? "NTC" : "thermal switch");
+  return s;
+}

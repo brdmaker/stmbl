@@ -127,3 +127,56 @@ int su_motor_check(const su_motor_t *m, double bus, char *msg, size_t len, int *
   }
   return err;
 }
+
+const char *const su_temp_ids[SU_TEMP_N]   = {"none", "kty84", "pt1000", "ptc", "ntc", "switch"};
+const char *const su_temp_names[SU_TEMP_N] = {
+    "none (the drive's thermal model alone)", "KTY84-130 (SEW CMP \"KTY\", Siemens, ...)", "PT1000",
+    "PTC thermistor (trips, DIN 44081)",       "NTC thermistor",                          "thermal switch (normally closed)"};
+
+int su_temp_type(const char *id) {
+  for(int i = 0; id && i < SU_TEMP_N; i++) {
+    if(strcmp(id, su_temp_ids[i]) == 0) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+int su_temp_check(int type, double ohm, double degc, double err, double tripped, char *msg, size_t len) {
+  msg[0] = 0;
+  if(type <= 0) {
+    return 0;
+  }
+  if(err == 1.0) {
+    snprintf(msg, len,
+             "The temperature sensor reads open (%.0f ohm): a broken or unplugged wire, or nothing on the HV\n"
+             "board's motor temperature connector.",
+             ohm);
+    return 1;
+  }
+  if(err == 2.0) {
+    snprintf(msg, len,
+             "The temperature sensor reads %.0f ohm, too low for a %s: shorted wires, or another\n"
+             "sensor type (a KTY84 reads ~580 ohm cold, a PT1000 ~1100, a PTC 50..250 per sensor).",
+             ohm, su_temp_ids[type]);
+    return 1;
+  }
+  if(type == 3 || type == 5) {
+    if(tripped > 0.0) {
+      snprintf(msg, len,
+               "The %s reads tripped (%.0f ohm) with the motor cold: an open wire, or not a %s.",
+               type == 3 ? "PTC" : "thermal switch", ohm, type == 3 ? "PTC" : "normally closed switch");
+      return 1;
+    }
+    return 0;
+  }
+  if(degc < 5.0 || degc > 45.0) {
+    snprintf(msg, len,
+             "The temperature sensor reads %.0f degC (%.0f ohm) with the motor cold: another sensor type\n"
+             "than %s (a KTY84 reads ~580 ohm at 20 degC, a PT1000 ~1080, an NTC 10k ~12k),\n"
+             "or the motor isn't at room temperature.",
+             degc, ohm, su_temp_ids[type]);
+    return 1;
+  }
+  return 0;
+}

@@ -23,3 +23,6 @@ char *su_wiring_power(int brake, double bus);
 // the holding brake on output out (0..2, DIO0..2): directly when it is
 // 24 V DC and takes at most 1 A, else through a relay
 char *su_wiring_brake(int out, int volt24, double current);
+
+// the motor temperature sensor (type: conf0.mot_temp_type) on the HV board
+char *su_wiring_temp(int type);

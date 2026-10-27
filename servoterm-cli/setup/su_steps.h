@@ -14,10 +14,11 @@
  *   safety      what the wizard will do; e-stop at hand
  *   supply      mains / DC bus, brake chopper, power rating
  *   motor       nameplate: currents, speed, torque, holding brake (voltage,
- *               current, output, engage time), vertical axis
+ *               current, output, engage time), temperature sensor, vertical axis
  *   feedback    the motor feedback type
  *   wiring      wiring help, then the user wires it
- *   base        a first config (no command link) written, drive reset, checked
+ *   base        a first config (no command link) written, drive reset, checked;
+ *               the temperature sensor reads the room's temperature
  *   fbcheck     the shaft turned by hand: resolution (index) and direction
  *   gate        before anything moves: motor free, travel allowed
  *   electrical  idpmsm: r, l, pole pairs, commutation offset, phase order, psi

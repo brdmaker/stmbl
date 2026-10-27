@@ -20,6 +20,7 @@ written as a library, so a GUI can be built on the same functions later.
 - [The steps](#the-steps)
 - [What it measures, and how](#what-it-measures-and-how)
 - [Holding brake](#holding-brake)
+- [Motor temperature sensor](#motor-temperature-sensor)
 - [Firmware version check](#firmware-version-check)
 - [Session, resume, answers file](#session-resume-answers-file)
 - [The library (for a GUI)](#the-library-for-a-gui)
@@ -56,10 +57,10 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 2 | `backup` | the drive's config to `stmbl-backup-<time>.txt` (`--load` it to go back) |
 | 3 | `safety` | what will move; e-stop within reach, motor fastened |
 | 4 | `supply` | 230 V / 120 V mains or DC; a brake chopper and its threshold; the braking power the drive may feed back (`conf0.max_hv_power`) |
-| 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed; every one may be "unknown". A holding brake: its voltage, current, which output (DIO0–2), its engage time. A vertical axis (gravity pulls) |
+| 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed; every one may be "unknown". A holding brake: its voltage, current, which output (DIO0–2), its engage time. The temperature sensor (none, KTY84-130, PT1000, PTC, NTC, thermal switch) with warning and trip temperatures. A vertical axis (gravity pulls) |
 | 6 | `feedback` | incremental encoder, sin/cos, resolver (pole count), Tamagawa smartabs, Mitsubishi, Sanyo Denki |
-| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay |
-| 8 | `base` | a first config (no command link), drive reset; checks the HV bus voltage and that there is no fault |
+| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay. The temperature sensor to the HV board's motor temperature connector |
+| 8 | `base` | a first config (no command link), drive reset; checks the HV bus voltage, that the temperature sensor reads the room's temperature (a PTC or switch: not tripped), and that there is no fault |
 | 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below). A brake is released for it (`fault0.brake_release`); on a vertical axis only once the load is off or supported |
 | 10 | `gate` | before anything moves: motor uncoupled or the axis clear; how far it may turn |
 | 11 | `electrical` | `id_pmsm`: resistance, inductance, pole pairs, phase order, commutation offset, flux; cross-checked against the nameplate |
@@ -150,12 +151,65 @@ drop while the brake closes (docs/emergency_stop.md).
 Positions are read from the feedback's own pin (`enc_fb0.pos`, ...):
 `fb_switch0.pos_fb` stands still while the drive is disabled.
 
+## Motor temperature sensor
+
+**In the drive.** The HV board measures the sensor's resistance
+(`hv0.mot_temp`, ohms). `mtemp0` (`shared/comps/mtemp.c`, curves in
+`shared/mtemp.h`) turns it into degC for `conf0.mot_temp_type`:
+
+| type | sensor | reads |
+|---|---|---|
+| 0 | none (default) | the thermal model `iit0` alone, as before |
+| 1 | KTY84-130 | degC (datasheet table: 581 ohm at 20 degC, 1000 at 100) |
+| 2 | PT1000 | degC (IEC 60751) |
+| 3 | PTC (DIN 44081) | tripped above `conf0.mot_temp_ptc_r` (1330 ohm) |
+| 4 | NTC | degC (`conf0.mot_temp_ntc_r25`, `conf0.mot_temp_ntc_b`) |
+| 5 | NC thermal switch | tripped when open |
+
+- `fault0.mot_temp` is `mtemp0.temp`, the higher of the sensor and the
+  model. Above `conf0.high_mot_temp` the current is derated, above
+  `conf0.max_mot_temp` (5 s) the drive stops: `MOT_TEMP_ERROR` (7).
+- A tripped PTC or switch, and an open or shorted wire (`mtemp0.err` 1
+  / 2, after 0.1 s), read as the trip temperature + 10 degC: the drive
+  stops.
+- A sensor of another type often reads as a short or an open wire (a
+  KTY84 is too low for a PT1000), otherwise as an implausible
+  temperature.
+
+**In the wizard.**
+1. `motor`: the type (`motor.temp_sensor`), for an NTC its R25 and B, for
+   the reading types the warning and trip temperatures (`temp.warn`,
+   `temp.trip`, 110 / 130 degC).
+2. `wiring`: the sensor's two wires to the HV board's 2-pin motor
+   temperature connector. That input is on the HV side, at the DC bus'
+   potential.
+3. `base`: with the motor cold, the reading must be 5..45 degC (a PTC or
+   switch: not tripped), and not open or shorted. Otherwise the step
+   stops and says which. It runs before the fault check, because a bad
+   sensor also faults the drive.
+4. The config gets `conf0.mot_temp_type`, the NTC's data, and
+   `conf0.high_mot_temp` / `max_mot_temp`.
+
+**In the simulator.** `hv0.sim_temp` (winding degC), `sim_temp_sensor`
+(the fitted type), `sim_temp_wire` (1 open, 2 short), `sim_temp_tnat` (a
+PTC's or switch's trip temperature). Tests:
+`host/tests/mot_temp_sensor.test` (every type, a mismatched type),
+`mot_temp_fault.test` (an open wire and an overheated winding stop the
+drive), and `run_wizard_sim.py` (a sensor on 3 of 4 motors, plus a wrong
+type and an open wire, which have to stop the wizard at `base`).
+
+**Measurement resolution** (from the F3's conversion in
+`stm32f303/src/comps/io.c`, not checked on a bench): about 0.8 degC per
+ADC count for a KTY84 at 20 degC, about 1 degC for a PT1000, better for
+an NTC near 25 degC. Enough for a trip, not for a thermometer.
+
 ## Firmware version check
 
 The wizard is built against one configuration interface: the template
 names, the `conf0` pins, and the identification components' pins and
 states. `shared/setup_api.h` numbers it (`STMBL_SETUP_API`), and the
-drive prints it in `about` ("setup api 1").
+drive prints it in `about` ("setup api 2"; 2 added the motor
+temperature sensor).
 
 | Drive | Wizard |
 |---|---|
@@ -276,6 +330,9 @@ firmware's own tools (DEBUGNOTES):
   low.
 - **`fault`:** `brake_time` (above), so a vertical axis doesn't drop
   while the brake closes.
+- **`mtemp`:** the motor's temperature sensor (above). Before it, the
+  HV board's sensor reading went nowhere: the over-temperature check saw
+  only the thermal model.
 - **The console:**
   - `getf <pin>` prints a pin in full precision; `%f` printed a micro
     motor's inertia as 0.000000.

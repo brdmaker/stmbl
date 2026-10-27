@@ -182,6 +182,44 @@ static void test_wiring(void) {
   free(t);
 }
 
+static void test_temp(void) {
+  char m[512];
+  ok(su_temp_type("kty84") == 1 && su_temp_type("switch") == 5 && su_temp_type("nope") == 0 && su_temp_type(NULL) == 0,
+     "temp: ids are the firmware's type numbers");
+  ok(su_temp_check(0, -1, 0, 0, 0, m, sizeof(m)) == 0, "temp: no sensor, nothing to check");
+  ok(su_temp_check(1, 581, 20.0, 0, 0, m, sizeof(m)) == 0, "temp: a KTY84 at 20 degC");
+  ok(su_temp_check(1, -1, 0, 1, 0, m, sizeof(m)) == 1 && strstr(m, "open"), "temp: open wire");
+  ok(su_temp_check(2, 581, 0, 2, 0, m, sizeof(m)) == 1 && strstr(m, "too low for a pt1000"),
+     "temp: a KTY read as a PT1000: short / another type");
+  ok(su_temp_check(1, 1080, 120.0, 0, 0, m, sizeof(m)) == 1 && strstr(m, "another sensor type"),
+     "temp: a PT1000 read as a KTY84: 120 degC cold");
+  ok(su_temp_check(3, 150, 0, 0, 0, m, sizeof(m)) == 0, "temp: a cold PTC");
+  ok(su_temp_check(5, 1e9, 0, 0, 1, m, sizeof(m)) == 1 && strstr(m, "tripped"), "temp: an open switch cold");
+  char *t = su_wiring_temp(1);
+  ok(t && strstr(t, "KTY84-130") && strstr(t, "HV side"), "temp: wiring, on the HV side");
+  free(t);
+  su_state_t *s = su_state_new();
+  su_state_parse(s, "motor.temp_sensor = ntc\ntemp.ntc_r25 = 4700\ntemp.ntc_b = 3500\ntemp.warn = 100\ntemp.trip = 120\n");
+  char *c = su_build_config(s, 0);
+  char v[32];
+  ok(su_conf_get(c, "conf0.mot_temp_type", v, sizeof(v)) == 0 && strcmp(v, "4") == 0, "temp: build: the type");
+  ok(su_conf_get(c, "conf0.mot_temp_ntc_r25", v, sizeof(v)) == 0 && strcmp(v, "4700") == 0 &&
+         su_conf_get(c, "conf0.mot_temp_ntc_b", v, sizeof(v)) == 0,
+     "temp: build: the NTC's data");
+  ok(su_conf_get(c, "conf0.high_mot_temp", v, sizeof(v)) == 0 && strcmp(v, "100") == 0 &&
+         su_conf_get(c, "conf0.max_mot_temp", v, sizeof(v)) == 0 && strcmp(v, "120") == 0,
+     "temp: build: warning and trip temperatures");
+  char err[128];
+  ok(su_conf_validate(c, err, sizeof(err)) == 0, "temp: build: the lines fit the drive");
+  free(c);
+  su_state_parse(s, "motor.temp_sensor = none\n");
+  c = su_build_config(s, 0);
+  ok(su_conf_get(c, "conf0.mot_temp_type", v, sizeof(v)) < 0 && su_conf_get(c, "conf0.max_mot_temp", v, sizeof(v)) < 0,
+     "temp: build: no sensor, the defaults stay");
+  free(c);
+  su_state_free(s);
+}
+
 static void test_build(void) {
   su_state_t *s = su_state_new();
   su_state_parse(s,
@@ -234,6 +272,7 @@ int main(void) {
   test_motor();
   test_feedback();
   test_wiring();
+  test_temp();
   test_build();
   printf("1..%d\n# %d/%d passed\n", n, n - failed, n);
   return failed != 0;

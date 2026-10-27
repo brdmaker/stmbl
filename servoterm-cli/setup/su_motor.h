@@ -53,3 +53,14 @@ double su_kt_nameplate(const su_motor_t *m);
 // the number of errors (implausible: don't use), *warnings the number of
 // warnings (unusual: check)
 int su_motor_check(const su_motor_t *m, double bus, char *msg, size_t len, int *warnings);
+
+// The motor's temperature sensor (the drive's mtemp0, shared/mtemp.h): ids
+// in the order of the firmware's conf0.mot_temp_type
+#define SU_TEMP_N 6
+extern const char *const su_temp_ids[SU_TEMP_N];    // none kty84 pt1000 ptc ntc switch
+extern const char *const su_temp_names[SU_TEMP_N];
+int su_temp_type(const char *id);  // conf0.mot_temp_type, 0 for none / unknown
+// is the sensor's reading with the motor cold plausible? ohm: hv0.mot_temp,
+// degc: mtemp0.sensor, err: mtemp0.err (1 open, 2 short), tripped:
+// mtemp0.tripped. 0, or 1 with the reason in msg
+int su_temp_check(int type, double ohm, double degc, double err, double tripped, char *msg, size_t len);

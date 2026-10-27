@@ -1399,3 +1399,49 @@ Entry format:
   (1.5x rated): it drags the closed brake.
 - Fix:     the release test is by hand with the drive off and
   fault0.brake_release = 1: the shaft must turn freely.
+
+## 2026-10-27  Motor temperature sensor: the HV board's reading went nowhere
+- Area:    shared/comps/mtemp.c, conf/template/{pid,mpid,uf}.txt, setup wizard
+- Status:  Fixed
+- Symptom: a motor's KTY / PTC on the HV board's temperature connector
+  protected nothing: fault0.mot_temp was linked to iit0.temp, the thermal
+  model; hv0.mot_temp (the sensor's resistance in ohms) was only shown.
+- Cause:   no conversion from ohms to degC, and no sensor type setting.
+- Fix:     mtemp0 converts for conf0.mot_temp_type (0 none, 1 KTY84-130,
+  2 PT1000, 3 PTC, 4 NTC, 5 NC switch); fault0.mot_temp = max(sensor,
+  model); open / shorted wire, tripped PTC / switch stop the drive.
+  Default 0 keeps the old behaviour. The wizard asks the type and checks
+  the cold reading (setup api 2).
+
+## 2026-10-27  The motor temperature input is on the HV side
+- Area:    HV board, motor temperature connector; SEW CMP feedback cables
+- Status:  Known
+- Symptom: none yet; a wiring hazard. SEW (and others) run the KTY pair in
+  the feedback cable next to the resolver.
+- Cause:   the F3 reads the sensor (stm32f303/src/comps/io.c), on the HV
+  side at the DC bus' potential; the resolver / encoder is on the LV side.
+  Moved to the HV board, the KTY pair sits at bus potential beside LV
+  pairs, separated only by the wires' insulation.
+- Fix:     keep the KTY pair's ends insulated and away from the feedback
+  RJ45 (the wizard's wiring text says so). Not checked on hardware: a
+  bench reading of the input (ohms vs a resistor) is still to do.
+
+## 2026-10-27  Wizard: a bad temperature sensor faulted the drive before the check
+- Area:    servoterm-cli/setup/su_steps.c (step_base)
+- Status:  Fixed
+- Symptom: with an open sensor wire or the wrong type, the base step said
+  only "The drive reports fault 7 with the first config."
+- Cause:   a broken sensor reads as trip + 10 degC, so fault0 stops the
+  drive (MOT_TEMP_ERROR) within 5 s; the fault check ran first.
+- Fix:     the sensor check runs before the fault check and says which
+  (open, short / another type, implausible reading).
+
+## 2026-10-27  HAL_MAX_COMPS (32) full: a test's second extra comp didn't load
+- Area:    shared/hal.h; host/tests/motor_*.test (generated)
+- Status:  Fixed
+- Symptom: after mtemp joined the pid template, 23 motor tests failed with
+  "scale1.out0 was never printed": `load scale` twice, the second missing.
+- Cause:   the drive config already used 30 of 32 comp instances; mtemp
+  made 31, the tests' two scales 33. `hal` shows it: "HAL_MAX_COMPS 31/32".
+- Fix:     HAL_MAX_COMPS 40 (~0.5 KB RAM on the F4). A user's config
+  loading extra comps would have hit the same limit.

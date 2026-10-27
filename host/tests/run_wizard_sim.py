@@ -7,6 +7,11 @@ file (it doesn't follow what the wizard writes into conf0); the wizard's
 answers come from an answers file, and the hand turning the shaft is
 hv0.sim_turn.
 
+A temperature sensor on every motor but every 4th (KTY84, PT1000, NTC in
+turn), at 22 degC; the wizard's cold check has to read it. Two more cases
+on the first motor must stop at the base step: a KTY84 answered as a
+PT1000, and an open sensor wire.
+
 Checks per motor (TAP): the wizard finishes; the encoder's resolution and
 direction, the phase order and the pole pairs exactly; r, l, psi within a
 few percent; the commutation offset to the same electrical angle as the
@@ -47,6 +52,11 @@ VARIANTS = [
 
 UDC = 230.0 * math.sqrt(2)
 
+# the wizard's ids in the firmware's conf0.mot_temp_type order (shared/mtemp.h)
+TEMP_IDS = ["none", "kty84", "pt1000", "ptc", "ntc", "switch"]
+SENSORS = ["none", "kty84", "pt1000", "ntc"]
+COLD = 22.0
+
 # Known measurement limits (TAP TODO: reported, not fatal), by motor and
 # the check's first word; see DEBUGNOTES "setup wizard".
 KNOWN = {
@@ -85,7 +95,18 @@ def case(i, motor):
     return dict(name=name, r=r, l=l, psi=psi, pp=pp, j=j, imax=imax, f=f, d=d, lines=lines, rev=rev,
                 prev=prev, index=index, brake=brake, vertical=vertical,
                 brake_torque=1.5 * rated_torque, brake_delay=0.06 if vertical else 0.04,
-                engage_ms=10 if vertical else 40, load=0.3 * rated_torque if vertical else 0.0)
+                engage_ms=10 if vertical else 40, load=0.3 * rated_torque if vertical else 0.0,
+                sensor=SENSORS[i % 4], answer_sensor=SENSORS[i % 4], wire=0, expect_fail=None)
+
+
+def temp_cases():
+    """The first motor twice more: a wrong sensor type answered, an open wire."""
+    c1 = case(0, MOTORS[0])
+    c1.update(name=c1["name"] + "-wrongtype", sensor="kty84", answer_sensor="pt1000",
+              expect_fail="too low for a pt1000")
+    c2 = case(0, MOTORS[0])
+    c2.update(name=c2["name"] + "-openwire", sensor="kty84", answer_sensor="kty84", wire=1, expect_fail="reads open")
+    return [c1, c2]
 
 
 def sim_file(c):
@@ -97,7 +118,9 @@ def sim_file(c):
         "enc_fb0.sim_res = %d" % (4 * c["lines"]), "enc_fb0.sim_rev = %d" % c["rev"],
         "enc_fb0.sim_index = %g" % c["index"],
         "hv0.sim_brake = %g" % (c["brake_torque"] if c["brake"] else 0.0),
-        "hv0.sim_brake_delay = %g" % c["brake_delay"], ""])
+        "hv0.sim_brake_delay = %g" % c["brake_delay"],
+        "hv0.sim_temp_sensor = %d" % TEMP_IDS.index(c["sensor"]), "hv0.sim_temp = %g" % COLD,
+        "hv0.sim_temp_wire = %d" % c["wire"], ""])
 
 
 def answers(c, wait):
@@ -108,6 +131,8 @@ def answers(c, wait):
         "motor.rated_cur = %.3g" % rated, "motor.peak_cur = %.3g" % peak,
         "motor.rated_torque = %.3g" % torque, "motor.max_rpm = %g" % rpm,
         "motor.brake = %s" % ("y" if c["brake"] else "n"), "axis.vertical = %s" % ("y" if c["vertical"] else "n"),
+        "motor.temp_sensor = %s" % c["answer_sensor"], "temp.ntc_r25 = 10000", "temp.ntc_b = 3950",
+        "temp.warn = 110", "temp.trip = 130",
         "brake.voltage = 24", "brake.current = 0.5", "brake.output = 0", "brake.engage_ms = %g" % c["engage_ms"],
         "fbcheck.secured = y",
         # the load goes on for the brake step (and stays); the hand can't turn a closed brake
@@ -162,7 +187,7 @@ def run_case(c, speed, keep):
         sim.wait()
     open(os.path.join(d, "wizard.log"), "w").write(out)
     st = read_state(os.path.join(d, "session.txt"))
-    if not keep and rc == 0:
+    if not keep and (rc == 0 or c["expect_fail"]):
         shutil.rmtree(d)
     return c, rc, out, st, d, time.time() - t0
 
@@ -179,6 +204,10 @@ def checks(c, rc, out, st):
         chk(abs(v - truth) <= tol * abs(truth), "%s = %.4g, true %.4g (%.0f %%)" % (key, v, truth, 100 * tol))
 
     last = [l for l in out.splitlines() if l.startswith("ERROR")]
+    if c["expect_fail"]:
+        chk(rc != 0 and "done.base" not in st, "the wizard stops at the base step")
+        chk(c["expect_fail"] in out, "it says why: '%s'" % c["expect_fail"])
+        return res
     chk(rc == 0, "wizard finished" + ("" if rc == 0 else ": " + (last[-1] if last else "rc %d" % rc)))
     chk(num(st, "feedback.counts") == 4 * c["lines"], "counts %s, true %d" % (st.get("feedback.counts"),
                                                                             4 * c["lines"]))
@@ -196,6 +225,9 @@ def checks(c, rc, out, st):
     chk(abs(j - c["j"]) <= max(0.25 * c["j"], 2e-6), "j = %.3g, true %.3g (25 %% or 2e-6)" % (j, c["j"]))
     f = num(st, "mech.f")
     chk(abs(f - c["f"]) <= max(0.25 * c["f"], 2e-3), "f = %.3g, true %.3g (25 %%)" % (f, c["f"]))
+    if c["sensor"] != "none":
+        chk(abs(num(st, "temp.cold") - COLD) < 1.5, "temperature sensor (%s) cold: %s degC, true %g" %
+            (c["sensor"], st.get("temp.cold"), COLD))
     chk(num(st, "verify.step") < 0.05, "verify: position error after the steps %s rad" % st.get("verify.step"))
     if c["brake"]:
         chk(num(st, "brake.hold_drift") < 0.05, "brake holds with the drive off: moved %s rad" %
@@ -219,16 +251,19 @@ def main():
             sys.exit("missing %s: make -C host; make -C servoterm-cli" % exe)
     only = [s for s in a.only.split(",") if s]
     cases = [case(i, m) for i, m in enumerate(MOTORS) if not only or m[0] in only]
+    cases += [c for c in temp_cases() if not only or c["name"].split("-")[0] in only]
     n = failed = 0
     with ThreadPoolExecutor(max_workers=a.j) as ex:
         for c, rc, out, st, d, dt in ex.map(lambda c: run_case(c, a.speed, a.keep), cases):
-            print("# %s: %d lines, rev %d, phases %s, index %.2f%s (%.0f s)%s" % (
+            print("# %s: %d lines, rev %d, phases %s, index %.2f%s, temp %s%s (%.0f s)%s" % (
                 c["name"], c["lines"], c["rev"], "swapped" if c["prev"] else "as wired", c["index"],
-                ", vertical with brake" if c["vertical"] else ", brake" if c["brake"] else "", dt,
-                "" if rc == 0 and not a.keep else ", in " + d))
+                ", vertical with brake" if c["vertical"] else ", brake" if c["brake"] else "", c["sensor"],
+                " answered %s" % c["answer_sensor"] if c["answer_sensor"] != c["sensor"] else
+                ", open wire" if c["wire"] else "", dt,
+                "" if (rc == 0 or c["expect_fail"]) and not a.keep else ", in " + d))
             for good, what in checks(c, rc, out, st):
                 n += 1
-                known = KNOWN.get((c["name"], what.split()[0]))
+                known = KNOWN.get((c["name"].split("-")[0], what.split()[0])) if not c["expect_fail"] else None
                 failed += not good and not known
                 print("%s %d - %s: %s%s" % ("ok" if good else "not ok", n, c["name"], what,
                                             " # TODO " + known if known else ""))
