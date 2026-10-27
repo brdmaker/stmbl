@@ -55,3 +55,21 @@ What the results show:
 
 - **A metric artifact:** at the first cutting samples of a program, the servo error can read up to 20 µm. Around the plunge the XY command path is still nearly a point, so the window's polyline is short. Read the path error for the machine's accuracy there.
 - **Homing:** homing is `HOME_ABSOLUTE_ENCODER`, which needs no motion. The drives report absolute positions, as the machine file's `home` sets them.
+
+## The browser console on the simulation
+
+`console.ini` is `mill.ini` with the console (webui/mill/millweb) as
+LinuxCNC's display instead of AXIS, `MACHINE_TYPE = bridge` and the CN 720's
+tool setter (as `webui/mill/machines/cn720/machine.json`); `console.hal`
+answers the tool changer and the spindle at once. Programs come from
+`~/cn720/nc_files`; G54 is the table's centre (X 290, Y 170, Z -150,
+`console.var`), the tools those of the bench (`console.tbl`).
+
+```sh
+make -C ../../host/arm all && make -C ../../host/mill/lcnc all install   # once
+linuxcnc console.ini        # then http://<host>:8080/
+```
+
+An installed LinuxCNC works for `make test` and `make run` too
+(`LINUXCNC` empty; a run-in-place tree: `LINUXCNC=~/linuxcnc-2.9`).
+

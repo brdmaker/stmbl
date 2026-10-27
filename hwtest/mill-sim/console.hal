@@ -1,0 +1,6 @@
+# hwtest/mill-sim/console.hal: what the console needs beyond mill.hal: the
+# tool changer and the spindle answer at once (there is neither in the
+# simulation), no probe.
+net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed
+net tool-prep   iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
+setp spindle.0.at-speed 1

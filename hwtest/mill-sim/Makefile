@@ -24,7 +24,9 @@ test:
 test-all:
 	@LINUXCNC=$(LINUXCNC) $(PY) mill_test.py --servo 1,0.5 --machine cn720,cn720_blend,cn720_scales --out . --no-check
 
+ENV = $(if $(LINUXCNC),. $(LINUXCNC)/scripts/rip-environment >/dev/null &&,)
+
 run:
-	@. $(LINUXCNC)/scripts/rip-environment >/dev/null && linuxcnc mill.ini
+	@$(ENV) linuxcnc mill.ini
 
 .PHONY: test test-all run
