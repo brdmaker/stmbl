@@ -1,0 +1,73 @@
+# The motor's temperature sensor (mtemp0, shared/mtemp.h): the HV board
+# reports its resistance (hv0.mot_temp), mtemp0 turns it into degC for the
+# type in conf0.mot_temp_type; fault0 checks the higher of it and iit0's
+# model. Each type at a known winding temperature.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.3
+# no sensor configured: the model alone, as before
+mtemp0.temp
+iit0.temp
+@expect mtemp0.temp[1] ~ 30 0.5
+# KTY84-130 at 20 and 100 degC (SEW CMP: 576 ohm measured at room temperature)
+hv0.sim_temp_sensor = 1
+conf0.mot_temp_type = 1
+hv0.sim_temp = 20
+run 1.5
+hv0.mot_temp
+mtemp0.sensor
+@expect hv0.mot_temp[1] ~ 581 1
+@expect mtemp0.sensor[1] ~ 20 0.5
+hv0.sim_temp = 100
+run 1.5
+mtemp0.sensor
+mtemp0.temp
+@expect mtemp0.sensor[2] ~ 100 0.5
+@expect mtemp0.temp[2] ~ 100 0.5
+# PT1000 at 80
+hv0.sim_temp_sensor = 2
+conf0.mot_temp_type = 2
+hv0.sim_temp = 80
+run 1.5
+mtemp0.sensor
+@expect mtemp0.sensor[3] ~ 80 0.2
+# NTC 10k, B 3950 at 60
+hv0.sim_temp_sensor = 4
+conf0.mot_temp_type = 4
+hv0.sim_temp = 60
+run 1.5
+mtemp0.sensor
+@expect mtemp0.sensor[4] ~ 60 0.3
+# PTC: cold, then above its 130 degC
+hv0.sim_temp_sensor = 3
+conf0.mot_temp_type = 3
+hv0.sim_temp = 40
+run 1.5
+mtemp0.tripped
+hv0.sim_temp = 140
+run 1.5
+mtemp0.tripped
+mtemp0.temp
+@expect mtemp0.tripped[1] == 0
+@expect mtemp0.tripped[2] == 1
+@expect mtemp0.temp[3] ~ 110 0.5
+# NC thermal switch: closed cold, open hot
+hv0.sim_temp_sensor = 5
+conf0.mot_temp_type = 5
+hv0.sim_temp = 40
+run 0.5
+mtemp0.tripped
+mtemp0.err
+hv0.sim_temp = 150
+run 0.5
+mtemp0.tripped
+@expect mtemp0.tripped[3] == 0
+@expect mtemp0.err[1] == 0
+@expect mtemp0.tripped[4] == 1
+# a type that doesn't match the sensor: a KTY read as a PT1000 at 20 degC
+hv0.sim_temp_sensor = 1
+conf0.mot_temp_type = 2
+hv0.sim_temp = 20
+run 1.5
+mtemp0.err
+@expect mtemp0.err[2] == 2

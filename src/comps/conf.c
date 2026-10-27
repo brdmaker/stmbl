@@ -19,6 +19,10 @@ HAL_PIN(polecount); // #motor pole pairs
 HAL_PIN(out_rev); // motor direction
 HAL_PIN(high_mot_temp); // lower motor overtemperature limit [°C]
 HAL_PIN(max_mot_temp); // upper motor overtemperature limit [°C]
+HAL_PIN(mot_temp_type); // motor temperature sensor: 0 none, 1 KTY84-130, 2 PT1000, 3 PTC, 4 NTC, 5 NC switch (shared/mtemp.h)
+HAL_PIN(mot_temp_ptc_r); // PTC trip resistance [ohm]
+HAL_PIN(mot_temp_ntc_r25); // NTC resistance at 25 °C [ohm]
+HAL_PIN(mot_temp_ntc_b); // NTC B value [K]
 HAL_PIN(phase_time); // autophasing time [s]
 HAL_PIN(phase_cur); // autophasing current [A]
 

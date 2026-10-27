@@ -1,0 +1,35 @@
+# The sensor stops the drive: an open sensor wire, then (wire mended) the
+# winding over conf0.max_mot_temp (100 degC). fault0 filters the
+# over-temperature 5 s (err_filter), then MOT_TEMP_ERROR (7).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_temp_sensor = 1
+conf0.mot_temp_type = 1
+hv0.sim_temp = 25
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+@expect fault0.fault[1] == 0
+hv0.sim_temp_wire = 1
+run 0.5
+mtemp0.err
+mtemp0.temp
+@expect mtemp0.err[1] == 1
+@expect mtemp0.temp[1] ~ 110 0.5
+run 6
+fault0.fault
+@expect fault0.fault[2] == 7
+hv0.sim_temp_wire = 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+@expect fault0.fault[3] == 0
+hv0.sim_temp = 120
+run 7
+fault0.fault
+mtemp0.sensor
+@expect fault0.fault[4] == 7
+@expect mtemp0.sensor[1] ~ 120 0.5

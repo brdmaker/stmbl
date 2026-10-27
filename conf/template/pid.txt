@@ -11,6 +11,7 @@ load hv
 load sim
 load io
 load iit
+load mtemp
 load pe
 load scope
 load fwup
@@ -30,6 +31,7 @@ qstop0.rt_prio = 7.5
 pid0.rt_prio = 8
 fault0.rt_prio = 10
 iit0.rt_prio = 13
+mtemp0.rt_prio = 13.5
 pe0.rt_prio = 13
 scope0.rt_prio = 15
 scope0.frt_prio = 15
@@ -156,5 +158,12 @@ pe0.cap = 0.00054
 iit0.max_temp = conf0.max_mot_temp
 iit0.high_temp = conf0.high_mot_temp
 iit0.max_cur = conf0.max_ac_cur
-fault0.mot_temp = iit0.temp
+mtemp0.type = conf0.mot_temp_type
+mtemp0.r = hv0.mot_temp
+mtemp0.model = iit0.temp
+mtemp0.trip = conf0.max_mot_temp
+mtemp0.ptc_r = conf0.mot_temp_ptc_r
+mtemp0.ntc_r25 = conf0.mot_temp_ntc_r25
+mtemp0.ntc_beta = conf0.mot_temp_ntc_b
+fault0.mot_temp = mtemp0.temp
 iit0.cur = hv0.abs_cur

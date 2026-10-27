@@ -37,6 +37,7 @@
 #include "vbrake.h"
 #include "common.h"
 #include "f3hw.h"
+#include "mtemp.h"
 #include <math.h>
 
 HAL_COMP(hv);
@@ -133,6 +134,11 @@ HAL_PIN(sim_sense_gain);    // IPROPI gain error, share: + on A, - on B (DRV8876
 HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods] (0: off)
 HAL_PIN(sense_off_a);       // the offsets it found [A]
 HAL_PIN(sense_off_b);
+// the motor's temperature sensor (shared/mtemp.h): mot_temp is its resistance [ohm], as the F3 reports it
+HAL_PIN(sim_temp);         // winding temperature [degC]
+HAL_PIN(sim_temp_sensor);  // its sensor type (mtemp.h), 0: none fitted (the input reads open, -1)
+HAL_PIN(sim_temp_wire);    // 0 ok, 1 open wire, 2 shorted
+HAL_PIN(sim_temp_tnat);    // PTC / switch: trip temperature [degC]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -327,11 +333,18 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(max_duty) = 0.95;
   PIN(sense_window) = 0.1;
   PIN(sense_thr)    = 0.01;
+  PIN(sim_temp)      = 25;
+  PIN(sim_temp_tnat) = 130;
+  PIN(mot_temp)      = -1;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_ctx_t *ctx      = (struct hv_ctx_t *)ctx_ptr;
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
+
+  // the motor's temperature sensor
+  int ts = (int)PIN(sim_temp_sensor), tw = (int)PIN(sim_temp_wire);
+  PIN(mot_temp) = ts <= 0 || tw == 1 ? -1.0 : tw == 2 ? 0.5 : mtemp_r_of(ts, PIN(sim_temp), 10000.0, 3950.0, PIN(sim_temp_tnat));
 
   // the holding brake follows its output after sim_brake_delay
   int want = PIN(sim_brake_release) <= 0.0;
