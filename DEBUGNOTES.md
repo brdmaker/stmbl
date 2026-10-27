@@ -2248,4 +2248,5 @@ Entry format:
 - Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
   out is the excitation (grey/pink 77.4 ohm), sin and cos match
   (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
-  comments. KTY (violet/black) still to be measured.
+  comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
+  violet/black: that pair reads 1 ohm, a bridge at the motor end.

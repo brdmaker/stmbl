@@ -22,7 +22,8 @@ conf0.mot_fb_polecount = 1
 #   grey/pink R1/R2 excitation 77.4 ohm  -> 5 Ref+ / 4 Ref-
 #   green/yellow S2/S4 sin 67.5 ohm      -> 1 Sin+ / 2 Sin-
 #   blue/red S1/S3 cos 67.3 ohm          -> 3 Cos+ / 6 Cos-
-#   violet/black KTY (to the HV temp connector, hv0.mot_temp in ohm), brown/white unused
+#   brown/white KTY84 576 ohm at ~20 C (to the HV temp connector, hv0.mot_temp in ohm)
+#   violet/black 1 ohm: a bridge at the motor, unused
 # angle backwards: swap green and yellow
 res0.freq = 10000
 # brake BP (24 V DC, 0.95 Nm) on out0, as festo.txt
