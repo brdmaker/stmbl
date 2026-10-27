@@ -1558,3 +1558,24 @@ Entry format:
   circles 3.7 um rms; 3 s: circles as the resolver's, slow on lead error.
   Lead error belongs in LinuxCNC's screw compensation, measured once with
   the scale; the blend then only follows temperature.
+
+## 2026-10-27  halsampler's first line can be "overrun"
+- Area:    hwtest/mill-sim/mill_test.py (any halsampler recording)
+- Status:  Workaround
+- Symptom: numpy.loadtxt failed on every program's recording but the first;
+  the runs looked like they had no samples.
+- Cause:   halsampler prints "overrun" when the sampler's FIFO filled before
+  it read (samples from before the enable); it is a line of text first.
+- Fix:     read only the rows with all the columns, and count gaps in the
+  sample numbers while cutting (mill_test.py fails a run with gaps).
+
+## 2026-10-27  stmbl_mill: the drives' cmd_freq follows the servo thread
+- Area:    host/mill/millcore.c (mccore_servo), real drives' configs
+- Status:  Note
+- Symptom: a 2 kHz servo thread with vel_int0.cmd_freq left at 1000 makes
+  the drive's command interpolation (vel_int mode 1) take the packets for
+  twice as far apart: its velocity comes out half, its acceleration a
+  quarter.
+- Cause:   cmd_freq is a setting, not measured.
+- Fix:     the simulation sets it from the period; on a real drive put
+  vel_int0.cmd_freq = 2000 in the config for a 2 kHz thread.

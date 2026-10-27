@@ -96,9 +96,16 @@ The full tables are in RESULTS.md. `econt` is the tool's distance from the comma
 | `mill_lead`, `mill_lead_resolver` | the warm screw: 37 µm on the resolver, under 8 µm with the blended scale |
 | `mill_bandwidth` | vel_bw 1200: the Y screw mode goes unstable and trips |
 
+## In LinuxCNC (lcnc/, hwtest/mill-sim)
+
+`millcore.c` holds the drives, the plant and the machine file. Two front ends use it:
+- `mill_sim`: the scripts above.
+- `lcnc/stmbl_mill.c`: a LinuxCNC realtime module, `loadrt stmbl_mill machine=... lib=...`, with per-joint smart-serial pins and the simulation's truth (tool-x/y/z, head-x/y, bridge-y). The servo thread's period is the drives' packet rate.
+
+`hwtest/mill-sim` runs LinuxCNC's real planner on it. On circles, a square and a line, 2 kHz again cuts the path error by about a quarter: circle R 10 at 6 m/min 8.4 → 6.9 µm, the square 27.5 → 20.7 µm. See its README.
+
 ## Not modelled yet
 
-- **LinuxCNC's planner:** it blends corners (G64). The runs use exact-stop moves.
+- **LinuxCNC's planner:** mill_sim's scripts use exact-stop moves; hwtest/mill-sim runs the real planner.
 - **Cutting:** only a steady force, with no chip-load dynamics or chatter.
 - **The screw:** no backlash (nuts assumed preloaded), and no whirl at speed.
-- **LinuxCNC module:** none yet. host/portal has one, `lcnc/`.
