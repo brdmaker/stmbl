@@ -1,3 +1,4 @@
+#stmbl_motor SEW CMP40M/BP/KTY/RH1M
 link pid
 link pmsm
 link res_fb0

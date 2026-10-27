@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 
 #define COMMAND(c, p, d)
 
@@ -13,3 +14,4 @@ typedef struct {
 
 void conf_version_check(void);   // shared/commands.c: at boot, after the config
 const char *conf_flash_text(void);  // the flash config's text (weak: none)
+char *conf_ram(size_t *size);       // the RAM config flashsaveconf writes (weak: none)

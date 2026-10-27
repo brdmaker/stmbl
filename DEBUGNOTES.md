@@ -2250,3 +2250,13 @@ Entry format:
   (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
   comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
   violet/black: that pair reads 1 ohm, a bridge at the motor end.
+
+## 2026-10-27  servoterm-cli ignored SIGTERM in interactive mode
+- Area:    servoterm-cli/servoterm-cli.c (the interactive select loop)
+- Status:  Fixed
+- Symptom: `kill` on an interactive servoterm-cli did nothing; a test
+  driving it through a pty hung until its timeout.
+- Cause:   the loop retried select() on EINTR without looking at stop_req,
+  which the signal handler sets.
+- Fix:     the loop runs while !stop_req. Found by
+  host/tests/test_servoterm_ident.py (drive name in the prompt).

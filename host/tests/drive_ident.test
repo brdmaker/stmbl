@@ -1,0 +1,25 @@
+# A drive's name and motor type: two comment lines in the flash config
+# (shared/confident.h), printed at boot and by `ident` for servoterm-cli's prompt.
+@args --drive tests/ident/x_axis.conf
+lcnc 0 0
+run 0.1
+ident
+@match ^drive x-axis, motor SEW CMP40M/BP/KTY/RH1M$
+@match ^ident name="x-axis" motor="SEW CMP40M/BP/KTY/RH1M"$
+# renaming rewrites the flash config: one #stmbl_name line, at the top
+name   y-axis  
+@match ^name: y-axis$
+showconf
+@match ^#stmbl_name y-axis$
+@reject ^#stmbl_name x-axis
+@match ^conf0.polecount = 3$
+motor -
+@match ^motor: \(not set\)$
+ident
+@match ^ident name="y-axis" motor=""$
+# too long, a quote: refused, the config unchanged
+name 0123456789012345678901234567890123
+@match ^error: name: at most 32 characters
+name a"b
+name
+@match ^name: y-axis$

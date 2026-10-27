@@ -39,8 +39,17 @@
  *                  drive resets and its bootloader copies the image. Over
  *                  USB in seconds; over the smart-serial console (sserialterm)
  *                  at ~1 kB/s. --no-apply stops before fwapply.
+ *     --force-name  --load a config even though its "#stmbl_name" line names
+ *                  another drive (refused otherwise, when the drive has a name)
+ *     --expect-name NAME  refuse to do anything unless the drive's name
+ *                  (`name`, kept in its flash config) is NAME: guards scripts
+ *                  and --load against the wrong drive
  *     SCRIPT    file of commands to send; if omitted (and no --dump/--load),
  *               reads stdin
+ *
+ * On connecting it asks the drive's name and motor type (`ident`) and says
+ * which drive it is on stderr; interactively they are the prompt
+ * ("x-axis SEW CMP40M> ").
  *
  * Lines starting with '#' and empty lines in SCRIPT/stdin are not sent.
  *
@@ -58,6 +67,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "../shared/confident.h"
 #include <errno.h>
 #include <math.h>
 #include <fcntl.h>
@@ -366,6 +376,31 @@ static int capture_cmd(int fd, const char *cmd, double quiet, const char *done, 
   return 0;
 }
 
+// The drive's name and motor type from `ident` (shared/commands.c); both
+// empty for one without them, *ok = 0 for firmware without `ident`.
+static char drive_name[40], drive_motor[40];
+static int force_name = 0;  // --force-name: --load a config naming another drive
+static int ident_read(int fd) {
+  drive_name[0] = drive_motor[0] = 0;
+  if(capture_cmd(fd, "ident", 0.3, NULL, 2.0) < 0) {
+    return -1;
+  }
+  const char *p = cap_buf ? strstr(cap_buf, "ident name=\"") : NULL;
+  if(!p || sscanf(p, "ident name=\"%39[^\"]\" motor=\"%39[^\"]\"", drive_name, drive_motor) < 0) {
+    return 0;
+  }
+  // %[ ] matches nothing for an empty value: read the motor on its own then
+  if(!drive_name[0]) {
+    sscanf(p, "ident name=\"\" motor=\"%39[^\"]\"", drive_motor);
+  }
+  return 1;
+}
+
+static void prompt(void) {
+  printf("%s%s%s> ", drive_name[0] ? drive_name : "stmbl", drive_motor[0] ? " " : "", drive_motor);
+  fflush(stdout);
+}
+
 // Normalize config text the way the drive stores it: CR removed, tabs turned
 // into spaces, leading blanks dropped, trailing blanks dropped, trailing
 // empty lines dropped. Result is malloc'd.
@@ -504,6 +539,15 @@ static int conf_load(int fd, const char *path, int backup) {
   free(raw);
   if(conf_validate(conf, path)) {
     fprintf(stderr, "servoterm-cli: %s rejected, drive not touched\n", path);
+    free(conf);
+    return -1;
+  }
+  // A config for another drive (its "#stmbl_name"): the wrong file, or the wrong port
+  char fname[CONF_IDENT_LEN + 1];
+  conf_ident_get(conf, CONF_NAME_KEY, fname, sizeof(fname));
+  if(drive_name[0] && strcmp(fname, drive_name) && !force_name) {
+    fprintf(stderr, "servoterm-cli: %s is for drive '%s', this is drive '%s': drive not touched (--force-name loads it)\n",
+            path, fname[0] ? fname : "(no name)", drive_name);
     free(conf);
     return -1;
   }
@@ -1205,7 +1249,7 @@ static void usage(void) {
           "                     [-C pin:gain,...] [--step N] [--log SEC]\n"
           "                     [--autotune [--autotune-comp COMP] [--autotune-timeout SEC]]\n"
           "                     [--capture FILE [--no-arm] [--capture-timeout SEC]]\n"
-          "                     [--update IMAGE [--no-apply]]\n"
+          "                     [--update IMAGE [--no-apply]] [--expect-name NAME] [--force-name]\n"
           "                     [-c CMD]... [SCRIPT]\n");
 }
 
@@ -1231,6 +1275,7 @@ int main(int argc, char **argv) {
   double capture_timeout     = 60.0;
   const char *update_path    = NULL;  // --update: in-band firmware update
   int update_apply           = 1;
+  const char *expect_name    = NULL;  // --expect-name: the drive's name must match
 
   for(int i = 1; i < argc; i++) {
     if(strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
@@ -1249,6 +1294,10 @@ int main(int argc, char **argv) {
       capture_path = argv[++i];
     } else if(strcmp(argv[i], "--update") == 0 && i + 1 < argc) {
       update_path = argv[++i];
+    } else if(strcmp(argv[i], "--force-name") == 0) {
+      force_name = 1;
+    } else if(strcmp(argv[i], "--expect-name") == 0 && i + 1 < argc) {
+      expect_name = argv[++i];
     } else if(strcmp(argv[i], "--no-apply") == 0) {
       update_apply = 0;
     } else if(strcmp(argv[i], "--no-arm") == 0) {
@@ -1352,6 +1401,22 @@ int main(int argc, char **argv) {
   discard_text = 0;
 
   int rc = 0;
+  int have_ident = ident_read(fd);
+  if(have_ident < 0) {
+    perror("servoterm-cli: ident");
+    close(fd);
+    return 1;
+  }
+  if(have_ident) {
+    fprintf(stderr, "servoterm-cli: %s: drive %s, motor %s\n", dev, drive_name[0] ? drive_name : "(no name)",
+            drive_motor[0] ? drive_motor : "(not set)");
+  }
+  if(expect_name && strcmp(expect_name, drive_name)) {
+    fprintf(stderr, "servoterm-cli: %s is drive '%s', not '%s': nothing done\n", dev,
+            have_ident ? drive_name : "(firmware without ident)", expect_name);
+    close(fd);
+    return 2;
+  }
   // Scope setup (RAM only, not saved to flash).
   for(int i = 0; i < SCOPE_CHANNELS && rc == 0; i++) {
     if(scope_name[i]) {
@@ -1396,9 +1461,11 @@ int main(int argc, char **argv) {
       }
     }
     if(in == stdin && isatty(STDIN_FILENO)) {
-      // Interactive: multiplex keyboard lines and drive output.
+      // Interactive: multiplex keyboard lines and drive output; the prompt
+      // after each command's reply, a renamed drive's new name in it.
       char line[256];
-      for(;;) {
+      prompt();
+      while(!stop_req) {  // SIGTERM / SIGINT interrupt select: stop_req ends it
         fd_set rfds;
         FD_ZERO(&rfds);
         FD_SET(fd, &rfds);
@@ -1422,6 +1489,11 @@ int main(int argc, char **argv) {
             rc = 1;
             break;
           }
+          pump(fd, 0.15);
+          if(!strncmp(line, "name ", 5) || !strncmp(line, "motor ", 6)) {
+            ident_read(fd);
+          }
+          prompt();
         }
       }
     } else {

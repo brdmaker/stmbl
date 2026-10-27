@@ -127,6 +127,8 @@ check: stmbl_host test_quota test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_sserial_table.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
+	@$(MAKE) -s -C ../servoterm-cli
+	@$(PYTHON) tests/test_servoterm_ident.py
 	@./test_quota
 	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test tests/vib/*.test
 

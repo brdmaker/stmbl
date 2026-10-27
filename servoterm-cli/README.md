@@ -21,7 +21,8 @@ Needs only a C compiler. The user must be in the `dialout` group.
                 [--dump FILE] [--load FILE [--no-backup]]
                 [-C pin:gain,...] [--step N] [--log SEC]
                 [--capture FILE [--no-arm] [--capture-timeout SEC]]
-                [--update IMAGE [--no-apply]] [-c CMD]... [SCRIPT]
+                [--update IMAGE [--no-apply]] [--expect-name NAME] [--force-name]
+                [-c CMD]... [SCRIPT]
   -d DEV    serial device (default /dev/ttyACM0)
   -s FILE   write decoded scope samples to FILE as CSV
   -t SEC    after the last command, exit once no text arrived for SEC s (default 0.5)
@@ -44,6 +45,38 @@ With no `-c`/SCRIPT and a terminal on stdin it runs interactively (Ctrl-D quits)
 ./servoterm-cli -c pid0.pos_error        # read a pin
 ./servoterm-cli -s scope.csv -t 2 -c fault0.state   # also capture ~2 s of scope
 ```
+
+## Drive name and motor type
+
+A drive keeps its own name and its motor's type in its flash config, as two
+comment lines (`shared/confident.h`):
+
+```
+#stmbl_name x-axis
+#stmbl_motor SEW CMP40M/BP/KTY/RH1M
+```
+
+Set them on the drive with `name x-axis` and `motor SEW CMP40M/BP/KTY/RH1M`
+(at most 32 characters; `name -` clears it). That rewrites the flash config
+at once, so the drive must be disabled, and unsaved `appendconf` edits are
+dropped. `name` / `motor` alone print them, `ident` prints both
+machine-readable, `about` and the boot messages show them.
+
+servoterm-cli asks on connecting and says which drive it is on:
+
+```
+$ ./servoterm-cli -d /dev/ttyACM1
+servoterm-cli: /dev/ttyACM1: drive x-axis, motor SEW CMP40M/BP/KTY/RH1M
+x-axis SEW CMP40M/BP/KTY/RH1M> 
+```
+
+Against the wrong drive:
+- `--expect-name NAME` does nothing (exit 2) unless the drive is NAME. Put it
+  in scripts: `./servoterm-cli -d /dev/ttyACM1 --expect-name x-axis -c ...`.
+- `--load FILE` refuses a config whose `#stmbl_name` differs from a named
+  drive's, a config without one included; `--force-name` loads it anyway
+  (renaming the drive to the file's name). Keep the two lines in each
+  drive's config file.
 
 ## Config dump / load
 
