@@ -1,0 +1,24 @@
+# Circle R 10 mm at 6 m/min, 2 kHz servo, on the resolvers: the contour
+# stays within a few um (screw wind-up and the head's swing); 12 m/min
+# (0.4 g) roughly doubles it.
+@program mill/mill_sim
+@args mill/machine/cn720.mill
+servo 0.5
+drv all vel_int0.cmd_freq = 2000
+lcnc 1
+run 0.3
+move 0.4 360 215 -20
+run 0.3
+circle 0.628 350 215 10 1
+mark
+circle 1.257 350 215 10 2
+print fault max_econt rms_econt
+circle 0.314 350 215 10 1
+mark
+circle 0.628 350 215 10 2
+print max_econt rms_econt
+@expect mill.fault == 0
+@expect mill.max_econt[0] < 15
+@expect mill.rms_econt[0] < 3
+@expect mill.max_econt[1] < 25
+@expect mill.rms_econt[1] < 6

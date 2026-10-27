@@ -295,6 +295,18 @@ python3 replay_study.py <run>.samples         # a recording replayed with pcomp 
 - **The scoring:** `bench.py` scores the true tool point against the programmed geometry, while cutting: p99 and max path error. It also reports following error, current, racking, frame motion and bus voltage.
 - **Running it:** LinuxCNC must run as a non-root user. In a cloud session, see `hwtest/arcmate-sim/README.md` ("In a cloud session") and `DEBUGNOTES.md` (headless LinuxCNC, Python versions).
 
+## Ball-screw machines (host/mill)
+
+`host/mill` models a fixed-bridge mill with ball screws (the Scripta CN 720
+converted with SEW CMP40M servos): screw compliance, a gravity-loaded Z with
+its brake, the head's modes, optional linear scales and a 1 or 2 kHz servo
+thread. Its README has the sample runs; in short:
+- **The screw's mode limits the loop:** vel_bw about 500 rad/s.
+- **2 kHz:** cuts the contour error by a quarter to a third.
+- **S-curve corners:** halve the corner error.
+- **A 10 um scale:** best blended into the motor's loop
+  (`fb_switch0.joint_tc`) rather than closing the position loop on it.
+
 ## Results
 
 Simulated portal, CAM-like benchmark path (9 m, 4,200 segments, G64 P0.02), 72 m/min. Each acceleration has the same cycle time across all columns:

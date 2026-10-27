@@ -1,0 +1,23 @@
+# The CN 720 on its resolvers (machine/cn720.mill): Z hangs on its brake
+# until the drive enables, then on the gravity feed forward (conf0.o); a
+# move on every axis follows within a few um and settles.
+@program mill/mill_sim
+@args mill/machine/cn720.mill
+run 0.2
+print tz
+lcnc 1
+run 0.5
+print tz fault ferr_z
+mark
+move 0.3 360 225 -30
+run 0.3
+print fault max_ferr_x max_ferr_y max_ferr_z max_econt etool ez
+@expect mill.tz[0] ~ -20 0.005
+@expect mill.tz[1] ~ -20 0.005
+@expect mill.fault == 0
+@expect mill.max_ferr_x < 15
+@expect mill.max_ferr_y < 15
+@expect mill.max_ferr_z < 15
+@expect mill.etool < 3
+@expect mill.ez < 3
+@expect mill.ez > -3

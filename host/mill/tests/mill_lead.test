@@ -1,0 +1,21 @@
+# A 5 K warm X screw (57.5 um/m longer): on the resolver the tool ends
+# 37 um off at X 650 mm; the blended 10 um scale (cn720_blend.mill,
+# fb_switch0.joint_tc 0.2 s) pulls it back within a few um.
+@program mill/mill_sim
+@args mill/machine/cn720_blend.mill
+trapfrac 0.1
+lcnc 1
+run 0.3
+move 1.5 50 215 -20
+run 0.5
+lead x 57.5   # warmed up after LinuxCNC read the positions
+run 0.5
+tmove 3 650 215 -20
+run 0.5
+print fault etool
+drv x fb_switch0.joint_tc = 0
+run 0.5
+print etool
+@expect mill.fault == 0
+@expect mill.etool[0] < 8
+@expect mill.etool[1] < 8

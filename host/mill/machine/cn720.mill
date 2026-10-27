@@ -1,0 +1,17 @@
+# Scripta CN 720 as an HSC aluminium machine: the stock frame (working area
+# 700 x 430 mm, Z 200 mm, 210 kg), ball screws and SEW CMP40M servos on
+# every axis, an ISO20 ATC spindle (~10 kg with its cylinder). Masses and
+# stiffnesses are estimates, to be replaced with measurements (weigh the
+# table, the carriage and the Z slide; tap-test the head and the bridge).
+#
+# Semi-closed loop: every axis on its motor's resolver.
+include cn720_frame.inc
+#
+# Drives: config(s), sim lines, pitch [mm]
+drive x cmp40m.conf,x.conf sim.txt 10
+drive y cmp40m.conf,y.conf sim.txt 10
+drive z cmp40m.conf,z.conf sim.txt 5
+brake z
+rnoise x 1
+rnoise y 1
+rnoise z 1

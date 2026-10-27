@@ -1,0 +1,15 @@
+# The same warm screw on the resolver alone: the error the scale removes.
+@program mill/mill_sim
+@args mill/machine/cn720.mill
+trapfrac 0.1
+lcnc 1
+run 0.3
+move 1.5 50 215 -20
+run 0.5
+lead x 57.5   # warmed up after LinuxCNC read the positions
+run 0.5
+tmove 3 650 215 -20
+run 0.5
+print fault etool
+@expect mill.fault == 0
+@expect mill.etool ~ 37.4 3
