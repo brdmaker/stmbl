@@ -833,6 +833,35 @@ test("Configure (simulation): the machine's 3D model: upload parts, they move wi
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it; the table and the work move with Y, the tool stays under the bridge", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  t.check(await t.ev(() => R.type === "gantry"), "the gantry to start with");
+  await t.page.selectOption('[data-path="type"]', "bridge");
+  t.check(await t.until(() => R.type === "bridge" && R.tableG && R.tableG.children.length > 10), "Machine: fixed bridge: the built-in bridge, its table");
+  await t.click("#cf-check");
+  t.check(await t.until(() => cfg.errors.some(([w, e]) => w === "axes.Y" && /one joint \(2 here/.test(e))), "two Y joints (the example's gantry pair): a problem for a bridge");
+  // the CN 720 (machines/cn720) as the saved machine: the main page draws it
+  const cn720 = require("fs").readFileSync(path.join(MILL, "machines", "cn720", "machine.json"), "utf8");
+  await t.ev((x) => localStorage.setItem("pmc.machine", x), cn720);
+  await t.page.reload();
+  t.check(await t.until(() => typeof R !== "undefined" && R && R.type === "bridge" && R.tableG), "the saved CN 720: the bridge on the main page");
+  t.check(await t.ev(() => TRAVEL.x[1] === 700 && TRAVEL.y[1] === 430 && TRAVEL.z[0] === -200), "its travel from machine.json (700 x 430 x 200)");
+  await t.nav("main");
+  // the tool at the bridge's line (y 0 in the view); the work (and the table) moved by -Y, so in the work's frame the tool is at machine Y
+  const pose = () => t.ev(() => { const w = new THREE.Vector3(); R.toolG.getWorldPosition(w); const l = R.workG.worldToLocal(w.clone()); return { wy: w.y, ly: l.y, lx: l.x, table: R.tableG.position.y, work: R.workG.position.y, bridge: R.bridge.position.y, cx: R.carriage.position.x }; });
+  let p = await pose();
+  t.check(Math.abs(p.wy) < 0.5 && p.bridge === 0 && p.table === p.work, `the tool under the fixed bridge (y ${p.wy.toFixed(2)}), table and work together`);
+  t.check(Math.abs(p.ly + p.work) < 0.5 && Math.abs(p.lx - p.cx) < 0.5, `in the work's frame the tool is at machine X ${p.lx.toFixed(1)} Y ${p.ly.toFixed(1)}`);
+  await t.ev(() => setCam("top", true));
+  await t.nav("config");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !R.tableG), "back to the gantry");
+  t.check(await t.until(() => R.workG.position.y === 0), "its work stands still");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("Debug page, drives (simulation): firmware versions; a config backed up, patched for this firmware and restored", async (t) => {
   await t.nav("debug");
   await t.click('#dbg-tab button[data-t="drives"]');

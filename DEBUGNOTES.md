@@ -2260,3 +2260,16 @@ Entry format:
   which the signal handler sets.
 - Fix:     the loop runs while !stop_req. Found by
   host/tests/test_servoterm_ident.py (drive name in the prompt).
+
+## 2026-10-27  millweb: a moving-table machine in the 3D view
+- Area:    webui/mill/js/app.js (buildBuiltin, workG), machmodel.js
+- Status:  Note
+- Symptom: the 3D view drew everything in the work's frame with a gantry
+  moving over it; a fixed-bridge machine (CN 720) would show its base and
+  bridge sliding in Y.
+- Cause:   one frame for both layouts.
+- Fix:     machine.json `type` (gantry | bridge). For a bridge the view keeps
+  the base and bridge still (the tool at y 0) and moves workG (fixtures,
+  toolpath, trail, travel box) and the built-in table with -Y. Anything that
+  turns a view position back into machine Y must add workG.position.y (the
+  follow camera does).

@@ -29,6 +29,9 @@ BOARDS = ("none", "hm2_eth", "hm2_spix", "hm2_rpspi", "hm2_soc_ol")
 DRIVES = ("sim", "stmbl_sserial", "stmbl_can", "stmbl_sim")
 LOADERS = ("none", "fpga_manager", "command")
 HOMING = ("absolute", "immediate", "switch", "index")
+# the machine's layout: a gantry (the bridge moves in Y over a fixed table, one or two Y joints) or a fixed
+# bridge over a table that moves in Y (Scripta CN 720 style: one joint an axis); the console draws it
+TYPES = ("gantry", "bridge")
 CONSOLE_KEYS = {  # [MILLWEB] keys the console section may set as extra (the rest have fields of their own)
     "POLL_HZ", "HAL_HZ", "PREVIEW_SEGS", "PREVIEW_TIMEOUT", "PREVIEW_NICE", "DRIVE_POLL_MS", "CERT", "KEY", "PCOMP",
     "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN"}
@@ -39,6 +42,7 @@ PLAIN = re.compile(r"^[^\"\n\r\\]*$")              # a parameter string: no quot
 DEFAULT = {
     "version": VERSION,
     "name": "My mill",
+    "type": "gantry",
     "units": "mm",
     "servo_period_ns": 1000000,
     "board": {"type": "none", "name": "", "params": "", "config": "", "watchdog_ms": 50},
@@ -126,6 +130,8 @@ def validate(raw, mdir=None):
         errs.append(("version", "%d (this millweb's)" % VERSION))
     if not isinstance(m["name"], str) or not m["name"].strip() or len(m["name"]) > 60 or not PLAIN.match(m["name"]):
         errs.append(("name", "1 to 60 characters, no quotes"))
+    if m["type"] not in TYPES:
+        errs.append(("type", "gantry (the bridge moves over the table) or bridge (a fixed bridge, the table moves in Y)"))
     if m["units"] != "mm":
         errs.append(("units", "mm (the console is for mm machines)"))
     _num(m["servo_period_ns"], "servo_period_ns", errs, 100000, 10000000, True)
@@ -230,6 +236,11 @@ def validate(raw, mdir=None):
     for a in m["axes"]:
         if not any(j.get("axis") == a for j in m["joints"] if isinstance(j, dict)):
             errs.append(("axes." + a, "no joint moves it"))
+    if m["type"] == "bridge":  # the table and the X carriage each on one screw: no gantry pair
+        for a in "XY":
+            n = sum(1 for j in m["joints"] if isinstance(j, dict) and j.get("axis") == a)
+            if n > 1:
+                errs.append(("axes." + a, "a fixed-bridge machine moves %s with one joint (%d here: that's a gantry)" % (a, n)))
     if any(d.get("type") == "stmbl_can" for d in (j.get("drive", {}) for j in m["joints"] if isinstance(j, dict))):
         for s in m["can"]["spi"]:
             if s != "sim" and not re.match(r"^/dev/spidev\d+\.\d+$", str(s)):
@@ -389,7 +400,7 @@ def generate(m, mdir, mill, custom=None):
           ("HAL_WRITE", "yes" if c["hal_write"] else "no"), ("DRIVE_WRITE", "yes" if c["drive_write"] else "no"),
           ("CPUS", c["cpus"] or None), ("NC_DIR", os.path.join(mdir, "nc_files")),
           ("SETUP", os.path.join(mdir, "millweb-setup.json")), ("DEBUG_VIEWS", os.path.join(mdir, "debug-views.json")),
-          ("MACHINE_DIR", mdir),
+          ("MACHINE_DIR", mdir), ("MACHINE_TYPE", m["type"]),
           ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
           ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
           ("PIN", list(c["pins"]) or None)]

@@ -732,73 +732,146 @@ function init3d() {
     return mesh;
   };
   const cyl = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); g.rotateX(Math.PI / 2); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
+  const cylX = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); g.rotateZ(Math.PI / 2); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
+  const cylY = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
 
-  // the frame on its feet, the table with T-slots, the side beams with rails and magnet tracks
+  // the machine (buildBuiltin: a gantry or a fixed bridge) and the work: what sits on the table, the
+  // toolpath, the trail, the travel box. A gantry's table stands still; a fixed bridge's table moves in
+  // Y, and the work with it (workG follows it; the tool stays at y 0 under the bridge)
   const machine = new THREE.Group(); scene.add(machine);
-  for (const [fx, fy] of [[-180, -160], [1180, -160], [-180, 1160], [1180, 1160], [500, -160], [500, 1160]]) {
-    machine.add(box(120, 120, 560, mat.frame, fx, fy, -400)); machine.add(cyl(70, 30, mat.feet, fx, fy, -695));
-  }
-  machine.add(box(1520, 1480, 100, mat.frame, 500, 500, -130));
-  machine.add(box(1180, 1140, 60, mat.table, 500, 500, -30));
-  for (let x = -50; x <= 1050; x += 100) machine.add(box(14, 1140, 2, mat.slot, x, 500, 1, false));
-  for (const sx of [-140, 1140]) {
-    machine.add(box(110, 1400, 180, mat.frame, sx, 500, 30));
-    machine.add(box(24, 1360, 22, mat.rail, sx, 500, 131));
-    machine.add(box(70, 1360, 70, mat.magnet, sx + (sx < 500 ? -82 : 82), 500, 95));
-    machine.add(box(4, 1300, 14, mat.accent, sx + (sx < 500 ? 58 : -58), 500, 100, false)); // the scale
-  }
-  // tool setter
-  machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
+  const workG = new THREE.Group(); scene.add(workG);
   // what stands on the table: fixtures and workpieces (setup3d.js; the vise and the stock by default)
-  const objGroup = new THREE.Group(); scene.add(objGroup);
+  const objGroup = new THREE.Group(); workG.add(objGroup);
   // the work origin (G5x + G92): the stock's top front-left corner by default
-  const triad = new THREE.Group(); scene.add(triad);
+  const triad = new THREE.Group(); workG.add(triad);
   for (const [d, c] of [[[1, 0, 0], 0xff4d5e], [[0, 1, 0], 0x5fe0a0], [[0, 0, 1], 0x4cc9ff]]) triad.add(new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0, 0, 0), 40, c, 9, 5));
 
-  // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
-  const bridge = new THREE.Group(); machine.add(bridge);
-  for (const sx of [-140, 1140]) {
-    bridge.add(box(150, 190, 40, mat.carriage, sx, 0, 162));
-    bridge.add(box(60, 170, 54, mat.coil, sx + (sx < 500 ? -82 : 82), 0, 102));
-    bridge.add(box(120, 150, 300, mat.bridge, sx, 0, 330));
-  }
-  bridge.add(box(1420, 150, 170, mat.bridge, 500, 0, 560));
-  bridge.add(box(1300, 10, 8, mat.accent, 500, -78, 630, false));
-  bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 600)); bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 520));
-  bridge.add(box(1240, 24, 50, mat.magnet, 500, -80, 470));
-  for (let i = 0; i < 24; i++) bridge.add(box(40, 60, 26, mat.dark, -80 + i * 48, 10, 660, false)); // cable chain
-  // the X carriage, the Z ram, the spindle and the tool: the tool tip sits at the carriage's x, 220 mm in front of the beam
-  const carriage = new THREE.Group(); bridge.add(carriage);
-  carriage.add(box(240, 50, 280, mat.carriage, 0, -130, 540));
-  carriage.add(box(200, 20, 60, mat.coil, 0, -100, 470));
-  carriage.add(box(120, 8, 12, mat.accent, 0, -158, 650, false));
-  const ram = new THREE.Group(); carriage.add(ram);
-  ram.add(box(130, 110, 460, mat.carriage, 0, -210, 470));
-  ram.add(box(8, 6, 300, mat.accent, 0, -268, 520, false));
-  const headG = new THREE.Group(); ram.add(headG);
-  headG.add(cyl(62, 210, mat.spindle, 0, -220, 175, 40));
-  headG.add(cyl(66, 14, mat.accent, 0, -220, 275, 40));
-  headG.add(cyl(36, 26, mat.dark, 0, -220, 58, 32));
-  const toolG = new THREE.Group(); toolG.position.set(0, -220, 0); headG.add(toolG);
-  const coolant = new THREE.Group(); headG.add(coolant);
-  for (const a of [0.6, 2.4, 4.2]) { const n = cyl(4, 60, mat.accent, 48 * Math.cos(a), -220 + 48 * Math.sin(a), 52, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
-
   // the travel limits, the toolpath, the trail of the tool, chips
-  const limits = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1000, 1000, 215)), new THREE.LineBasicMaterial({ color: 0xffb547, transparent: true, opacity: .6 }));
-  limits.position.set(500, 500, ZTOP - 215 / 2); scene.add(limits);
+  const limits = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0xffb547, transparent: true, opacity: .6 }));
+  workG.add(limits);
   const pathGeo = new THREE.BufferGeometry();
-  const pathLine = new THREE.LineSegments(pathGeo, new THREE.LineBasicMaterial({ vertexColors: true })); scene.add(pathLine);
+  const pathLine = new THREE.LineSegments(pathGeo, new THREE.LineBasicMaterial({ vertexColors: true })); workG.add(pathLine);
   const trailN = 2000, trailPos = new Float32Array(trailN * 3);
   const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3)); trailGeo.setDrawRange(0, 0);
-  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); scene.add(trail);
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); workG.add(trail);
   const sparkN = 80, sparkPos = new Float32Array(sparkN * 3).fill(-5000), sparkVel = new Float32Array(sparkN * 3), sparkLife = new Float32Array(sparkN);
   const sparkGeo = new THREE.BufferGeometry(); sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
-  scene.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
+  workG.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
 
-  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
-  buildTool(); rebuildPath(); setCam("iso", true);
+  R = { renderer, cam, controls, scene, machine, workG, type: null, bridge: null, carriage: null, ram: null, headG: null, toolG: null, coolant: null, tableG: null,
+    objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN,
+    mat, box, cyl, cylX, cylY, edgeMat, camAnim: null, follow: false };
+  buildBuiltin("gantry");
+  rebuildPath(); setCam("iso", true);
   new ResizeObserver(resize3d).observe(VIEWER);
   resize3d();
+}
+// the built-in machine: "gantry" (PORTAL-M: the bridge on linear motors over a fixed table) or "bridge"
+// (Scripta CN 720 style: a fixed bridge, the table moving in Y, ball screws, an ISO20 ATC spindle).
+// Both give the groups update3d moves: bridge, carriage (X), ram (Z), headG, toolG at the tool tip;
+// a bridge also tableG (the table, moving with -Y). Machine coordinates, the table top at z 0.
+function buildBuiltin(type) {
+  if (!R || R.type === type) return;
+  const { machine, mat, box, cyl } = R;
+  machine.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  machine.clear();
+  R.type = type; R.tableG = null;
+  const bridge = new THREE.Group(), carriage = new THREE.Group(), ram = new THREE.Group(), headG = new THREE.Group(), toolG = new THREE.Group(), coolant = new THREE.Group();
+  machine.add(bridge); bridge.add(carriage); carriage.add(ram); ram.add(headG);
+  if (type === "bridge") {
+    const X0 = TRAVEL.x[0], X1 = TRAVEL.x[1], Y0 = TRAVEL.y[0], Y1 = TRAVEL.y[1], cx = (X0 + X1) / 2, w = X1 - X0;
+    // the base: a cast bed on a stand, the table's two guide rails along Y and its screw with the motor in front
+    const bedL = (Y1 - Y0) * 2 + 300;
+    machine.add(box(w + 420, bedL, 140, mat.frame, cx, 0, -150));
+    for (const fx of [cx - w / 2 - 120, cx + w / 2 + 120]) for (const fy of [-bedL / 2 + 80, bedL / 2 - 80]) {
+      machine.add(box(110, 110, 460, mat.frame, fx, fy, -450)); machine.add(cyl(60, 26, mat.feet, fx, fy, -693));
+    }
+    for (const rx of [cx - w * 0.3, cx + w * 0.3]) machine.add(box(26, bedL - 60, 24, mat.rail, rx, 0, -68));
+    machine.add(R.cylY(8, bedL - 120, mat.rail, cx, 0, -64, 12));  // the Y screw
+    machine.add(R.cylY(40, 150, mat.dark, cx, -bedL / 2 - 70, -80));  // the Y motor (CMP40M)
+    // the table, T-slots along X, a rack of ISO20 holders on its back edge, the tool setter: all move with -Y
+    const tableG = new THREE.Group(); machine.add(tableG); R.tableG = tableG;
+    const ty0 = Y0 - 70, ty1 = Y1 + 120, tl = ty1 - ty0;
+    tableG.add(box(w + 160, tl, 50, mat.table, cx, (ty0 + ty1) / 2, -25));
+    for (let y = ty0 + 50; y < ty1 - 40; y += 63) tableG.add(box(w + 160, 14, 2, mat.slot, cx, y, 1, false));
+    for (let i = 0; i < 8; i++) {  // the rack: forks with a holder in each but the spindle's
+      const x = X0 + 40 + i * (w - 80) / 7, y = Y1 + 75;
+      tableG.add(box(50, 30, 90, mat.dark, x, y + 25, 45));
+      const h = new THREE.Mesh(new THREE.CylinderGeometry(13, 20, 34, 24), mat.spindle); h.rotation.x = Math.PI / 2; h.position.set(x, y, 107); tableG.add(h);
+      tableG.add(cyl(3, 36, mat.tool, x, y, 72, 10));
+    }
+    tableG.add(cyl(18, 40, mat.dark, X1 - 20, Y1 - 20, 20)); tableG.add(cyl(12, 6, mat.accent, X1 - 20, Y1 - 20, 43));
+    // the fixed bridge: two columns behind the tool line, the beam, X rails and screw, the X motor
+    const by = 270, top = ZTOP + 330;  // the beam's centre behind the tool line; its height
+    for (const sx of [X0 - 170, X1 + 170]) bridge.add(box(150, 220, top + 80, mat.bridge, sx, by + 20, (top - 80) / 2));
+    bridge.add(box(w + 490, 200, 190, mat.bridge, cx, by, top));
+    bridge.add(box(w + 360, 10, 8, mat.accent, cx, by - 104, top + 70, false));
+    bridge.add(box(w + 300, 26, 26, mat.rail, cx, by - 110, top + 50)); bridge.add(box(w + 300, 26, 26, mat.rail, cx, by - 110, top - 50));
+    bridge.add(R.cylX(40, 150, mat.dark, X1 + 330, by - 60, top));  // the X motor
+    for (let i = 0; i < 18; i++) bridge.add(box(40, 50, 24, mat.dark, X0 - 60 + i * (w + 120) / 17, by + 30, top + 110, false));  // cable chain
+    // the X carriage on the beam's front face, the Z slide with its screw and motor on top
+    carriage.add(box(250, 60, 300, mat.carriage, 0, by - 130, top));
+    carriage.add(box(110, 8, 12, mat.accent, 0, by - 162, top + 120, false));
+    carriage.add(cyl(40, 150, mat.dark, 0, 75, top + 220));  // the Z motor with its brake, on the slide's screw
+    ram.add(box(170, 90, 420, mat.carriage, 0, 75, 250));
+    ram.add(box(8, 6, 300, mat.accent, 0, 28, 280, false));
+    // the ISO20 ATC spindle: body, the drawbar's release cylinder on top, the nose with its taper
+    headG.add(cyl(42, 230, mat.spindle, 0, 0, 170, 40));
+    headG.add(cyl(46, 12, mat.accent, 0, 0, 290, 40));
+    headG.add(cyl(52, 70, mat.dark, 0, 0, 325, 32));
+    headG.add(cyl(30, 14, mat.dark, 0, 0, 52, 32));
+    headG.add(toolG); headG.add(coolant);
+    for (const a of [0.6, 2.4, 4.2]) { const n = cyl(3, 50, mat.accent, 40 * Math.cos(a), 40 * Math.sin(a), 50, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
+  } else {
+    // the frame on its feet, the table with T-slots, the side beams with rails and magnet tracks
+    for (const [fx, fy] of [[-180, -160], [1180, -160], [-180, 1160], [1180, 1160], [500, -160], [500, 1160]]) {
+      machine.add(box(120, 120, 560, mat.frame, fx, fy, -400)); machine.add(cyl(70, 30, mat.feet, fx, fy, -695));
+    }
+    machine.add(box(1520, 1480, 100, mat.frame, 500, 500, -130));
+    machine.add(box(1180, 1140, 60, mat.table, 500, 500, -30));
+    for (let x = -50; x <= 1050; x += 100) machine.add(box(14, 1140, 2, mat.slot, x, 500, 1, false));
+    for (const sx of [-140, 1140]) {
+      machine.add(box(110, 1400, 180, mat.frame, sx, 500, 30));
+      machine.add(box(24, 1360, 22, mat.rail, sx, 500, 131));
+      machine.add(box(70, 1360, 70, mat.magnet, sx + (sx < 500 ? -82 : 82), 500, 95));
+      machine.add(box(4, 1300, 14, mat.accent, sx + (sx < 500 ? 58 : -58), 500, 100, false)); // the scale
+    }
+    // tool setter
+    machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
+    // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
+    for (const sx of [-140, 1140]) {
+      bridge.add(box(150, 190, 40, mat.carriage, sx, 0, 162));
+      bridge.add(box(60, 170, 54, mat.coil, sx + (sx < 500 ? -82 : 82), 0, 102));
+      bridge.add(box(120, 150, 300, mat.bridge, sx, 0, 330));
+    }
+    bridge.add(box(1420, 150, 170, mat.bridge, 500, 0, 560));
+    bridge.add(box(1300, 10, 8, mat.accent, 500, -78, 630, false));
+    bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 600)); bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 520));
+    bridge.add(box(1240, 24, 50, mat.magnet, 500, -80, 470));
+    for (let i = 0; i < 24; i++) bridge.add(box(40, 60, 26, mat.dark, -80 + i * 48, 10, 660, false)); // cable chain
+    // the X carriage, the Z ram, the spindle and the tool: the tool tip sits at the carriage's x, 220 mm in front of the beam
+    carriage.add(box(240, 50, 280, mat.carriage, 0, -130, 540));
+    carriage.add(box(200, 20, 60, mat.coil, 0, -100, 470));
+    carriage.add(box(120, 8, 12, mat.accent, 0, -158, 650, false));
+    ram.add(box(130, 110, 460, mat.carriage, 0, -210, 470));
+    ram.add(box(8, 6, 300, mat.accent, 0, -268, 520, false));
+    headG.add(cyl(62, 210, mat.spindle, 0, -220, 175, 40));
+    headG.add(cyl(66, 14, mat.accent, 0, -220, 275, 40));
+    headG.add(cyl(36, 26, mat.dark, 0, -220, 58, 32));
+    toolG.position.set(0, -220, 0); headG.add(toolG); headG.add(coolant);
+    for (const a of [0.6, 2.4, 4.2]) { const n = cyl(4, 60, mat.accent, 48 * Math.cos(a), -220 + 48 * Math.sin(a), 52, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
+  }
+  Object.assign(R, { bridge, carriage, ram, headG, toolG, coolant });
+  sizeLimits(); buildTool();
+  if (typeof mm3dBuiltin === "function") mm3dBuiltin(mm3d.builtin);
+  if (typeof applyLooks === "function") applyLooks();
+}
+// the travel box (soft limits) in the work's frame
+function sizeLimits() {
+  if (!R) return;
+  const dx = TRAVEL.x[1] - TRAVEL.x[0], dy = TRAVEL.y[1] - TRAVEL.y[0], dz = TRAVEL.z[1] - TRAVEL.z[0];
+  R.limits.scale.set(Math.max(dx, 1), Math.max(dy, 1), Math.max(dz, 1));
+  R.limits.position.set(TRAVEL.x[0] + dx / 2, TRAVEL.y[0] + dy / 2, ZTOP + TRAVEL.z[0] + dz / 2);
 }
 function resize3d() {
   if (!R) return;
@@ -870,10 +943,12 @@ function setCam(kind, instant) {
   if (!R) return;
   $$("[data-cam]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cam === kind)));
   R.follow = kind === "follow";
-  const o = off(), sx = o.x + STOCK.w / 2, sy = o.y + STOCK.l / 2, sz = o.z + ZTOP;
+  // the work's place in the view: a fixed bridge's table moves (workG), a gantry's stands
+  const o = off(), sx = o.x + STOCK.w / 2, sy = o.y + STOCK.l / 2 + R.workG.position.y, sz = o.z + ZTOP;
+  const B = R.type === "bridge", cx = B ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, cy = B ? 0 : 500, k = B ? 0.8 : 1;
   const views = {
-    iso: [[-1100, -1700, 1700], [500, 560, 120]], top: [[500, 499, 3300], [500, 500, 0]], front: [[500, -2600, 520], [500, 500, 260]],
-    side: [[-2600, 500, 520], [500, 500, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
+    iso: [[cx - 1600 * k, cy - 2200 * k, 1700 * k], [cx, cy + 60, 120]], top: [[cx, cy - 1, 3300 * k], [cx, cy, 0]], front: [[cx, cy - 3100 * k, 520], [cx, cy, 260]],
+    side: [[cx - 3100 * k, cy, 520], [cx, cy, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
     follow: [[sx - 260, sy - 420, sz + 300], [sx, sy, sz]],
   };
   const v = views[kind];
@@ -898,9 +973,16 @@ function update3d(dt, tip, moving, cutting) {
   const m = toMach(tip), k = st.show.defl ? st.exag : 0;
   // the head lags under acceleration and the bridge yaws: drawn k times larger
   const yaw = st.yaw * 1e-6 * k * (st.fe[1] > st.fe[2] ? 1 : -1), hx = st.err * 1e-3 * k * .6, hy = st.err * 1e-3 * k * .8;
-  R.bridge.position.set(0, m.y + 220, 0);
-  R.bridge.rotation.z = yaw;
-  R.carriage.position.set(m.x, 0, 0);
+  if (R.type === "bridge") {  // the bridge stands, the table and the work move: the tool at y 0
+    R.bridge.position.set(0, 0, 0); R.bridge.rotation.z = 0;
+    R.tableG.position.set(0, -m.y, 0); R.workG.position.set(0, -m.y, 0);
+    R.carriage.position.set(m.x, 0, 0);
+  } else {
+    R.bridge.position.set(0, m.y + 220, 0);
+    R.bridge.rotation.z = yaw;
+    R.workG.position.set(0, 0, 0);
+    R.carriage.position.set(m.x, 0, 0);
+  }
   R.ram.position.set(0, 0, m.z + ZTOP);
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
@@ -934,10 +1016,10 @@ function update3d(dt, tip, moving, cutting) {
     R.cam.position.set(...lerp(a.from[0], a.to[0])); if (R.controls) R.controls.target.set(...lerp(a.from[1], a.to[1]));
     if (a.t >= 1) R.camAnim = null;
   } else if (R.follow && R.controls) {
-    const tgt = new THREE.Vector3(wx, wy, wz), d = tgt.clone().sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));
+    const tgt = new THREE.Vector3(wx, wy + R.workG.position.y, wz), d = tgt.clone().sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));  // the tool in the view (a moving table: y 0)
     R.controls.target.add(d); R.cam.position.add(d);
   }
-  if (R.controls) R.controls.update(); else R.cam.lookAt(500, 500, 100);
+  if (R.controls) R.controls.update(); else R.cam.lookAt(R.type === "bridge" ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, R.type === "bridge" ? 0 : 500, 100);
   colorPath(false);
   R.renderer.render(R.scene, R.cam);
 }

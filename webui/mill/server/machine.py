@@ -260,7 +260,9 @@ class Machine:
             sec = "AXIS_" + a
             lim[a] = {"min": cfg.num(sec, "MIN_LIMIT", 0.0), "max": cfg.num(sec, "MAX_LIMIT", 0.0),
                       "vel": cfg.num(sec, "MAX_VELOCITY", 0.0) * 60, "acc": cfg.num(sec, "MAX_ACCELERATION", 0.0)}
+        mtype = (cfg.get("MILLWEB", "MACHINE_TYPE", "gantry") or "gantry").lower()
         return {"name": cfg.get("EMC", "MACHINE", "LinuxCNC"), "coords": self.coords, "limits": lim,
+                "type": mtype if mtype in ("gantry", "bridge") else "gantry",
                 "maxv": self.maxv * 60, "units": "mm", "nc_dir": self.nc_dir,
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,

@@ -78,6 +78,7 @@ const Live = (() => {
     connected = true; me = m.you; holder = m.control; info = m.machine;
     const lim = info.limits;
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
+    if (R) { if (R.type !== (info.type || "gantry")) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
     document.querySelector(".brand b").textContent = info.name.toUpperCase();
     document.querySelector(".brand span").textContent = `${info.coords} · LinuxCNC · millweb ${info.version}`;
     $("f-src").textContent = `live · ${location.host}`;
@@ -373,6 +374,7 @@ const Live = (() => {
   L.viewsSave = (views) => send("views_save", { views });
   // the Configure page: machine.json, bitstreams, LinuxCNC's restarts (millweb-supervisor)
   L.supervised = () => !!(info && info.supervised);
+  L.info = () => info || {};
   L.conf = {
     get: () => send("config_get"),
     check: (text, custom) => send("config_check", { text, custom }),

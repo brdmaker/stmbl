@@ -102,6 +102,7 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. In the INI as `[MILLWEB] MACHINE_TYPE` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
@@ -113,7 +114,7 @@ it):
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
 | `stmbl` | the drives' firmware: `fw` (null: this checkout's `STMBL_FW_VERSION`), `block` (a mismatch keeps the machine off; default true) |
-| `model` | the machine in the 3D view: `builtin` (the built-in gantry, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
+| `model` | the machine in the 3D view: `builtin` (the built-in machine of `type`, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
 | `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
 
 The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
