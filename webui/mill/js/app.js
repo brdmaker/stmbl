@@ -12,6 +12,8 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const mmss = (s) => { s = Math.max(0, Math.round(s)); return s >= 3600 ? Math.floor(s / 3600) + ":" + pad2(Math.floor(s / 60) % 60) + ":" + pad2(s % 60) : pad2(Math.floor(s / 60)) + ":" + pad2(s % 60); };
 const clock = () => { const d = new Date(); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()); };
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+// a file size: bytes, kB below 1 MB, MB (one decimal) from 1 MB up
+const fmtSize = (n) => { n = n || 0; return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? (n / 1024).toFixed(n < 10240 ? 1 : 0) + " kB" : n + " B"; };
 const nline = (n) => "N" + String(n).padStart(4, "0");
 
 // The live machine (live.js sets it when millweb serves the page); null: the simulation.

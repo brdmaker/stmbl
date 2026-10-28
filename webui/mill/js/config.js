@@ -101,7 +101,7 @@ const TABS = {
   },
   hw: () => {
     const b = cfg.m.board || {}, bs = cfg.m.bitstream || {}, hm2 = String(b.type || "none").startsWith("hm2_"), ld = bs.loader || "none";
-    const files = cfg.bitstreams.map((x) => [x.name, `${x.name} (${(x.size / 1024).toFixed(0)} kB)`]);
+    const files = cfg.bitstreams.map((x) => [x.name, `${x.name} (${fmtSize(x.size)})`]);
     const anyCan = (cfg.m.joints || []).some((j) => j.drive && j.drive.type === "stmbl_can");
     return `<h3>Board</h3><div class="cf-grid">
         ${fld("board.type", "Interface", "sel", { choices: BOARDS, re: true })}
@@ -135,7 +135,7 @@ const TABS = {
       ${fld("console.pins", "Status page pins", "lines", { wide: true })}
       ${fld("console.extra", "More [MILLWEB] settings (KEY = value)", "kv", { wide: true, help: "POLL_HZ, HAL_HZ, PREVIEW_SEGS, CERT, KEY, SPINDLE_LOAD_PIN, …" })}</div>`,
   model: () => {
-    const md = cfg.m.model || {}, parts = md.parts || [], files = cfg.models.map((x) => [x.name, `${x.name} (${(x.size / 1024).toFixed(0)} kB)`]);
+    const md = cfg.m.model || {}, parts = md.parts || [], files = cfg.models.map((x) => [x.name, `${x.name} (${fmtSize(x.size)})`]);
     const cards = parts.map((p, i) => {
       const P = `model.parts.${i}`;
       return `<div class="cf-joint" data-part="${i}"><div class="h"><b>${esc(p.name || "Part " + (i + 1))}</b><span class="muted">${esc(p.file || "no file")}</span><span class="spacer"></span><button class="btn sm" data-rmpart="${i}">Remove</button></div>
