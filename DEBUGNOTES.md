@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-10-28  EBAZ4205: LinuxCNC's NML gone after an SSH login as cnc ended
+- Area:    the EBAZ4205 image (hostmot2 repo `ebaz4205/image`), seen in millweb
+- Status:  Fixed (image 2026.10.28.3)
+- Symptom: the console showed "millweb: Error buffer invalid" and "LinuxCNC
+  status: emcStatusBuffer invalid", twice a second, for good; linuxcnc.log:
+  "SHMEM: Can't take semaphore"; `ipcs -s` empty while LinuxCNC ran.
+- Cause:   systemd-logind's default `RemoveIPC=yes`: about 10 s after the last
+  login session of cnc ended (`UserStopDelaySec`), logind deleted every SysV
+  semaphore and shared memory segment cnc owns, LinuxCNC's NML among them
+  (millweb-supervisor runs LinuxCNC as cnc). Any SSH login as cnc did it.
+- Fix:     `etc/systemd/logind.conf.d/ebaz.conf`: `RemoveIPC=no`; the image
+  build refuses a rootfs without it. Test: hostmot2 `ebaz4205/tools/test-removeipc.sh`
+  (on the board; 2026.10.28.2 fails it: 5 semaphores -> 0). Idea: millweb
+  could say "LinuxCNC's connection is broken: restart it" once instead of
+  repeating the two errors.
+
 ## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
 - Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
 - Status:  Fixed
@@ -39,7 +55,9 @@ Entry format:
   alone (`-k`) the same cases pass, with and without the system-update change
   (the branch without it failed "3D models" alone once, too).
 - Cause:   Not known; timing under load (a slow board and a software-rendering
-  browser) is the likely one.
+  browser) is the likely one. Possibly the RemoveIPC fault above (2026-10-28):
+  an SSH login as cnc during the run (stopping the harness) broke LinuxCNC's
+  NML; re-run on 2026.10.28.3 or later before chasing the waits.
 - Fix:     Open: find the waits that are too short in those cases.
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
