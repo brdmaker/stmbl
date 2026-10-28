@@ -618,6 +618,8 @@ test("system updates: releases with notes, the UPDATE chip, upgrade with progres
   await t.click('#sys-list [data-install="1.1"]');
   t.check(await t.until(() => document.getElementById("sys-prog-t").textContent.includes("Installing 1.1")), "the install's progress");
   t.check(await logHas(t, "installs system 1.1"), "event: who installs what");
+  t.check(await t.hidden("#sys-list"), "while it installs: the releases hidden");
+  t.check(await t.until(() => document.getElementById("sys-check").disabled && document.getElementById("sys-latest").hidden), "and the buttons off");
 });
 
 // last: millweb goes away

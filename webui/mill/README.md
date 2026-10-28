@@ -205,13 +205,16 @@ down) updates the whole controller system: Linux, LinuxCNC, this console.
   any listed version. The header's **UPDATE** chip says a newer one is there
   (checked at start and every hour).
 - **Installing** goes into the other system slot while this one keeps
-  running (progress on the card); **Restart now** then starts it. If it
-  doesn't come up, the controller goes back to the running version by itself.
-- Installing and restarting need control and no program running; any browser
-  sees the releases.
+  running (progress on the card). Meanwhile the releases are hidden, the
+  buttons off and no program can start; when it is done the controller
+  restarts into it by itself (after a program that was already running has
+  ended). If it doesn't come up, the controller goes back to the running
+  version by itself.
+- Installing needs control and no program running; any browser sees the
+  releases.
 
 The ops: `sys_status`, `sys_check` (reading), `sys_install` (`version`),
-`sys_reboot`; browsers get `{"t": "sys", "status", "check"}`.
+`sys_reboot`; browsers get `{"t": "sys", "status", "check", "restarting"}`.
 `MILLWEB_UPDATE_CMD` names another helper (or, empty, switches it off).
 
 ## The protocol

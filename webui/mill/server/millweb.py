@@ -114,7 +114,7 @@ class Hub:
         mdir = cfg.get("MILLWEB", "MACHINE_DIR")
         self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
         # system updates (sysupdate.py): the controller image's update helper, if it has one
-        self.sys = sysupdate.SysUpdate(self.broadcast, self.event)
+        self.sys = sysupdate.SysUpdate(self.broadcast, self.event, self.restart_refused)
         self.drive_sig = None
 
     # ------------------------------------------------------------ events
@@ -317,6 +317,8 @@ class Hub:
 
     async def op_cycle(self, c, m):
         act = m.get("action", "start")
+        if act in ("start", "step") and self.sys.installing():
+            return "a system update is being installed: the controller restarts when it is done"
         if act == "stop":
             err = await self.urgent(self.m.cmd_stop)
         else:

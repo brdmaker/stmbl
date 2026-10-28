@@ -10,7 +10,7 @@ rel = [{"version": "1.1", "date": "2026-10-26", "notes": "## New\n- faster", "bu
        {"version": "1.0", "date": "2026-10-20", "notes": "first", "bundle": "b/1.0.raucb"},
        {"version": "0.9", "date": "2026-10-10", "notes": "old", "bundle": "b/0.9.raucb"}]
 if a == ["status"]:
-    print(json.dumps({"version": s["version"], "slot": "A", "install": s["install"], "last": None}))
+    print(json.dumps({"version": s["version"], "slot": "A", "install": s["install"], "last": s.get("last")}))
 elif a == ["check"]:
     for r in rel:
         r["current"] = r["version"] == s["version"]; r["newer"] = r["version"] > s["version"]
@@ -20,6 +20,9 @@ elif a[:1] == ["install"]:
         print(json.dumps({"ok": False, "error": "no release " + a[1]}))
     else:
         s["install"] = {"state": "running", "version": a[1], "percent": 10, "message": "Checking bundle"}
+        if os.environ.get("FAKE_INSTALL_DONE"):  # finished at once, as after a real one: waits for the restart
+            s["install"] = {"state": "installed", "version": a[1], "percent": 100, "slot": "B"}
+            s["last"] = {"from": s["version"], "to": a[1], "slot": "B", "time": 1, "outcome": "pending"}
         print(json.dumps({"ok": True, "started": a[1]}))
 elif a == ["reboot"]:
     print(json.dumps({"ok": True}))

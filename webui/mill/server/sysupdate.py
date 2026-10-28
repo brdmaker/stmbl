@@ -8,6 +8,9 @@ server's index.json, hostmot2 repo ebaz4205/image), run as root with `sudo -n`. 
     install VERSION   starts installing a release (newer or older) into the other slot; progress in status
     reboot            restarts into it
 
+When an install has finished, the controller restarts into it by itself (after a running program has ended:
+`busy` says why not yet).
+
 millweb and millweb-supervisor both serve the ops (sys_status, sys_check, sys_install, sys_reboot), so updates
 also work while LinuxCNC is down. Browsers get {"t": "sys", "status", "check"} whenever either changes.
 No helper (MILLWEB_UPDATE_CMD unset and no /usr/local/sbin/ebaz-update): the feature is off.
@@ -31,11 +34,14 @@ def helper():
 class SysUpdate:
     CHECK_EVERY = 3600.0   # the server, for "a new version is available"
 
-    def __init__(self, broadcast, event):
+    def __init__(self, broadcast, event, busy=None):
         self.cmd = helper()
         self.broadcast, self.event = broadcast, event
+        self.busy = busy or (lambda: None)   # why the controller can't restart now, or None
         self.status, self.check = None, None
         self.task = None
+        self.restarting = None               # the version being restarted into
+        self._waiting = None
 
     @property
     def enabled(self):
@@ -58,18 +64,26 @@ class SysUpdate:
             raise ValueError(why)
 
     def snapshot(self):
-        return {"t": "sys", "status": self.status, "check": self.check}
+        return {"t": "sys", "status": self.status, "check": self.check, "restarting": self.restarting}
 
     async def refresh(self, check=False):
         self.status = await self.run("status")
         if check:
             self.check = await self.run("check", timeout=30)
         self.broadcast(self.snapshot())
-        return {"status": self.status, "check": self.check}  # a reply's fields: no "t" (it would replace "reply")
+        return {"status": self.status, "check": self.check, "restarting": self.restarting}  # a reply's fields: no "t" (it would replace "reply")
 
     def installing(self):
         i = (self.status or {}).get("install") or {}
-        return i.get("state") == "running"
+        return i.get("state") == "running" or self.restarting is not None or self.to_restart() is not None
+
+    def to_restart(self):
+        """an install of this boot that has finished and waits for the restart: its version"""
+        s = self.status or {}
+        i, last = s.get("install") or {}, s.get("last") or {}
+        if i.get("state") == "installed" and last.get("outcome") == "pending" and last.get("to") == i.get("version"):
+            return i["version"]
+        return None
 
     def start(self):
         if self.enabled and self.task is None:
@@ -108,9 +122,32 @@ class SysUpdate:
         if i and key != self._said and i.get("state") in ("installed", "failed"):
             self._said = key
             if i["state"] == "installed":
-                self.event("ok", "System %s installed: restart to use it" % i["version"])
+                self.event("ok", "System %s installed" % i["version"])
             else:
                 self.event("bad", "Installing system %s failed: %s" % (i["version"], (i.get("error") or "").splitlines()[-1:] or "?"))
+        await self.auto_restart()
+
+    async def auto_restart(self):
+        """an install has finished: restart into it, once nothing runs"""
+        v = self.to_restart()
+        if v is None or self.restarting is not None:
+            return
+        why = self.busy()
+        if why:
+            if self._waiting != v:
+                self._waiting = v
+                self.event("warn", "System %s: the controller restarts when the program has ended" % v)
+                self.broadcast(self.snapshot())
+            return
+        self.restarting = v
+        self.event("warn", "The controller restarts into system %s" % v)
+        self.broadcast(self.snapshot())
+        try:
+            await self.run("reboot")
+        except (ValueError, OSError) as e:
+            self.restarting = None
+            self.event("bad", "Restart into system %s: %s" % (v, e))
+            self.broadcast(self.snapshot())
 
     # ------------------------------------------------------------ ops (millweb and millweb-supervisor)
     async def op(self, op, m, who):
@@ -140,7 +177,7 @@ class SysUpdate:
             await self.refresh()
             return {"started": v}
         if op == "sys_reboot":
-            if self.installing():
+            if ((self.status or {}).get("install") or {}).get("state") == "running":
                 return "an installation is running: wait for it"
             self.event("warn", "%s restarts the controller" % who)
             await self.run("reboot")
