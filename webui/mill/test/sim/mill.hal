@@ -1,40 +1,66 @@
-# no hardware: the joints' commands are their feedback; a probe that trips
-# when the tool tip (joint Z less the tool length offset) is below machine
-# Z -195 during a probe move; the tool changer and the spindle answer at once
+# no hardware: the joints' commands are their feedback; the simulated probe
+# touches the stock (the 3D setup's workpieces) and the tool setter
+# (machineconf.sim_probe_hal; millweb keeps it set); the tool changer and the
+# spindle answer at once
 loadrt [KINS]KINEMATICS
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
-loadrt sum2 names=tipz
-loadrt wcomp names=probez,probing
-loadrt conv_s32_float names=mtype
-loadrt and2 names=probe-and
 addf motion-command-handler servo-thread
 addf motion-controller      servo-thread
-addf tipz                   servo-thread
-addf probez                 servo-thread
-addf mtype                  servo-thread
-addf probing                servo-thread
-addf probe-and              servo-thread
 
 net j0 joint.0.motor-pos-cmd => joint.0.motor-pos-fb
 net j1 joint.1.motor-pos-cmd => joint.1.motor-pos-fb
 net j2 joint.2.motor-pos-cmd => joint.2.motor-pos-fb
 net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb
-# the probe on Z in machine coordinates
-net probe-z joint.3.pos-fb => tipz.in0
-net tlo motion.tooloffset.z => tipz.in1
-setp tipz.gain1 -1
-net tip-z tipz.out => probez.in
-setp probez.min -1000
-setp probez.max -195
-# only while a probe move runs (motion type 5): a real probe isn't in the
-# spindle while cutting, and LinuxCNC aborts a move the probe trips in
-net mtype-s motion.motion-type => mtype.in
-net mtype-f mtype.out => probing.in
-setp probing.min 4.5
-setp probing.max 5.5
-net tip-low probez.out => probe-and.in0
-net probing probing.out => probe-and.in1
-net probe probe-and.out => motion.probe-input
+
+# a simulated probe: the stock's top and the tool setter, in machine coordinates, during probe moves (millweb sets the stock and the tool length)
+loadrt sum2 names=probe-tip
+loadrt wcomp names=probe-sx,probe-sy,probe-sz,probe-tx,probe-ty,probe-tz,probe-moving
+loadrt conv_s32_float names=probe-mtype
+loadrt logic names=probe-stock,probe-setter,probe-any personality=0x104,0x104,0x202
+net probe-x joint.0.pos-fb => probe-sx.in probe-tx.in
+net probe-y joint.1.pos-fb => probe-sy.in probe-ty.in
+net probe-z joint.3.pos-fb => probe-tip.in0
+setp probe-tip.gain1 -1
+setp probe-tip.in1 0
+net probe-tip probe-tip.out => probe-sz.in probe-tz.in
+setp probe-sx.min -1
+setp probe-sx.max 1001
+setp probe-sy.min -1
+setp probe-sy.max 1001
+setp probe-sz.min -100000
+setp probe-sz.max -195
+setp probe-tx.min 970
+setp probe-tx.max 990
+setp probe-ty.min 10
+setp probe-ty.max 30
+setp probe-tz.min -100000
+setp probe-tz.max -245
+net probe-mtype-s motion.motion-type => probe-mtype.in
+net probe-mtype-f probe-mtype.out => probe-moving.in
+setp probe-moving.min 4.5
+setp probe-moving.max 5.5
+net probe-in-sx probe-sx.out => probe-stock.in-00
+net probe-in-sy probe-sy.out => probe-stock.in-01
+net probe-in-sz probe-sz.out => probe-stock.in-02
+net probe-in-tx probe-tx.out => probe-setter.in-00
+net probe-in-ty probe-ty.out => probe-setter.in-01
+net probe-in-tz probe-tz.out => probe-setter.in-02
+net probe-moving probe-moving.out => probe-stock.in-03 probe-setter.in-03
+net probe-on-stock probe-stock.and => probe-any.in-00
+net probe-on-setter probe-setter.and => probe-any.in-01
+net probe probe-any.or => motion.probe-input
+addf probe-tip servo-thread
+addf probe-mtype servo-thread
+addf probe-moving servo-thread
+addf probe-sx servo-thread
+addf probe-sy servo-thread
+addf probe-sz servo-thread
+addf probe-tx servo-thread
+addf probe-ty servo-thread
+addf probe-tz servo-thread
+addf probe-stock servo-thread
+addf probe-setter servo-thread
+addf probe-any servo-thread
 
 net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
 net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed

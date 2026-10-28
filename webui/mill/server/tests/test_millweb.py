@@ -321,6 +321,24 @@ class Protocol(Base):
         lc.M.pos[:3] = [0.0, 990.0, -5.0]
         self.assertEqual(self.m.status()["mach"], [0.0, 990.0, -5.0])
 
+    def test_sim_probe_stock_box_and_tool_lengths(self):
+        """The simulated probe follows the 3D setup's workpieces (machine
+        coordinates, as setup3d.js places them) and the tool's true length."""
+        m = self.m
+        stock = {"id": "s", "role": "workpiece", "src": "builtin:stock", "frame": "work", "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1}
+        vise = dict(stock, id="v", role="fixture", src="builtin:vise")
+        g5x, g92 = (440.0, 460.0, -195.0), (0.0, 0.0, 0.0)
+        self.assertEqual(m.stock_box([vise, stock], g5x, g92, 0.0), (440.0, 560.0, 460.0, 540.0, -195.0))   # 120 x 80, top at G54 Z
+        b = m.stock_box([dict(stock, rot=[0, 0, 90])], g5x, g92, 0.0)                                       # turned about its corner
+        self.assertEqual([round(v, 6) for v in b], [360.0, 440.0, 460.0, 580.0, -195.0])
+        b = m.stock_box([dict(stock, frame="machine", pos=[10, 20, -150], scale=0.5)], g5x, (5, 5, 5), 0.0)
+        self.assertEqual(b, (10.0, 70.0, 20.0, 60.0, -150.0))                                              # machine frame: no offsets
+        self.assertIsNone(m.stock_box([vise], g5x, g92, 0.0))
+        m.sim_tools = {3: 51.25}
+        self.assertEqual(m.sim_tool_length(3), 51.25)                       # [MILLWEB] SIM_TOOLS
+        self.assertEqual(m.sim_tool_length(5), 71.9)                        # else the table's, when first asked
+        self.assertEqual(m.sim_tool_length(0), 0.0)
+
     async def test_folders_rename_delete(self):
         ws = await self.client()
         await self.ready(ws)

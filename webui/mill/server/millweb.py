@@ -1160,6 +1160,8 @@ class Hub:
                 for lvl, text in self.m.events():
                     self.event(lvl, text)
                 sl = self.m.slow()
+                if self.m.sim_probe:  # the simulated probe follows the setup and the tool (machine.sim_probe_sync)
+                    await asyncio.get_event_loop().run_in_executor(None, self.m.sim_probe_sync)
                 diff = {k: v for k, v in sl.items() if self.slow_state.get(k) != v}
                 self.slow_state = sl
                 if diff:

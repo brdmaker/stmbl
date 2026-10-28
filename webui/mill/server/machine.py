@@ -117,6 +117,8 @@ def parse_var_offsets(path):
     return [[vals.get(5221 + 20 * i + k, 0.0) for k in range(3)] for i in range(9)]
 
 
+STOCK = (120.0, 80.0, 25.0)  # the built-in stock (js/app.js STOCK: w, l, h)
+
 DEFAULT_SETUP = [
     {"id": "vise", "name": "Vise", "role": "fixture", "src": "builtin:vise", "frame": "work",
      "pos": [0.0, 0.0, -25.0], "rot": [0.0, 0.0, 0.0], "scale": 1.0, "look": "solid"},
@@ -262,6 +264,17 @@ class Machine:
                         "spin_min": cfg.num("DISPLAY", "MIN_SPINDLE_OVERRIDE", 0.5)}
         ts = (cfg.get("MILLWEB", "TOOLSETTER") or "").split()
         self.toolsetter = [float(v) for v in ts] if len(ts) >= 4 else None  # X Y Z_above Z_ref [travel]
+        # the simulated probe (machineconf.sim_probe_hal): its stock from the 3D setup, the tool's true length
+        self.sim_probe = (cfg.get("MILLWEB", "SIM_PROBE", "no") or "no").lower() in ("yes", "1", "true")
+        self.sim_tools = {}
+        for w in (cfg.get("MILLWEB", "SIM_TOOLS") or "").split():
+            k, _, v = w.partition(":")
+            try:
+                self.sim_tools[int(k)] = float(v)
+            except ValueError:
+                pass
+        self.sim_set = {}     # the pin values set last
+        self.model_boxes = {}  # path -> (mtime, bbox)
         self.pins = cfg.all("MILLWEB", "PIN")
         self.drives = [d.split() for d in cfg.all("MILLWEB", "DRIVE")]  # name current [power] [fault]
         self.sig = {k: cfg.get("MILLWEB", k) for k in ("SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN")}
@@ -399,6 +412,111 @@ class Machine:
         if self.info_pcomp():
             out["pcomp"] = {k: self._pin("%s.%s" % (self.pcomp, k)) for k in ("shaper", "defl", "shrink", "servo", "jerk-ms", "fx", "fy-end", "fy-mid", "delay")}
         return out
+
+    # ------------------------------------------------------------ the simulated probe
+    def sim_tool_length(self, t):
+        """The tool's true length in the simulation: [MILLWEB] SIM_TOOLS, else its
+        table length the first time it is asked for (then fixed: measuring finds it)."""
+        if t <= 0:
+            return 0.0
+        if t not in self.sim_tools:
+            self.sim_tools[t] = next((float(x["z"]) for x in self.tools() if x["t"] == t), 0.0)
+        return self.sim_tools[t]
+
+    def model_bbox(self, path):
+        """An STL's or OBJ's vertex box ((x0, y0, z0), (x1, y1, z1)), or None."""
+        try:
+            mt = os.path.getmtime(path)
+        except OSError:
+            return None
+        hit = self.model_boxes.get(path)
+        if hit and hit[0] == mt:
+            return hit[1]
+        box = None
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            pts = []
+            if path.lower().endswith(".stl") and len(data) >= 84 and len(data) == 84 + 50 * int.from_bytes(data[80:84], "little"):
+                import struct
+                for i in range(int.from_bytes(data[80:84], "little")):
+                    v = struct.unpack_from("<9f", data, 84 + i * 50 + 12)
+                    pts += [v[0:3], v[3:6], v[6:9]]
+            else:
+                text = data.decode("utf-8", "replace")
+                rx = r"^\s*v\s+(\S+)\s+(\S+)\s+(\S+)" if path.lower().endswith(".obj") else r"vertex\s+(\S+)\s+(\S+)\s+(\S+)"
+                pts = [tuple(float(x) for x in mm.groups()) for mm in re.finditer(rx, text, re.M)]
+            if pts:
+                box = (tuple(min(p[i] for p in pts) for i in range(3)), tuple(max(p[i] for p in pts) for i in range(3)))
+        except (OSError, ValueError):
+            box = None
+        self.model_boxes[path] = (mt, box)
+        return box
+
+    def stock_box(self, objects, g5x, g92, rot):
+        """The setup's workpieces in machine coordinates, as the 3D view places
+        them (setup3d.js placeObjects): (x0, x1, y0, y1, top), their joint box,
+        or None without any."""
+        out = None
+        for o in objects:
+            if o.get("role") != "workpiece":
+                continue
+            if o["src"] == "builtin:stock":  # its origin: the top front-left corner
+                lo, hi = (0.0, 0.0, -STOCK[2]), (STOCK[0], STOCK[1], 0.0)
+            else:
+                b = self.model_bbox(self._safe(o["src"][6:], kind="model")) if o["src"].startswith("model:") else None
+                if not b:
+                    continue
+                lo, hi = b
+            sc = o.get("scale", 1.0)
+            rx, ry, rz = (math.radians(v) for v in o.get("rot", (0, 0, 0)))
+            px, py, pz = o.get("pos", (0, 0, 0))
+            if o.get("frame") == "work":  # with the work offset, G92 and the XY rotation
+                r = math.radians(rot)
+                px, py, pz = (g5x[0] + g92[0] + px * math.cos(r) - py * math.sin(r),
+                              g5x[1] + g92[1] + px * math.sin(r) + py * math.cos(r), g5x[2] + g92[2] + pz)
+                rz += r
+            # three.js Euler "ZYX": Rz * Ry * Rx
+            cx, sx, cy, sy, cz, sz = math.cos(rx), math.sin(rx), math.cos(ry), math.sin(ry), math.cos(rz), math.sin(rz)
+            R = [[cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+                 [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+                 [-sy, cy * sx, cy * cx]]
+            pts = []
+            for x in (lo[0], hi[0]):
+                for y in (lo[1], hi[1]):
+                    for z in (lo[2], hi[2]):
+                        v = (x * sc, y * sc, z * sc)
+                        pts.append([px + R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2],
+                                    py + R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2],
+                                    pz + R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2]])
+            b = (min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts), max(p[2] for p in pts))
+            out = b if out is None else (min(out[0], b[0]), max(out[1], b[1]), min(out[2], b[2]), max(out[3], b[3]), max(out[4], b[4]))
+        return out
+
+    def sim_probe_targets(self):
+        """The simulated probe's pins as they should be now."""
+        s = self.s
+        tgt = {"probe-tip.in1": self.sim_tool_length(int(s.tool_in_spindle))}
+        box = self.stock_box(self.setup(), s.g5x_offset, s.g92_offset, s.rotation_xy)
+        if box is None:  # nothing on the table to touch
+            tgt.update({"probe-sx.min": 1.0, "probe-sx.max": -1.0})
+        else:
+            tgt.update({"probe-sx.min": box[0], "probe-sx.max": box[1], "probe-sy.min": box[2], "probe-sy.max": box[3],
+                        "probe-sz.max": box[4]})
+        return {k: round(v, 4) for k, v in tgt.items()}
+
+    def sim_probe_sync(self):
+        """Set the simulated probe's pins that changed (halcmd setp)."""
+        if not self.sim_probe:
+            return []
+        done = []
+        for k, v in self.sim_probe_targets().items():
+            if self.sim_set.get(k) != v:
+                r = subprocess.run(["halcmd", "setp", k, repr(v)], capture_output=True, text=True, timeout=10)
+                if r.returncode == 0:
+                    self.sim_set[k] = v
+                    done.append((k, v))
+        return done
 
     def info_pcomp(self):
         return self._pin_exists(self.pcomp + ".shaper")

@@ -3641,6 +3641,15 @@ Entry format:
   20 (T1 50 mm). Tests: test_hello_and_static (the setter's position),
   backend_suite's hello check; the probe wiring by hand (no simulated-probe
   test with an offset start yet).
+- Then:    2026-10-28, the simulated probe touches only the stock and the
+  setter: the stock's box from the 3D setup's workpieces (millweb sets
+  probe-sx/sy/sz at 2 Hz), the setter within 10 mm of its X Y at z_ref, and
+  the tool tip from each tool's true length (SIM_TOOLS / the table's when
+  first used), not the active offset (Measure cancels it). Bench: T1 62.408
+  (true 62.415), T3 48.123 (48.13), over the stock Z -195.03, beside it no
+  contact. Tests: backend_suite "the simulated probe touches the setup's
+  stock and the tool setter, nothing else", "the tool setter measures"
+  (T3 51.25, its table 48.13), test_sim_probe, test_sim_probe_stock_box_and_tool_lengths.
 
 ## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
 - Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js

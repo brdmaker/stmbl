@@ -291,6 +291,10 @@ def validate(raw, mdir=None):
         errs.append(("probe.type", "none, input or sim"))
     if m["probe"]["type"] == "input" and not m["probe"]["input"]:
         errs.append(("probe.input", "the probe's HAL pin"))
+    st_ = m["probe"].get("sim_tools", {})
+    if not isinstance(st_, dict) or not all(str(k).isdigit() and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1000
+                                             for k, v in st_.items()):
+        errs.append(("probe.sim_tools", "tool number: true length [mm], e.g. {\"1\": 62.4}"))
     if m["probe"]["type"] == "sim" and "Z" not in m["axes"]:
         errs.append(("probe.type", "the simulated probe needs a Z axis"))
     sp = m["spindle"]
@@ -494,6 +498,10 @@ def generate(m, mdir, mill, custom=None, rng=None):
           ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
           ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
           ("PIN", list(c["pins"]) or None)]
+    if m["probe"]["type"] == "sim":  # millweb sets the simulated probe's stock and tool length (sim_probe_hal)
+        mw.append(("SIM_PROBE", "yes"))
+        if m["probe"].get("sim_tools"):
+            mw.append(("SIM_TOOLS", " ".join("%s:%s" % (k, _fmt(float(v))) for k, v in sorted(m["probe"]["sim_tools"].items(), key=lambda kv: int(kv[0])))))
     if m["spindle"]["type"] == "sim" and "AT_SPEED_PIN" not in c["extra"]:
         mw.append(("AT_SPEED_PIN", "spindle.0.at-speed"))
     for i, n, dd, pre, pins, con in drv:
@@ -640,6 +648,7 @@ def generate(m, mdir, mill, custom=None, rng=None):
     h("")
     # E-STOP: the input (true when the chain is closed) and a board's watchdog; else a loop
     e = m["estop"]
+    nots = []  # inverters, loaded once at the end (a uspace module loads once)
     if e["input"] or hm2:
         h("loadrt estop_latch")
         tail.append("estop-latch.0")
@@ -647,7 +656,7 @@ def generate(m, mdir, mill, custom=None, rng=None):
         h("net estop-ok estop-latch.0.ok-out => iocontrol.0.emc-enable-in")
         if e["input"]:
             if e["invert"]:
-                h("loadrt not names=estop-not")
+                nots.append("estop-not")
                 tail.insert(0, "estop-not")
                 h("net estop-raw %s => estop-not.in" % e["input"])
                 h("net estop-in estop-not.out => estop-latch.0.ok-in")
@@ -662,35 +671,20 @@ def generate(m, mdir, mill, custom=None, rng=None):
     p = m["probe"]
     if p["type"] == "input":
         if p["invert"]:
-            h("loadrt not names=probe-not")
+            nots.append("probe-not")
             tail.append("probe-not")
             h("net probe-raw %s => probe-not.in" % p["input"])
             h("net probe probe-not.out => motion.probe-input")
         else:
             h("net probe %s => motion.probe-input" % p["input"])
     elif p["type"] == "sim":
-        zj = next(i for i, j in enumerate(m["joints"]) if j["axis"] == "Z")
-        h("# a simulated probe: trips when the tool tip (joint Z less the tool length) is below machine Z %s, during probe moves" % _fmt(p["sim_z"]))
-        h("loadrt sum2 names=probe-tipz")
-        h("loadrt wcomp names=probe-low,probe-moving")
-        h("loadrt conv_s32_float names=probe-mtype")
-        h("loadrt and2 names=probe-and")
-        tail += ["probe-tipz", "probe-low", "probe-mtype", "probe-moving", "probe-and"]
-        # Z in machine coordinates (the joint's position), not the motor's: an
-        # incremental axis counts from where it started until it is homed
-        h("net probe-z joint.%d.pos-fb => probe-tipz.in0" % zj)
-        h("net probe-tlo motion.tooloffset.z => probe-tipz.in1")
-        h("setp probe-tipz.gain1 -1")
-        h("net probe-tip probe-tipz.out => probe-low.in")
-        h("setp probe-low.min -100000")
-        h("setp probe-low.max %s" % _fmt(p["sim_z"]))
-        h("net probe-mtype-s motion.motion-type => probe-mtype.in")
-        h("net probe-mtype-f probe-mtype.out => probe-moving.in")
-        h("setp probe-moving.min 4.5")
-        h("setp probe-moving.max 5.5")
-        h("net probe-tip-low probe-low.out => probe-and.in0")
-        h("net probe-moving probe-moving.out => probe-and.in1")
-        h("net probe probe-and.out => motion.probe-input")
+        first = {a: next((i for i, j in enumerate(m["joints"]) if j["axis"] == a), None) for a in "XYZ"}
+        ax = {a: m["axes"].get(a, {"min": -1e5, "max": 1e5}) for a in "XY"}
+        lines, funcs = sim_probe_hal(first, m["toolsetter"], p["sim_z"], (ax["X"]["min"], ax["X"]["max"]), (ax["Y"]["min"], ax["Y"]["max"]))
+        H.extend(lines)
+        tail += funcs
+    if nots:
+        h("loadrt not names=%s" % ",".join(nots))
     h("net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed")
     h("net tool-prep iocontrol.0.tool-prepare => iocontrol.0.tool-prepared")
     sp = m["spindle"]
@@ -753,6 +747,58 @@ def _phasing_hal(m, joints, drv):
             H.append("setp j%d-phasing-%s.in3 [JOINT_%d]%s" % (i, k, i, ini))
             H.append("net j%d-phasing-%s j%d-phasing-%s.out => ini.%d.%s" % (i, k, i, k, i, k.replace("-", "_")))
     return "\n".join(H) + "\n"
+
+
+SETTER_R = 10.0  # [mm] the simulated tool setter's radius: it trips with the tool's centre within this
+
+
+def sim_probe_hal(joints, ts, sim_z, xr, yr):
+    """The simulated probe: (HAL lines, functions for the servo thread).
+
+    Two surfaces, in machine coordinates (the joints' positions), during a
+    probe move (motion type 5): the stock's top over its box (probe-sx/sy/sz;
+    at first the whole travel at sim_z, then millweb sets them from the 3D
+    setup's workpieces) and the tool setter's top (z_ref) within SETTER_R of
+    its X Y. The tool tip is joint Z less the tool's true length
+    (probe-tip.in1, which millweb sets from the tool in the spindle: [MILLWEB]
+    SIM_TOOLS, else its table length when first used), not the active offset:
+    measuring cancels that (G49). Names fixed: millweb's sim helper sets them."""
+    big = 100000.0
+    f = _fmt
+    L = ["# a simulated probe: the stock's top and the tool setter, in machine coordinates, during probe moves (millweb sets the stock and the tool length)",
+         "loadrt sum2 names=probe-tip",
+         "loadrt wcomp names=probe-sx,probe-sy,probe-sz,probe-tx,probe-ty,probe-tz,probe-moving",
+         "loadrt conv_s32_float names=probe-mtype",
+         "loadrt logic names=probe-stock,probe-setter,probe-any personality=0x104,0x104,0x202",
+         "net probe-x joint.%d.pos-fb => probe-sx.in probe-tx.in" % joints["X"],
+         "net probe-y joint.%d.pos-fb => probe-sy.in probe-ty.in" % joints["Y"],
+         "net probe-z joint.%d.pos-fb => probe-tip.in0" % joints["Z"],
+         "setp probe-tip.gain1 -1",
+         "setp probe-tip.in1 0",
+         "net probe-tip probe-tip.out => probe-sz.in probe-tz.in",
+         "setp probe-sx.min %s" % f(float(xr[0]) - 1), "setp probe-sx.max %s" % f(float(xr[1]) + 1),
+         "setp probe-sy.min %s" % f(float(yr[0]) - 1), "setp probe-sy.max %s" % f(float(yr[1]) + 1),
+         "setp probe-sz.min %s" % f(-big), "setp probe-sz.max %s" % f(float(sim_z))]
+    if ts:
+        L += ["setp probe-tx.min %s" % f(ts["x"] - SETTER_R), "setp probe-tx.max %s" % f(ts["x"] + SETTER_R),
+              "setp probe-ty.min %s" % f(ts["y"] - SETTER_R), "setp probe-ty.max %s" % f(ts["y"] + SETTER_R),
+              "setp probe-tz.min %s" % f(-big), "setp probe-tz.max %s" % f(ts["z_ref"])]
+    else:  # none: never
+        L += ["setp probe-tx.min 1", "setp probe-tx.max -1"]
+    L += ["net probe-mtype-s motion.motion-type => probe-mtype.in",
+          "net probe-mtype-f probe-mtype.out => probe-moving.in",
+          "setp probe-moving.min 4.5", "setp probe-moving.max 5.5",
+          "net probe-in-sx probe-sx.out => probe-stock.in-00", "net probe-in-sy probe-sy.out => probe-stock.in-01",
+          "net probe-in-sz probe-sz.out => probe-stock.in-02",
+          "net probe-in-tx probe-tx.out => probe-setter.in-00", "net probe-in-ty probe-ty.out => probe-setter.in-01",
+          "net probe-in-tz probe-tz.out => probe-setter.in-02",
+          "net probe-moving probe-moving.out => probe-stock.in-03 probe-setter.in-03",
+          "net probe-on-stock probe-stock.and => probe-any.in-00",
+          "net probe-on-setter probe-setter.and => probe-any.in-01",
+          "net probe probe-any.or => motion.probe-input"]
+    funcs = ["probe-tip", "probe-mtype", "probe-moving", "probe-sx", "probe-sy", "probe-sz", "probe-tx", "probe-ty", "probe-tz",
+             "probe-stock", "probe-setter", "probe-any"]
+    return L, funcs
 
 
 def toolchange_ngc(t):

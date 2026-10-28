@@ -153,6 +153,31 @@ class Machine(unittest.TestCase):
             mc.validate(m, self.d)
         self.assertIn("joints.1.home.sim_at", {w for w, _ in cm.exception.errors})
 
+    def test_sim_probe(self):
+        """The simulated probe: the stock and the tool setter in machine
+        coordinates (the joints' positions), millweb told to keep it set."""
+        m = json.load(open(os.path.join(BENCH, "machine.json")))
+        m["probe"]["sim_tools"] = {"3": 48.13, "1": 62.4}
+        f = self.gen(m)
+        hal, ini = f["machine.hal"], ini_sections(f["mill.ini"])
+        self.assertIn("net probe-z joint.3.pos-fb => probe-tip.in0", hal)       # not motor-pos-cmd
+        self.assertIn("net probe-x joint.0.pos-fb => probe-sx.in probe-tx.in", hal)
+        self.assertIn("setp probe-tx.min 240", hal)                               # the setter at X 250 +- 10
+        self.assertIn("setp probe-tz.max -245", hal)                              # its top: z_ref
+        self.assertIn("net probe probe-any.or => motion.probe-input", hal)
+        self.assertEqual(ini["MILLWEB"]["SIM_PROBE"], ["yes"])
+        self.assertEqual(ini["MILLWEB"]["SIM_TOOLS"], ["1:62.4 3:48.13"])
+        m["probe"]["sim_tools"] = {"x": 1}
+        with self.assertRaises(mc.Invalid):
+            mc.validate(m, self.d)
+
+    def test_inverted_estop_and_probe_load_not_once(self):
+        m = copy.deepcopy(mc.DEFAULT)
+        m["estop"] = {"input": "a.b", "invert": True}
+        m["probe"] = {"type": "input", "input": "c.d", "invert": True}
+        hal = self.gen(m)["machine.hal"]
+        self.assertEqual([l for l in hal.splitlines() if l.startswith("loadrt not")], ["loadrt not names=estop-not,probe-not"])
+
     def test_phasing_and_sim_switch_errors(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["joints"][0]["phasing_ferror"] = 2                         # a simulated joint doesn't phase
