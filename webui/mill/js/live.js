@@ -79,7 +79,9 @@ const Live = (() => {
     connected = true; me = m.you; holder = m.control; info = m.machine;
     const lim = info.limits;
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
-    if (R) { if (R.type !== (info.type || "gantry")) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
+    const ts = info.toolsetter && typeof info.toolsetter === "object" ? info.toolsetter : null, tsMoved = JSON.stringify(ts) !== JSON.stringify(TSET);
+    TSET = ts;  // the 3D view's tool setter where the Measure routine goes
+    if (R) { if (R.type !== (info.type || "gantry") || tsMoved) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
     document.querySelector(".brand b").textContent = info.name.toUpperCase();
     document.querySelector(".brand span").textContent = `${info.coords} · LinuxCNC · millweb ${info.version}`;
     $("f-src").textContent = `live · ${location.host}`;

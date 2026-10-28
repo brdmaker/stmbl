@@ -185,7 +185,8 @@ async def _(t):
     t.check(h["coords"] == "XYYZ", "coordinates XYYZ")
     t.check(h["limits"]["Z"]["min"] == -215 and h["limits"]["X"]["max"] == 1000, "limits")
     t.check(h["units"] == "mm" and h["version"] and h["token_required"] is False, "units, version, no token")
-    t.check(h["toolsetter"] is True and h["pcomp"] is False, "toolsetter configured, no pcomp")
+    t.check(isinstance(h["toolsetter"], dict) and set(h["toolsetter"]) >= {"x", "y", "z_above", "z_ref"} and h["pcomp"] is False,
+            "toolsetter configured (where: the 3D view draws it there), no pcomp")
     t.check(h["wcs"][:2] == ["G54", "G55"] and len(h["wcs"]) == 9, "work offsets G54..G59.3")
     t.check(c.hello["control"] == t.a.hello["you"], "who has control")
     t.check(isinstance(c.hello["events"], list) and c.hello["events"], "recent events")

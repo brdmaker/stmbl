@@ -274,7 +274,7 @@ class Machine:
                 "maxv": self.maxv * 60, "units": "mm", "nc_dir": self.nc_dir,
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,
-                "toolsetter": bool(self.toolsetter), "pcomp": self._pin_exists(self.pcomp + ".shaper"),
+                "toolsetter": dict(zip(("x", "y", "z_above", "z_ref", "travel"), self.toolsetter)) if self.toolsetter else False, "pcomp": self._pin_exists(self.pcomp + ".shaper"),
                 "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max,
                 "hal_write": (cfg.get("MILLWEB", "HAL_WRITE", "no") or "no").lower() in ("yes", "1", "true"),
                 "workspace": {a: {"min": lo, "max": hi} for a, (lo, hi) in self.workspace.items()}}

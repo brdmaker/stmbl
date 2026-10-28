@@ -136,6 +136,8 @@ class Protocol(Base):
         self.assertEqual(info["name"], "test-mill")
         self.assertEqual(info["coords"], "XYYZ")
         self.assertEqual(info["limits"]["Z"]["min"], -200)
+        # where the tool setter is, so the 3D view draws it where Measure goes
+        self.assertEqual(info["toolsetter"], {"x": 980.0, "y": 20.0, "z_above": -40.0, "z_ref": -130.0, "travel": 100.0})
         st = await self.until(ws, lambda m: m["t"] == "st" and "estop" in m)
         self.assertTrue(st["estop"])
         tools = await self.until(ws, lambda m: m["t"] == "tools")

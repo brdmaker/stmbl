@@ -21,6 +21,7 @@ let LIVE = null;
 
 // ============================================================ the machine
 const TRAVEL = { x: [0, 1000], y: [0, 1000], z: [-215, 0] };  // machine coordinates (Z: the tool tip, 0 = top)
+let TSET = null;       // the tool setter from the machine ([MILLWEB] TOOLSETTER: x, y, z_above, z_ref; machine coordinates), null: the demo's
 const ZTOP = 234;      // height of the tool tip above the table at machine Z 0 (G54 Z −195: the stock top 39 mm up, on its fixture plate)
 const STOCK = { w: 120, l: 80, h: 25 };
 const RAPID = 30000, ACC = 4900;
@@ -529,7 +530,8 @@ $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
 $("tl-del").addEventListener("click", () => { if (LIVE) return LIVE.toolDelete(st.toolSel); if (st.toolSel === st.tool) { msg("Unload the tool before deleting it.", "warn"); return; } st.tools = st.tools.filter((t) => t.t !== st.toolSel); renderTools(); fillToolSelects(); msg(`T${st.toolSel} deleted`, "info"); });
 $("tl-meas").addEventListener("click", () => { if (LIVE) return LIVE.toolMeasure();
-  const above = toWork({ x: 980, y: 20, z: -40 }), touch = toWork({ x: 980, y: 20, z: -110 }), safe = toWork({ x: 0, y: 0, z: 0 }).z;
+  const ts = TSET || { x: 980, y: 20, z_above: -40, z_ref: -110 };
+  const above = toWork({ x: ts.x, y: ts.y, z: ts.z_above }), touch = toWork({ x: ts.x, y: ts.y, z: ts.z_ref }), safe = toWork({ x: 0, y: 0, z: 0 }).z;
   if (moveTo([{ ...st.pos, z: safe }, { x: above.x, y: above.y, z: safe }, above, { ...above, z: touch.z }, { ...above, z: safe }], `Measuring T${st.tool} on the tool setter`, 0)) {
     st.motion.segs[3].rapid = false; st.motion.segs[3].f = 300; plan(st.motion);
     st.onDone = () => { const t = toolOf(st.tool); if (!t) return; t.l = +(t.l + (Math.random() - .5) * 0.02).toFixed(3); if (st.page === "tool") renderTools(); msg(`T${st.tool} length ${t.l.toFixed(3)} mm (setter, latch 25 mm/min)`, "ok"); };
@@ -802,7 +804,8 @@ function buildBuiltin(type) {
       const h = new THREE.Mesh(new THREE.CylinderGeometry(13, 20, 34, 24), mat.spindle); h.rotation.x = Math.PI / 2; h.position.set(x, y, 107); tableG.add(h);
       tableG.add(cyl(3, 36, mat.tool, x, y, 72, 10));
     }
-    tableG.add(cyl(18, 40, mat.dark, X1 - 20, Y1 - 20, 20)); tableG.add(cyl(12, 6, mat.accent, X1 - 20, Y1 - 20, 43));
+    const ts = TSET || { x: X1 - 20, y: Y1 - 20 };  // on the table: under the tool when the machine is at its X Y
+    tableG.add(cyl(18, 40, mat.dark, ts.x, ts.y, 20)); tableG.add(cyl(12, 6, mat.accent, ts.x, ts.y, 43));
     // the fixed bridge: two columns behind the tool line, the beam, X rails and screw, the X motor
     const by = 270, top = ZTOP + 330;  // the beam's centre behind the tool line; its height
     for (const sx of [X0 - 170, X1 + 170]) bridge.add(box(150, 220, top + 80, mat.bridge, sx, by + 20, (top - 80) / 2));
@@ -839,7 +842,8 @@ function buildBuiltin(type) {
       machine.add(box(4, 1300, 14, mat.accent, sx + (sx < 500 ? 58 : -58), 500, 100, false)); // the scale
     }
     // tool setter
-    machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
+    const ts = TSET || { x: 980, y: 20 };
+    machine.add(cyl(18, 40, mat.dark, ts.x, ts.y, 20)); machine.add(cyl(12, 6, mat.accent, ts.x, ts.y, 43));
     // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
     for (const sx of [-140, 1140]) {
       bridge.add(box(150, 190, 40, mat.carriage, sx, 0, 162));

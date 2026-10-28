@@ -49,7 +49,9 @@ net xindex  joint.0.index-enable  <=> hm2_[HOSTMOT2](BOARD).0.stbl.0.0.index_ena
 # Y, Y2, Z: simulated
 net j1 joint.1.motor-pos-cmd => joint.1.motor-pos-fb y1home.cur-pos
 net j2 joint.2.motor-pos-cmd => joint.2.motor-pos-fb y2home.cur-pos
-net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb tipz.in0 zhome.cur-pos
+net j3 joint.3.motor-pos-cmd => joint.3.motor-pos-fb zhome.cur-pos
+# the probe on Z in machine coordinates (the motor's counts from where it started)
+net probe-z joint.3.pos-fb => tipz.in0
 # the switches, in the joints' raw positions (0 at start-up): Y1/Y2 50 mm
 # and Z 20 mm away in the search direction ([JOINT_n]HOME_* in mill.ini)
 setp y1home.home-pos 50

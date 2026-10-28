@@ -3621,3 +3621,23 @@ Entry format:
   (stat.joint_actual_position; a gantry's first joint). Each axis still
   steps once when it is homed: from where it started (0) to machine
   coordinates. Test: test_millweb.Protocol.test_positions_follow_the_joints_until_homed.
+
+## 2026-10-28  Bench: the tool setter never tripped; the 3D view drew it elsewhere
+- Area:    webui/mill/server/machineconf.py (simulated probe), bench/mill.hal, test/sim/mill.hal; machine.py (hello), js/app.js, js/live.js
+- Status:  Fixed
+- Symptom: Measure on the Tools page went down to Z -215 over the setter at
+  X 250 Y 20 and stopped "without making contact"; the 3D view showed the
+  setter at X 980.
+- Cause:   (1) the simulated probe compared joint.N.motor-pos-cmd (the motor's
+  count from where it started) with its trip height, not the machine
+  position: Z's start sat 20 mm below the switch, so at the bottom of travel
+  the motor read -195 and the tip never got below it; with random starts
+  (sim_at random) anything. (2) The console only learnt *whether* there is
+  a setter; the 3D models put it at fixed places (X 980 Y 20, or the bridge
+  table's corner).
+- Fix:     the probe takes joint.N.pos-fb (machine coordinates); hello's
+  machine.toolsetter is {x, y, z_above, z_ref, travel} and both models and the
+  demo place the setter there. On the bench: trips at Z -195.0 over X 250 Y
+  20 (T1 50 mm). Tests: test_hello_and_static (the setter's position),
+  backend_suite's hello check; the probe wiring by hand (no simulated-probe
+  test with an offset start yet).

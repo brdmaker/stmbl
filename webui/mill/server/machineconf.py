@@ -608,7 +608,9 @@ def generate(m, mdir, mill, custom=None, rng=None):
         h("loadrt conv_s32_float names=probe-mtype")
         h("loadrt and2 names=probe-and")
         tail += ["probe-tipz", "probe-low", "probe-mtype", "probe-moving", "probe-and"]
-        h("net %s => probe-tipz.in0" % ("j%d" % zj if m["joints"][zj]["drive"]["type"] == "sim" else "j%d-pos-fb" % zj))  # Z's feedback signal
+        # Z in machine coordinates (the joint's position), not the motor's: an
+        # incremental axis counts from where it started until it is homed
+        h("net probe-z joint.%d.pos-fb => probe-tipz.in0" % zj)
         h("net probe-tlo motion.tooloffset.z => probe-tipz.in1")
         h("setp probe-tipz.gain1 -1")
         h("net probe-tip probe-tipz.out => probe-low.in")
