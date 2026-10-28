@@ -306,6 +306,17 @@ class Machine:
         homed = [bool(all(s.homed[j] for j in self.joints.get(a, [0]))) for a in "XYZ"]
         g5x, g92, tlo = s.g5x_offset, s.g92_offset, s.tool_offset
         act = s.actual_position
+        if not all(s.homed[j] for j in range(s.joints)):
+            # LinuxCNC updates the axes' positions only once every joint is
+            # homed: until then (and while homing) each axis shows its joint's
+            # (a gantry's first), so the homing moves show and nothing jumps
+            jp = getattr(s, "joint_actual_position", None)
+            if jp:
+                act = list(act)
+                for i, a in enumerate("XYZ"):
+                    js = self.joints.get(a)
+                    if js and js[0] < len(jp):
+                        act[i] = jp[js[0]]
         # the tool tip in the active work coordinates (as AXIS's relative DRO)
         import math
         x, y, z = act[0] - g5x[0] - tlo[0], act[1] - g5x[1] - tlo[1], act[2] - g5x[2] - tlo[2]

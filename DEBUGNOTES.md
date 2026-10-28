@@ -3608,3 +3608,16 @@ Entry format:
   `a` on the stack. Where it landed decided whether anything broke.
 - Fix:     bounded fields (%63, %127; `a` is 128 bytes). Test:
   tests/vib/node.test (fails on ARM without it).
+
+## 2026-10-28  The console showed no motion while homing, then a jump
+- Area:    webui/mill/server/machine.py (status: pos, mach)
+- Status:  Fixed
+- Symptom: Homing on the bench GUI: the positions stood still (0) while
+  the axes homed, and jumped to the home positions at the end.
+- Cause:   millweb showed LinuxCNC's axis positions (stat.actual_position),
+  which LinuxCNC's motion updates only once every joint is homed; homing
+  runs in joint mode, so they stood still until the last joint was done.
+- Fix:     until every joint is homed each axis shows its joint's position
+  (stat.joint_actual_position; a gantry's first joint). Each axis still
+  steps once when it is homed: from where it started (0) to machine
+  coordinates. Test: test_millweb.Protocol.test_positions_follow_the_joints_until_homed.

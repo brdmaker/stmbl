@@ -25,6 +25,7 @@ class _M:
         self.motion_mode = TRAJ_MODE_FREE
         self.homed = [0, 0, 0, 0]
         self.pos = [0.0] * 9
+        self.jpos = None                # joint positions (X Y Y Z); None: from pos
         self.g5x = [0.0] * 9
         self.g5x_index = 1
         self.g92 = [0.0] * 9
@@ -60,6 +61,8 @@ class stat:
         self.joints = 4
         self.joint = [{"ferror_current": 0.0}] * 4
         self.actual_position = tuple(m.pos)
+        jp = m.jpos if m.jpos is not None else [m.pos[0], m.pos[1], m.pos[1], m.pos[2]]
+        self.joint_actual_position = tuple(jp) + (0.0,) * (9 - len(jp))
         self.position = tuple(m.pos)
         self.g5x_offset = tuple(m.g5x)
         self.g5x_index = m.g5x_index

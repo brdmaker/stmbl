@@ -305,6 +305,20 @@ class Protocol(Base):
         await self.until(ws, lambda m: m["t"] == "ev" and "re-read (G54)" in m["text"])
         await ws.close()
 
+    def test_positions_follow_the_joints_until_homed(self):
+        """LinuxCNC moves the axes' positions only once every joint is homed:
+        while homing the console showed the axes standing (0), then jumping.
+        Until all are homed each axis shows its joint (a gantry's first)."""
+        lc.M.homed = [0, 0, 0, 1]                      # Z homed, Y homing
+        lc.M.pos[:3] = [0.0, 0.0, -5.0]                # frozen in LinuxCNC
+        lc.M.jpos = [1.5, 600.0, 600.0, -5.0]
+        st = self.m.status()
+        self.assertEqual(st["mach"], [1.5, 600.0, -5.0])
+        self.assertEqual(st["pos"], [1.5 - 440.0, 600.0 - 460.0, -5.0 + 195.0])
+        lc.M.homed = [1, 1, 1, 1]                      # all homed: the axes' own
+        lc.M.pos[:3] = [0.0, 990.0, -5.0]
+        self.assertEqual(self.m.status()["mach"], [0.0, 990.0, -5.0])
+
     async def test_folders_rename_delete(self):
         ws = await self.client()
         await self.ready(ws)
