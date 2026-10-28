@@ -20,6 +20,7 @@ import datetime
 import difflib
 import json
 import os
+import random
 import re
 import shutil
 
@@ -227,7 +228,8 @@ def validate(raw, mdir=None):
             if h["switch"] == "sim":  # a simulated joint's own switch (sim_home_switch), sim_at from where it starts
                 if d.get("type") != "sim":
                     errs.append((w + ".home.switch", "sim: only for a simulated joint (a drive's switch is a HAL pin)"))
-                _num(h.setdefault("sim_at", 10), w + ".home.sim_at", errs)
+                if h.setdefault("sim_at", 10) != "random":  # "random": a new start position at every start
+                    _num(h["sim_at"], w + ".home.sim_at", errs)
             elif not HALNAME.match(str(h["switch"])):
                 errs.append((w + ".home.switch", "the home switch's HAL pin (sim: a simulated one)"))
             if not h["search_vel"]:
@@ -370,7 +372,36 @@ def drives_of(m):
     return out
 
 
-def generate(m, mdir, mill, custom=None):
+def sim_starts(m, rng=None):
+    """sim_at "random": where each such axis starts this time, in machine
+    coordinates: anywhere in its joints' travel short of their switches
+    (at HOME_OFFSET, in the search direction), one start an axis (a gantry's
+    two sides together), so each start homes from somewhere new."""
+    rng = rng or random.Random()
+    lo, hi = {}, {}
+    for j in m["joints"]:
+        h = j["home"]
+        if h["method"] != "switch" or h.get("switch") != "sim" or h.get("sim_at") != "random":
+            continue
+        a = j["axis"]
+        sw = float(h["offset"])
+        l, u = (float(j["min"]), sw - 1.0) if h["search_vel"] >= 0 else (sw + 1.0, float(j["max"]))
+        lo[a], hi[a] = max(lo.get(a, l), l), min(hi.get(a, u), u)
+    return {a: round(rng.uniform(lo[a], hi[a]), 3) for a in lo if hi[a] > lo[a]}
+
+
+def sim_switch_distance(j, starts):
+    """How far a simulated joint starts from its simulated home switch, in its
+    search direction."""
+    h = j["home"]
+    if h["sim_at"] != "random":
+        return abs(float(h["sim_at"]))
+    if j["axis"] not in starts:
+        return 10.0
+    return round(abs(float(h["offset"]) - starts[j["axis"]]), 3)
+
+
+def generate(m, mdir, mill, custom=None, rng=None):
     """{"mill.ini": text, "machine.hal": text} for machine m (validated) in machine
     folder mdir; mill is webui/mill (millweb's launcher is there). custom: the
     custom.hal text to be (None: whether the folder has one)."""
@@ -522,6 +553,7 @@ def generate(m, mdir, mill, custom=None):
             h("net j%d-con-fb %s.%s => sserialterm.%d.con-fb" % (i, pre, pins["con_fb"], k))
             h("net j%d-con-cmd sserialterm.%d.con-cmd => %s.%s" % (i, k, pre, pins["con_cmd"]))
     simsw = [i for i, j in enumerate(m["joints"]) if j["home"]["method"] == "switch" and j["home"]["switch"] == "sim"]
+    starts = sim_starts(m, rng)
     if simsw:
         h("# simulated home switches: sim_at from where each joint starts, in the search direction")
         h("loadrt sim_home_switch names=%s" % ",".join("j%d-homesw" % i for i in simsw))
@@ -529,7 +561,10 @@ def generate(m, mdir, mill, custom=None):
         if i in simsw:
             hs = j["home"]
             h("net j%d => j%d-homesw.cur-pos" % (i, i))
-            h("setp j%d-homesw.home-pos %s" % (i, _fmt(float(abs(hs["sim_at"]) * (1 if hs["search_vel"] >= 0 else -1)))))
+            d = sim_switch_distance(j, starts)
+            if hs["sim_at"] == "random":
+                h("# joint %d starts at %s %s, %s from its switch, this time (sim_at random)" % (i, j["axis"], _fmt(starts.get(j["axis"], 0.0)), _fmt(d)))
+            h("setp j%d-homesw.home-pos %s" % (i, _fmt(d * (1 if hs["search_vel"] >= 0 else -1))))
             h("net j%d-home-sw j%d-homesw.home-sw => joint.%d.home-sw-in" % (i, i, i))
             tail.append("j%d-homesw" % i)
         elif j["home"]["method"] == "switch":

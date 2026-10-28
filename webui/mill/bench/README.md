@@ -25,8 +25,8 @@ cd webui/mill/bench && linuxcnc mill.ini     # then http://<host>:8080/
 
 | Axis | Homing |
 |---|---|
-| Z (simulated) | first: up onto a switch at Z 0, then to Z -5 |
-| Y, Y2 (simulated) | together (a gantry): onto switches at Y 1000, then to Y 990 |
+| Z (simulated) | first: up onto a switch at Z 0, then to Z -5 (Z starts somewhere new at every start: `sim_at: random`) |
+| Y, Y2 (simulated) | together (a gantry): onto switches at Y 1000, then to Y 990 (Y starts somewhere new at every start) |
 | X (real) | last: creeps at 3 mm/s to the encoder's index (at most one revolution, 10 mm), which is X 0; repeatable to ~2 counts |
 
 The simulated switches are `sim_home_switch` on the joints' raw positions.

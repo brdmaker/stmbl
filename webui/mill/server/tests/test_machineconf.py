@@ -122,13 +122,36 @@ class Machine(unittest.TestCase):
         self.assertEqual(got["HAL"]["POSTGUI_HALFILE"], [os.path.join(self.d, "run", "postgui.hal")])
         hal, post = f["machine.hal"], f["postgui.hal"]
         self.assertIn("loadrt hm2_spix config=\" sserial_port_0=00000000\" spiclk_rate=25000 spiclk_rate_rd=25000", hal)
-        self.assertIn("setp j3-homesw.home-pos 20", hal)
+        z = [float(l.split()[2]) for l in hal.splitlines() if l.startswith("setp j3-homesw.home-pos ")]
+        self.assertTrue(len(z) == 1 and 0 < z[0] < 216, z)  # sim_at random: somewhere below the switch at Z 0
         self.assertIn("net j1-home-sw j1-homesw.home-sw => joint.1.home-sw-in", hal)
         self.assertIn("net j0-phasing-ferror j0-phasing-ferror.out => ini.0.ferror", post)
         self.assertIn("setp j0-phasing-ferror.in3 [JOINT_0]FERROR", post)
         # uspace loads a module once: none loaded in both files (and2 is the probe's)
         mods = [l.split()[1] for t in (hal, post) for l in t.splitlines() if l.startswith("loadrt ")]
         self.assertEqual(len(mods), len(set(mods)), mods)
+
+    def test_sim_switch_random_start(self):
+        """sim_at "random": a new start at every start, inside the travel and
+        short of the switch; a gantry's two sides start together."""
+        import random
+        m = json.load(open(os.path.join(BENCH, "machine.json")))
+        for j in m["joints"][1:]:
+            j["home"]["sim_at"] = "random"
+        v = mc.validate(m, self.d)
+        seen = set()
+        for seed in range(20):
+            hal = mc.generate(v, self.d, "/mill", rng=random.Random(seed))["machine.hal"]
+            pos = {l.split()[1]: float(l.split()[2]) for l in hal.splitlines() if ".home-pos " in l}
+            self.assertEqual(pos["j1-homesw.home-pos"], pos["j2-homesw.home-pos"])  # Y1 and Y2 together
+            self.assertTrue(0 < pos["j1-homesw.home-pos"] <= 1000 - (-1) - 1, pos)    # Y: switch at 1000, travel from -1
+            self.assertTrue(0 < pos["j3-homesw.home-pos"] <= 0 - (-216) - 1, pos)       # Z: switch at 0, travel from -216
+            seen.add(pos["j1-homesw.home-pos"])
+        self.assertGreater(len(seen), 15)  # not the same start every time
+        m["joints"][1]["home"]["sim_at"] = "sometimes"
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertIn("joints.1.home.sim_at", {w for w, _ in cm.exception.errors})
 
     def test_phasing_and_sim_switch_errors(self):
         m = copy.deepcopy(mc.DEFAULT)

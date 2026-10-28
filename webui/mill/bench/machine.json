@@ -17,11 +17,11 @@
      "min": -301, "max": 301, "max_vel": 500, "max_acc": 1000,
      "home": {"method": "index", "pos": 0, "sequence": 2, "latch_vel": 3, "offset": 0}},
     {"axis": "Y", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5,
-     "home": {"method": "switch", "switch": "sim", "sim_at": 50, "search_vel": 50, "latch_vel": 5, "offset": 1000, "pos": 990, "sequence": 1}},
+     "home": {"method": "switch", "switch": "sim", "sim_at": "random", "search_vel": 50, "latch_vel": 5, "offset": 1000, "pos": 990, "sequence": 1}},
     {"axis": "Y", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5,
-     "home": {"method": "switch", "switch": "sim", "sim_at": 50, "search_vel": 50, "latch_vel": 5, "offset": 1000, "pos": 990, "sequence": 1}},
+     "home": {"method": "switch", "switch": "sim", "sim_at": "random", "search_vel": 50, "latch_vel": 5, "offset": 1000, "pos": 990, "sequence": 1}},
     {"axis": "Z", "drive": {"type": "sim"}, "ferror": 2, "min_ferror": 0.5,
-     "home": {"method": "switch", "switch": "sim", "sim_at": 20, "search_vel": 20, "latch_vel": 2, "offset": 0, "pos": -5, "sequence": 0}}
+     "home": {"method": "switch", "switch": "sim", "sim_at": "random", "search_vel": 20, "latch_vel": 2, "offset": 0, "pos": -5, "sequence": 0}}
   ],
   "estop": {"input": ""},
   "probe": {"type": "sim", "sim_z": -195},
