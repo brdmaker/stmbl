@@ -3641,3 +3641,52 @@ Entry format:
   20 (T1 50 mm). Tests: test_hello_and_static (the setter's position),
   backend_suite's hello check; the probe wiring by hand (no simulated-probe
   test with an offset start yet).
+
+## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
+- Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js
+- Status:  Fixed
+- Symptom: in see-through mode (fixtures / workpiece "glass") the view
+  flickered where two surfaces lie at the same level (the stock on the
+  vise, the vise's jaws on its base), changing as the view turned.
+- Cause:   see-through materials don't write depth, so three.js sorts them
+  by their objects' distance every frame; two at the same level swap places
+  as the camera moves, and the blend changes with the order.
+- Fix:     every see-through mesh gets its own fixed renderOrder (per object,
+  per mesh inside it), and a polygon offset pushing it back (never forward,
+  so the toolpath on the stock top stays in front). Machine model parts
+  with opacity < 1 get a fixed order behind the setup's.
+
+## 2026-10-28  millweb 3D: "orange sparks" at some view angles only
+- Area:    webui/mill/js/app.js (scene setup: trail, chips)
+- Status:  Fixed
+- Symptom: the tool threw orange sparks at some view angles, none at others.
+- Cause:   the chip particles (and the tool trail) are buffers rewritten
+  every frame, but their bounding spheres were computed once (the chips' at
+  Z -5000, all parked there). three.js culled them by that stale sphere: they
+  showed only when it happened to be in view.
+- Fix:     frustumCulled = false on both; the chips are aluminium-grey now.
+  Any geometry whose positions change per frame needs this (or
+  computeBoundingSphere after each change).
+
+## 2026-10-28  LinuxCNC 2.9: an NGC-only M6 remap for a rack changer
+- Area:    webui/mill/server/machineconf.py (toolchange_ngc, atc)
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     `REMAP=M6 modalgroup=6 ngc=toolchange` without a Python prolog
+  works: the sub reads #<_current_tool> / #<_selected_tool>, ends with
+  `M61 Q#<_selected_tool>`, and M70 / M72 keep the modal state (G43 stays as
+  it was). M66 L3 sets #5399 to -1 on a timeout (abort then). M0 inside the
+  remap pauses for a manual change (resume continues). motion's digital I/O
+  needs `num_dio` on motmod. Checked in LinuxCNC 2.9 (sim joints, 4 pockets,
+  slide-in): T2, T3 swapped through the rack, T7 by hand.
+
+## 2026-10-28  backend_suite: "X moves through the drive" fails now and then
+- Area:    webui/mill/test/backend_suite.py (supervisor: an stmbl drive on X)
+- Status:  Open
+- Symptom: once in a full `make test-backend` run: joint.0.motor-pos-fb
+  599.990417 vs stmbl-sim.0.pos_fb 599.990173; the case alone passes.
+- Cause:   it reads both pins in one hal_values call and wants them equal,
+  but the drive may still be settling and the two are read a servo cycle
+  apart.
+- Fix:     idea: wait for inpos, or compare within 1 µm.

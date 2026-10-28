@@ -53,6 +53,7 @@ function mm3dBuild() {
     const r = (p.rot || [0, 0, 0]).map((d) => (+d || 0) * Math.PI / 180);
     mesh.rotation.set(r[0], r[1], r[2]);
     mesh.scale.setScalar(+p.scale || 1);
+    if (op < 1) mesh.renderOrder = -100 + mm3d.nodes.length;  // see-through parts: a fixed order, behind the setup's (setup3d.js stableOrder)
     const holder = new THREE.Group(); holder.add(mesh); mm3d.group.add(holder);
     mm3d.nodes.push({ holder, mat, p, k: movesOf(p.moves) });
   }
