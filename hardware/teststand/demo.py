@@ -33,28 +33,28 @@ def circle(cx, cy, r, feed, ccw=False):
     g("G0 Z%s" % f(UP))
 
 
-g("(stmbl test stand: the demo drawing; paper 100 x 90 on the table, the pen touching it at Z %s)" % f(DOWN))
+g("(stmbl test stand: the demo drawing; paper 130 x 140 on the table, the pen touching it at Z %s)" % f(DOWN))
 g("G21 G90 G17 G40 G49 G94 G64 P0.05")
 g("G0 Z%s" % f(UP))
 g("(a border, the whole travel but a margin)")
-stroke([(-32, -37), (32, -37), (32, 37), (-32, 37), (-32, -37)], 1500)
+stroke([(-52, -62), (52, -62), (52, 62), (-52, 62), (-52, -62)], 1500)
 g("(three circles, both ways round, three feeds)")
-for r, feed, ccw in ((8, 600, False), (16, 1500, True), (24, 3000, False)):
-    circle(0, 5, r, feed, ccw)
+for r, feed, ccw in ((12, 600, False), (24, 1500, True), (36, 3000, False)):
+    circle(0, 10, r, feed, ccw)
 g("(a diamond in them)")
-stroke([(0, 5 - 21.2), (21.2, 5), (0, 5 + 21.2), (-21.2, 5), (0, 5 - 21.2)], 2400)
+stroke([(0, 10 - 33), (33, 10), (0, 10 + 33), (-33, 10), (0, 10 - 33)], 2400)
 g("(a spiral out from the middle: a smooth path of short lines)")
 pts = []
 for i in range(0, 721, 6):
     a = math.radians(i)
-    r = 1 + 6 * i / 720.0
-    pts.append((r * math.cos(a), 5 + r * math.sin(a)))
+    r = 1 + 9 * i / 720.0
+    pts.append((r * math.cos(a), 10 + r * math.sin(a)))
 stroke(pts, 1200)
 g("(STMBL under them)")
-x0, h = -22.0, 9.0
+x0, h = -33.0, 12.0
 for k, ch in enumerate("STMBL"):
     for s in FONT[ch]:
-        stroke([(x0 + k * 9.5 + px * h, -34 + py * h) for px, py in s], 1200)
+        stroke([(x0 + k * 13.5 + px * h, -55 + py * h) for px, py in s], 1200)
 g("G0 Z0")
 g("G0 X0 Y0")
 g("M2")

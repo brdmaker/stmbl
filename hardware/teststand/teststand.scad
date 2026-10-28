@@ -8,10 +8,11 @@
 // 20 teeth: 94.25 mm a motor turn). The fasteners are printed too: P8x2 bolts, snap pins.
 //
 //   openscad -o out.stl -D 'part="base"' teststand.scad    (make: every part, the pictures)
-//   part = "assembly", X, Y in mm (X ±35, Y ±40), Z 0 (up) .. -40 (the pen on the paper). Y is the pen
-//   over the paper: the table moves the other way (-Y). The switches: X at -35, Y at +40, Z at 0
+//   part = "assembly", X, Y in mm (X ±55, Y ±65), Z 0 (up) .. -40 (the pen on the paper). Y is the pen
+//   over the paper: the table moves the other way (-Y). The switches: X at -55, Y at +65, Z at 0
 //
-// Every part fits a 220 x 220 bed, printed as print_part() turns it. PETG or PLA,
+// Sized for a Bambu Lab H2C (330 x 320 x 320, 300 x 320 with both nozzles): every part within
+// 295 x 315 x 310 mm, printed as print_part() turns it; xt, yt below shrink it for smaller beds. PETG or PLA,
 // 0.2 mm layers, 4 walls, 25-40 % infill (the base: 15 %, it is solid on purpose: weight).
 
 part = "assembly";
@@ -54,18 +55,26 @@ $fn = 48;
 assert(0.5 + hub_l + 0.8 * gw <= shaft_len - plate_t, "the shaft must reach through the hub and most of the gear");
 
 // ---------------------------------------------------------------- the layout (world mm; the pen at X Y 0)
-base_x = [-94, 118]; base_y = [-110, 100]; base_top = 60;
-cols = [[-94, -74], [98, 118]]; col_y = [40, 65]; col_top = 90;              // the bridge's columns, part of the base
-col_bolts = [[-84, 49], [108, 49]];                                            // the beam's bolts into them
-col_pins = [[-84, 59], [108, 59]];                                             // and pins on them that locate it
-tab = [[-62, 62], [-55, 55], [61, 85]];                                       // the table at Y 0
+// From the travels. Each rack rides on the moving part and its pinion stands still, so the table is
+// longer than the Y travel and the carriage longer than the X travel (8 mm of rack past the pinion at
+// each end); the bridge's columns stand outside the carriage. For the Bambu Lab H2C (300 x 320 mm,
+// both nozzles) X ±55 and Y ±65 are the most: the base 280 x 300, the beam 280.
+xt = 55; yt = 65;                                                             // X ±xt, Y ±yt
+tab_l = 2 * (yt + 10);                                                        // the table's length (y): 150
+car = [[-52, 76], [11, 38.5], [90, 190]];                                     // the X carriage at X 0: 128 long
+x_rack_y = 28.5; x_pin_x = 12;                                                // the pinion: x_pin_x ± (car length / 2 - xt - 8) (here exactly)
+assert(car[0][0] + xt + 8 <= x_pin_x && x_pin_x <= car[0][1] - xt - 8, "the X rack is too short for the travel");
+cols = [[car[0][0] - xt - 21, car[0][0] - xt - 1], [car[0][1] + xt + 1, car[0][1] + xt + 21]]; col_y = [40, 65]; col_top = 90;  // the bridge's columns, part of the base
+base_x = [cols[0][0], cols[1][1]]; base_y = [-tab_l / 2 - yt - 15, tab_l / 2 + yt + 5]; base_top = 60;
+col_bolts = [[(cols[0][0] + cols[0][1]) / 2, 49], [(cols[1][0] + cols[1][1]) / 2, 49]];   // the beam's bolts into them
+col_pins = [[col_bolts[0][0], 59], [col_bolts[1][0], 59]];                     // and pins on them that locate it
+tab = [[-xt - 15, xt + 15], [-tab_l / 2, tab_l / 2], [61, 85]];              // the table at Y 0
 y_rail_w = 24;
-y_rack_x = 52; y_pin_z = tab[2][0] - 1.25 * m - pr;                           // 44.1
+y_rack_x = tab[0][1] - 10; y_pin_z = tab[2][0] - 1.25 * m - pr;                           // 44.1
 y_mo = [y_rack_x + gear_c, 0, y_pin_z];                                        // the Y motor plate's face (shaft -x)
-beam = [[-94, 118], [40, 65], [90, 150]];
+beam = [[base_x[0], base_x[1]], [40, 65], [90, 150]];
 x_rail_w = 36; x_rail_z = 127;
-car = [[-38, 62], [11, 38.5], [90, 190]];                                     // the X carriage at X 0
-x_rack_y = 28.5; x_pin_x = 12; x_pin_z = car[2][1] + 1.25 * m + pr;          // 206.9
+x_pin_z = car[2][1] + 1.25 * m + pr;          // 206.9
 x_mo = [x_pin_x, x_rack_y + gear_c, x_pin_z];                                  // the X motor plate's face (shaft -y)
 z_rail_w = 24;
 sl = [[-16, 16], [-10, 10], [0, 130]];                                        // the Z slide, z from its bottom
@@ -74,6 +83,7 @@ z_tab_top = 33;                                                               //
 pen_out = 15;                                                                 // the pen's tip below it: on the paper at Z -40
 z_rack_y = -5; z_pin_x = sl[0][1] + 1.25 * m + pr; z_pin_z = 150;            // 32.9
 z_mo = [z_pin_x, z_rack_y - gear_c, z_pin_z];                                  // the Z motor plate's face (shaft +y)
+zbr_bolt_x = (z_pin_x + pr + m + 2 + car[0][1]) / 2;                           // the Z motor bracket's arm: its bolts
 
 // ---------------------------------------------------------------- helpers
 // place a 2D profile: its x along u, its y along v, extruded along w from o
@@ -180,7 +190,7 @@ module switch_holder() difference() {
 }
 // where each sits: the matrix from its frame to the world
 module y_switch_at() frame([-40, base_y[0] + 14, base_top + 12], [1, 0, 0], [0, 0, -1], [0, 1, 0]) children();     // the lever toward +y
-module x_switch_at() frame([-74, 44, beam[2][1] + 12], [0, 1, 0], [0, 0, -1], [1, 0, 0]) children();               // the lever toward +x
+module x_switch_at() frame([car[0][0] - xt - 1, 44, beam[2][1] + 12], [0, 1, 0], [0, 0, -1], [1, 0, 0]) children();               // the lever toward +x
 module z_switch_at() frame([-38, -1, sl_z0 + z_tab_top + 0.5], [1, 0, 0], [0, 1, 0], [0, 0, -1]) children();                          // the lever down
 
 // ---------------------------------------------------------------- BASE: solid (weight), the Y rail, the columns, the Y motor's plate
@@ -194,7 +204,7 @@ module base() {
       at_motor(y_mo, [-1, 0, 0]) translate([-(y_pin_z - 2), -34, -plate_t]) cube([y_pin_z - 2 + 32, 68, plate_t]);   // up to 76, down into the base
     }
     // the rack's way, the pinion's pocket, the room behind the plate for the pins' barbs (all open at the top)
-    translate([y_rack_x - gw / 2 - 1, -97, base_top - 4.5]) cube([gw + 2, 194, 10]);
+    translate([y_rack_x - gw / 2 - 1, -tab_l / 2 - yt - 2, base_top - 4.5]) cube([gw + 2, tab_l + 2 * yt + 4, 10]);
     translate([y_rack_x - gw / 2 - 1.5, -18, y_pin_z - pr - 3]) cube([gw + 3, 36, 60]);
     translate([y_mo[0] - 11, -32, y_pin_z - 32]) cube([11, 64, 80]);
     // the motor's trench: through the right side, open at the top
@@ -215,10 +225,10 @@ module table() difference() {
     frame([y_rack_x, tab[1][0], tab[2][0]], [0, 1, 0], [1, 0, 0], [0, 0, -1]) rack3d(tab[1][1] - tab[1][0]);
   }
   prism([0, tab[1][0] - 1, base_top], [1, 0, 0], [0, 0, 1], [0, 1, 0], tab[1][1] - tab[1][0] + 2) groove2d(y_rail_w, dt_h);
-  for (yy = [-35, 0, 35]) translate([tab[0][0] - 1, yy, base_top + dt_h / 2 + 0.5 + 0.5]) rotate([0, 90, 0]) {
+  for (yy = [-tab_l / 2 + 20, 0, tab_l / 2 - 20]) translate([tab[0][0] - 1, yy, base_top + dt_h / 2 + 0.5 + 0.5]) rotate([0, 90, 0]) {
     gib_hole(-tab[0][0] - 17.4 + 1);   // the whole way: a long gib screw
   }
-  for (sx = [-1, 1], sy = [-1, 1]) translate([sx * 52 - 4, sy * 47 - 2.2, tab[2][1] - 6]) cube([8, 4.4, 7]);
+  for (sx = [-1, 1], sy = [-1, 1]) translate([sx * (tab[0][1] - 10) - 4, sy * (tab[1][1] - 8) - 2.2, tab[2][1] - 6]) cube([8, 4.4, 7]);
 }
 module table_gib() prism([0, tab[1][0], base_top], [1, 0, 0], [0, 0, 1], [0, 1, 0], tab[1][1] - tab[1][0]) gib2d(y_rail_w, dt_h);
 
@@ -253,11 +263,11 @@ module x_carriage() difference() {
     translate([car[0][0], x_rack_y, car[2][1]]) rack3d(car[0][1] - car[0][0]);
   }
   prism([car[0][0] - 1, beam[1][0], x_rail_z], [0, 0, 1], [0, -1, 0], [1, 0, 0], car[0][1] - car[0][0] + 2) groove2d(x_rail_w, dt_h);
-  for (xx = [-20, 12, 44]) translate([xx, beam[1][0] - dt_h / 2 - 1.5, car[2][0]]) {   // their heads sunk in the underside
+  for (xx = [car[0][0] + 18, x_pin_x, car[0][1] - 32]) translate([xx, beam[1][0] - dt_h / 2 - 1.5, car[2][0]]) {   // their heads sunk in the underside
     translate([0, 0, -0.01]) cylinder(d = 11.5, h = 5); translate([0, 0, 5]) gib_hole(x_rail_z - x_rail_w / 2 - c - gib - car[2][0] - 2.3 + 1 - 5); }
   prism([0, car[1][0], car[2][0] - 1], [1, 0, 0], [0, 1, 0], [0, 0, 1], car[2][1] - car[2][0] + 2) groove2d(z_rail_w, dt_h);
   for (zz = [100, 135, 165]) translate([car[0][0], car[1][0] + dt_h / 2, zz]) rotate([0, 90, 0]) gib_hole(-car[0][0] - z_rail_w / 2 - c - gib - 2.3 + 1);
-  for (zz = [113, 185]) translate([56.5, car[1][0] - 0.01, zz]) rotate([-90, 0, 0]) thread_hole(16);   // the Z motor's bracket
+  for (zz = [113, 185]) translate([zbr_bolt_x, car[1][0] - 0.01, zz]) rotate([-90, 0, 0]) thread_hole(16);   // the Z motor's bracket
   z_switch_at() translate([15.5, 12, -7]) rotate([-90, 0, 0]) thread_hole(16);
 }
 module x_gib() prism([car[0][0], beam[1][0], x_rail_z], [0, 0, 1], [0, -1, 0], [1, 0, 0], car[0][1] - car[0][0]) gib2d(x_rail_w, dt_h);
@@ -270,7 +280,7 @@ module z_motor_bracket() difference() {
     translate([ax, z_mo[1] - 0.01, 104]) cube([car[0][1] - ax, car[1][0] - z_mo[1], 92]);
   }
   at_motor(z_mo, [0, 1, 0]) { nema_cuts(); for (sz = [-1, 1]) translate([nema_holes / 2, sz * nema_holes / 2, -0.01]) cylinder(d = 9, h = 7); }
-  for (zz = [113, 185]) translate([56.5, z_mo[1] - plate_t - 1, zz]) rotate([-90, 0, 0]) { clear_hole(40); cylinder(d = 16, h = 1 + 4); }
+  for (zz = [113, 185]) translate([zbr_bolt_x, z_mo[1] - plate_t - 1, zz]) rotate([-90, 0, 0]) { clear_hole(40); cylinder(d = 16, h = 1 + 4); }
 }
 
 // Z SLIDE: the rail on its back, the Z rack on its +x side, the pen's bore and thumb screw, the switch's tab
@@ -306,7 +316,7 @@ module assembly() {
   color("lightsteelblue") base();
   color("steelblue") beam();
   color("cadetblue") x_motor_bracket();
-  translate([0, -Y, 0]) { color("khaki") table(); color("peru") table_gib(); color("white") translate([-50, -45, tab[2][1]]) cube([100, 90, 0.2]); }
+  translate([0, -Y, 0]) { color("khaki") table(); color("peru") table_gib(); color("white") translate([tab[0][0] + 5, tab[1][0] + 5, tab[2][1]]) cube([tab[0][1] - tab[0][0] - 10, tab[1][1] - tab[1][0] - 10, 0.2]); }
   translate([X, 0, 0]) {
     color("lightgreen") x_carriage(); color("peru") { x_gib(); z_gib(); }
     color("mediumseagreen") z_motor_bracket();

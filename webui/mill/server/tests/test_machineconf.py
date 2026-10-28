@@ -191,7 +191,7 @@ class Machine(unittest.TestCase):
         self.assertIn("setp j1-cmd.gain %r" % k, f["machine.hal"])
         ini = ini_sections(f["mill.ini"])
         self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
-        self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["41"], ["10"]))   # Y homes at its +40 end
+        self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["66"], ["10"]))   # Y homes at its +65 end
         self.assertIn("net j2-home-sw hm2_7i96s.0.inm.00.input-04 => joint.2.home-sw-in", f["machine.hal"])
 
     def test_can_drives(self):

@@ -9,13 +9,14 @@ then be tuned on a real, if light, mechanism.
 
 | | |
 |---|---|
-| travel | X ±35, Y ±40, Z 0 … −40 mm (the pen touches the paper at −40) |
+| travel | X ±55, Y ±65, Z 0 … −40 mm (the pen touches the paper at −40) |
 | layout | fixed bridge, the table moves in Y (the CN 720's; millweb type `bridge`) |
 | slides | printed 60° dovetails with a gib strip and three gib screws each |
 | drive | printed rack and pinion, module 1.5, 20 teeth: **94.25 mm a motor turn** |
-| switches | X at −35 (the carriage), Y at +40 (the table's front edge), Z at 0 (a tab on the slide) |
-| size | 212 × 210 mm base, about 270 mm high; the motors stick out at the right, the back and the front |
-| prints | 21 different parts, 54 in all, every one within 215 × 215 mm |
+| switches | X at −55 (the carriage), Y at +65 (the table's front edge), Z at 0 (a tab on the slide) |
+| size | 280 × 300 mm base, about 270 mm high; the motors stick out at the right, the back and the front |
+| prints | 21 different parts, 54 in all, sized for a **Bambu Lab H2C**: every one within 295 × 315 × 310 mm (its bed is 330 × 320, 300 × 320 with both nozzles) |
+| a smaller printer | set `xt`, `yt` (the travels) at the top of the layout in the SCAD: X ±35, Y ±40 fits a 220 × 220 bed |
 
 ## Printing
 
@@ -24,7 +25,7 @@ each already lying the way it prints.
 
 | part | qty | notes |
 |---|---|---|
-| `base` | 1 | solid on purpose (weight): 15 % infill, about 0.7 kg; the Y rail, the bridge's columns and the Y motor's plate are part of it |
+| `base` | 1 | solid on purpose (weight): 15 % infill, about 1.3 kg; the Y rail, the bridge's columns and the Y motor's plate are part of it |
 | `beam` | 1 | on its back, the X rail up |
 | `table` | 1 | top down; the Y rack under it |
 | `x_carriage` | 1 | front down; the X rack on its top edge |
@@ -49,7 +50,7 @@ its hole once before assembly, slowly: that cuts the hole to size.
 - 3 × NEMA 23 servo (57 mm flange, 47.14 mm hole square, 38.1 mm pilot, 8 mm D-shaft at least
   21 mm long; `shaft_d`, `shaft_len`, `nema_flange_t` at the top of the SCAD for others).
 - 3 × micro switch, 20 × 10 × 6.4 mm with a lever (SS-5GL, KW12, V-156 …).
-- A pen or a fine marker, 11–12 mm thick; paper (100 × 90 mm).
+- A pen or a fine marker, 11–12 mm thick; paper (130 × 140 mm).
 
 ## Assembly
 
@@ -97,7 +98,7 @@ its hole once before assembly, slowly: that cuts the hole to size.
 - **First run:**
   1. Home: Z first, then X and Y, each onto its switch and back off.
   2. Clip a sheet onto the table.
-  3. Load `demo.ngc`. It draws about 0.94 m in about a minute: a border, three circles both ways
+  3. Load `demo.ngc`. It draws about 1.4 m in about 80 s: a border, three circles both ways
      round at three feeds, a diamond, a spiral and STMBL.
 
 ## The model
@@ -120,8 +121,7 @@ python3 demo.py demo.ngc
 `check.py` intersects each moving group (table; X carriage with its brackets, motor and switch;
 Z slide) with the fixed parts and with the others, at all eight corners of the travel and in the
 middle, and checks the parts within a group against each other. It reports anything with volume:
-71 checks, none touching. A move past the travel (X −60, Z −60) does show up, so the check is
-live.
+71 checks, none touching. A move past the travel does show up, so the check is live.
 
 The rack and pinion were checked separately: their 2D profiles over a full tooth pitch, the rack
 following the pinion, never overlap.

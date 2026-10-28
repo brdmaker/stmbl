@@ -9,7 +9,7 @@ GROUPS = [("Y", "F"), ("X", "F"), ("S", "F"), ("X", "Y"), ("S", "Y"), ("S", "X")
 INSIDE = [("base", "beam"), ("beam", "xbr"), ("xbr", "xmot"), ("base", "ymot"), ("beam", "xsw"), ("base", "ysw"), ("xbr", "xsw"),
           ("car", "gibx"), ("car", "gibz"), ("car", "zbr"), ("zbr", "zmot"), ("car", "zmot"), ("car", "zsw"), ("zbr", "zsw"),
           ("table", "giby"), ("beam", "gibx"), ("base", "giby")]
-POS = [(x, y, z) for x in (-35, 35) for y in (-40, 40) for z in (0, -40)] + [(0, 0, -20)]
+POS = [(x, y, z) for x in (-55, 55) for y in (-65, 65) for z in (0, -40)] + [(0, 0, -20)]
 
 def run(a, b, x=0, y=0, z=0):
     with tempfile.TemporaryDirectory() as d:
