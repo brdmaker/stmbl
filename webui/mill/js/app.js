@@ -220,7 +220,39 @@ function msg(text, lvl = "info") {
   $("msg").textContent = text;
   $("msg").style.color = lvl === "warn" ? C.warn : lvl === "bad" ? C.stop : C.ink;
   renderEvents();
+  if (lvl === "warn" || lvl === "bad") popMsg(text, lvl);
 }
+// warnings and faults as a large card: a warning goes after 10 s, a fault stays until a tap or a key
+// (the card takes no clicks: what is under it still works); the footer's line opens the last again
+const pop = { timer: 0, text: "", n: 0 };
+function popMsg(text, lvl) {
+  const el = $("popmsg");
+  pop.n = !el.hidden && pop.text === text ? pop.n + 1 : 1; pop.text = text;
+  el.className = "popmsg " + lvl; el.hidden = false;
+  $("pm-k").textContent = ({ warn: "WARNING", bad: "FAULT" }[lvl] || "MESSAGE") + (pop.n > 1 ? ` ×${pop.n}` : "");
+  $("pm-t").textContent = text;
+  $("pm-f").textContent = `${clock()} · tap anywhere to close` + (lvl === "bad" ? "" : " · closes by itself");
+  clearTimeout(pop.timer);
+  if (lvl !== "bad") pop.timer = setTimeout(popHide, lvl === "warn" ? 10000 : 6000);
+}
+function popHide() { clearTimeout(pop.timer); $("popmsg").hidden = true; }
+addEventListener("pointerdown", (e) => { if (e.target.id !== "msg") popHide(); }, true);
+addEventListener("keydown", popHide, true);
+$("msg").addEventListener("click", () => { const e = events[0]; if (e) popMsg(e.text, e.lvl); });
+// long jobs' progress (reading, uploading, loading, drawing a program): frac 0..1, or null while there
+// is nothing to measure. Jobs overlap (a load also reads the preview): the bar shows the first by BUSY_RANK
+const busyJobs = new Map(), BUSY_RANK = ["upload", "load", "program", "preflight", "job"];
+function busyShow(text, frac = null, key = "job") { busyJobs.set(key, { text, frac }); busyDraw(); }
+function busyHide(key = "job") { if (busyJobs.delete(key)) busyDraw(); }
+function busyDraw() {
+  const k = BUSY_RANK.find((x) => busyJobs.has(x)) || busyJobs.keys().next().value, j = busyJobs.get(k);
+  $("busy").hidden = !j; if (!j) return;
+  $("busy-t").textContent = j.text + (j.frac != null ? ` ${Math.round(j.frac * 100)} %` : "");
+  $("busy-bar").classList.toggle("ind", j.frac == null);
+  $("busy-bar").firstChild.style.width = j.frac != null ? `${clamp(j.frac, 0, 1) * 100}%` : "";
+}
+// lets the page paint (the bar, the spinner) before more work; a hidden tab doesn't paint, so not only on a frame
+const nextFrame = () => new Promise((r) => { const t = setTimeout(r, 60); requestAnimationFrame(() => { clearTimeout(t); setTimeout(r, 0); }); });
 function renderEvents() {
   const list = events.filter((e) => evFilter === "all" || e.lvl === evFilter || (evFilter === "warn" && e.lvl === "bad"));
   $("events").innerHTML = list.map((e) => `<li class="${e.lvl}"><time>${e.t}</time><span class="k">${evLevels[e.lvl]}</span><span>${esc(e.text)}</span></li>`).join("") || `<li class="info"><time>—</time><span class="k"></span><span>No events.</span></li>`;
@@ -413,6 +445,63 @@ for (const [id, key] of [["o-feed", "feed"], ["o-rapid", "rapid"], ["o-spin", "s
 }
 $$("[data-reset]").forEach((b) => b.addEventListener("click", () => { const i = $(b.dataset.reset); i.value = 100; i.dispatchEvent(new Event("input")); }));
 
+// ============================================================ run statistics
+// one program run's numbers, sampled with the screen (20 Hz): the panel takes the jog/MDI place when
+// a cycle starts and keeps the last run's numbers until the next (or Reset)
+let rs = null, rsWasRunning = false, rsBack = null;
+const FE_NAMES = ["X", "Y1", "Y2", "Z"];
+function runStats(seg, moving, curLine, tt) {
+  const running = st.motion === prog && prog.segs.length > 0 && (st.run === "run" || st.run === "hold" || st.run === "step");
+  const now = performance.now();
+  if (running && !rsWasRunning) {  // a cycle starts
+    rs = { name: prog.name, t0: now, wall: 0, hold: 0, done: false, lines: new Set(), lineHist: [], lastLine: 0,
+      feMax: [0, 0, 0, 0], feNow: [0, 0, 0, 0], skewMax: 0, errMax: 0, errSum: 0, errN: 0, velMax: 0, velSum: 0, velN: 0, cutVelMax: 0,
+      loadMax: 0, loadSum: 0, loadN: 0, rpmMax: 0, est0: tt, estT: tt, tLast: now };
+    if (subtabNow !== "stats") { rsBack = subtabNow; subtab("stats"); }
+  }
+  if (rs && running) {
+    const dt = (now - rs.tLast) / 1000; rs.tLast = now; rs.wall = (now - rs.t0) / 1000;
+    if (st.run === "hold") rs.hold += dt;
+    rs.estT = tt;
+    if (curLine && curLine !== rs.lastLine) { rs.lines.add(curLine); rs.lastLine = curLine; rs.lineHist.push([now, curLine]); }
+    while (rs.lineHist.length > 2 && now - rs.lineHist[0][0] > 3000) rs.lineHist.shift();
+    rs.feNow = st.fe.slice(0, 4);
+    st.fe.forEach((v, k) => { if (k < 4) rs.feMax[k] = Math.max(rs.feMax[k], Math.abs(v)); });
+    rs.skewMax = Math.max(rs.skewMax, Math.abs(st.fe[1] - st.fe[2]));
+    if (st.velNow > 0.5) { rs.velMax = Math.max(rs.velMax, st.velNow); rs.velSum += st.velNow; rs.velN++; }
+    const cutting = seg ? seg.k === "mv" && !seg.rapid : st.velNow > 0.5;
+    if (cutting && moving) { rs.cutVelMax = Math.max(rs.cutVelMax, st.velNow); rs.errMax = Math.max(rs.errMax, st.err); rs.errSum += st.err; rs.errN++; }
+    if (st.spindle.dir) { rs.loadMax = Math.max(rs.loadMax, st.spindle.load); rs.loadSum += st.spindle.load; rs.loadN++; rs.rpmMax = Math.max(rs.rpmMax, st.spindle.rpm); }
+  }
+  if (rs && !running && rsWasRunning) {  // the run ended: back to the tab it replaced (its numbers stay under STATS)
+    rs.done = true; rs.end = st.run;
+    if (rsBack && subtabNow === "stats") subtab(rsBack);
+    rsBack = null;
+  }
+  rsWasRunning = running;
+  if (subtabNow === "stats" && (running || rs && rs.dirty !== rs.done)) { renderRunStats(); if (rs) rs.dirty = rs.done; }
+}
+function renderRunStats() {
+  if (!rs) { $("rs-head").textContent = "No run yet: the statistics of a program's run show here while it runs."; $("rstats").innerHTML = ""; return; }
+  const lps = rs.lineHist.length > 1 ? (rs.lineHist.length - 1) / Math.max(0.2, (rs.lineHist[rs.lineHist.length - 1][0] - rs.lineHist[0][0]) / 1000) : 0;
+  const run = rs.wall - rs.hold, est = rs.estT - rs.est0, pace = est > 1 && run > 1 ? est / run : null;
+  const f0 = (v) => Math.round(v).toLocaleString("en-US"), f1 = (v) => v.toFixed(1);
+  const cell = (k, v, sub = "", warn = false) => `<div class="${warn ? "warn" : ""}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
+  const gantry = !R || R.type !== "bridge", joints = gantry ? [0, 1, 2, 3] : [0, 1, 3];  // a fixed bridge has one Y
+  $("rs-head").textContent = `${rs.done ? (rs.end === "done" ? "Last run, finished" : "Last run, stopped") : st.run === "hold" ? "Running · on hold" : "Running"}: ${rs.name}`;
+  $("rstats").innerHTML = [
+    cell("RUN TIME", mmss(rs.wall), rs.hold > 0.5 ? `${mmss(rs.hold)} on hold` : "&nbsp;"),
+    cell("PACE", pace ? f0(pace * 100) + " %" : "—", pace ? `estimate ${mmss(est)} in ${mmss(run)}` : "of the estimate", pace != null && pace < 0.8),
+    cell("G-CODE", `${f1(lps)} l/s`, `${f0(rs.lines.size)} lines run`),
+    cell("MAX VELOCITY", f0(rs.velMax), `mm/min · cutting ${f0(rs.cutVelMax)}`),
+    cell("MEAN FEED", rs.velN ? f0(rs.velSum / rs.velN) : "—", "mm/min while moving"),
+    cell("CONTOUR ERR", rs.errN ? f1(rs.errMax) + " µm" : "—", rs.errN ? `max · mean ${f1(rs.errSum / rs.errN)} µm` : "while cutting", rs.errMax > 40),
+    ...joints.map((k) => cell(`FERROR ${gantry ? FE_NAMES[k] : FE_NAMES[k][0]}`, f1(rs.feMax[k]) + " µm", `max · now ${f1(Math.abs(rs.feNow[k]))}`, rs.feMax[k] > 20)),
+    ...(gantry ? [cell("Y1−Y2 SKEW", f1(rs.skewMax) + " µm", "max", rs.skewMax > 15)] : []),
+    cell("SPINDLE LOAD", rs.loadN ? f0(rs.loadMax) + " %" : "—", rs.loadN ? `max · mean ${f0(rs.loadSum / rs.loadN)} % · ${f0(rs.rpmMax)} rpm` : "spindle off", rs.loadMax > 85),
+  ].join("");
+}
+
 // ============================================================ program view
 let lastLine = 0;
 function renderProgram() {
@@ -513,6 +602,7 @@ $("tp-go").addEventListener("click", () => probeCycle("plate"));
 
 // ============================================================ TOOLS page
 function renderTools() {
+  renderToolModel();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
       <td class="n">${t.p}</td><td class="n"><input data-k="d" data-i="${i}" type="number" step="0.001" value="${t.d.toFixed(3)}" aria-label="T${t.t} diameter"></td>
@@ -522,6 +612,35 @@ function renderTools() {
       <td><input class="txt" data-k="c" data-i="${i}" value="${esc(t.c)}" aria-label="T${t.t} comment"></td></tr>`).join("") + "</tbody>";
 }
 $("tool-t").addEventListener("click", (e) => { const r = e.target.closest("tr[data-t]"); if (!r || e.target.tagName === "INPUT") return; st.toolSel = +r.dataset.t; renderTools(); });
+// the selected tool's 3D model: a file from the machine's program folder (or uploaded here), placed tip at the origin
+const simToolFiles = new Set();  // the simulation: models uploaded on this page
+function renderToolModel() {
+  const t = st.toolSel ?? st.tool, tm = setup.tools[String(t)], files = LIVE ? LIVE.modelFiles() : [...simToolFiles];
+  $("tm-t").textContent = `T${t}`;
+  const cur = tm ? tm.src.slice(6) : "";
+  $("tm-src").innerHTML = `<option value="">— drawn from its Ø and length</option>` + [...new Set([...files, ...(cur ? [cur] : [])])].map((f) => `<option value="${esc(f)}"${f === cur ? " selected" : ""}>${esc(f)}</option>`).join("");
+  $("tm-z").value = tm ? tm.z : 0; $("tm-rx").value = tm ? tm.rot[0] : 0; $("tm-s").value = tm ? tm.scale : 1;
+  for (const id of ["tm-z", "tm-rx", "tm-s"]) $(id).disabled = !tm;
+}
+function toolModelChanged() {
+  const t = String(st.toolSel ?? st.tool), src = $("tm-src").value;
+  if (!src) delete setup.tools[t];
+  else setup.tools[t] = { src: "model:" + src, z: +$("tm-z").value || 0, rot: [+$("tm-rx").value || 0, 0, 0], scale: +$("tm-s").value || 1 };
+  if (+t === st.tool) buildTool();
+  renderToolModel(); saveSetup();  // the simulation's stay on this page
+}
+for (const id of ["tm-src", "tm-z", "tm-rx", "tm-s"]) $(id).addEventListener("change", toolModelChanged);
+$("tm-up").addEventListener("click", () => $("tm-file").click());
+$("tm-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (!/\.(stl|obj)$/i.test(f.name)) { msg(`${f.name}: an STL or OBJ file`, "warn"); return; }
+  if (f.size > 5 * 1048576) { msg(`${f.name}: 3D models up to 5 MB`, "warn"); return; }
+  const buf = await f.arrayBuffer(), name = f.name.replace(/[^\w.\- ]/g, "_");
+  try { setup.geoms.set(name, parseModel(name, buf)); } catch (err) { msg(`${f.name}: ${err.message}`, "warn"); return; }
+  if (LIVE) { if (!(await LIVE.modelUpload(name, buf))) return; } else simToolFiles.add(name);
+  renderToolModel(); $("tm-src").value = name; toolModelChanged();
+  msg(`T${st.toolSel ?? st.tool}: ${name}`, "ok");
+});
 $("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" ? e.target.value : +e.target.value; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: "diameter", l: "length", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
 $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
@@ -640,9 +759,16 @@ function jogStep(dir) {
 }
 $("jogpad").addEventListener("pointerdown", (e) => { const b = e.target.closest("button"); if (b) jogStep(b.dataset.j); });
 addEventListener("pointerup", () => { if (LIVE && jogHeld) LIVE.jogEnd(); jogHeld = null; });
-function subtab(k) { $("st-mdi").setAttribute("aria-selected", String(k === "mdi")); $("st-jog").setAttribute("aria-selected", String(k === "jog")); $("sp-mdi").hidden = k !== "mdi"; $("sp-jog").hidden = k !== "jog"; }
-$("st-mdi").addEventListener("click", () => subtab("mdi"));
-$("st-jog").addEventListener("click", () => subtab("jog"));
+let subtabNow = "mdi";
+function subtab(k) {
+  subtabNow = k;
+  for (const t of ["mdi", "jog", "stats"]) { $("st-" + t).setAttribute("aria-selected", String(k === t)); $("sp-" + t).hidden = k !== t; }
+  if (k === "stats") renderRunStats();
+}
+$("st-mdi").addEventListener("click", () => { rsBack = null; subtab("mdi"); });  // chosen while running: it stays
+$("st-jog").addEventListener("click", () => { rsBack = null; subtab("jog"); });
+$("st-stats").addEventListener("click", () => { rsBack = null; subtab("stats"); });
+$("rs-reset").addEventListener("click", () => { rs = null; renderRunStats(); });
 const keyJog = { ArrowLeft: "x-", ArrowRight: "x+", ArrowUp: "y+", ArrowDown: "y-", PageUp: "z+", PageDown: "z-" };
 addEventListener("keydown", (e) => {
   const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName);
@@ -650,7 +776,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "F2") { e.preventDefault(); togglePower(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "r") { e.preventDefault(); startCycle(0); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "m") { e.preventDefault(); showPage("main"); subtab("mdi"); $("mdi").focus(); return; }
-  if (e.key === "Escape") { if (!$("dlg").hidden) { closeDlg(); return; } if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
+  if (e.key === "Escape") { if (!$("dlg").hidden) { closeDlg(); return; } if (!$("pinpick").hidden) return; if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
   if (inField || !st.kbd || !keyJog[e.key]) return;
   e.preventDefault();
   if (st.jogInc === 0) { if (!e.repeat) jogStep(keyJog[e.key]); } else jogStep(keyJog[e.key]);
@@ -753,10 +879,12 @@ function init3d() {
   const pathLine = new THREE.LineSegments(pathGeo, new THREE.LineBasicMaterial({ vertexColors: true })); workG.add(pathLine);
   const trailN = 2000, trailPos = new Float32Array(trailN * 3);
   const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3)); trailGeo.setDrawRange(0, 0);
-  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); workG.add(trail);
+  // the trail and the chips change every frame: their bounding spheres stay where they were made (the chips' at
+  // Z −5000), so three.js culled them by a stale sphere: shown at some view angles, gone at others. Never culled.
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); trail.frustumCulled = false; workG.add(trail);
   const sparkN = 80, sparkPos = new Float32Array(sparkN * 3).fill(-5000), sparkVel = new Float32Array(sparkN * 3), sparkLife = new Float32Array(sparkN);
   const sparkGeo = new THREE.BufferGeometry(); sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
-  workG.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
+  const chips = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xc9d3dd, size: 2.5 })); chips.frustumCulled = false; workG.add(chips);  // aluminium chips
 
   R = { renderer, cam, controls, scene, machine, workG, type: null, bridge: null, carriage: null, ram: null, headG: null, toolG: null, coolant: null, tableG: null,
     objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN,
@@ -884,6 +1012,18 @@ function buildTool() {
   $("sp-tool").textContent = `T${st.tool} Ø${t.d} · ${t.c.replace(/^[\d.]+ mm /, "")}`;
   if (!R) return;
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
+  // its own 3D model (the Tools page): the tip at its origin, the spindle along +Z
+  const tm = setup.tools[String(st.tool)];
+  if (tm) {
+    const path = tm.src.slice(6), geo = setup.geoms.get(path);
+    if (geo) {
+      const mesh = new THREE.Mesh(geo, R.mat.toolModel || (R.mat.toolModel = new THREE.MeshStandardMaterial({ color: 0xb9c3cd, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide })));
+      const d = Math.PI / 180; mesh.rotation.set(tm.rot[0] * d, tm.rot[1] * d, tm.rot[2] * d, "ZYX");
+      mesh.scale.setScalar(tm.scale); mesh.position.z = tm.z;
+      R.toolG.add(mesh); return;
+    }
+    requestModel(path);  // drawn when it comes (live); meanwhile the plain one
+  }
   // between the tip (local z 0) and the spindle nose (z 45): the holder, then the cutter
   const holder = new THREE.Mesh(new THREE.CylinderGeometry(20, 27, 20, 32), R.mat.dark); holder.rotation.x = Math.PI / 2; holder.position.set(0, 0, 35); R.toolG.add(holder);
   if (st.tool === 99) {
@@ -1208,6 +1348,7 @@ function renderUi(tip, seg, moving, pTot) {
     else if (LIVE && curLine) LIVE.lines(curLine);  // outside the window: the lines around it
     lastLine = curLine;
   }
+  runStats(seg, moving, curLine, tt);
   updateChips();
   $("v-err").textContent = Math.round(st.err) + " µm"; $("v-yaw").textContent = st.yaw.toFixed(1) + " µrad";
   if (st.page === "dyn") {

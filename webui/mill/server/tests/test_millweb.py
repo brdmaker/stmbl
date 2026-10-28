@@ -398,7 +398,17 @@ class Protocol(Base):
         self.assertIn("extension", (await self.call(ws, "program_rename", name="a.stl", to="a.ngc"))["err"])
         ok(await self.call(ws, "program_rename", name="a.stl", to="fixtures/a2.stl"))
         ok(await self.call(ws, "program_delete", name="b.obj"))
-        ok(await self.call(ws, "setup_save", objects=objs[:2]))
+        # a tool's 3D model: kept with the setup (a setup save without tools keeps them), and its file in use
+        ok(await self.call(ws, "setup_save", objects=objs, tools={"3": {"src": "model:fixtures/a2.stl", "z": -2, "rot": [90, 0, 0], "scale": 1}}))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and m.get("tools"))
+        self.assertEqual(st["tools"]["3"]["rot"], [90, 0, 0])
+        ok(await self.call(ws, "setup_save", objects=objs))
+        self.assertEqual(json.load(open(os.path.join(self.d, "millweb-setup.json")))["tools"]["3"]["z"], -2)
+        self.assertIn("3D setup", (await self.call(ws, "program_delete", name="fixtures/a2.stl"))["err"])
+        for bad, why in (({"x": {"src": "model:fixtures/a2.stl"}}, "tool number"), ({"4": {"src": "model:none.stl"}}, "no such model")):
+            r = await self.call(ws, "setup_save", objects=objs, tools=bad)
+            self.assertIn(why, r["err"])
+        ok(await self.call(ws, "setup_save", objects=objs[:2], tools={}))
         ok(await self.call(ws, "program_delete", name="fixtures/plate.stl"))
         self.assertFalse(os.path.exists(os.path.join(nc, "fixtures", "plate.stl")))
         # a watching browser reads models and the setup, changes nothing

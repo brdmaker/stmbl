@@ -262,8 +262,15 @@ test("file page: the machine's programs, preflight, load, run with the cycle but
   await t.click(`#files .file[data-i="${i}"] b`);
   t.check(await t.until(() => document.getElementById("fl-name").textContent === "bracket-op1.ngc" && document.getElementById("fl-cards").textContent.includes("FITS")), "preflight from the machine's interpreter");
   t.check((await t.text("#fl-cards")).includes("T3"), "...with its tool");
+  await t.ev(() => {  // the progress bar while it loads (seen by an observer: it may come and go between polls)
+    window.busySeen = [];
+    const b = document.getElementById("busy");
+    new MutationObserver(() => { if (!b.hidden) window.busySeen.push(document.getElementById("busy-t").textContent); }).observe(b, { attributes: true, childList: true, subtree: true });
+  });
   await t.click(`#files .file[data-i="${i}"] .btn`);
   t.check(await t.until(() => document.getElementById("h-prog").textContent === "bracket-op1.ngc"), "loaded");
+  t.check(await t.ev(() => window.busySeen.some((x) => /^Loading bracket-op1\.ngc/.test(x))), "a progress bar while it loads: " + (await t.ev(() => window.busySeen.slice(0, 3).join(" | "))));
+  t.check(await t.until(() => document.getElementById("busy").hidden), "...gone once it is drawn");
   t.check(await t.until(() => document.getElementById("pg-name").textContent === "bracket-op1.ngc"), "the program view's title: its name");
   await t.nav("main");
   t.check(await t.until(() => document.querySelectorAll("#gcode div").length === prog.lines.length && prog.lines.length > 20), "its listing");
@@ -276,6 +283,7 @@ test("file page: the machine's programs, preflight, load, run with the cycle but
   await t.click("#b-hold");
   t.check(await M.until((s) => s.run === "run"), "resume");
   t.check(await t.until(() => document.querySelectorAll("#gcode .cur").length === 1), "the current line marked");
+  t.check(await t.until(() => !document.getElementById("sp-stats").hidden && rs && rs.velMax > 0 && rs.lines.size > 1), "STATS while it runs: the machine's velocity and lines");
   await t.click("#b-stop");
   t.check(await M.until((s) => s.interp === "idle") && await t.until(() => document.getElementById("ch-run").textContent === "IDLE" || document.getElementById("ch-run").textContent === "DONE"), "Stop");
   await t.click("#gl-16");  // G0 Z5 after the pocket: a line it can start from

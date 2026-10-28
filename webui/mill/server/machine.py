@@ -171,6 +171,26 @@ def setup_check(objects, model_path):
     return out
 
 
+def tools_check(tools, model_path):
+    """The tools' 3D models {"<tool number>": {src: model:<path>, z, rot, scale}}, checked: ValueError with the reason.
+    A model is drawn with the tool's tip at its origin and the spindle along +Z; z shifts it, rot turns it."""
+    if not isinstance(tools, dict) or len(tools) > 200:
+        raise ValueError("the tools' models: at most 200")
+    out = {}
+    for k, t in tools.items():
+        if not str(k).isdigit() or not 0 < int(k) < 100000 or not isinstance(t, dict):
+            raise ValueError("a tool's model: under its tool number")
+        src = str(t.get("src", ""))
+        if not src.startswith("model:") or not os.path.isfile(model_path(src[6:])):
+            raise ValueError("T%s: no such model: %s" % (k, src[6:] or "(none)"))
+        num = lambda v, lim: max(-lim, min(lim, float(v))) if math.isfinite(float(v)) else 0.0  # noqa: E731
+        rot = [num(v, 360) for v in list(t.get("rot", (0, 0, 0)))[:3]]
+        if len(rot) != 3:
+            raise ValueError("T%s: rot is three numbers" % k)
+        out[str(int(k))] = {"src": src, "z": num(t.get("z", 0), 1000), "rot": rot, "scale": max(0.001, min(1000.0, float(t.get("scale", 1))))}
+    return out
+
+
 HAL_TYPES = {1: "bit", 2: "float", 3: "s32", 4: "u32"}
 HAL_DIRS = {16: "IN", 32: "OUT", 48: "IO", 64: "RO", 192: "RW"}
 
@@ -882,17 +902,28 @@ class Machine:
         except (OSError, ValueError, KeyError, TypeError):
             return [dict(o) for o in DEFAULT_SETUP]
 
-    def cmd_setup_save(self, objects):
+    def setup_tools(self):
+        """The tools' 3D models (tools_check's form); none when there is no setup file."""
+        try:
+            with open(self.setup_file) as f:
+                t = json.load(f).get("tools", {})
+            return t if isinstance(t, dict) else {}
+        except (OSError, ValueError, AttributeError):
+            return {}
+
+    def cmd_setup_save(self, objects, tools=None):
+        """objects: the setup's; tools: the tools' models (None: as they are)."""
         objects = setup_check(objects, lambda n: self._safe(n, kind="model"))
+        tools = self.setup_tools() if tools is None else tools_check(tools, lambda n: self._safe(n, kind="model"))
         with open(self.setup_file + ".tmp", "w") as f:
-            json.dump({"objects": objects}, f, indent=1)
+            json.dump({"objects": objects, "tools": tools}, f, indent=1)
         os.replace(self.setup_file + ".tmp", self.setup_file)
         return None
 
     def _in_setup(self, path):
         """The setup's object that uses this model (or a model in this folder), or None."""
         real = os.path.realpath(path)
-        for o in self.setup():
+        for o in self.setup() + [dict(t, name="T" + k) for k, t in self.setup_tools().items()]:
             src = o.get("src", "")
             if src.startswith("model:"):
                 try:

@@ -19,6 +19,7 @@ import copy
 import datetime
 import difflib
 import json
+import math
 import os
 import re
 import shutil
@@ -60,7 +61,14 @@ DEFAULT = {
     ],
     "estop": {"input": "", "invert": False},
     "probe": {"type": "none", "input": "", "invert": False, "sim_z": -100},
-    "spindle": {"type": "sim", "max_rpm": 24000},
+    # sim: answers at once; hal: its pins (on, forward, speed out in rpm, at-speed in); none
+    "spindle": {"type": "sim", "max_rpm": 24000, "min_rpm": 0, "on": "", "forward": "", "reverse": "", "speed": "", "at_speed": ""},
+    # a rack tool changer, M6 remapped to run/toolchange.ngc: tool n sits in pocket n (1..pockets), the pockets in a
+    # row from pocket 1 at (x, y) by (dx, dy); the holder enters its fork sideways along +Y by slide (0: from above).
+    # unclamp drives the drawbar (true: released), clamped / released are its sensors (blank: a dwell instead), air
+    # blows the cone while the spindle is empty
+    "atc": {"type": "none", "pockets": 8, "x": 0, "y": 0, "dx": 50, "dy": 0, "z_clear": 0, "z_pocket": -100, "slide": 0,
+            "feed": 1000, "unclamp": "", "clamped": "", "released": "", "air": "", "dwell": 0.5, "timeout": 3},
     "toolsetter": None,
     "display": {"max_feed_override": 2.0, "max_spindle_override": 1.5, "min_spindle_override": 0.5},
     "console": {"port": 8080, "host": "0.0.0.0", "token": "", "on_control_loss": "continue", "hal_write": False,
@@ -198,6 +206,18 @@ def validate(raw, mdir=None):
                 j[k] = round(ax[k] * 1.1, 6)
         for k in ("min", "max", "max_vel", "max_acc", "ferror", "min_ferror"):
             _num(j.get(k), "%s.%s" % (w, k), errs)
+        mech = j.get("mech")
+        if isinstance(mech, dict) and mech.get("lead") in (None, ""):  # no lead: the drive works in mm itself
+            j.pop("mech")
+            mech = None
+        if mech is not None:  # the screw and the gearing between it and the motor: the drive's command in motor radians
+            if not isinstance(mech, dict):
+                errs.append((w + ".mech", "lead and ratio"))
+            else:
+                _num(mech.get("lead"), w + ".mech.lead", errs, 1e-3, 10000)
+                _num(mech.setdefault("ratio", 1), w + ".mech.ratio", errs, 1e-3, 1000)
+                if not isinstance(mech.setdefault("reverse", False), bool):
+                    errs.append((w + ".mech.reverse", "true or false"))
         if d.get("type") not in DRIVES:
             errs.append((w + ".drive.type", "one of " + ", ".join(DRIVES)))
         elif d["type"] == "stmbl_sserial":
@@ -258,9 +278,35 @@ def validate(raw, mdir=None):
         errs.append(("probe.input", "the probe's HAL pin"))
     if m["probe"]["type"] == "sim" and "Z" not in m["axes"]:
         errs.append(("probe.type", "the simulated probe needs a Z axis"))
-    if m["spindle"]["type"] not in ("none", "sim"):
-        errs.append(("spindle.type", "none or sim"))
-    _num(m["spindle"]["max_rpm"], "spindle.max_rpm", errs, 0, 200000)
+    sp = m["spindle"]
+    if sp["type"] not in ("none", "sim", "hal"):
+        errs.append(("spindle.type", "none, sim or hal"))
+    _num(sp["max_rpm"], "spindle.max_rpm", errs, 0, 200000)
+    _num(sp["min_rpm"], "spindle.min_rpm", errs, 0, 200000)
+    for k in ("on", "forward", "reverse", "speed", "at_speed"):
+        if sp[k] and not HALNAME.match(str(sp[k])):
+            errs.append(("spindle." + k, "a HAL pin name"))
+    if sp["type"] == "hal" and not (sp["on"] or sp["speed"] or sp["forward"]):
+        errs.append(("spindle.on", "at least one of its pins: on, forward or speed"))
+    t = m["atc"]
+    if t["type"] not in ("none", "rack"):
+        errs.append(("atc.type", "none or rack"))
+    elif t["type"] == "rack":
+        _num(t["pockets"], "atc.pockets", errs, 1, 99, True)
+        for k in ("x", "y", "dx", "dy", "z_clear", "z_pocket", "slide"):
+            _num(t[k], "atc." + k, errs)
+        _num(t["feed"], "atc.feed", errs, 1, 100000)
+        _num(t["dwell"], "atc.dwell", errs, 0, 60)
+        _num(t["timeout"], "atc.timeout", errs, 0.1, 60)
+        for k in ("unclamp", "clamped", "released", "air"):
+            if t[k] and not HALNAME.match(str(t[k])):
+                errs.append(("atc." + k, "a HAL pin name"))
+        if not t["unclamp"]:
+            errs.append(("atc.unclamp", "the drawbar's output pin"))
+        if "Z" not in m["axes"]:
+            errs.append(("atc.type", "a tool changer needs a Z axis"))
+        if all(isinstance(t[k], (int, float)) for k in ("z_clear", "z_pocket")) and t["z_pocket"] >= t["z_clear"]:
+            errs.append(("atc.z_pocket", "below z_clear"))
     ts = m["toolsetter"]
     if ts is not None:
         if not isinstance(ts, dict):
@@ -414,7 +460,9 @@ def generate(m, mdir, mill, custom=None):
     for k, v in sorted(c["extra"].items()):
         mw.append((k, v))
     sec("MILLWEB", *mw)
-    sec("RS274NGC", ("PARAMETER_FILE", os.path.join(mdir, "linuxcnc.var")))
+    atc = m["atc"]["type"] == "rack"
+    sec("RS274NGC", ("PARAMETER_FILE", os.path.join(mdir, "linuxcnc.var")),
+        ("SUBROUTINE_PATH", run if atc else None), ("REMAP", "M6 modalgroup=6 ngc=toolchange" if atc else None))
     sec("EMCMOT", ("EMCMOT", "motmod"), ("COMM_TIMEOUT", 1.0), ("SERVO_PERIOD", m["servo_period_ns"]))
     sec("TASK", ("TASK", "milltask"), ("CYCLE_TIME", 0.01))
     halfiles = [os.path.join(run, "machine.hal")]
@@ -453,7 +501,7 @@ def generate(m, mdir, mill, custom=None):
     # ---------------------------------------------------------- the HAL
     H = ["# made by millweb from machine.json: edit that (the Configure page), or add to custom.hal",
          "loadrt [KINS]KINEMATICS",
-         "loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS"]
+         "loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS" + (" num_dio=4" if m["atc"]["type"] == "rack" else "")]
     h = H.append
     first, last = [], []  # functions before motion (read) and after it (write)
     if hm2:
@@ -480,6 +528,11 @@ def generate(m, mdir, mill, custom=None):
         first.insert(0, "stmbl-sim.0")
     if consoles:
         h("loadrt sserialterm tty=%s" % ",".join(os.path.join(run, x[5]) for x in consoles))
+    # joints with a screw lead (mech): the drive works in motor radians, LinuxCNC in mm; scale comps between
+    mech = {i: m["joints"][i]["mech"] for i, n, dd, pre, pins, con in drv if pre and m["joints"][i].get("mech")}
+    if mech:
+        h("loadrt scale names=%s" % ",".join("j%d-%s" % (i, k) for i in sorted(mech) for k in ("cmd", "vel", "fb")))
+        first += ["j%d-fb" % i for i in sorted(mech)]
     for f in first:
         h("addf %s servo-thread" % f)
     h("addf motion-command-handler servo-thread")
@@ -494,9 +547,24 @@ def generate(m, mdir, mill, custom=None):
         if not pre:
             h("net j%d joint.%d.motor-pos-cmd => joint.%d.motor-pos-fb" % (i, i, i))
             continue
-        h("net j%d-pos-cmd joint.%d.motor-pos-cmd => %s.%s" % (i, i, pre, pins["pos_cmd"]))
-        h("net j%d-vel-cmd joint.%d.vel-cmd => %s.%s" % (i, i, pre, pins["vel_cmd"]))
-        h("net j%d-pos-fb %s.%s => joint.%d.motor-pos-fb" % (i, pre, pins["pos_fb"], i))
+        if i in mech:
+            me = mech[i]
+            k = 2 * math.pi * me["ratio"] / me["lead"] * (-1 if me.get("reverse") else 1)  # motor rad per mm
+            h("# %s mm a screw turn, the motor %s turns a screw turn: %s mm a motor turn, %s rad/mm" % (
+                _fmt(float(me["lead"])), _fmt(float(me["ratio"])), _fmt(me["lead"] / me["ratio"]), _fmt(k)))
+            for part, gain in (("cmd", k), ("vel", k), ("fb", 1 / k)):
+                h("setp j%d-%s.gain %s" % (i, part, repr(gain)))
+            h("net j%d-pos-cmd joint.%d.motor-pos-cmd => j%d-cmd.in" % (i, i, i))
+            h("net j%d-pos-cmd-rad j%d-cmd.out => %s.%s" % (i, i, pre, pins["pos_cmd"]))
+            h("net j%d-vel-cmd joint.%d.vel-cmd => j%d-vel.in" % (i, i, i))
+            h("net j%d-vel-cmd-rad j%d-vel.out => %s.%s" % (i, i, pre, pins["vel_cmd"]))
+            h("net j%d-pos-fb-rad %s.%s => j%d-fb.in" % (i, pre, pins["pos_fb"], i))
+            h("net j%d-pos-fb j%d-fb.out => joint.%d.motor-pos-fb" % (i, i, i))
+            tail += ["j%d-cmd" % i, "j%d-vel" % i]
+        else:
+            h("net j%d-pos-cmd joint.%d.motor-pos-cmd => %s.%s" % (i, i, pre, pins["pos_cmd"]))
+            h("net j%d-vel-cmd joint.%d.vel-cmd => %s.%s" % (i, i, pre, pins["vel_cmd"]))
+            h("net j%d-pos-fb %s.%s => joint.%d.motor-pos-fb" % (i, pre, pins["pos_fb"], i))
         h("net j%d-enable joint.%d.amp-enable-out => %s.%s" % (i, i, pre, pins["enable"]))
         h("net j%d-fault %s.%s => joint.%d.amp-fault-in" % (i, pre, pins["fault"], i))
         if m["joints"][i]["home"]["method"] == "index":
@@ -562,13 +630,83 @@ def generate(m, mdir, mill, custom=None):
         h("net probe probe-and.out => motion.probe-input")
     h("net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed")
     h("net tool-prep iocontrol.0.tool-prepare => iocontrol.0.tool-prepared")
-    if m["spindle"]["type"] == "sim":
+    sp = m["spindle"]
+    if sp["type"] == "sim":
         h("setp spindle.0.at-speed 1")
+    elif sp["type"] == "hal":
+        for k, pin, nm in (("on", "spindle.0.on", "spindle-on"), ("forward", "spindle.0.forward", "spindle-cw"),
+                           ("reverse", "spindle.0.reverse", "spindle-ccw"), ("speed", "spindle.0.speed-out-abs", "spindle-rpm")):
+            if sp[k]:
+                h("net %s %s => %s" % (nm, pin, sp[k]))
+        if sp["at_speed"]:
+            h("net spindle-at-speed %s => spindle.0.at-speed" % sp["at_speed"])
+        else:
+            h("setp spindle.0.at-speed 1")
+    t = m["atc"]
+    if t["type"] == "rack":  # the M6 remap's I/O: motion's digital outputs 0 (drawbar), 1 (air); inputs 0 (clamped), 1 (released)
+        h("net atc-unclamp motion.digital-out-00 => %s" % t["unclamp"])
+        if t["air"]:
+            h("net atc-air motion.digital-out-01 => %s" % t["air"])
+        if t["clamped"]:
+            h("net atc-clamped %s => motion.digital-in-00" % t["clamped"])
+        if t["released"]:
+            h("net atc-released %s => motion.digital-in-01" % t["released"])
     h("")
     for f in tail + last:
         h("addf %s servo-thread" % f)
     hal = "\n".join(H) + "\n"
-    return {"mill.ini": ini, "machine.hal": hal}
+    out = {"mill.ini": ini, "machine.hal": hal}
+    if t["type"] == "rack":
+        out["toolchange.ngc"] = toolchange_ngc(t)
+    return out
+
+
+def toolchange_ngc(t):
+    """The rack changer's M6 (run/toolchange.ngc): the tool in the spindle back to its pocket, the new one out of
+    its own; a tool beyond the pockets is changed by hand (a message and a pause)."""
+    f = _fmt
+    P = "#<_pk>"
+    px, py = "[%s + [%s - 1] * %s]" % (f(t["x"]), P, f(t["dx"])), "[%s + [%s - 1] * %s]" % (f(t["y"]), P, f(t["dy"]))
+    sl = float(t["slide"])
+    out_y = "[%s - %s]" % (py, f(sl)) if sl else py  # where the holder is clear of its fork, at the pocket's height
+    above = f(min(t["z_pocket"] + 5, t["z_clear"]))
+
+    def wait(n, what):  # a sensor: wait for it (abort when it doesn't come); none: the dwell
+        pin = t["clamped" if n == 0 else "released"]
+        if not pin:
+            return ["G4 P%s" % f(t["dwell"])]
+        return ["M66 P%d L3 Q%s" % (n, f(t["timeout"])),
+                "o<tc-w%d> if [#5399 LT 0]" % n, "  (abort, tool change: the drawbar didn't %s)" % what, "o<tc-w%d> endif" % n]
+    L = ["; made by millweb from machine.json's atc: edit that (the Configure page's Tools tab), not this file",
+         "; M6 remap: tool n in pocket n (1..%d); the others by hand" % t["pockets"],
+         "o<toolchange> sub", "M70", "o<tc-same> if [#<_selected_tool> EQ #<_current_tool>]", "  M72", "  o<toolchange> return", "o<tc-same> endif",
+         "M5 M9", "G90 G21 G40 G49", "G53 G0 Z%s" % f(t["z_clear"]),
+         "; the tool in the spindle back into its pocket",
+         "o<tc-put> if [[#<_current_tool> GT 0] AND [#<_current_tool> LE %d]]" % t["pockets"],
+         "  %s = #<_current_tool>" % P,
+         "  G53 G0 X%s Y%s" % (px, out_y), "  G53 G0 Z%s" % above, "  G53 G1 Z%s F%s" % (f(t["z_pocket"]), f(t["feed"]))]
+    if sl:
+        L.append("  G53 G1 Y%s" % py)
+    L += ["  M64 P0"] + ["  " + x for x in wait(1, "release")] + ["  G53 G0 Z%s" % f(t["z_clear"])]
+    L += ["o<tc-put> elseif [#<_current_tool> GT 0]", "  (MSG, take T#<_current_tool> out of the spindle by hand, then cycle start)", "  M0",
+          "o<tc-put> endif",
+          "; the new tool out of its pocket",
+          "o<tc-get> if [[#<_selected_tool> GT 0] AND [#<_selected_tool> LE %d]]" % t["pockets"],
+          "  %s = #<_selected_tool>" % P,
+          "  G53 G0 X%s Y%s" % (px, py), "  M64 P0"]
+    if t["air"]:
+        L.append("  M64 P1")
+    L += ["  G53 G0 Z%s" % above, "  G53 G1 Z%s F%s" % (f(t["z_pocket"]), f(t["feed"])), "  M65 P0"] + ["  " + x for x in wait(0, "clamp")]
+    if t["air"]:
+        L.append("  M65 P1")
+    if sl:
+        L.append("  G53 G1 Y%s" % out_y)
+    L += ["  G53 G0 Z%s" % f(t["z_clear"]),
+          "o<tc-get> elseif [#<_selected_tool> GT 0]", "  M65 P0", "  (MSG, put T#<_selected_tool> into the spindle by hand, then cycle start)", "  M0",
+          "o<tc-get> else", "  M65 P0", "  M65 P1",
+          "o<tc-get> endif",
+          "M61 Q#<_selected_tool>", "M72", "o<toolchange> endsub", "M2", ""]
+    return "\n".join(L)
 
 
 # ------------------------------------------------------------------ the folder

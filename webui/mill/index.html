@@ -165,6 +165,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .seg button { border: 0; background: transparent; padding: 4px 8px; font-size: 11.5px; color: var(--ink-dim); border-right: 1px solid var(--line); }
 .seg button:last-child { border-right: 0; }
 .seg button[aria-pressed="true"] { background: var(--accent-dim); color: var(--ink); }
+.rstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; overflow: auto; }
+.rstats div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; display: flex; flex-direction: column; }
+.rstats span { font: 10px var(--f-display); letter-spacing: .08em; color: var(--ink-dim); }
+.rstats b { font: 17px var(--f-mono); color: var(--ink); white-space: nowrap; }
+.rstats small { font: 11px var(--f-mono); color: var(--ink-faint); white-space: nowrap; }
+.rstats .warn b { color: var(--warn); }
 .subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
 .subtabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 5px 9px; font: 10px var(--f-display); letter-spacing: .1em; color: var(--ink-dim); }
 .subtabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -354,13 +360,31 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 /* ---------- footer */
 .foot { grid-area: foot; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font: 11px var(--f-mono); color: var(--ink-dim);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 10px; }
-.foot .msg { flex: 1; min-width: 200px; color: var(--ink); font-family: var(--f-body); font-size: 12px; }
+.foot .msg { flex: 1; min-width: 200px; color: var(--ink); font-family: var(--f-body); font-size: 15px; cursor: pointer; }
 .foot .sim { color: var(--ink-faint); }
 
 .dialog { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
 .dialog .box { background: var(--panel); border: 1px solid var(--line-hi); border-radius: 8px; padding: 16px; width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; }
 .dialog h3 { margin: 0; font: 12px var(--f-display); letter-spacing: .1em; }
 .dialog input { background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 8px; font: 16px var(--f-mono); }
+/* a warning or an error: a large card over the page; it never takes clicks (a tap anywhere closes it) */
+.popmsg { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); z-index: 30; pointer-events: none; width: min(760px, calc(100vw - 32px)); }
+.popmsg .pm-card { background: var(--panel-2); border: 2px solid var(--warn); border-radius: 10px; padding: 18px 22px 14px; box-shadow: 0 14px 48px rgba(0,0,0,.65);
+  display: flex; flex-direction: column; gap: 8px; animation: pm-in .15s ease-out; }
+.popmsg.bad .pm-card { border-color: var(--stop); }
+.popmsg.info .pm-card { border-color: var(--line-hi); }
+.popmsg .pm-k { font: 12px var(--f-display); letter-spacing: .12em; color: var(--warn); }
+.popmsg.bad .pm-k { color: var(--stop); } .popmsg.info .pm-k { color: var(--ink-dim); }
+.popmsg .pm-t { margin: 0; font: 22px/1.35 var(--f-body); color: var(--ink); overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
+.popmsg .pm-f { font: 11px var(--f-mono); color: var(--ink-faint); }
+.busy { position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 25; pointer-events: none; width: min(520px, calc(100vw - 32px));
+  background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 8px; padding: 10px 14px; box-shadow: 0 10px 32px rgba(0,0,0,.55);
+  display: flex; flex-direction: column; gap: 7px; font: 14px var(--f-body); color: var(--ink); }
+.busy .bar { height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; }
+.busy .bar i { display: block; height: 100%; width: 0; background: var(--accent, #4cc9ff); transition: width .15s; }
+.busy .bar.ind i { width: 30% !important; animation: busy-ind 1.1s linear infinite; }
+@keyframes busy-ind { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@keyframes pm-in { from { opacity: 0; transform: translateY(-8px); } }
 
 /* ---------- the Configure page */
 .cf-bar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
@@ -391,6 +415,16 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 .cf-view { position: sticky; top: 0; height: 420px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .cf-view .viewer { height: 100%; }
 .cf input[type=color] { padding: 2px; height: 32px; }
+.cf .pinrow { display: flex; gap: 4px; } .cf .pinrow input { flex: 1; } .cf .pinrow .btn { padding: 0 8px; flex: none; }
+.pp-box { width: min(760px, 100%) !important; max-height: 86vh; }
+.pp-box .row input { flex: 1; background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 7px 9px; font: 13px var(--f-mono); }
+.pp-list { overflow: auto; min-height: 120px; max-height: 56vh; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
+.pp-list button { display: grid; grid-template-columns: minmax(0, 1fr) 46px 34px minmax(0, .6fr); gap: 8px; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  padding: 6px 9px; font: 12.5px var(--f-mono); color: var(--ink); }
+.pp-list button:hover, .pp-list button:focus { background: var(--panel-3); }
+.pp-list button[aria-selected="true"] { color: var(--accent); }
+.pp-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pp-list button .m { color: var(--ink-faint); }
+.pp-list .grp { padding: 5px 9px 3px; font: 10px var(--f-display); letter-spacing: .08em; color: var(--ink-dim); background: var(--panel); position: sticky; top: 0; }
 @media (max-width: 1100px) { .cf-model { grid-template-columns: minmax(0, 1fr); } .cf-view { position: static; height: 340px; } }
 .cf-problems { border-color: var(--stop); }
 .cf-problems li { cursor: pointer; } .cf-problems li b { font-family: var(--f-mono); font-weight: 500; color: var(--stop); }
@@ -594,6 +628,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
           <div class="subtabs" role="tablist">
             <button role="tab" id="st-mdi" aria-selected="true">MDI</button>
             <button role="tab" id="st-jog" aria-selected="false">JOG</button>
+            <button role="tab" id="st-stats" aria-selected="false">STATS</button>
           </div>
           <div class="mdi" id="sp-mdi">
             <form class="mdi-in" id="mdi-form"><input id="mdi" placeholder="G0 X10 Y20 · M3 S12000 · T5 M6 · G10 L20 P1 Z0" autocomplete="off" aria-label="MDI command"><button class="btn accent" type="submit">Send</button></form>
@@ -608,6 +643,10 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
               <button data-j="y-" style="grid-column:2">Y−</button><button data-j="z-" style="grid-column:4">Z−</button>
             </div>
             <p class="note">Keys: ← → X, ↑ ↓ Y, Page Up / Down Z. With CONT, hold the key or button.</p>
+          </div>
+          <div class="mdi" id="sp-stats" hidden>
+            <div class="row between"><span class="muted" id="rs-head">No run yet: the statistics of a program's run show here while it runs.</span><button class="btn sm" id="rs-reset">Reset</button></div>
+            <div class="rstats" id="rstats"></div>
           </div>
         </div>
       </div>
@@ -705,6 +744,17 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
         <div class="wrapx"><table class="t" id="tool-t"></table></div>
         <div class="row"><button class="btn accent" id="tl-load">Load selected (M6)</button><button class="btn" id="tl-meas">Measure on the tool setter</button><button class="btn" id="tl-add">Add tool</button><button class="btn" id="tl-del">Delete selected</button></div>
         <p class="note">Tool setter at machine X 980 Y 20. Lengths are from the spindle's gauge line.</p>
+      </div>
+      <div class="panel">
+        <h2>3D model <small id="tm-t">T3</small></h2>
+        <div class="form">
+          <label>Model<select id="tm-src"></select></label>
+          <label>Shift along Z (mm)<input id="tm-z" type="number" step="0.1" value="0"></label>
+          <label>Turn about X (°)<input id="tm-rx" type="number" step="90" value="0"></label>
+          <label>Scale<input id="tm-s" type="number" step="0.1" value="1"></label>
+        </div>
+        <div class="row"><input type="file" id="tm-file" accept=".stl,.obj" hidden><button class="btn" id="tm-up">Upload a model…</button></div>
+        <p class="note">The tool and its holder in one STL or OBJ, in mm: its origin at the cutting tip, the spindle along +Z (drawn with Y up: turn 90° about X; 25.4 scales one drawn in inches). It replaces the drawn cylinder in the 3D view.</p>
       </div>
     </section>
 
@@ -929,7 +979,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       <p class="cf-err" id="cf-error" hidden></p>
       <div class="panel cf-main">
         <div class="seg cf-tabs" id="cf-tabs" role="tablist">
-          <button data-t="machine" aria-pressed="true">Machine</button><button data-t="axes" aria-pressed="false">Axes &amp; joints</button><button data-t="hw" aria-pressed="false">Hardware</button><button data-t="io" aria-pressed="false">I/O</button><button data-t="console" aria-pressed="false">Console</button><button data-t="model" aria-pressed="false">3D model</button><button data-t="custom" aria-pressed="false">Custom HAL</button><button data-t="json" aria-pressed="false">machine.json</button><button data-t="gen" aria-pressed="false">Generated</button><button data-t="hist" aria-pressed="false">History</button><button data-t="log" aria-pressed="false">Log</button>
+          <button data-t="machine" aria-pressed="true">Machine</button><button data-t="axes" aria-pressed="false">Axes &amp; joints</button><button data-t="hw" aria-pressed="false">Hardware</button><button data-t="spindle" aria-pressed="false">Spindle</button><button data-t="tools" aria-pressed="false">Tools &amp; probe</button><button data-t="io" aria-pressed="false">I/O</button><button data-t="console" aria-pressed="false">Console</button><button data-t="model" aria-pressed="false">3D model</button><button data-t="custom" aria-pressed="false">Custom HAL</button><button data-t="json" aria-pressed="false">machine.json</button><button data-t="gen" aria-pressed="false">Generated</button><button data-t="hist" aria-pressed="false">History</button><button data-t="log" aria-pressed="false">Log</button>
         </div>
         <div class="cf-body" id="cf-body"></div>
       </div>
@@ -1019,6 +1069,12 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
     <span class="sim" id="f-src">simulated · concept</span>
   </footer>
 </div>
+<div class="busy" id="busy" role="status" hidden><span id="busy-t"></span><div class="bar" id="busy-bar"><i></i></div></div>
+<div class="dialog" id="pinpick" hidden><div class="box pp-box"><h3 id="pp-t">HAL pin</h3><p class="note" id="pp-n"></p>
+  <div class="row"><input id="pp-q" placeholder="filter: inm input, outm, spindle …" autocomplete="off" spellcheck="false" aria-label="Filter"><select id="pp-type" aria-label="Type"><option value="">all types</option><option>bit</option><option>float</option><option>s32</option><option>u32</option></select></div>
+  <div class="pp-list" id="pp-list" role="listbox"></div>
+  <div class="row" style="justify-content:space-between"><span class="muted" id="pp-count"></span><span class="row"><button class="btn" type="button" id="pp-clear">None</button><button class="btn" type="button" id="pp-cancel">Cancel</button></span></div></div></div>
+<div class="popmsg" id="popmsg" role="alert" hidden><div class="pm-card"><span class="pm-k" id="pm-k">WARNING</span><p class="pm-t" id="pm-t"></p><span class="pm-f" id="pm-f">tap anywhere to close</span></div></div>
 <div class="dialog" id="dlg" hidden><form class="box" id="dlg-form"><h3 id="dlg-t">—</h3><p class="note" id="dlg-n"></p><input id="dlg-in" type="number" step="0.001" autocomplete="off" aria-label="Value"><div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="dlg-cancel">Cancel</button><button class="btn accent" type="submit">OK</button></div></form></div>
 
 <script src="vendor/three/three.min.js"></script>
