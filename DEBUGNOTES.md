@@ -2227,3 +2227,124 @@ Entry format:
 - Fix:     a level falls back only 10 % below its threshold (temperature
   2 degC); levels are judged from 0.5 s after the filters were (re)made.
 
+## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
+- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
+- Status:  Open
+- Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
+  psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
+  but j 24 % high and friction at half. With 3x the inertia every value is
+  within tolerance.
+- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
+  less than the electrical time constant l / r = 2.3 ms: the drive
+  segments are mostly current rise, and the momentum fit trades j against
+  friction.
+- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
+  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
+  unit and the load add inertia.
+
+## 2026-10-26  kigen: GND in a wide-clearance net class fails fine-pitch parts
+- Area:    hardware/kigen (sch.py net classes), hardware/vibsensor/gen/parts.py
+- Status:  Note
+- Symptom: DRC on the vibration sensor's board: four clearance errors
+  between the IIS3DWB's own pads (0.5 mm pitch, 0.15 mm apart).
+- Cause:   GND was in the "Power" net class (0.2 mm clearance), and LGA /
+  QFN pads of the same part sit closer than that.
+- Fix:     a board's NETCLASS_POWER (gen/parts.py) leaves GND out where
+  fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
+  classes (no violation there).
+
+
+## 2026-10-26  kigen: connector rows at 45 degrees collide in a chamfered tail
+- Area:    hardware/vibsensor/gen/board.py (two M8 sockets IN / OUT)
+- Status:  Note
+- Symptom: J1 / J3 rotated 45 degrees to face the tail's chamfers gave 26
+  courtyard violations; placed near the corner, "overlaps where fixed".
+- Cause:   kigen's courtyards are axis-aligned boxes, so a 45-degree row
+  grows its box into the M2 hole and the other row; its corner crossed
+  the tail chamfer.
+- Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
+  rotation 90; the socket's leads bend to them inside the potting.
+
+## 2026-10-27  SEW CMP40M resolver cable: pairs found by resistance
+- Area:    conf/sew_cmp40m.txt (RH1M resolver on res_fb0)
+- Status:  Note
+- Symptom: SEW's green resolver cable cut off its D-sub; which pair is
+  excitation, sin and cos.
+- Cause:   colours only; SEW's tables disagree on pins.
+- Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
+  out is the excitation (grey/pink 77.4 ohm), sin and cos match
+  (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
+  comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
+  violet/black: that pair reads 1 ohm, a bridge at the motor end.
+
+## 2026-10-27  servoterm-cli ignored SIGTERM in interactive mode
+- Area:    servoterm-cli/servoterm-cli.c (the interactive select loop)
+- Status:  Fixed
+- Symptom: `kill` on an interactive servoterm-cli did nothing; a test
+  driving it through a pty hung until its timeout.
+- Cause:   the loop retried select() on EINTR without looking at stop_req,
+  which the signal handler sets.
+- Fix:     the loop runs while !stop_req. Found by
+  host/tests/test_servoterm_ident.py (drive name in the prompt).
+
+## 2026-10-27  millweb: a moving-table machine in the 3D view
+- Area:    webui/mill/js/app.js (buildBuiltin, workG), machmodel.js
+- Status:  Note
+- Symptom: the 3D view drew everything in the work's frame with a gantry
+  moving over it; a fixed-bridge machine (CN 720) would show its base and
+  bridge sliding in Y.
+- Cause:   one frame for both layouts.
+- Fix:     machine.json `type` (gantry | bridge). For a bridge the view keeps
+  the base and bridge still (the tool at y 0) and moves workG (fixtures,
+  toolpath, trail, travel box) and the built-in table with -Y. Anything that
+  turns a view position back into machine Y must add workG.position.y (the
+  follow camera does).
+
+## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
+- Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js
+- Status:  Fixed
+- Symptom: in see-through mode (fixtures / workpiece "glass") the view
+  flickered where two surfaces lie at the same level (the stock on the
+  vise, the vise's jaws on its base), changing as the view turned.
+- Cause:   see-through materials don't write depth, so three.js sorts them
+  by their objects' distance every frame; two at the same level swap places
+  as the camera moves, and the blend changes with the order.
+- Fix:     every see-through mesh gets its own fixed renderOrder (per object,
+  per mesh inside it), and a polygon offset pushing it back (never forward,
+  so the toolpath on the stock top stays in front). Machine model parts
+  with opacity < 1 get a fixed order behind the setup's.
+
+## 2026-10-28  millweb 3D: "orange sparks" at some view angles only
+- Area:    webui/mill/js/app.js (scene setup: trail, chips)
+- Status:  Fixed
+- Symptom: the tool threw orange sparks at some view angles, none at others.
+- Cause:   the chip particles (and the tool trail) are buffers rewritten
+  every frame, but their bounding spheres were computed once (the chips' at
+  Z -5000, all parked there). three.js culled them by that stale sphere: they
+  showed only when it happened to be in view.
+- Fix:     frustumCulled = false on both; the chips are aluminium-grey now.
+  Any geometry whose positions change per frame needs this (or
+  computeBoundingSphere after each change).
+
+## 2026-10-28  LinuxCNC 2.9: an NGC-only M6 remap for a rack changer
+- Area:    webui/mill/server/machineconf.py (toolchange_ngc, atc)
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     `REMAP=M6 modalgroup=6 ngc=toolchange` without a Python prolog
+  works: the sub reads #<_current_tool> / #<_selected_tool>, ends with
+  `M61 Q#<_selected_tool>`, and M70 / M72 keep the modal state (G43 stays as
+  it was). M66 L3 sets #5399 to -1 on a timeout (abort then). M0 inside the
+  remap pauses for a manual change (resume continues). motion's digital I/O
+  needs `num_dio` on motmod. Checked in LinuxCNC 2.9 (sim joints, 4 pockets,
+  slide-in): T2, T3 swapped through the rack, T7 by hand.
+
+## 2026-10-28  backend_suite: "X moves through the drive" fails now and then
+- Area:    webui/mill/test/backend_suite.py (supervisor: an stmbl drive on X)
+- Status:  Open
+- Symptom: once in a full `make test-backend` run: joint.0.motor-pos-fb
+  599.990417 vs stmbl-sim.0.pos_fb 599.990173; the case alone passes.
+- Cause:   it reads both pins in one hal_values call and wants them equal,
+  but the drive may still be settling and the two are read a servo cycle
+  apart.
+- Fix:     idea: wait for inpos, or compare within 1 µm.

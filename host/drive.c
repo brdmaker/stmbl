@@ -106,6 +106,11 @@ const char *conf_flash_text(void) {  // shared/commands.c: version, the boot che
   return flash;
 }
 
+char *conf_ram(size_t *size) {  // shared/commands.c: name, motor
+  *size = sizeof(config);
+  return config;
+}
+
 void flashloadconf(char *ptr) {
   strncpy(config, flash, sizeof(config));
 }

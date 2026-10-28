@@ -1,4 +1,5 @@
-/* Portal Mill Console: the machine in the 3D view from its own 3D model.
+/* Portal Mill Console: the machine in the 3D view from its own 3D model, and the built-in machine of
+   machine.json's type (app.js buildBuiltin: a gantry, or a fixed bridge over a table moving in Y).
    machine.json's "model" (the Configure page's 3D model tab): parts, STL or
    OBJ files in the machine's models/ folder, each moving with the axes it
    rides on (fixed, with Y, with X and Y, with X, Y and Z, against X for a
@@ -19,10 +20,12 @@ function mm3dBuiltin(on) {
   R.toolG.traverse((o) => keep.add(o)); R.coolant.traverse((o) => keep.add(o));
   R.machine.traverse((o) => { if ((o.isMesh || o.isLine) && !keep.has(o)) o.visible = on; });
 }
-// a model ({builtin, parts}); getFile(name): its bytes (ArrayBuffer), or null
-function mm3dApply(model, getFile) {
+// a model ({builtin, parts}); getFile(name): its bytes (ArrayBuffer), or null; type: the built-in
+// machine, "gantry" or "bridge" (machine.json's type; the travel box from TRAVEL)
+function mm3dApply(model, getFile, type) {
   if (!R) return;
   model = model || {};
+  if (type && type !== R.type) buildBuiltin(type); else sizeLimits();
   mm3d.builtin = model.builtin !== false;
   mm3d.parts = Array.isArray(model.parts) ? model.parts.map((p) => ({ ...p })) : [];
   mm3dBuiltin(mm3d.builtin);
@@ -50,6 +53,7 @@ function mm3dBuild() {
     const r = (p.rot || [0, 0, 0]).map((d) => (+d || 0) * Math.PI / 180);
     mesh.rotation.set(r[0], r[1], r[2]);
     mesh.scale.setScalar(+p.scale || 1);
+    if (op < 1) mesh.renderOrder = -100 + mm3d.nodes.length;  // see-through parts: a fixed order, behind the setup's (setup3d.js stableOrder)
     const holder = new THREE.Group(); holder.add(mesh); mm3d.group.add(holder);
     mm3d.nodes.push({ holder, mat, p, k: movesOf(p.moves) });
   }
@@ -68,10 +72,18 @@ function mm3dPlace(m) {
 // the saved model: the machine's (millweb-supervisor), or the simulation's
 async function mm3dLoad() {
   if (!R) return;
-  if (LIVE && !LIVE.supervised()) return mm3dApply({ builtin: true, parts: [] }, async () => null);
+  if (LIVE && !LIVE.supervised()) return mm3dApply({ builtin: true, parts: [] }, async () => null, LIVE.info().type);
   const src = LIVE ? LIVE.conf : cfgSim, r = await src.get();
   if (!r.ok) return;
   let m = {};
   try { m = JSON.parse(r.text); } catch (e) { return; }
-  mm3dApply(m.model, src.modelGet);
+  if (!LIVE) mm3dTravel(m.axes);  // the simulation: the travel the example machine has (live: LinuxCNC's limits)
+  mm3dApply(m.model, src.modelGet, LIVE ? LIVE.info().type : m.type || "gantry");
+}
+// machine.json's axes as the travel (the simulation only: live, LinuxCNC's INI says)
+function mm3dTravel(axes) {
+  for (const a of ["x", "y", "z"]) {
+    const ax = (axes || {})[a.toUpperCase()];
+    if (ax && Number.isFinite(+ax.min) && Number.isFinite(+ax.max) && +ax.max > +ax.min) TRAVEL[a] = [+ax.min, +ax.max];
+  }
 }

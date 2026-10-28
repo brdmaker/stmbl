@@ -160,6 +160,8 @@ void about(char *ptr) {
   // printf("CPU ID     %lx %lx %lx\n",U_ID[0], U_ID[1], U_ID[2]);
   printf("size: %lu crc:%lx\n", version_info.image_size, version_info.image_crc);
   printf("firmware v%lu\n", (uint32_t)version_info.fw_version);  // STMBL_FW_VERSION; `version` has all of them
+  call_cmd("name");
+  call_cmd("motor");
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
   printf("######## Bootloader info ########\n");
   printf("DFU requests taken by the bootloader since power-on: %lu\n", ((volatile uint32_t *)DFU_REQUEST_ADDR)[1]);

@@ -29,26 +29,27 @@ as a KiCad 7 project: schematic, a placed (not routed) 28 × 28 mm board, a BOM.
 
 | file | what |
 |---|---|
-| `brdstepper.kicad_pro`, `brdstepper.kicad_sch` | the project; the root sheet holds five sheets: `power`, `mcu`, `bridges`, `encoder`, `interfaces` |
+| `brdstepper.kicad_pro`, `brdstepper.kicad_sch` | the project; the schematic is one A2 sheet with a framed section each for power, MCU, bridges, encoder and interfaces |
 | `brdstepper.kicad_sym`, `sym-lib-table` | the project's own symbols: DRV8876RGT, TPS560430, AS5047P |
 | `brdstepper.kicad_pcb` | the board |
 | `brdstepper-bom.csv` | parts by value and footprint, with variant (A smart-serial, B CAN) and notes |
 | `doc/` | the schematic as PDF, the placement render |
-| `gen/` | what makes all of the above |
+| `gen/parts.py`, `gen/board.py` | what makes all of the above, through `hardware/kigen` |
 
 ## Generated: edit `gen/parts.py`
 
 Every part, value, footprint and pin connection is in `gen/parts.py`, as
-transcribed from the document (section numbers in its comments). `make`
-regenerates everything:
+transcribed from the document (section numbers in its comments), and the
+placement rules are in `gen/board.py`. `make` regenerates everything with
+the shared generator `hardware/kigen` (also used by `hardware/vibsensor`):
 
 | step | does |
 |---|---|
-| `gen/gen.py` | symbols, project, schematic sheets |
-| `gen/check.py` | exports the netlist with kicad-cli and checks it against `parts.py` (see *Checks*) |
-| `gen/pcb.py` | the board: outline, holes, footprints, nets, placement, plane |
-| `gen/drc.py` | KiCad's DRC |
-| `gen/bom.py` | the BOM |
+| `kigen.py sch` | symbols, project, the schematic (one sheet, the sections packed onto the smallest paper that holds them) |
+| `kigen.py check` | exports the netlist with kicad-cli and checks it against `parts.py` (see *Checks*) |
+| `kigen.py pcb` | the board from `gen/board.py`: outline, holes, footprints, nets, placement, plane |
+| `kigen.py drc` | KiCad's DRC |
+| `kigen.py bom` | the BOM |
 
 `make pcb` places everything again, so hand edits to the board are lost.
 Once layout starts by hand, change the schematic in KiCad (or `parts.py` +
@@ -56,8 +57,8 @@ Once layout starts by hand, change the schematic in KiCad (or `parts.py` +
 their symbols' links.
 
 **Schematic style:**
-- Pins are joined by net name (global labels), not by drawn wires: each
-  sheet reads as a list of parts with their nets.
+- Pins are joined by net name (net labels), not by drawn wires: each
+  section reads as a list of parts with their nets.
 - Unused pins carry no-connect flags.
 - IMODE of the DRV8876s is left open on purpose (§4.2).
 
@@ -65,7 +66,7 @@ their symbols' links.
 
 KiCad 7's `kicad-cli` has neither ERC nor DRC, so:
 
-**`gen/check.py`** reads the netlist KiCad makes of the schematic and
+**`kigen.py check`** reads the netlist KiCad makes of the schematic and
 checks:
 - every net has exactly the pins `parts.py` gives it, and no other net
   exists;
@@ -76,7 +77,7 @@ checks:
 
 Result: 94 parts, 67 nets, no errors.
 
-**`gen/drc.py`** runs KiCad's DRC through pcbnew. Result:
+**`kigen.py drc`** runs KiCad's DRC through pcbnew. Result:
 - no clearance, courtyard, edge or hole violations;
 - only the unrouted connections;
 - footprint-library warnings, which appear only where KiCad's footprint

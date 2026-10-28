@@ -37,6 +37,7 @@ function fld(path, label, kind = "text", o = {}) {
   else if (kind === "lines") input = `<textarea ${attrs} spellcheck="false" rows="4">${esc((v || []).join("\n"))}</textarea>`;
   else if (kind === "kv") input = `<textarea ${attrs} spellcheck="false" rows="3">${esc(Object.entries(v || {}).map(([k, x]) => `${k} = ${x}`).join("\n"))}</textarea>`;
   else if (kind === "color") input = `<input type="color" ${attrs} value="${esc(String(v ?? d ?? "#8a99ab"))}">`;
+  else if (kind === "pin") input = `<span class="pinrow"><input ${attrs.replace('data-kind="pin"', 'data-kind="text"')} spellcheck="false" value="${v == null ? "" : esc(String(v))}"${ph}><button type="button" class="btn sm" data-pinpick="${path}" data-dir="${o.dir || "out"}" title="Choose from the HAL pins">Pins…</button></span>`;
   else input = `<input ${attrs} ${kind === "num" ? 'inputmode="decimal"' : 'spellcheck="false"'} value="${v === undefined || v === null ? "" : esc(String(v))}"${ph}>`;
   return `<label class="cf${o.wide ? " wide" : ""}" data-f="${path}">${label}${input}${help}</label>`;
 }
@@ -57,16 +58,50 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz" })}
-      ${fld("spindle.type", "Spindle", "sel", { choices: [["none", "none"], ["sim", "simulated (answers at once)"]] })}
-      ${fld("spindle.max_rpm", "Spindle max (rpm)", "num")}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
       ${fld("display.max_feed_override", "Feed override max", "num", { help: "2: 200 %" })}
       ${fld("display.max_spindle_override", "Spindle override max", "num")}
       ${fld("display.min_spindle_override", "Spindle override min", "num")}
-    </div>
+    </div>`,
+  spindle: () => {
+    const sp = cfg.m.spindle || {}, hal = sp.type === "hal";
+    return `<div class="cf-grid">
+      ${fld("spindle.type", "Spindle", "sel", { re: true, choices: [["none", "none"], ["sim", "simulated (answers at once)"], ["hal", "its HAL pins (a VFD, a spindle drive)"]] })}
+      ${sp.type !== "none" ? fld("spindle.max_rpm", "Max (rpm)", "num") + fld("spindle.min_rpm", "Min (rpm)", "num", { help: "0: none" }) : ""}</div>
+      ${hal ? `<h3>Pins <small class="muted">(blank: not used)</small></h3><div class="cf-grid">
+        ${fld("spindle.on", "On (bit out to it)", "pin", { dir: "in", help: "spindle.0.on" })}
+        ${fld("spindle.forward", "Forward (bit)", "pin", { dir: "in", help: "spindle.0.forward" })}
+        ${fld("spindle.reverse", "Reverse (bit)", "pin", { dir: "in", help: "spindle.0.reverse" })}
+        ${fld("spindle.speed", "Speed (float, rpm)", "pin", { dir: "in", help: "spindle.0.speed-out-abs; scale it in Custom HAL if the drive wants volts or Hz" })}
+        ${fld("spindle.at_speed", "At speed (bit in)", "pin", { dir: "out", help: "blank: at speed at once" })}</div>` : ""}`;
+  },
+  tools: () => {
+    const pr = cfg.m.probe || {}, t = cfg.m.atc || {}, rack = t.type === "rack";
+    return `<h3>Probe</h3><div class="cf-grid">
+      ${fld("probe.type", "Probe", "sel", { re: true, choices: [["none", "none"], ["input", "an input pin"], ["sim", "simulated (trips below a Z)"]] })}
+      ${pr.type === "input" ? fld("probe.input", "Input pin", "pin", { dir: "out" }) + fld("probe.invert", "Inverted", "bool") : ""}
+      ${pr.type === "sim" ? fld("probe.sim_z", "Trips below machine Z", "num") : ""}</div>
     <h3>Tool setter</h3>
     <label class="cf chk"><input type="checkbox" id="cf-ts"${cfg.m.toolsetter ? " checked" : ""}> A tool setter (the Tools page's Measure)</label>
-    ${cfg.m.toolsetter ? `<div class="cf-grid">${fld("toolsetter.x", "X (machine)", "num")}${fld("toolsetter.y", "Y (machine)", "num")}${fld("toolsetter.z_above", "Z above it", "num")}${fld("toolsetter.z_ref", "Z of the reference tool's tip", "num", { help: "tool length = touched Z − this" })}${fld("toolsetter.travel", "Search travel", "num")}</div>` : ""}`,
+    ${cfg.m.toolsetter ? `<div class="cf-grid">${fld("toolsetter.x", "X (machine)", "num")}${fld("toolsetter.y", "Y (machine)", "num")}${fld("toolsetter.z_above", "Z above it", "num")}${fld("toolsetter.z_ref", "Z of the reference tool's tip", "num", { help: "tool length = touched Z − this" })}${fld("toolsetter.travel", "Search travel", "num")}</div>` : ""}
+    <h3>Tool changer</h3><div class="cf-grid">
+      ${fld("atc.type", "Changer", "sel", { re: true, def: "none", choices: [["none", "none: tools by hand"], ["rack", "a rack (M6 runs the change)"]] })}</div>
+    ${rack ? `<p class="note">Tool <i>n</i> sits in pocket <i>n</i>; pocket 1 at X, Y, the next ones a pitch further. A tool beyond the pockets is changed by hand (a message, then cycle start). Positions are machine coordinates; Generated shows the M6 it makes (run/toolchange.ngc).</p>
+      <div class="cf-grid">
+        ${fld("atc.pockets", "Pockets", "num")}
+        ${fld("atc.x", "Pocket 1 X", "num")}${fld("atc.y", "Pocket 1 Y", "num")}
+        ${fld("atc.dx", "Pitch X", "num")}${fld("atc.dy", "Pitch Y", "num")}
+        ${fld("atc.z_clear", "Z clear of the rack", "num")}${fld("atc.z_pocket", "Z in the pocket", "num", { help: "the spindle nose on the holder" })}
+        ${fld("atc.slide", "Slide in along +Y", "num", { help: "0: the spindle comes straight down" })}
+        ${fld("atc.feed", "Approach feed (mm/min)", "num")}
+        ${fld("atc.dwell", "Dwell (s)", "num", { help: "without sensors: the drawbar's time" })}${fld("atc.timeout", "Sensor timeout (s)", "num")}</div>
+      <h3>Its pins</h3><div class="cf-grid">
+        ${fld("atc.unclamp", "Drawbar (bit out: release)", "pin", { dir: "in" })}
+        ${fld("atc.air", "Cone air (bit out)", "pin", { dir: "in", help: "blank: none" })}
+        ${fld("atc.clamped", "Clamped sensor (bit in)", "pin", { dir: "out", help: "blank: the dwell" })}
+        ${fld("atc.released", "Released sensor (bit in)", "pin", { dir: "out", help: "blank: the dwell" })}</div>` : ""}`;
+  },
   axes: () => {
     const axes = cfg.m.axes || {}, J = cfg.m.joints || [];
     const ax = Object.keys(axes).map((a) => `<tr data-axis="${a}"><td><b>${a}</b></td>${["min", "max", "max_vel", "max_acc"].map((k) => `<td data-f="axes.${a}.${k}">${fldIn(`axes.${a}.${k}`, "num")}</td>`).join("")}<td><button class="btn sm" data-rmaxis="${a}" title="Remove the axis">×</button></td></tr>`).join("");
@@ -76,7 +111,7 @@ const TABS = {
       const drv = t === "stmbl_sserial" ? fld(`${P}.drive.port`, "Smart-serial port", "num", { def: 0 }) + fld(`${P}.drive.channel`, "Channel", "num", { def: 0 })
         : t === "stmbl_can" ? fld(`${P}.drive.bus`, "CAN bus", "num", { def: 0 }) + fld(`${P}.drive.node`, "Node", "num", { def: 1 })
         : t === "stmbl_sim" ? fld(`${P}.drive.conf`, "Drive config (in the folder)", "text", { def: "drive.conf" }) + fld(`${P}.drive.sim`, "Sim commands file", "text", { def: "" }) : "";
-      const homing = hm === "switch" ? fld(`${P}.home.switch`, "Switch pin", "text", { def: "" }) + fld(`${P}.home.search_vel`, "Search speed", "num", { def: "", help: "its sign: the direction" }) + fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 })
+      const homing = hm === "switch" ? fld(`${P}.home.switch`, "Switch pin", "pin", { def: "", dir: "out" }) + fld(`${P}.home.search_vel`, "Search speed", "num", { def: "", help: "its sign: the direction" }) + fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 })
         : hm === "index" ? fld(`${P}.home.latch_vel`, "Latch speed", "num", { def: "" }) + fld(`${P}.home.offset`, "Offset", "num", { def: 0 }) : "";
       return `<div class="cf-joint" data-joint="${i}"><div class="h"><b>Joint ${i}</b><span class="muted">${esc(j.axis || "?")} · ${esc((DRIVE_T.find((x) => x[0] === t) || [t, t])[1])}</span><span class="spacer"></span><button class="btn sm" data-rmjoint="${i}" title="Remove the joint">Remove</button></div>
         <div class="cf-grid">
@@ -84,6 +119,9 @@ const TABS = {
           ${fld(`${P}.drive.type`, "Drive", "sel", { re: true, choices: DRIVE_T })}
           ${drv}
           ${t !== "sim" ? fld(`${P}.drive.console`, "Its console on the Drives tab", "bool", { def: true }) : ""}
+          ${fld(`${P}.mech.lead`, j.axis && "ABC".includes(j.axis) ? "Lead (° a turn)" : "Screw lead (mm)", "num", { def: "", re: true, help: t === "sim" ? "a stmbl drive's command in motor radians" : "blank: the drive works in mm" })}
+          ${fld(`${P}.mech.ratio`, "Motor turns a screw turn", "num", { def: 1, re: true, help: mechHelp(j, cfg.m.axes[j.axis]) })}
+          ${j.mech && j.mech.lead ? fld(`${P}.mech.reverse`, "Motor turns the other way", "bool") : ""}
           ${fld(`${P}.ferror`, "Following error", "num", { def: 1 })}${fld(`${P}.min_ferror`, "… at rest", "num", { def: 0.25 })}
           ${fld(`${P}.home.method`, "Homing", "sel", { re: true, choices: HOME_T })}${fld(`${P}.home.pos`, "Home at", "num", { def: 0 })}${fld(`${P}.home.sequence`, "Sequence", "num", { def: 0 })}
           ${homing}
@@ -118,12 +156,9 @@ const TABS = {
       ${anyCan || (cfg.m.can && (cfg.m.can.spi || []).length) ? `<h3>CAN (stmblcan)</h3><div class="cf-grid">${fld("can.spi", "SPI devices, a line a bus", "lines", { help: "/dev/spidev0.0, or sim" })}${fld("can.discover", "Ask the drives for their pins at load", "bool")}${fld("can.spi_hz", "SPI clock (Hz)", "num")}</div>` : ""}`;
   },
   io: () => `<h3>E-STOP</h3><div class="cf-grid">
-      ${fld("estop.input", "Input pin (true: chain closed)", "text", { help: "blank: no E-STOP input (a Mesa board's watchdog still trips it)" })}
+      ${fld("estop.input", "Input pin (true: chain closed)", "pin", { dir: "out", help: "blank: no E-STOP input (a Mesa board's watchdog still trips it)" })}
       ${fld("estop.invert", "Inverted", "bool")}</div>
-    <h3>Probe</h3><div class="cf-grid">
-      ${fld("probe.type", "Probe", "sel", { re: true, choices: [["none", "none"], ["input", "an input pin"], ["sim", "simulated (trips below a Z)"]] })}
-      ${(cfg.m.probe || {}).type === "input" ? fld("probe.input", "Input pin", "text") + fld("probe.invert", "Inverted", "bool") : ""}
-      ${(cfg.m.probe || {}).type === "sim" ? fld("probe.sim_z", "Trips below machine Z", "num") : ""}</div>`,
+    <p class="note">The spindle's pins are on the Spindle tab; the probe's and the tool changer's on Tools &amp; probe; home switches with their joints.</p>`,
   console: () => `<div class="cf-grid">
       ${fld("console.port", "Port", "num")}${fld("console.host", "Address", "text")}
       ${fld("console.token", "Token for control", "text", { help: "blank: none" })}
@@ -150,7 +185,7 @@ const TABS = {
     }).join("");
     return `<div class="cf-model"><div class="cf-body">
         <p class="note">The machine in the 3D view: its parts as STL or OBJ files, each placed as it is with the machine at X0 Y0 Z0 and the <b>tool tip at the origin</b>, moving with the axes it rides on. Changes show in the view at once; Save keeps them.</p>
-        ${fld("model.builtin", "The built-in gantry (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${fld("model.builtin", "The built-in machine, a gantry or a fixed bridge as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
         ${cards || `<p class="note">No parts yet: upload a file, then Add part.</p>`}
         <div class="row"><button class="btn sm" id="cf-addpart">Add part</button><input type="file" id="cf-mfile" accept=".stl,.obj" hidden><button class="btn sm" id="cf-mup">Upload a model…</button>
           ${cfg.models.map((x) => `<button class="btn sm" data-mdel="${esc(x.name)}" title="Delete ${esc(x.name)}">× ${esc(x.name)}</button>`).join("")}</div>
@@ -171,6 +206,13 @@ const TABS = {
     <pre class="cf-code" id="cf-log">${esc(cfg.log || "")}</pre>`,
 };
 cfg.logw = 0;
+// a joint's screw and gearing: mm a motor turn, and the motor's speed at the joint's top speed
+function mechHelp(j, ax) {
+  const me = j.mech || {}, lead = +me.lead, ratio = +(me.ratio ?? 1) || 1;
+  if (!(lead > 0)) return "a belt 2:1: 2; direct: 1";
+  const perTurn = lead / ratio, vmax = +(j.max_vel ?? (ax ? ax.max_vel * 1.1 : 0));
+  return `${+perTurn.toFixed(4)} mm a motor turn${vmax > 0 ? ` · ${Math.round(vmax * 60 / perTurn).toLocaleString("en-US")} rpm at ${+vmax.toFixed(1)} mm/s` : ""}`;
+}
 function fldIn(path, kind, ph = "", cls = "") {
   const v = cget(cfg.m, path);
   return `<input class="${cls === "w" ? "w" : ""}" style="${cls === "s" ? "width:46px" : ""}" data-path="${path}" data-kind="${kind}" value="${v === undefined || v === null ? "" : esc(String(v))}" placeholder="${esc(String(ph))}" ${kind === "num" ? 'inputmode="decimal"' : 'spellcheck="false"'}>`;
@@ -190,7 +232,7 @@ function renderCfg() {
   $$("#cf-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === cfg.tab)));
   $("cf-body").innerHTML = TABS[cfg.tab]();
   markErrors();
-  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet); }
+  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry"); }
   renderCfgBar();
 }
 function cfgText() { return cfg.m ? JSON.stringify(cfg.m, null, 2) + "\n" : cfg.text; }
@@ -231,7 +273,7 @@ function markErrors() {
   p.hidden = !cfg.errors.length;
   p.innerHTML = cfg.errors.length ? `<h2>Problems <small>${cfg.errors.length}</small></h2><ul>${cfg.errors.map(([w, t]) => `<li data-go="${esc(w)}"><b>${esc(w || "machine.json")}</b>: ${esc(t)}</li>`).join("")}</ul>` : "";
 }
-const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^(estop|probe)/.test(w) ? "io" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
+const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^estop/.test(w) ? "io" : /^(probe|toolsetter|atc)/.test(w) ? "tools" : /^spindle/.test(w) ? "spindle" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
 
 // ------------------------------------------------------------ the source: millweb or the supervisor, or the simulation's example
 const cfgSupervised = () => (LIVE ? LIVE.supervised() : false);
@@ -300,7 +342,7 @@ $("cf-body").addEventListener("change", (e) => {
   cset(cfg.m, el.dataset.path, readField(el));
   cfg.text = cfgText();
   if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
-  if (el.dataset.path.startsWith("model")) mm3dApply(cfg.m.model, cfgSrc().modelGet);  // the view follows the form
+  if (el.dataset.path.startsWith("model") || el.dataset.path === "type") mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry");  // the view follows the form
 });
 $("cf-body").addEventListener("input", (e) => { if (e.target.id === "cf-json" || e.target.id === "cf-custom") { syncFromEditors(); renderCfgBar(); } });
 $("cf-body").addEventListener("click", async (e) => {
@@ -352,6 +394,73 @@ $("cf-body").addEventListener("change", (e) => {
   };
   rd.readAsDataURL(f);
 });
+// ------------------------------------------------------------ the HAL pin browser
+// LinuxCNC's pins while it runs (millweb's hal_list); else the names the machine.json would have (the board's
+// inputs and outputs, motion's and the spindle's), marked as guessed. dir "out": a pin that drives (inputs from
+// the machine: OUT, IO); "in": one to be driven (outputs to the machine: IN, IO)
+const pp = { path: null, dir: "out", pins: null, live: false };
+async function pinList() {
+  if (LIVE && !document.body.classList.contains("sup-mode")) {
+    try { const d = await LIVE.hal.list(); return { live: true, pins: d.pins.map(([n, t, dir, o, v, sig]) => ({ n, t, dir, v, sig })) }; } catch (e) { /* not running: guess */ }
+  }
+  if (!LIVE) {  // the simulation: its pins, and the example's board
+    const sim = typeof pins !== "undefined" ? pins.map(([n]) => ({ n, t: /is-on|input/.test(n) ? "bit" : "float", dir: "OUT", v: null, sig: "" })) : [];
+    return { live: false, pins: [...sim, ...guessPins(cfg.m)] };
+  }
+  return { live: false, pins: guessPins(cfg.m) };
+}
+function guessPins(m) {
+  const out = [], P = (n, t, dir) => out.push({ n, t, dir, v: null, sig: "" }), z = (k, w = 2) => String(k).padStart(w, "0");
+  const b = (m && m.board) || {};
+  if (String(b.type || "").startsWith("hm2_") && b.name) {
+    const pre = `hm2_${b.name}.0`;
+    for (let k = 0; k < 32; k++) { P(`${pre}.inm.00.input-${z(k)}`, "bit", "OUT"); P(`${pre}.inm.00.input-${z(k)}-not`, "bit", "OUT"); }
+    for (let k = 0; k < 16; k++) P(`${pre}.outm.00.out-${z(k)}`, "bit", "IN");
+    for (let k = 0; k < 34; k++) { P(`${pre}.gpio.${z(k, 3)}.in`, "bit", "OUT"); P(`${pre}.gpio.${z(k, 3)}.out`, "bit", "IN"); }
+  }
+  for (let k = 0; k < 4; k++) { P(`motion.digital-out-${z(k)}`, "bit", "OUT"); P(`motion.digital-in-${z(k)}`, "bit", "IN"); }
+  for (const n of ["on", "forward", "reverse", "brake"]) P(`spindle.0.${n}`, "bit", "OUT");
+  P("spindle.0.speed-out-abs", "float", "OUT"); P("spindle.0.speed-out", "float", "OUT"); P("spindle.0.at-speed", "bit", "IN");
+  P("motion.probe-input", "bit", "IN"); P("iocontrol.0.user-enable-out", "bit", "OUT"); P("halui.machine.is-on", "bit", "OUT");
+  return out;
+}
+async function pinPick(path, dir) {
+  pp.path = path; pp.dir = dir;
+  const cur = cget(cfg.m, path) || "";
+  $("pp-t").textContent = `HAL pin: ${path}`;
+  $("pp-n").textContent = "Reading the pins…";
+  $("pp-q").value = ""; $("pinpick").hidden = false; $("pp-q").focus();
+  const r = await pinList(); pp.pins = r.pins; pp.live = r.live; pp.cur = cur;
+  $("pp-n").textContent = (dir === "out" ? "A pin that gives the value (an input from the machine)." : "A pin that takes the value (an output to the machine).") +
+    (r.live ? " LinuxCNC's pins now." : " LinuxCNC isn't running: the names these settings would have (check them on the Debug page once it runs).");
+  pinRender();
+}
+function pinRender() {
+  if (!pp.pins) return;
+  const q = $("pp-q").value.trim().toLowerCase().split(/\s+/).filter(Boolean), ty = $("pp-type").value;
+  const want = pp.dir === "out" ? ["OUT", "IO"] : ["IN", "IO"];
+  const list = pp.pins.filter((p) => want.includes(p.dir) && (!ty || p.t === ty) && q.every((w) => p.n.toLowerCase().includes(w)));
+  const groups = new Map();
+  for (const p of list.slice(0, 600)) { const g = p.n.split(".").slice(0, 2).join("."); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(p); }
+  $("pp-list").innerHTML = [...groups].map(([g, ps]) => `<div class="grp">${esc(g)}</div>` + ps.map((p) => `<button type="button" role="option" data-pin="${esc(p.n)}" aria-selected="${p.n === pp.cur}"><span>${esc(p.n)}</span><span class="m">${p.t}</span><span class="m">${p.dir}</span><span class="m">${p.sig ? "⇄ " + esc(p.sig) : p.v === null || p.v === undefined ? "" : esc(String(p.v))}</span></button>`).join("")).join("") ||
+    `<p class="note" style="padding:8px">No pins match.</p>`;
+  $("pp-count").textContent = `${list.length} of ${pp.pins.length} pins${list.length > 600 ? " (the first 600: filter for the rest)" : ""}`;
+}
+function pinSet(v) {
+  $("pinpick").hidden = true;
+  if (!pp.path || !cfg.m) return;
+  cset(cfg.m, pp.path, v || undefined); cfg.text = cfgText();
+  const el = $("cf-body").querySelector(`[data-path="${pp.path}"]`); if (el) el.value = v || "";
+  renderCfgBar();
+}
+$("cf-body").addEventListener("click", (e) => { const b = e.target.closest("[data-pinpick]"); if (b) { e.preventDefault(); pinPick(b.dataset.pinpick, b.dataset.dir); } });
+$("pp-q").addEventListener("input", pinRender);
+$("pp-type").addEventListener("change", pinRender);
+$("pp-list").addEventListener("click", (e) => { const b = e.target.closest("[data-pin]"); if (b) pinSet(b.dataset.pin); });
+$("pp-q").addEventListener("keydown", (e) => { if (e.key === "Enter") { const b = $("pp-list").querySelector("[data-pin]"); if (b) { e.preventDefault(); pinSet(b.dataset.pin); } } });
+$("pp-clear").addEventListener("click", () => pinSet(""));
+$("pp-cancel").addEventListener("click", () => { $("pinpick").hidden = true; });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("pinpick").hidden) $("pinpick").hidden = true; });
 $("cf-problems").addEventListener("click", (e) => { const li = e.target.closest("li[data-go]"); if (!li) return; syncFromEditors(); cfg.tab = tabOf(li.dataset.go); renderCfg(); });
 $("cf-check").addEventListener("click", async () => { if (await cfgCheck()) msg("machine.json: no problems (Generated has its INI and HAL)", "ok"); });
 $("cf-save").addEventListener("click", () => cfgSave());
@@ -410,6 +519,8 @@ const cfgSim = (() => {
       if (!m.name) errs.push(["name", "a name"]);
       for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
       for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
+      if (m.type && !["gantry", "bridge"].includes(m.type)) errs.push(["type", "gantry or bridge"]);
+      if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
     },
     save: (text, c, note) => { hist.unshift({ id: String(Date.now()), time: new Date().toLocaleString(), who: "this browser", note, text: saved, custom }); saved = text; custom = c; try { localStorage.setItem("pmc.machine", text); localStorage.setItem("pmc.custom", c); } catch (e) { /* storage blocked */ } return ok({}); },

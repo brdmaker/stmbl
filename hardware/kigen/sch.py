@@ -1,30 +1,30 @@
-"""Generate the brdstepper KiCad 7 project from parts.py:
+"""kigen.sch: a KiCad 7 project's symbols, project file and schematic, made
+from the project's gen/parts.py (hardware/<board>/gen/parts.py):
 
-  brdstepper.kicad_sym   the project's own symbols (DRV8876RGT, TPS560430, AS5047P)
-  sym-lib-table          that library, as "brdstepper"
-  brdstepper.kicad_pro   the project
-  brdstepper.kicad_sch   the root sheet, with a sheet per part of the design
-  <sheet>.kicad_sch      power, mcu, bridges, encoder, interfaces
+  <name>.kicad_sym   the project's own symbols (parts.own_symbols(sch))
+  sym-lib-table      that library, as <name>
+  <name>.kicad_pro   the project
+  <name>.kicad_sch   the schematic, one large sheet: a framed section per
+                     part of the design (parts.SHEETS)
 
-Every pin is joined to its net by a short wire and a global label of the net's
+Every pin is joined to its net by a short wire and a net label of the net's
 name; a pin with no net gets a no-connect flag. Parts are laid out in rows, so
-the sheets read as a netlist, not as a drawn schematic. UUIDs are derived from
-names, so running it again changes only what changed.
+the sections read as a netlist, not as a drawn schematic. UUIDs are derived
+from names, so running it again changes only what changed.
 
-  python3 gen.py [OUTDIR]     (default: the directory above this one)
+parts.py gives: PROJECT, TITLE, NOTE, DOC, DATE, REV, SHEETS, TITLES,
+PWR_FLAGS, NETCLASS_POWER (net name patterns), own_symbols(sch) (optional).
 """
 import os
 import sys
 import uuid
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from sexp import Sym, parse, dump, find, findall  # noqa: E402
-import parts  # noqa: E402
+from sexp import Sym, parse, dump, find, findall
 
 KICAD_SYMBOLS = os.environ.get("KICAD7_SYMBOL_DIR", "/usr/share/kicad/symbols")
-PROJECT = "brdstepper"
 NS = uuid.UUID("6f1c2b0e-55a1-4f0e-9d0b-6272647374ff")
+# set by run(): the project's name, its parts module, its directory
+PROJECT, parts, OUT = None, None, None
 GRID = 1.27
 STUB = 2.54
 
@@ -50,7 +50,7 @@ def font(hide=False, justify=None):
     return e
 
 
-# ------------------------------------------------------------------ the project's own symbols
+# ------------------------------------------------------------------ helpers for a project's own symbols
 def pin(kind, x, y, ang, name, num, length=2.54):
     return [Sym("pin"), Sym(kind), Sym("line"), [Sym("at"), x, y, ang], [Sym("length"), length],
             [Sym("name"), name, font()], [Sym("number"), str(num), font()]]
@@ -80,40 +80,6 @@ def box_symbol(name, value, fp, ds, desc, left, right, w=15.24):
             [Sym("property"), "Datasheet", ds, [Sym("at"), 0, top - h - 6.35, 0], font(hide=True)],
             [Sym("property"), "ki_description", desc, [Sym("at"), 0, 0, 0], font(hide=True)],
             body, pins]
-
-
-def own_symbols():
-    drv = box_symbol(
-        "DRV8876RGT", "DRV8876RGTR", "Package_DFN_QFN:VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias",
-        "https://www.ti.com/lit/ds/symlink/drv8876.pdf",
-        "DRV8876 brushed DC / H-bridge, 37 V 3.5 A, current mirror (IPROPI), VQFN-16 (RGT). Pinout per SLVSDS7B.",
-        [("15", "EN/IN1", "input"), ("16", "PH/IN2", "input"), ("1", "nSLEEP", "input"), ("14", "PMODE", "input"),
-         ("5", "IMODE", "input"), ("3", "VREF", "input"), ("4", "IPROPI", "output"), ("2", "nFAULT", "open_collector"),
-         None, ("13", "GND", "power_in"), ("17", "PAD", "power_in")],
-        [("9", "VM", "power_in"), ("10", "VCP", "passive"), ("11", "CPH", "passive"), ("12", "CPL", "passive"), None,
-         ("6", "OUT1", "output"), ("8", "OUT2", "output"), None, None, None, ("7", "PGND", "power_in")], w=17.78)
-    buck = box_symbol(
-        "TPS560430", "TPS560430XDBVR", "Package_TO_SOT_SMD:SOT-23-6",
-        "https://www.ti.com/lit/ds/symlink/tps560430.pdf",
-        "TPS560430 4-36 V 600 mA synchronous buck, SOT-23-6 (DBV). VREF 1.0 V.",
-        [("5", "VIN", "power_in"), ("4", "EN", "input"), None, ("2", "GND", "power_in")],
-        [("1", "CB", "passive"), ("6", "SW", "output"), None, ("3", "FB", "input")])
-    # the AS5047P is pin-compatible with KiCad's AS5047D; its VDD3V3 is an
-    # output only in 5 V mode, here it is tied to the 3V3 rail (an input)
-    lib = parse(open(os.path.join(KICAD_SYMBOLS, "Sensor_Magnetic.kicad_sym")).read())
-    enc = rename(next(s for s in findall(lib, "symbol") if s[1] == "AS5047D"), "AS5047D", "AS5047P")
-    for prop in findall(enc, "property"):
-        if prop[1] == "Value":
-            prop[2] = "AS5047P"
-        elif prop[1] == "Datasheet":
-            prop[2] = "https://ams-osram.com/products/sensor-solutions/position-sensors/ams-as5047p-high-speed-rotary-position-sensor"
-        elif prop[1] == "ki_description":
-            prop[2] = "AS5047P 14-bit magnetic rotary position sensor, SPI + ABI/UVW, TSSOP-14 (pinout as the AS5047D ✱)"
-    for u in findall(enc, "symbol"):
-        for p in findall(u, "pin"):
-            if find(p, "number")[1] == "12":
-                p[1] = Sym("power_in")
-    return [drv, buck, enc]
 
 
 def rename(sym, old, new):
@@ -217,43 +183,43 @@ def layout(items, width):
     for key, (x0, y0, x1, y1) in items:
         w, h = x1 - x0, y1 - y0
         if x > 0 and x + w > width:
-            x, y, row_h = 0.0, y + row_h + 7.62, 0.0
+            x, y, row_h = 0.0, y + row_h + 5.08, 0.0
         pos[key] = (snap(x - x0), snap(y - y0))
-        x += w + 7.62
+        x += w + 5.08
         row_h = max(row_h, h)
     return pos, y + row_h
 
 
-PAPER = [("A4", 297, 210), ("A3", 420, 297), ("A2", 594, 420), ("A1", 841, 594)]
+PAPER = [("A3", 420, 297), ("A2", 594, 420), ("A1", 841, 594), ("A0", 1189, 841)]
+FRAME = 6.35        # a section's frame around its parts; its title above
 
 
-def sheet(name, plist, root_uuid, sheet_uuid, page, extra=()):
-    used = {}
+def section_items(plist, used, width):
     items = []
-    for p in list(plist) + list(extra):
+    for p in plist:
         ref, lib_id, value, fp, nets, note = p
         if lib_id not in used:
             used[lib_id] = lib_symbol(lib_id)
         pins = sym_pins(used[lib_id])
-        nums = {q[0] for q in pins}
-        bad = set(nets) - nums
+        bad = set(nets) - {q[0] for q in pins}
         if bad:
             raise SystemExit("%s (%s): no pin %s" % (ref, lib_id, ", ".join(sorted(bad))))
         items.append((ref, part_extent(pins, nets), p, pins))
-    for paper, w, h in PAPER:
-        pos, used_h = layout([(i[0], i[1]) for i in items], w - 50)
-        if used_h < h - 60:
-            break
-    path = "/%s/%s" % (root_uuid, sheet_uuid)
+    pos, h = layout([(i[0], i[1]) for i in items], width)
+    w = max(pos[i[0]][0] + i[1][2] for i in items)
+    return items, pos, w, h
+
+
+def place(items, pos, X0, Y0, used, path):
+    """The section's symbols at X0, Y0 (its top left): each pin a stub and a net label."""
     body = []
     for ref, _, p, pins in items:
         _, lib_id, value, fp, nets, note = p
-        X, Y = pos[ref]
-        X, Y = X + 25.4, Y + 25.4
+        X, Y = snap(pos[ref][0] + X0), snap(pos[ref][1] + Y0)
         lsym = used[lib_id]
         s = [Sym("symbol"), [Sym("lib_id"), lib_id], [Sym("at"), X, Y, 0], [Sym("unit"), 1],
              [Sym("in_bom"), not lib_id.startswith("power:")], [Sym("on_board"), not lib_id.startswith("power:")],
-             [Sym("dnp"), False], [Sym("uuid"), uid(name, ref)]]
+             [Sym("dnp"), False], [Sym("uuid"), uid("sch", ref)]]
         vals = {"Reference": ref, "Value": value, "Footprint": fp}
         for lp in findall(lsym, "property"):
             if lp[1].startswith("ki_"):
@@ -267,75 +233,94 @@ def sheet(name, plist, root_uuid, sheet_uuid, page, extra=()):
         if note:
             s.append([Sym("property"), "Note", note.replace("✱", "*"), [Sym("at"), X, Y, 0], font(hide=True)])
         for num, *_ in pins:
-            s.append([Sym("pin"), num, [Sym("uuid"), uid(name, ref, "pin", num)]])
-        s.append([Sym("instances"), [Sym("project"), PROJECT,
-                                     [Sym("path"), path if not ref.startswith("#") else path, [Sym("reference"), ref], [Sym("unit"), 1]]]])
+            s.append([Sym("pin"), num, [Sym("uuid"), uid("sch", ref, "pin", num)]])
+        s.append([Sym("instances"), [Sym("project"), PROJECT, [Sym("path"), path, [Sym("reference"), ref], [Sym("unit"), 1]]]])
         body.append(s)
         for num, pname, kind, px, py, a, hidden in pins:
             x, y = round(X + px, 4), round(Y - py, 4)
             if num not in nets:
                 if kind != "no_connect":
-                    body.append([Sym("no_connect"), [Sym("at"), x, y], [Sym("uuid"), uid(name, ref, "nc", num)]])
+                    body.append([Sym("no_connect"), [Sym("at"), x, y], [Sym("uuid"), uid("sch", ref, "nc", num)]])
                 continue
             dx, dy = stub_dir(a)
             ex, ey = round(x + dx * STUB, 4), round(y + dy * STUB, 4)
             body.append([Sym("wire"), [Sym("pts"), [Sym("xy"), x, y], [Sym("xy"), ex, ey]],
-                         [Sym("stroke"), [Sym("width"), 0], [Sym("type"), Sym("default")]], [Sym("uuid"), uid(name, ref, "w", num)]])
+                         [Sym("stroke"), [Sym("width"), 0], [Sym("type"), Sym("default")]], [Sym("uuid"), uid("sch", ref, "w", num)]])
             la = LABEL_ANGLE[int(a) % 360]
-            body.append([Sym("global_label"), nets[num], [Sym("shape"), Sym("passive")], [Sym("at"), ex, ey, la],
-                         [Sym("fields_autoplaced")], font(justify="right" if la in (180, 270) else "left"),
-                         [Sym("uuid"), uid(name, ref, "l", num)],
-                         [Sym("property"), "Intersheetrefs", "${INTERSHEET_REFS}", [Sym("at"), ex, ey, 0], font(hide=True)]])
-    doc = [Sym("kicad_sch"), [Sym("version"), 20230121], [Sym("generator"), Sym("eeschema")],
-           [Sym("uuid"), sheet_uuid if name != "root" else root_uuid], [Sym("paper"), paper],
-           title_block(parts.TITLES.get(name, name), page),
-           [Sym("lib_symbols")] + list(used.values())] + body
-    return doc
+            body.append([Sym("label"), nets[num], [Sym("at"), ex, ey, la], [Sym("fields_autoplaced")],
+                         font(justify=("right" if la in (180, 270) else "left") + " bottom"),
+                         [Sym("uuid"), uid("sch", ref, "l", num)]])
+    return body
 
 
-def title_block(title, page):
-    return [Sym("title_block"), [Sym("title"), "brdstepper: " + title], [Sym("date"), DATE], [Sym("rev"), REV],
-            [Sym("company"), "stmbl"],
-            [Sym("comment"), 1, "Generated by gen/gen.py from docs/brdstepper_hw.md: edit gen/parts.py"],
-            [Sym("comment"), 2, "Parts with * in their Note: check against the datasheet before layout"]]
+def schematic(root_uuid):
+    """The whole board on one sheet: a framed, titled section per part of the
+    design (parts.SHEETS), packed into columns on the smallest paper that
+    holds them. Pins connect by net name (net labels)."""
+    used = {}
 
+    def arrange(pw, ph, cols):
+        """The sections in cols columns on a pw x ph sheet; None if they don't fit."""
+        sw = (pw - 50) / cols - 2 * FRAME - 10
+        if sw < 150:
+            return None
+        secs = []
+        for name, plist in parts.SHEETS.items():
+            extra = pwr_flags() if name == "power" else []
+            items, pos, w, h = section_items(list(plist) + extra, used, sw)
+            secs.append((name, items, pos, w + 2 * FRAME, h + 2 * FRAME + 7.62))
+        heights, at = [0.0] * cols, {}
+        for name, items, pos, w, h in secs:  # each section into the shortest column
+            c = heights.index(min(heights))
+            at[name] = (25.4 + c * (sw + 2 * FRAME + 10), 25.4 + heights[c])
+            heights[c] += h + 7.62
+        return (secs, at, heights) if max(heights) < ph - 55 else None
 
-def root(root_uuid, sheet_ids):
+    # the smallest paper that holds it, then the fewest columns
+    for paper, pw, ph in PAPER:
+        got = next((r for r in (arrange(pw, ph, c) for c in (1, 2, 3, 4)) if r), None)
+        if got:
+            break
+    secs, place_at, heights = got
+    path = "/" + root_uuid
     body = []
-    x, y = 25.4, 38.1
-    for i, (name, su) in enumerate(sheet_ids):
-        w, h = 60.96, 20.32
-        body.append([Sym("sheet"), [Sym("at"), x, y], [Sym("size"), w, h], [Sym("fields_autoplaced")],
-                     [Sym("stroke"), [Sym("width"), 0.1524], [Sym("type"), Sym("solid")]],
-                     [Sym("fill"), [Sym("color"), 0, 0, 0, 0.0]], [Sym("uuid"), su],
-                     [Sym("property"), "Sheetname", name, [Sym("at"), x, round(y - 0.7116, 4), 0], font(justify="left bottom")],
-                     [Sym("property"), "Sheetfile", name + ".kicad_sch", [Sym("at"), x, round(y + h + 0.5846, 4), 0], font(justify="left top")],
-                     [Sym("instances"), [Sym("project"), PROJECT, [Sym("path"), "/" + root_uuid, [Sym("page"), str(i + 2)]]]]])
-        body.append([Sym("text"), parts.TITLES[name], [Sym("at"), x + w + 5.08, y + h / 2, 0],
-                     font(justify="left"), [Sym("uuid"), uid("root", "text", name)]])
-        y += h + 12.7
-    body.append([Sym("text"), NOTE, [Sym("at"), 25.4, y + 5.08, 0], font(justify="left top"), [Sym("uuid"), uid("root", "note")]])
+    for name, items, pos, w, h in secs:
+        x0, y0 = place_at[name]
+        x0, y0 = snap(x0), snap(y0)
+        body.append([Sym("rectangle"), [Sym("start"), x0, y0], [Sym("end"), round(x0 + w, 4), round(y0 + h - 2.54, 4)],
+                     [Sym("stroke"), [Sym("width"), 0.3], [Sym("type"), Sym("dash")]], [Sym("fill"), [Sym("type"), Sym("none")]],
+                     [Sym("uuid"), uid("sch", "frame", name)]])
+        body.append([Sym("text"), parts.TITLES[name], [Sym("at"), x0 + FRAME, y0 + 6.35, 0],
+                     [Sym("effects"), [Sym("font"), [Sym("size"), 3, 3], [Sym("thickness"), 0.6], Sym("bold")],
+                      [Sym("justify"), Sym("left"), Sym("bottom")]],
+                     [Sym("uuid"), uid("sch", "title", name)]])
+        body += place(items, pos, x0 + FRAME, y0 + FRAME + 7.62, used, path)
+    yn = 25.4 + max(heights) + 5.08
+    body.append([Sym("text"), parts.NOTE, [Sym("at"), 25.4, round(yn, 4), 0], font(justify="left top"), [Sym("uuid"), uid("sch", "note")]])
     return [Sym("kicad_sch"), [Sym("version"), 20230121], [Sym("generator"), Sym("eeschema")], [Sym("uuid"), root_uuid],
-            [Sym("paper"), "A4"], title_block("closed-loop NEMA11 stepper drive", 1), [Sym("lib_symbols")]] + body + \
+            [Sym("paper"), paper], title_block(parts.TITLE),
+            [Sym("lib_symbols")] + list(used.values())] + body + \
            [[Sym("sheet_instances"), [Sym("path"), "/", [Sym("page"), "1"]]]]
 
 
-NOTE = ("brdstepper: STM32G473 + AS5047P + 2x DRV8876, 28 x 28 mm on the back of a NEMA11 motor.\n"
-        "Connections are by net name (global labels): docs/brdstepper_hw.md is the reference.\n"
-        "Variant A fits U8/J4 (smart-serial to a Mesa card), variant B U9/J5/J6/JP1 (CAN).")
+def title_block(title):
+    return [Sym("title_block"), [Sym("title"), PROJECT + ": " + title], [Sym("date"), parts.DATE], [Sym("rev"), parts.REV],
+            [Sym("company"), "stmbl"],
+            [Sym("comment"), 1, "Generated by hardware/kigen from %s: edit gen/parts.py" % parts.DOC],
+            [Sym("comment"), 2, "Parts with * in their Note: check against the datasheet before layout"]]
 
 
 def pwr_flags():
     return [("#FLG%02d" % (i + 1), "power:PWR_FLAG", "PWR_FLAG", "", {"1": n}, "") for i, n in enumerate(parts.PWR_FLAGS)]
 
 
-def project_json(sheet_ids, root_uuid):
+def project_json(root_uuid):
     import json
     return json.dumps({
         "meta": {"filename": PROJECT + ".kicad_pro", "version": 1},
         "board": {"design_settings": {"defaults": {}, "rules": {}}},
         "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []},
-        "sheets": [[root_uuid, ""]] + [[su, n] for n, su in sheet_ids],
+        "sheets": [[root_uuid, ""]],
         "text_variables": {},
         "boards": [], "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
         "net_settings": {"classes": [
@@ -348,14 +333,8 @@ def project_json(sheet_ids, root_uuid):
              "microvia_diameter": 0.3, "microvia_drill": 0.1, "pcb_color": "rgba(0, 0, 0, 0.000)",
              "schematic_color": "rgba(0, 0, 0, 0.000)"}],
             "meta": {"version": 3},
-            "netclass_patterns": [{"netclass": "Power", "pattern": p} for p in
-                                  ("VM", "GND", "COIL_*", "5V*", "BUCK_SW")]},
+            "netclass_patterns": [{"netclass": "Power", "pattern": p} for p in parts.NETCLASS_POWER]},
     }, indent=2) + "\n"
-
-
-DATE = "2026-10-23"
-REV = "0.1"
-OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(HERE)
 
 
 def write(name, text):
@@ -363,21 +342,17 @@ def write(name, text):
         f.write(text)
 
 
-def main():
+def run(proj_dir, parts_mod):
+    global PROJECT, parts, OUT
+    PROJECT, parts, OUT = parts_mod.PROJECT, parts_mod, proj_dir
+    _libs.clear()
     os.makedirs(OUT, exist_ok=True)
+    own = parts.own_symbols(sys.modules[__name__]) if hasattr(parts, "own_symbols") else []
     write(PROJECT + ".kicad_sym", dump([Sym("kicad_symbol_lib"), [Sym("version"), 20220914],
-                                        [Sym("generator"), Sym("brdstepper_gen")]] + own_symbols()) + "\n")
-    write("sym-lib-table", '(sym_lib_table\n  (lib (name "%s")(type "KiCad")(uri "${KIPRJMOD}/%s.kicad_sym")(options "")(descr "brdstepper parts"))\n)\n'
-          % (PROJECT, PROJECT))
+                                        [Sym("generator"), Sym("kigen")]] + own) + "\n")
+    write("sym-lib-table", '(sym_lib_table\n  (lib (name "%s")(type "KiCad")(uri "${KIPRJMOD}/%s.kicad_sym")(options "")(descr "%s parts"))\n)\n'
+          % (PROJECT, PROJECT, PROJECT))
     root_uuid = uid("root")
-    sheet_ids = [(n, uid("sheet", n)) for n in parts.SHEETS]
-    for i, (n, su) in enumerate(sheet_ids):
-        extra = pwr_flags() if n == "power" else ()
-        write(n + ".kicad_sch", dump(sheet(n, parts.SHEETS[n], root_uuid, su, i + 2, extra)) + "\n")
-    write(PROJECT + ".kicad_sch", dump(root(root_uuid, sheet_ids)) + "\n")
-    write(PROJECT + ".kicad_pro", project_json(sheet_ids, root_uuid))
+    write(PROJECT + ".kicad_sch", dump(schematic(root_uuid)) + "\n")
+    write(PROJECT + ".kicad_pro", project_json(root_uuid))
     print("wrote", OUT)
-
-
-if __name__ == "__main__":
-    main()

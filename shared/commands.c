@@ -2,6 +2,7 @@
 #include "commandslist.h"
 #include "hal.h"
 #include "fwver.h"
+#include "confident.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -33,6 +34,13 @@ void version_cmd(char *ptr) {
 }
 COMMAND("version", version_cmd, "firmware versions: fw, hv, hv_image, conf (machine-readable)");
 
+// The drive's name and motor type (shared/confident.h), as `ident` prints them
+static void ident_get(char *name, char *motor) {
+  const char *text = conf_flash_text();
+  conf_ident_get(text ? text : "", CONF_NAME_KEY, name, CONF_IDENT_LEN + 1);
+  conf_ident_get(text ? text : "", CONF_MOTOR_KEY, motor, CONF_IDENT_LEN + 1);
+}
+
 // At boot, after the config: a config for another firmware says so.
 void conf_version_check(void) {
   int conf = conf_version_of(conf_flash_text());
@@ -41,7 +49,82 @@ void conf_version_check(void) {
   } else if(conf && conf < STMBL_FW_VERSION) {
     printf("WARNING: the config is for firmware v%d, this is v%d: patch it (conf/patches, the console's Drives tab)\n", conf, STMBL_FW_VERSION);
   }
+  char name[CONF_IDENT_LEN + 1], motor[CONF_IDENT_LEN + 1];
+  ident_get(name, motor);
+  if(name[0] || motor[0]) {
+    printf("drive %s, motor %s\n", name[0] ? name : "(no name)", motor[0] ? motor : "(not set)");
+  }
 }
+
+// The RAM config that flashsaveconf writes (src/config.c, host/drive.c); none on the F3
+__attribute__((weak)) char *conf_ram(size_t *size) {
+  *size = 0;
+  return 0;
+}
+
+// `name` / `motor`: print it; with an argument set it in the flash config
+// ("-" clears it). Starts from the flash config, so unsaved appendconf edits
+// are dropped; flashsaveconf refuses while the drive is enabled.
+static void ident_cmd(const char *what, const char *key, char *ptr) {
+  char cur[CONF_IDENT_LEN + 1], val[CONF_IDENT_LEN + 2];
+  while(*ptr == ' ') {
+    ptr++;
+  }
+  size_t len = strlen(ptr);
+  while(len && ptr[len - 1] == ' ') {
+    len--;
+  }
+  if(len) {
+    size_t size;
+    char *ram = conf_ram(&size);
+    if(!ram) {
+      printf("error: no config on this board\n");
+      return;
+    }
+    if(len > CONF_IDENT_LEN || memchr(ptr, '"', len)) {
+      printf("error: %s: at most %d characters, no '\"'\n", what, CONF_IDENT_LEN);
+      return;
+    }
+    memcpy(val, ptr, len);
+    val[len] = 0;
+    if(!strcmp(val, "-")) {
+      val[0] = 0;
+    }
+    char cmd[16] = "flashloadconf";
+    call_cmd(cmd);
+    if(conf_ident_set(ram, size, key, val) < 0) {
+      printf("error: config full\n");
+      return;
+    }
+    strcpy(cmd, "flashsaveconf");
+    call_cmd(cmd);
+    conf_ident_get(conf_flash_text(), key, cur, sizeof(cur));
+    if(strcmp(cur, val)) {
+      printf("error: %s not saved\n", what);
+      return;
+    }
+  }
+  conf_ident_get(conf_flash_text() ? conf_flash_text() : "", key, cur, sizeof(cur));
+  printf("%s: %s\n", what, cur[0] ? cur : "(not set)");
+}
+
+void name_cmd(char *ptr) {
+  ident_cmd("name", CONF_NAME_KEY, ptr);
+}
+COMMAND("name", name_cmd, "the drive's name (x-axis): name [TEXT | -], saved in the flash config");
+
+void motor_cmd(char *ptr) {
+  ident_cmd("motor", CONF_MOTOR_KEY, ptr);
+}
+COMMAND("motor", motor_cmd, "the motor's type: motor [TEXT | -], saved in the flash config");
+
+// Machine-readable, for servoterm-cli's prompt and the console
+void ident_print(char *ptr) {
+  char name[CONF_IDENT_LEN + 1], motor[CONF_IDENT_LEN + 1];
+  ident_get(name, motor);
+  printf("ident name=\"%s\" motor=\"%s\"\n", name, motor);
+}
+COMMAND("ident", ident_print, "the drive's name and motor type (machine-readable)");
 
 uint32_t call_cmd(char *s) {
   char c[64];

@@ -220,7 +220,39 @@ function msg(text, lvl = "info") {
   $("msg").textContent = text;
   $("msg").style.color = lvl === "warn" ? C.warn : lvl === "bad" ? C.stop : C.ink;
   renderEvents();
+  if (lvl === "warn" || lvl === "bad") popMsg(text, lvl);
 }
+// warnings and faults as a large card: a warning goes after 10 s, a fault stays until a tap or a key
+// (the card takes no clicks: what is under it still works); the footer's line opens the last again
+const pop = { timer: 0, text: "", n: 0 };
+function popMsg(text, lvl) {
+  const el = $("popmsg");
+  pop.n = !el.hidden && pop.text === text ? pop.n + 1 : 1; pop.text = text;
+  el.className = "popmsg " + lvl; el.hidden = false;
+  $("pm-k").textContent = ({ warn: "WARNING", bad: "FAULT" }[lvl] || "MESSAGE") + (pop.n > 1 ? ` ×${pop.n}` : "");
+  $("pm-t").textContent = text;
+  $("pm-f").textContent = `${clock()} · tap anywhere to close` + (lvl === "bad" ? "" : " · closes by itself");
+  clearTimeout(pop.timer);
+  if (lvl !== "bad") pop.timer = setTimeout(popHide, lvl === "warn" ? 10000 : 6000);
+}
+function popHide() { clearTimeout(pop.timer); $("popmsg").hidden = true; }
+addEventListener("pointerdown", (e) => { if (e.target.id !== "msg") popHide(); }, true);
+addEventListener("keydown", popHide, true);
+$("msg").addEventListener("click", () => { const e = events[0]; if (e) popMsg(e.text, e.lvl); });
+// long jobs' progress (reading, uploading, loading, drawing a program): frac 0..1, or null while there
+// is nothing to measure. Jobs overlap (a load also reads the preview): the bar shows the first by BUSY_RANK
+const busyJobs = new Map(), BUSY_RANK = ["upload", "load", "program", "preflight", "job"];
+function busyShow(text, frac = null, key = "job") { busyJobs.set(key, { text, frac }); busyDraw(); }
+function busyHide(key = "job") { if (busyJobs.delete(key)) busyDraw(); }
+function busyDraw() {
+  const k = BUSY_RANK.find((x) => busyJobs.has(x)) || busyJobs.keys().next().value, j = busyJobs.get(k);
+  $("busy").hidden = !j; if (!j) return;
+  $("busy-t").textContent = j.text + (j.frac != null ? ` ${Math.round(j.frac * 100)} %` : "");
+  $("busy-bar").classList.toggle("ind", j.frac == null);
+  $("busy-bar").firstChild.style.width = j.frac != null ? `${clamp(j.frac, 0, 1) * 100}%` : "";
+}
+// lets the page paint (the bar, the spinner) before more work; a hidden tab doesn't paint, so not only on a frame
+const nextFrame = () => new Promise((r) => { const t = setTimeout(r, 60); requestAnimationFrame(() => { clearTimeout(t); setTimeout(r, 0); }); });
 function renderEvents() {
   const list = events.filter((e) => evFilter === "all" || e.lvl === evFilter || (evFilter === "warn" && e.lvl === "bad"));
   $("events").innerHTML = list.map((e) => `<li class="${e.lvl}"><time>${e.t}</time><span class="k">${evLevels[e.lvl]}</span><span>${esc(e.text)}</span></li>`).join("") || `<li class="info"><time>—</time><span class="k"></span><span>No events.</span></li>`;
@@ -413,6 +445,63 @@ for (const [id, key] of [["o-feed", "feed"], ["o-rapid", "rapid"], ["o-spin", "s
 }
 $$("[data-reset]").forEach((b) => b.addEventListener("click", () => { const i = $(b.dataset.reset); i.value = 100; i.dispatchEvent(new Event("input")); }));
 
+// ============================================================ run statistics
+// one program run's numbers, sampled with the screen (20 Hz): the panel takes the jog/MDI place when
+// a cycle starts and keeps the last run's numbers until the next (or Reset)
+let rs = null, rsWasRunning = false, rsBack = null;
+const FE_NAMES = ["X", "Y1", "Y2", "Z"];
+function runStats(seg, moving, curLine, tt) {
+  const running = st.motion === prog && prog.segs.length > 0 && (st.run === "run" || st.run === "hold" || st.run === "step");
+  const now = performance.now();
+  if (running && !rsWasRunning) {  // a cycle starts
+    rs = { name: prog.name, t0: now, wall: 0, hold: 0, done: false, lines: new Set(), lineHist: [], lastLine: 0,
+      feMax: [0, 0, 0, 0], feNow: [0, 0, 0, 0], skewMax: 0, errMax: 0, errSum: 0, errN: 0, velMax: 0, velSum: 0, velN: 0, cutVelMax: 0,
+      loadMax: 0, loadSum: 0, loadN: 0, rpmMax: 0, est0: tt, estT: tt, tLast: now };
+    if (subtabNow !== "stats") { rsBack = subtabNow; subtab("stats"); }
+  }
+  if (rs && running) {
+    const dt = (now - rs.tLast) / 1000; rs.tLast = now; rs.wall = (now - rs.t0) / 1000;
+    if (st.run === "hold") rs.hold += dt;
+    rs.estT = tt;
+    if (curLine && curLine !== rs.lastLine) { rs.lines.add(curLine); rs.lastLine = curLine; rs.lineHist.push([now, curLine]); }
+    while (rs.lineHist.length > 2 && now - rs.lineHist[0][0] > 3000) rs.lineHist.shift();
+    rs.feNow = st.fe.slice(0, 4);
+    st.fe.forEach((v, k) => { if (k < 4) rs.feMax[k] = Math.max(rs.feMax[k], Math.abs(v)); });
+    rs.skewMax = Math.max(rs.skewMax, Math.abs(st.fe[1] - st.fe[2]));
+    if (st.velNow > 0.5) { rs.velMax = Math.max(rs.velMax, st.velNow); rs.velSum += st.velNow; rs.velN++; }
+    const cutting = seg ? seg.k === "mv" && !seg.rapid : st.velNow > 0.5;
+    if (cutting && moving) { rs.cutVelMax = Math.max(rs.cutVelMax, st.velNow); rs.errMax = Math.max(rs.errMax, st.err); rs.errSum += st.err; rs.errN++; }
+    if (st.spindle.dir) { rs.loadMax = Math.max(rs.loadMax, st.spindle.load); rs.loadSum += st.spindle.load; rs.loadN++; rs.rpmMax = Math.max(rs.rpmMax, st.spindle.rpm); }
+  }
+  if (rs && !running && rsWasRunning) {  // the run ended: back to the tab it replaced (its numbers stay under STATS)
+    rs.done = true; rs.end = st.run;
+    if (rsBack && subtabNow === "stats") subtab(rsBack);
+    rsBack = null;
+  }
+  rsWasRunning = running;
+  if (subtabNow === "stats" && (running || rs && rs.dirty !== rs.done)) { renderRunStats(); if (rs) rs.dirty = rs.done; }
+}
+function renderRunStats() {
+  if (!rs) { $("rs-head").textContent = "No run yet: the statistics of a program's run show here while it runs."; $("rstats").innerHTML = ""; return; }
+  const lps = rs.lineHist.length > 1 ? (rs.lineHist.length - 1) / Math.max(0.2, (rs.lineHist[rs.lineHist.length - 1][0] - rs.lineHist[0][0]) / 1000) : 0;
+  const run = rs.wall - rs.hold, est = rs.estT - rs.est0, pace = est > 1 && run > 1 ? est / run : null;
+  const f0 = (v) => Math.round(v).toLocaleString("en-US"), f1 = (v) => v.toFixed(1);
+  const cell = (k, v, sub = "", warn = false) => `<div class="${warn ? "warn" : ""}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
+  const gantry = !R || R.type !== "bridge", joints = gantry ? [0, 1, 2, 3] : [0, 1, 3];  // a fixed bridge has one Y
+  $("rs-head").textContent = `${rs.done ? (rs.end === "done" ? "Last run, finished" : "Last run, stopped") : st.run === "hold" ? "Running · on hold" : "Running"}: ${rs.name}`;
+  $("rstats").innerHTML = [
+    cell("RUN TIME", mmss(rs.wall), rs.hold > 0.5 ? `${mmss(rs.hold)} on hold` : "&nbsp;"),
+    cell("PACE", pace ? f0(pace * 100) + " %" : "—", pace ? `estimate ${mmss(est)} in ${mmss(run)}` : "of the estimate", pace != null && pace < 0.8),
+    cell("G-CODE", `${f1(lps)} l/s`, `${f0(rs.lines.size)} lines run`),
+    cell("MAX VELOCITY", f0(rs.velMax), `mm/min · cutting ${f0(rs.cutVelMax)}`),
+    cell("MEAN FEED", rs.velN ? f0(rs.velSum / rs.velN) : "—", "mm/min while moving"),
+    cell("CONTOUR ERR", rs.errN ? f1(rs.errMax) + " µm" : "—", rs.errN ? `max · mean ${f1(rs.errSum / rs.errN)} µm` : "while cutting", rs.errMax > 40),
+    ...joints.map((k) => cell(`FERROR ${gantry ? FE_NAMES[k] : FE_NAMES[k][0]}`, f1(rs.feMax[k]) + " µm", `max · now ${f1(Math.abs(rs.feNow[k]))}`, rs.feMax[k] > 20)),
+    ...(gantry ? [cell("Y1−Y2 SKEW", f1(rs.skewMax) + " µm", "max", rs.skewMax > 15)] : []),
+    cell("SPINDLE LOAD", rs.loadN ? f0(rs.loadMax) + " %" : "—", rs.loadN ? `max · mean ${f0(rs.loadSum / rs.loadN)} % · ${f0(rs.rpmMax)} rpm` : "spindle off", rs.loadMax > 85),
+  ].join("");
+}
+
 // ============================================================ program view
 let lastLine = 0;
 function renderProgram() {
@@ -513,6 +602,7 @@ $("tp-go").addEventListener("click", () => probeCycle("plate"));
 
 // ============================================================ TOOLS page
 function renderTools() {
+  renderToolModel();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
       <td class="n">${t.p}</td><td class="n"><input data-k="d" data-i="${i}" type="number" step="0.001" value="${t.d.toFixed(3)}" aria-label="T${t.t} diameter"></td>
@@ -522,6 +612,35 @@ function renderTools() {
       <td><input class="txt" data-k="c" data-i="${i}" value="${esc(t.c)}" aria-label="T${t.t} comment"></td></tr>`).join("") + "</tbody>";
 }
 $("tool-t").addEventListener("click", (e) => { const r = e.target.closest("tr[data-t]"); if (!r || e.target.tagName === "INPUT") return; st.toolSel = +r.dataset.t; renderTools(); });
+// the selected tool's 3D model: a file from the machine's program folder (or uploaded here), placed tip at the origin
+const simToolFiles = new Set();  // the simulation: models uploaded on this page
+function renderToolModel() {
+  const t = st.toolSel ?? st.tool, tm = setup.tools[String(t)], files = LIVE ? LIVE.modelFiles() : [...simToolFiles];
+  $("tm-t").textContent = `T${t}`;
+  const cur = tm ? tm.src.slice(6) : "";
+  $("tm-src").innerHTML = `<option value="">— drawn from its Ø and length</option>` + [...new Set([...files, ...(cur ? [cur] : [])])].map((f) => `<option value="${esc(f)}"${f === cur ? " selected" : ""}>${esc(f)}</option>`).join("");
+  $("tm-z").value = tm ? tm.z : 0; $("tm-rx").value = tm ? tm.rot[0] : 0; $("tm-s").value = tm ? tm.scale : 1;
+  for (const id of ["tm-z", "tm-rx", "tm-s"]) $(id).disabled = !tm;
+}
+function toolModelChanged() {
+  const t = String(st.toolSel ?? st.tool), src = $("tm-src").value;
+  if (!src) delete setup.tools[t];
+  else setup.tools[t] = { src: "model:" + src, z: +$("tm-z").value || 0, rot: [+$("tm-rx").value || 0, 0, 0], scale: +$("tm-s").value || 1 };
+  if (+t === st.tool) buildTool();
+  renderToolModel(); saveSetup();  // the simulation's stay on this page
+}
+for (const id of ["tm-src", "tm-z", "tm-rx", "tm-s"]) $(id).addEventListener("change", toolModelChanged);
+$("tm-up").addEventListener("click", () => $("tm-file").click());
+$("tm-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (!/\.(stl|obj)$/i.test(f.name)) { msg(`${f.name}: an STL or OBJ file`, "warn"); return; }
+  if (f.size > 5 * 1048576) { msg(`${f.name}: 3D models up to 5 MB`, "warn"); return; }
+  const buf = await f.arrayBuffer(), name = f.name.replace(/[^\w.\- ]/g, "_");
+  try { setup.geoms.set(name, parseModel(name, buf)); } catch (err) { msg(`${f.name}: ${err.message}`, "warn"); return; }
+  if (LIVE) { if (!(await LIVE.modelUpload(name, buf))) return; } else simToolFiles.add(name);
+  renderToolModel(); $("tm-src").value = name; toolModelChanged();
+  msg(`T${st.toolSel ?? st.tool}: ${name}`, "ok");
+});
 $("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" ? e.target.value : +e.target.value; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: "diameter", l: "length", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
 $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
@@ -640,9 +759,16 @@ function jogStep(dir) {
 }
 $("jogpad").addEventListener("pointerdown", (e) => { const b = e.target.closest("button"); if (b) jogStep(b.dataset.j); });
 addEventListener("pointerup", () => { if (LIVE && jogHeld) LIVE.jogEnd(); jogHeld = null; });
-function subtab(k) { $("st-mdi").setAttribute("aria-selected", String(k === "mdi")); $("st-jog").setAttribute("aria-selected", String(k === "jog")); $("sp-mdi").hidden = k !== "mdi"; $("sp-jog").hidden = k !== "jog"; }
-$("st-mdi").addEventListener("click", () => subtab("mdi"));
-$("st-jog").addEventListener("click", () => subtab("jog"));
+let subtabNow = "mdi";
+function subtab(k) {
+  subtabNow = k;
+  for (const t of ["mdi", "jog", "stats"]) { $("st-" + t).setAttribute("aria-selected", String(k === t)); $("sp-" + t).hidden = k !== t; }
+  if (k === "stats") renderRunStats();
+}
+$("st-mdi").addEventListener("click", () => { rsBack = null; subtab("mdi"); });  // chosen while running: it stays
+$("st-jog").addEventListener("click", () => { rsBack = null; subtab("jog"); });
+$("st-stats").addEventListener("click", () => { rsBack = null; subtab("stats"); });
+$("rs-reset").addEventListener("click", () => { rs = null; renderRunStats(); });
 const keyJog = { ArrowLeft: "x-", ArrowRight: "x+", ArrowUp: "y+", ArrowDown: "y-", PageUp: "z+", PageDown: "z-" };
 addEventListener("keydown", (e) => {
   const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName);
@@ -650,7 +776,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "F2") { e.preventDefault(); togglePower(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "r") { e.preventDefault(); startCycle(0); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "m") { e.preventDefault(); showPage("main"); subtab("mdi"); $("mdi").focus(); return; }
-  if (e.key === "Escape") { if (!$("dlg").hidden) { closeDlg(); return; } if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
+  if (e.key === "Escape") { if (!$("dlg").hidden) { closeDlg(); return; } if (!$("pinpick").hidden) return; if (st.run === "run") $("b-hold").click(); else stopAll(); return; }
   if (inField || !st.kbd || !keyJog[e.key]) return;
   e.preventDefault();
   if (st.jogInc === 0) { if (!e.repeat) jogStep(keyJog[e.key]); } else jogStep(keyJog[e.key]);
@@ -732,73 +858,148 @@ function init3d() {
     return mesh;
   };
   const cyl = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); g.rotateX(Math.PI / 2); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
+  const cylX = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); g.rotateZ(Math.PI / 2); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
+  const cylY = (r, h, m, x, y, z, seg = 32) => { const g = new THREE.CylinderGeometry(r, r, h, seg); const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); return mesh; };
 
-  // the frame on its feet, the table with T-slots, the side beams with rails and magnet tracks
+  // the machine (buildBuiltin: a gantry or a fixed bridge) and the work: what sits on the table, the
+  // toolpath, the trail, the travel box. A gantry's table stands still; a fixed bridge's table moves in
+  // Y, and the work with it (workG follows it; the tool stays at y 0 under the bridge)
   const machine = new THREE.Group(); scene.add(machine);
-  for (const [fx, fy] of [[-180, -160], [1180, -160], [-180, 1160], [1180, 1160], [500, -160], [500, 1160]]) {
-    machine.add(box(120, 120, 560, mat.frame, fx, fy, -400)); machine.add(cyl(70, 30, mat.feet, fx, fy, -695));
-  }
-  machine.add(box(1520, 1480, 100, mat.frame, 500, 500, -130));
-  machine.add(box(1180, 1140, 60, mat.table, 500, 500, -30));
-  for (let x = -50; x <= 1050; x += 100) machine.add(box(14, 1140, 2, mat.slot, x, 500, 1, false));
-  for (const sx of [-140, 1140]) {
-    machine.add(box(110, 1400, 180, mat.frame, sx, 500, 30));
-    machine.add(box(24, 1360, 22, mat.rail, sx, 500, 131));
-    machine.add(box(70, 1360, 70, mat.magnet, sx + (sx < 500 ? -82 : 82), 500, 95));
-    machine.add(box(4, 1300, 14, mat.accent, sx + (sx < 500 ? 58 : -58), 500, 100, false)); // the scale
-  }
-  // tool setter
-  machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
+  const workG = new THREE.Group(); scene.add(workG);
   // what stands on the table: fixtures and workpieces (setup3d.js; the vise and the stock by default)
-  const objGroup = new THREE.Group(); scene.add(objGroup);
+  const objGroup = new THREE.Group(); workG.add(objGroup);
   // the work origin (G5x + G92): the stock's top front-left corner by default
-  const triad = new THREE.Group(); scene.add(triad);
+  const triad = new THREE.Group(); workG.add(triad);
   for (const [d, c] of [[[1, 0, 0], 0xff4d5e], [[0, 1, 0], 0x5fe0a0], [[0, 0, 1], 0x4cc9ff]]) triad.add(new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0, 0, 0), 40, c, 9, 5));
 
-  // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
-  const bridge = new THREE.Group(); machine.add(bridge);
-  for (const sx of [-140, 1140]) {
-    bridge.add(box(150, 190, 40, mat.carriage, sx, 0, 162));
-    bridge.add(box(60, 170, 54, mat.coil, sx + (sx < 500 ? -82 : 82), 0, 102));
-    bridge.add(box(120, 150, 300, mat.bridge, sx, 0, 330));
-  }
-  bridge.add(box(1420, 150, 170, mat.bridge, 500, 0, 560));
-  bridge.add(box(1300, 10, 8, mat.accent, 500, -78, 630, false));
-  bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 600)); bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 520));
-  bridge.add(box(1240, 24, 50, mat.magnet, 500, -80, 470));
-  for (let i = 0; i < 24; i++) bridge.add(box(40, 60, 26, mat.dark, -80 + i * 48, 10, 660, false)); // cable chain
-  // the X carriage, the Z ram, the spindle and the tool: the tool tip sits at the carriage's x, 220 mm in front of the beam
-  const carriage = new THREE.Group(); bridge.add(carriage);
-  carriage.add(box(240, 50, 280, mat.carriage, 0, -130, 540));
-  carriage.add(box(200, 20, 60, mat.coil, 0, -100, 470));
-  carriage.add(box(120, 8, 12, mat.accent, 0, -158, 650, false));
-  const ram = new THREE.Group(); carriage.add(ram);
-  ram.add(box(130, 110, 460, mat.carriage, 0, -210, 470));
-  ram.add(box(8, 6, 300, mat.accent, 0, -268, 520, false));
-  const headG = new THREE.Group(); ram.add(headG);
-  headG.add(cyl(62, 210, mat.spindle, 0, -220, 175, 40));
-  headG.add(cyl(66, 14, mat.accent, 0, -220, 275, 40));
-  headG.add(cyl(36, 26, mat.dark, 0, -220, 58, 32));
-  const toolG = new THREE.Group(); toolG.position.set(0, -220, 0); headG.add(toolG);
-  const coolant = new THREE.Group(); headG.add(coolant);
-  for (const a of [0.6, 2.4, 4.2]) { const n = cyl(4, 60, mat.accent, 48 * Math.cos(a), -220 + 48 * Math.sin(a), 52, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
-
   // the travel limits, the toolpath, the trail of the tool, chips
-  const limits = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1000, 1000, 215)), new THREE.LineBasicMaterial({ color: 0xffb547, transparent: true, opacity: .6 }));
-  limits.position.set(500, 500, ZTOP - 215 / 2); scene.add(limits);
+  const limits = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0xffb547, transparent: true, opacity: .6 }));
+  workG.add(limits);
   const pathGeo = new THREE.BufferGeometry();
-  const pathLine = new THREE.LineSegments(pathGeo, new THREE.LineBasicMaterial({ vertexColors: true })); scene.add(pathLine);
+  const pathLine = new THREE.LineSegments(pathGeo, new THREE.LineBasicMaterial({ vertexColors: true })); workG.add(pathLine);
   const trailN = 2000, trailPos = new Float32Array(trailN * 3);
   const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3)); trailGeo.setDrawRange(0, 0);
-  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); scene.add(trail);
+  // the trail and the chips change every frame: their bounding spheres stay where they were made (the chips' at
+  // Z −5000), so three.js culled them by a stale sphere: shown at some view angles, gone at others. Never culled.
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff8a3d })); trail.frustumCulled = false; workG.add(trail);
   const sparkN = 80, sparkPos = new Float32Array(sparkN * 3).fill(-5000), sparkVel = new Float32Array(sparkN * 3), sparkLife = new Float32Array(sparkN);
   const sparkGeo = new THREE.BufferGeometry(); sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
-  scene.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xffa25c, size: 3 })));
+  const chips = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: 0xc9d3dd, size: 2.5 })); chips.frustumCulled = false; workG.add(chips);  // aluminium chips
 
-  R = { renderer, cam, controls, scene, machine, bridge, carriage, ram, headG, toolG, coolant, objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN, mat, cyl, camAnim: null, follow: false };
-  buildTool(); rebuildPath(); setCam("iso", true);
+  R = { renderer, cam, controls, scene, machine, workG, type: null, bridge: null, carriage: null, ram: null, headG: null, toolG: null, coolant: null, tableG: null,
+    objGroup, triad, selBox: null, limits, pathGeo, pathLine, trail, trailGeo, trailPos, trailN, trailLen: 0, sparkGeo, sparkPos, sparkVel, sparkLife, sparkN,
+    mat, box, cyl, cylX, cylY, edgeMat, camAnim: null, follow: false };
+  buildBuiltin("gantry");
+  rebuildPath(); setCam("iso", true);
   new ResizeObserver(resize3d).observe(VIEWER);
   resize3d();
+}
+// the built-in machine: "gantry" (PORTAL-M: the bridge on linear motors over a fixed table) or "bridge"
+// (Scripta CN 720 style: a fixed bridge, the table moving in Y, ball screws, an ISO20 ATC spindle).
+// Both give the groups update3d moves: bridge, carriage (X), ram (Z), headG, toolG at the tool tip;
+// a bridge also tableG (the table, moving with -Y). Machine coordinates, the table top at z 0.
+function buildBuiltin(type) {
+  if (!R || R.type === type) return;
+  const { machine, mat, box, cyl } = R;
+  machine.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  machine.clear();
+  R.type = type; R.tableG = null;
+  const bridge = new THREE.Group(), carriage = new THREE.Group(), ram = new THREE.Group(), headG = new THREE.Group(), toolG = new THREE.Group(), coolant = new THREE.Group();
+  machine.add(bridge); bridge.add(carriage); carriage.add(ram); ram.add(headG);
+  if (type === "bridge") {
+    const X0 = TRAVEL.x[0], X1 = TRAVEL.x[1], Y0 = TRAVEL.y[0], Y1 = TRAVEL.y[1], cx = (X0 + X1) / 2, w = X1 - X0;
+    // the base: a cast bed on a stand, the table's two guide rails along Y and its screw with the motor in front
+    const bedL = (Y1 - Y0) * 2 + 300;
+    machine.add(box(w + 420, bedL, 140, mat.frame, cx, 0, -150));
+    for (const fx of [cx - w / 2 - 120, cx + w / 2 + 120]) for (const fy of [-bedL / 2 + 80, bedL / 2 - 80]) {
+      machine.add(box(110, 110, 460, mat.frame, fx, fy, -450)); machine.add(cyl(60, 26, mat.feet, fx, fy, -693));
+    }
+    for (const rx of [cx - w * 0.3, cx + w * 0.3]) machine.add(box(26, bedL - 60, 24, mat.rail, rx, 0, -68));
+    machine.add(R.cylY(8, bedL - 120, mat.rail, cx, 0, -64, 12));  // the Y screw
+    machine.add(R.cylY(40, 150, mat.dark, cx, -bedL / 2 - 70, -80));  // the Y motor (CMP40M)
+    // the table, T-slots along X, a rack of ISO20 holders on its back edge, the tool setter: all move with -Y
+    const tableG = new THREE.Group(); machine.add(tableG); R.tableG = tableG;
+    const ty0 = Y0 - 70, ty1 = Y1 + 120, tl = ty1 - ty0;
+    tableG.add(box(w + 160, tl, 50, mat.table, cx, (ty0 + ty1) / 2, -25));
+    for (let y = ty0 + 50; y < ty1 - 40; y += 63) tableG.add(box(w + 160, 14, 2, mat.slot, cx, y, 1, false));
+    for (let i = 0; i < 8; i++) {  // the rack: forks with a holder in each but the spindle's
+      const x = X0 + 40 + i * (w - 80) / 7, y = Y1 + 75;
+      tableG.add(box(50, 30, 90, mat.dark, x, y + 25, 45));
+      const h = new THREE.Mesh(new THREE.CylinderGeometry(13, 20, 34, 24), mat.spindle); h.rotation.x = Math.PI / 2; h.position.set(x, y, 107); tableG.add(h);
+      tableG.add(cyl(3, 36, mat.tool, x, y, 72, 10));
+    }
+    tableG.add(cyl(18, 40, mat.dark, X1 - 20, Y1 - 20, 20)); tableG.add(cyl(12, 6, mat.accent, X1 - 20, Y1 - 20, 43));
+    // the fixed bridge: two columns behind the tool line, the beam, X rails and screw, the X motor
+    const by = 270, top = ZTOP + 330;  // the beam's centre behind the tool line; its height
+    for (const sx of [X0 - 170, X1 + 170]) bridge.add(box(150, 220, top + 80, mat.bridge, sx, by + 20, (top - 80) / 2));
+    bridge.add(box(w + 490, 200, 190, mat.bridge, cx, by, top));
+    bridge.add(box(w + 360, 10, 8, mat.accent, cx, by - 104, top + 70, false));
+    bridge.add(box(w + 300, 26, 26, mat.rail, cx, by - 110, top + 50)); bridge.add(box(w + 300, 26, 26, mat.rail, cx, by - 110, top - 50));
+    bridge.add(R.cylX(40, 150, mat.dark, X1 + 330, by - 60, top));  // the X motor
+    for (let i = 0; i < 18; i++) bridge.add(box(40, 50, 24, mat.dark, X0 - 60 + i * (w + 120) / 17, by + 30, top + 110, false));  // cable chain
+    // the X carriage on the beam's front face, the Z slide with its screw and motor on top
+    carriage.add(box(250, 60, 300, mat.carriage, 0, by - 130, top));
+    carriage.add(box(110, 8, 12, mat.accent, 0, by - 162, top + 120, false));
+    carriage.add(cyl(40, 150, mat.dark, 0, 75, top + 220));  // the Z motor with its brake, on the slide's screw
+    ram.add(box(170, 90, 420, mat.carriage, 0, 75, 250));
+    ram.add(box(8, 6, 300, mat.accent, 0, 28, 280, false));
+    // the ISO20 ATC spindle: body, the drawbar's release cylinder on top, the nose with its taper
+    headG.add(cyl(42, 230, mat.spindle, 0, 0, 170, 40));
+    headG.add(cyl(46, 12, mat.accent, 0, 0, 290, 40));
+    headG.add(cyl(52, 70, mat.dark, 0, 0, 325, 32));
+    headG.add(cyl(30, 14, mat.dark, 0, 0, 52, 32));
+    headG.add(toolG); headG.add(coolant);
+    for (const a of [0.6, 2.4, 4.2]) { const n = cyl(3, 50, mat.accent, 40 * Math.cos(a), 40 * Math.sin(a), 50, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
+  } else {
+    // the frame on its feet, the table with T-slots, the side beams with rails and magnet tracks
+    for (const [fx, fy] of [[-180, -160], [1180, -160], [-180, 1160], [1180, 1160], [500, -160], [500, 1160]]) {
+      machine.add(box(120, 120, 560, mat.frame, fx, fy, -400)); machine.add(cyl(70, 30, mat.feet, fx, fy, -695));
+    }
+    machine.add(box(1520, 1480, 100, mat.frame, 500, 500, -130));
+    machine.add(box(1180, 1140, 60, mat.table, 500, 500, -30));
+    for (let x = -50; x <= 1050; x += 100) machine.add(box(14, 1140, 2, mat.slot, x, 500, 1, false));
+    for (const sx of [-140, 1140]) {
+      machine.add(box(110, 1400, 180, mat.frame, sx, 500, 30));
+      machine.add(box(24, 1360, 22, mat.rail, sx, 500, 131));
+      machine.add(box(70, 1360, 70, mat.magnet, sx + (sx < 500 ? -82 : 82), 500, 95));
+      machine.add(box(4, 1300, 14, mat.accent, sx + (sx < 500 ? 58 : -58), 500, 100, false)); // the scale
+    }
+    // tool setter
+    machine.add(cyl(18, 40, mat.dark, 980, 20, 20)); machine.add(cyl(12, 6, mat.accent, 980, 20, 43));
+    // the bridge: Y bearing carriages, linear motor coils, uprights, the beam with the X axis
+    for (const sx of [-140, 1140]) {
+      bridge.add(box(150, 190, 40, mat.carriage, sx, 0, 162));
+      bridge.add(box(60, 170, 54, mat.coil, sx + (sx < 500 ? -82 : 82), 0, 102));
+      bridge.add(box(120, 150, 300, mat.bridge, sx, 0, 330));
+    }
+    bridge.add(box(1420, 150, 170, mat.bridge, 500, 0, 560));
+    bridge.add(box(1300, 10, 8, mat.accent, 500, -78, 630, false));
+    bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 600)); bridge.add(box(1240, 30, 30, mat.rail, 500, -88, 520));
+    bridge.add(box(1240, 24, 50, mat.magnet, 500, -80, 470));
+    for (let i = 0; i < 24; i++) bridge.add(box(40, 60, 26, mat.dark, -80 + i * 48, 10, 660, false)); // cable chain
+    // the X carriage, the Z ram, the spindle and the tool: the tool tip sits at the carriage's x, 220 mm in front of the beam
+    carriage.add(box(240, 50, 280, mat.carriage, 0, -130, 540));
+    carriage.add(box(200, 20, 60, mat.coil, 0, -100, 470));
+    carriage.add(box(120, 8, 12, mat.accent, 0, -158, 650, false));
+    ram.add(box(130, 110, 460, mat.carriage, 0, -210, 470));
+    ram.add(box(8, 6, 300, mat.accent, 0, -268, 520, false));
+    headG.add(cyl(62, 210, mat.spindle, 0, -220, 175, 40));
+    headG.add(cyl(66, 14, mat.accent, 0, -220, 275, 40));
+    headG.add(cyl(36, 26, mat.dark, 0, -220, 58, 32));
+    toolG.position.set(0, -220, 0); headG.add(toolG); headG.add(coolant);
+    for (const a of [0.6, 2.4, 4.2]) { const n = cyl(4, 60, mat.accent, 48 * Math.cos(a), -220 + 48 * Math.sin(a), 52, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
+  }
+  Object.assign(R, { bridge, carriage, ram, headG, toolG, coolant });
+  sizeLimits(); buildTool();
+  if (typeof mm3dBuiltin === "function") mm3dBuiltin(mm3d.builtin);
+  if (typeof applyLooks === "function") applyLooks();
+}
+// the travel box (soft limits) in the work's frame
+function sizeLimits() {
+  if (!R) return;
+  const dx = TRAVEL.x[1] - TRAVEL.x[0], dy = TRAVEL.y[1] - TRAVEL.y[0], dz = TRAVEL.z[1] - TRAVEL.z[0];
+  R.limits.scale.set(Math.max(dx, 1), Math.max(dy, 1), Math.max(dz, 1));
+  R.limits.position.set(TRAVEL.x[0] + dx / 2, TRAVEL.y[0] + dy / 2, ZTOP + TRAVEL.z[0] + dz / 2);
 }
 function resize3d() {
   if (!R) return;
@@ -811,6 +1012,18 @@ function buildTool() {
   $("sp-tool").textContent = `T${st.tool} Ø${t.d} · ${t.c.replace(/^[\d.]+ mm /, "")}`;
   if (!R) return;
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
+  // its own 3D model (the Tools page): the tip at its origin, the spindle along +Z
+  const tm = setup.tools[String(st.tool)];
+  if (tm) {
+    const path = tm.src.slice(6), geo = setup.geoms.get(path);
+    if (geo) {
+      const mesh = new THREE.Mesh(geo, R.mat.toolModel || (R.mat.toolModel = new THREE.MeshStandardMaterial({ color: 0xb9c3cd, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide })));
+      const d = Math.PI / 180; mesh.rotation.set(tm.rot[0] * d, tm.rot[1] * d, tm.rot[2] * d, "ZYX");
+      mesh.scale.setScalar(tm.scale); mesh.position.z = tm.z;
+      R.toolG.add(mesh); return;
+    }
+    requestModel(path);  // drawn when it comes (live); meanwhile the plain one
+  }
   // between the tip (local z 0) and the spindle nose (z 45): the holder, then the cutter
   const holder = new THREE.Mesh(new THREE.CylinderGeometry(20, 27, 20, 32), R.mat.dark); holder.rotation.x = Math.PI / 2; holder.position.set(0, 0, 35); R.toolG.add(holder);
   if (st.tool === 99) {
@@ -870,10 +1083,12 @@ function setCam(kind, instant) {
   if (!R) return;
   $$("[data-cam]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cam === kind)));
   R.follow = kind === "follow";
-  const o = off(), sx = o.x + STOCK.w / 2, sy = o.y + STOCK.l / 2, sz = o.z + ZTOP;
+  // the work's place in the view: a fixed bridge's table moves (workG), a gantry's stands
+  const o = off(), sx = o.x + STOCK.w / 2, sy = o.y + STOCK.l / 2 + R.workG.position.y, sz = o.z + ZTOP;
+  const B = R.type === "bridge", cx = B ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, cy = B ? 0 : 500, k = B ? 0.8 : 1;
   const views = {
-    iso: [[-1100, -1700, 1700], [500, 560, 120]], top: [[500, 499, 3300], [500, 500, 0]], front: [[500, -2600, 520], [500, 500, 260]],
-    side: [[-2600, 500, 520], [500, 500, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
+    iso: [[cx - 1600 * k, cy - 2200 * k, 1700 * k], [cx, cy + 60, 120]], top: [[cx, cy - 1, 3300 * k], [cx, cy, 0]], front: [[cx, cy - 3100 * k, 520], [cx, cy, 260]],
+    side: [[cx - 3100 * k, cy, 520], [cx, cy, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
     follow: [[sx - 260, sy - 420, sz + 300], [sx, sy, sz]],
   };
   const v = views[kind];
@@ -898,9 +1113,16 @@ function update3d(dt, tip, moving, cutting) {
   const m = toMach(tip), k = st.show.defl ? st.exag : 0;
   // the head lags under acceleration and the bridge yaws: drawn k times larger
   const yaw = st.yaw * 1e-6 * k * (st.fe[1] > st.fe[2] ? 1 : -1), hx = st.err * 1e-3 * k * .6, hy = st.err * 1e-3 * k * .8;
-  R.bridge.position.set(0, m.y + 220, 0);
-  R.bridge.rotation.z = yaw;
-  R.carriage.position.set(m.x, 0, 0);
+  if (R.type === "bridge") {  // the bridge stands, the table and the work move: the tool at y 0
+    R.bridge.position.set(0, 0, 0); R.bridge.rotation.z = 0;
+    R.tableG.position.set(0, -m.y, 0); R.workG.position.set(0, -m.y, 0);
+    R.carriage.position.set(m.x, 0, 0);
+  } else {
+    R.bridge.position.set(0, m.y + 220, 0);
+    R.bridge.rotation.z = yaw;
+    R.workG.position.set(0, 0, 0);
+    R.carriage.position.set(m.x, 0, 0);
+  }
   R.ram.position.set(0, 0, m.z + ZTOP);
   R.headG.position.set(-hx, -hy, 0);
   R.toolG.rotation.z = (R.toolG.rotation.z + st.spindle.rpm / 60 * 2 * Math.PI * dt * 0.02) % (2 * Math.PI);
@@ -934,10 +1156,10 @@ function update3d(dt, tip, moving, cutting) {
     R.cam.position.set(...lerp(a.from[0], a.to[0])); if (R.controls) R.controls.target.set(...lerp(a.from[1], a.to[1]));
     if (a.t >= 1) R.camAnim = null;
   } else if (R.follow && R.controls) {
-    const tgt = new THREE.Vector3(wx, wy, wz), d = tgt.clone().sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));
+    const tgt = new THREE.Vector3(wx, wy + R.workG.position.y, wz), d = tgt.clone().sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));  // the tool in the view (a moving table: y 0)
     R.controls.target.add(d); R.cam.position.add(d);
   }
-  if (R.controls) R.controls.update(); else R.cam.lookAt(500, 500, 100);
+  if (R.controls) R.controls.update(); else R.cam.lookAt(R.type === "bridge" ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, R.type === "bridge" ? 0 : 500, 100);
   colorPath(false);
   R.renderer.render(R.scene, R.cam);
 }
@@ -1126,6 +1348,7 @@ function renderUi(tip, seg, moving, pTot) {
     else if (LIVE && curLine) LIVE.lines(curLine);  // outside the window: the lines around it
     lastLine = curLine;
   }
+  runStats(seg, moving, curLine, tt);
   updateChips();
   $("v-err").textContent = Math.round(st.err) + " µm"; $("v-yaw").textContent = st.yaw.toFixed(1) + " µrad";
   if (st.page === "dyn") {

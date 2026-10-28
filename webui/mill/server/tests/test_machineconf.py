@@ -105,6 +105,82 @@ class Machine(unittest.TestCase):
         self.assertEqual(order[-1], "hm2_7c81.0.write")
         self.assertLess(order.index("motion-controller"), order.index("sserialterm.0"))
 
+    def test_bridge_type(self):
+        """A fixed bridge over a table moving in Y (machines/cn720): one joint an axis, the type to the console."""
+        m = json.load(open(os.path.join(MILL, "machines", "cn720", "machine.json")))
+        f = self.gen(m)
+        ini = ini_sections(f["mill.ini"])
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["trivkins coordinates=XYZ"])
+        self.assertEqual(ini["EMCMOT"]["SERVO_PERIOD"], ["500000"])
+        self.assertEqual(ini_sections(self.gen(mc.DEFAULT)["mill.ini"])["MILLWEB"]["MACHINE_TYPE"], ["gantry"])
+        two = copy.deepcopy(mc.DEFAULT)
+        two["type"] = "bridge"
+        two["joints"].append(copy.deepcopy(two["joints"][1]))
+        with self.assertRaises(mc.Invalid) as e:
+            mc.validate(two)
+        self.assertIn(("axes.Y", "a fixed-bridge machine moves Y with one joint (2 here: that's a gantry)"), e.exception.errors)
+        bad = copy.deepcopy(mc.DEFAULT)
+        bad["type"] = "router"
+        with self.assertRaises(mc.Invalid) as e:
+            mc.validate(bad)
+        self.assertEqual([w for w, _ in e.exception.errors], ["type"])
+
+    def test_screw_lead_and_ratio(self):
+        """A stmbl joint with a lead: scale comps between LinuxCNC's mm and the drive's motor radians."""
+        m = json.load(open(TEST_MACHINE))
+        m["board"] = {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10"}
+        for k, j in enumerate(m["joints"]):
+            j["drive"] = {"type": "stmbl_sserial", "port": 0, "channel": k}
+        m["joints"][0]["mech"] = {"lead": 10, "ratio": 2}
+        m["joints"][3]["mech"] = {"lead": 5, "reverse": True}
+        m["joints"][1]["mech"] = {"ratio": 3}  # no lead: none (the drive works in mm)
+        hal = self.gen(m)["machine.hal"]
+        self.assertIn("loadrt scale names=j0-cmd,j0-vel,j0-fb,j3-cmd,j3-vel,j3-fb", hal)
+        k0 = 2 * 3.141592653589793 * 2 / 10
+        self.assertIn("setp j0-cmd.gain %r" % k0, hal)
+        self.assertIn("setp j0-fb.gain %r" % (1 / k0), hal)
+        self.assertIn("setp j3-cmd.gain %r" % (-2 * 3.141592653589793 / 5), hal)
+        self.assertIn("net j0-pos-cmd-rad j0-cmd.out => hm2_7i96s.0.stbl.0.0.pos_cmd", hal)
+        self.assertIn("net j0-pos-fb j0-fb.out => joint.0.motor-pos-fb", hal)
+        self.assertIn("net j1-pos-cmd joint.1.motor-pos-cmd => hm2_7i96s.0.stbl.0.1.pos_cmd", hal)
+        lines = hal.splitlines()
+        self.assertLess(lines.index("addf j0-fb servo-thread"), lines.index("addf motion-command-handler servo-thread"))
+        self.assertGreater(lines.index("addf j0-cmd servo-thread"), lines.index("addf motion-controller servo-thread"))
+        self.assertLess(lines.index("addf j0-cmd servo-thread"), lines.index("addf hm2_7i96s.0.write servo-thread"))
+        m["joints"][0]["mech"] = {"lead": 0, "ratio": -1}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"joints.0.mech.lead", "joints.0.mech.ratio"})
+
+    def test_spindle_pins_and_rack_changer(self):
+        m = json.load(open(TEST_MACHINE))
+        m["spindle"] = {"type": "hal", "max_rpm": 24000, "on": "hm2_7i96s.0.ssr.00.out-00", "speed": "pwmgen.0.value", "at_speed": "vfd.at-speed"}
+        m["atc"] = {"type": "rack", "pockets": 6, "x": 600, "y": 400, "dx": 25, "dy": 0, "z_clear": -10, "z_pocket": -150, "slide": 20,
+                    "unclamp": "hm2_7i96s.0.ssr.00.out-01", "released": "hm2_7i96s.0.inm.00.input-05"}
+        f = self.gen(m)
+        hal, ini, ngc = f["machine.hal"], ini_sections(f["mill.ini"]), f["toolchange.ngc"]
+        self.assertIn("net spindle-on spindle.0.on => hm2_7i96s.0.ssr.00.out-00", hal)
+        self.assertIn("net spindle-rpm spindle.0.speed-out-abs => pwmgen.0.value", hal)
+        self.assertIn("net spindle-at-speed vfd.at-speed => spindle.0.at-speed", hal)
+        self.assertNotIn("setp spindle.0.at-speed 1", hal)
+        self.assertIn("num_dio=4", hal)
+        self.assertIn("net atc-unclamp motion.digital-out-00 => hm2_7i96s.0.ssr.00.out-01", hal)
+        self.assertIn("net atc-released hm2_7i96s.0.inm.00.input-05 => motion.digital-in-01", hal)
+        self.assertEqual(ini["RS274NGC"]["REMAP"], ["M6 modalgroup=6 ngc=toolchange"])
+        self.assertEqual(ini["RS274NGC"]["SUBROUTINE_PATH"], [os.path.join(self.d, "run")])
+        # released has a sensor: waited for; clamped hasn't: the dwell
+        self.assertIn("M66 P1 L3 Q3", ngc)
+        self.assertNotIn("M66 P0", ngc)
+        self.assertIn("G53 G0 X[600 + [#<_pk> - 1] * 25] Y[[400 + [#<_pk> - 1] * 0] - 20]", ngc)
+        self.assertIn("[#<_current_tool> LE 6]", ngc)
+        self.assertTrue(ngc.rstrip().endswith("M2"))
+        m["atc"].update(unclamp="", z_pocket=0)
+        m["spindle"] = {"type": "hal"}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}

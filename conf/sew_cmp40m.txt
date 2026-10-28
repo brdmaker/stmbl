@@ -1,0 +1,31 @@
+#stmbl_motor SEW CMP40M/BP/KTY/RH1M
+link pid
+link pmsm
+link res_fb0
+link misc
+# SEW-EURODRIVE CMP40M/BP/KTY/RH1M/SB, 3000 rpm, 400 V class (on a PSF121
+# planetary gear unit, i = 10: this config is the motor's side). From the
+# plate and SEW's CMP catalog, line-to-line values halved; not yet run:
+# measure r and l, then autotune (host/tests/motors.py sew_cmp40m).
+conf0.r = 9.96
+conf0.l = 0.02275
+conf0.psi = 0.1455
+conf0.polecount = 3
+conf0.j = 0.000018
+conf0.max_ac_cur = 8.5
+conf0.max_force = 3.8
+conf0.max_vel = 314
+conf0.mot_fb_rev = 1
+# RH1M: a 2-pole resolver (one electrical turn per turn); try 10 kHz, then
+# 5 kHz if res0.amp is low; res0.phase and the offset from commissioning
+conf0.mot_fb_polecount = 1
+# SEW resolver cable (green, 5 pairs) to the feedback RJ45, measured:
+#   grey/pink R1/R2 excitation 77.4 ohm  -> 5 Ref+ / 4 Ref-
+#   green/yellow S2/S4 sin 67.5 ohm      -> 1 Sin+ / 2 Sin-
+#   blue/red S1/S3 cos 67.3 ohm          -> 3 Cos+ / 6 Cos-
+#   brown/white KTY84 576 ohm at ~20 C (to the HV temp connector, hv0.mot_temp in ohm)
+#   violet/black 1 ohm: a bridge at the motor, unused
+# angle backwards: swap green and yellow
+res0.freq = 10000
+# brake BP (24 V DC, 0.95 Nm) on out0, as festo.txt
+io0.out0 = fault0.mot_brake

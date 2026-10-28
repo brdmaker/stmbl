@@ -1,20 +1,12 @@
-"""Write brdstepper-bom.csv from parts.py: one line per value and footprint,
+"""Write <name>-bom.csv from parts.py: one line per value and footprint,
 with the references, the variant and the notes (✱: check its datasheet).
+parts.VARIANTS ({ref: variant}) and parts.NOT_FITTED (refs) are optional.
 
-  python3 bom.py [OUTDIR]
+  kigen.py bom <board dir>
 """
 import csv
 import os
-import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import parts  # noqa: E402
-
-OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(HERE)
-VARIANT_A = {"U8", "J4", "R20", "C38"}                      # smart-serial
-VARIANT_B = {"U9", "J5", "J6", "JP1", "R21", "C39", "C40"}  # CAN
-NOT_FITTED = {"H1", "H2", "H3", "H4", "TP1", "TP2", "TP3", "JP1"}
 
 
 def refkey(r):
@@ -22,19 +14,20 @@ def refkey(r):
     return (r[:i], int(r[i:] or 0))
 
 
-def main():
+def run(out, parts):
+    variants, not_fitted = getattr(parts, "VARIANTS", {}), getattr(parts, "NOT_FITTED", set())
     rows = {}
     for plist in parts.SHEETS.values():
         for ref, lib_id, value, fp, nets, note in plist:
-            if ref in NOT_FITTED:
+            if ref in not_fitted:
                 continue
-            var = "A" if ref in VARIANT_A else "B" if ref in VARIANT_B else ""
+            var = variants.get(ref, "")
             key = (value, fp, var)
             row = rows.setdefault(key, {"refs": [], "notes": []})
             row["refs"].append(ref)
             if note and note not in row["notes"]:
                 row["notes"].append(note)
-    path = os.path.join(OUT, "brdstepper-bom.csv")
+    path = os.path.join(out, parts.PROJECT + "-bom.csv")
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["References", "Qty", "Value", "Footprint", "Variant", "Notes"])
@@ -43,6 +36,3 @@ def main():
             w.writerow([" ".join(refs), len(refs), value, fp.split(":")[1], var, "; ".join(row["notes"])])
     print("wrote %s (%d lines)" % (path, len(rows)))
 
-
-if __name__ == "__main__":
-    main()

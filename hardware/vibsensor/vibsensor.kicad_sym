@@ -1,0 +1,282 @@
+(kicad_symbol_lib
+  (version 20220914)
+  (generator kigen)
+  (symbol
+    "TPS560430"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -7.62 7.62 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "TPS560430XDBVR" (at 0 -7.62 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_TO_SOT_SMD:SOT-23-6"
+      (at 0 -10.16 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://www.ti.com/lit/ds/symlink/tps560430.pdf"
+      (at 0 -12.7 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "TPS560430 4-36 V 600 mA synchronous buck, SOT-23-6 (DBV). VREF 1.0 V."
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "TPS560430_0_1"
+      (rectangle
+        (start -7.62 6.35)
+        (end 7.62 -6.35)
+        (stroke (width 0.254) (type default))
+        (fill (type background))))
+    (symbol
+      "TPS560430_1_1"
+      (pin
+        power_in
+        line
+        (at -10.16 3.81 0)
+        (length 2.54)
+        (name "VIN" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 1.27 0)
+        (length 2.54)
+        (name "EN" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at -10.16 -3.81 0)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 10.16 3.81 180)
+        (length 2.54)
+        (name "CB" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at 10.16 1.27 180)
+        (length 2.54)
+        (name "SW" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at 10.16 -3.81 180)
+        (length 2.54)
+        (name "FB" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))))
+  (symbol
+    "IIS3DWB"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -7.62 17.78 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "IIS3DWBTR" (at 0 -17.78 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_LGA:LGA-14_3x2.5mm_P0.5mm_LayoutBorder3x4y"
+      (at 0 -20.32 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://www.st.com/resource/en/datasheet/iis3dwb.pdf"
+      (at 0 -22.86 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "IIS3DWB 3-axis vibration sensor, 26.7 kHz, +-2..16 g, SPI, LGA-14 2.5x3 mm. Pinout per DS12569."
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "IIS3DWB_0_1"
+      (rectangle
+        (start -7.62 16.51)
+        (end 7.62 -16.51)
+        (stroke (width 0.254) (type default))
+        (fill (type background))))
+    (symbol
+      "IIS3DWB_1_1"
+      (pin
+        input
+        line
+        (at -10.16 13.97 0)
+        (length 2.54)
+        (name "CS" (effects (font (size 1.27 1.27))))
+        (number "12" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 11.43 0)
+        (length 2.54)
+        (name "SPC" (effects (font (size 1.27 1.27))))
+        (number "13" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 8.89 0)
+        (length 2.54)
+        (name "SDI" (effects (font (size 1.27 1.27))))
+        (number "14" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at -10.16 6.35 0)
+        (length 2.54)
+        (name "SDO" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at -10.16 1.27 0)
+        (length 2.54)
+        (name "INT1" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        output
+        line
+        (at -10.16 -1.27 0)
+        (length 2.54)
+        (name "INT2" (effects (font (size 1.27 1.27))))
+        (number "9" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at -10.16 -6.35 0)
+        (length 2.54)
+        (name "RES" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at -10.16 -8.89 0)
+        (length 2.54)
+        (name "RES" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at -10.16 -11.43 0)
+        (length 2.54)
+        (name "RES" (effects (font (size 1.27 1.27))))
+        (number "10" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at -10.16 -13.97 0)
+        (length 2.54)
+        (name "RES" (effects (font (size 1.27 1.27))))
+        (number "11" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 13.97 180)
+        (length 2.54)
+        (name "VDD" (effects (font (size 1.27 1.27))))
+        (number "8" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 11.43 180)
+        (length 2.54)
+        (name "VDD_IO" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 -11.43 180)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 -13.97 180)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "7" (effects (font (size 1.27 1.27)))))))
+  (symbol
+    "TMP117"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U" (at -7.62 7.62 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "TMP117AIDRVR" (at 0 -7.62 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Package_SON:WSON-6-1EP_2x2mm_P0.65mm_EP1x1.6mm"
+      (at 0 -10.16 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Datasheet"
+      "https://www.ti.com/lit/ds/symlink/tmp117.pdf"
+      (at 0 -12.7 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property
+      "ki_description"
+      "TMP117 +-0.1 degC digital temperature sensor, I2C, WSON-6 (DRV). Pinout per SNOSD82."
+      (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (symbol
+      "TMP117_0_1"
+      (rectangle
+        (start -7.62 6.35)
+        (end 7.62 -6.35)
+        (stroke (width 0.254) (type default))
+        (fill (type background))))
+    (symbol
+      "TMP117_1_1"
+      (pin
+        bidirectional
+        line
+        (at -10.16 3.81 0)
+        (length 2.54)
+        (name "SDA" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 1.27 0)
+        (length 2.54)
+        (name "SCL" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin
+        open_collector
+        line
+        (at -10.16 -1.27 0)
+        (length 2.54)
+        (name "ALERT" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))
+      (pin
+        input
+        line
+        (at -10.16 -3.81 0)
+        (length 2.54)
+        (name "ADD0" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 3.81 180)
+        (length 2.54)
+        (name "V+" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin
+        power_in
+        line
+        (at 10.16 -1.27 180)
+        (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+      (pin
+        passive
+        line
+        (at 10.16 -3.81 180)
+        (length 2.54)
+        (name "EP" (effects (font (size 1.27 1.27))))
+        (number "7" (effects (font (size 1.27 1.27))))))))

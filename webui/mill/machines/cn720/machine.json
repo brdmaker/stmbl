@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "CN 720",
+  "type": "bridge",
+  "units": "mm",
+  "servo_period_ns": 500000,
+  "board": {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10", "config": "num_encoders=0 sserial_port_0=00000000", "watchdog_ms": 50},
+  "bitstream": {"loader": "none"},
+  "axes": {
+    "X": {"min": 0, "max": 700, "max_vel": 450, "max_acc": 5000},
+    "Y": {"min": 0, "max": 430, "max_vel": 450, "max_acc": 5000},
+    "Z": {"min": -200, "max": 0, "max_vel": 220, "max_acc": 4000}
+  },
+  "joints": [
+    {"axis": "X", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 0}, "ferror": 0.5, "min_ferror": 0.05,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-02", "pos": 0, "search_vel": -20, "latch_vel": 2, "sequence": 1}},
+    {"axis": "Y", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 1}, "ferror": 0.5, "min_ferror": 0.05,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-03", "pos": 0, "search_vel": -20, "latch_vel": 2, "sequence": 1}},
+    {"axis": "Z", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 2}, "ferror": 0.5, "min_ferror": 0.05,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-04", "pos": 0, "search_vel": 10, "latch_vel": -1, "sequence": 0}}
+  ],
+  "estop": {"input": "hm2_7i96s.0.inm.00.input-00"},
+  "probe": {"type": "input", "input": "hm2_7i96s.0.inm.00.input-01"},
+  "spindle": {"type": "sim", "max_rpm": 24000},
+  "toolsetter": {"x": 680, "y": 410, "z_above": -40, "z_ref": -185, "travel": 120},
+  "model": {"builtin": true, "parts": []},
+  "console": {"port": 8080}
+}

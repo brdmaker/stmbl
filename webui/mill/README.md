@@ -104,18 +104,20 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. In the INI as `[MILLWEB] MACHINE_TYPE` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
-| `joints` | a list: `axis`; `drive`: `{type: sim}` (command = feedback), `{type: stmbl_sserial, port, channel}` (on the Mesa board's smart-serial), `{type: stmbl_can, bus, node}` (stmblcan; `can.spi` lists the buses), `{type: stmbl_sim, conf, sim}` (the simulated drive, one at most), with `console` (its console on the Drives tab, default yes); `ferror`, `min_ferror`; `home`: `method` (`absolute`, `immediate`, `switch` with `switch`/`search_vel`/`latch_vel`/`offset`, `index` with `latch_vel`/`offset`), `pos`, `sequence` (two joints on an axis: a gantry, homed in step); `min`, `max`, `max_vel`, `max_acc` (default: the axis's, travel ±1 mm, speeds ×1.1) |
+| `joints` | a list: `axis`; `drive`: `{type: sim}` (command = feedback), `{type: stmbl_sserial, port, channel}` (on the Mesa board's smart-serial), `{type: stmbl_can, bus, node}` (stmblcan; `can.spi` lists the buses), `{type: stmbl_sim, conf, sim}` (the simulated drive, one at most), with `console` (its console on the Drives tab, default yes); `mech`: `lead` (mm a screw turn), `ratio` (motor turns a screw turn: 2 for a 2:1 belt), `reverse` (a stmbl drive with a lead gets `scale` comps between LinuxCNC's mm and its motor radians; no lead: the drive works in mm itself); `ferror`, `min_ferror`; `home`: `method` (`absolute`, `immediate`, `switch` with `switch`/`search_vel`/`latch_vel`/`offset`, `index` with `latch_vel`/`offset`), `pos`, `sequence` (two joints on an axis: a gantry, homed in step); `min`, `max`, `max_vel`, `max_acc` (default: the axis's, travel ±1 mm, speeds ×1.1) |
 | `can` | `spi` (a device a bus, or `sim`), `discover`, `spi_hz` |
 | `estop` | `input` (a HAL pin, true while the chain is closed), `invert`; a Mesa board's watchdog also trips it; no input and no board: a loop |
 | `probe` | `type`: `none`, `input` (`input`, `invert`), `sim` (trips below `sim_z`) |
-| `spindle` | `type`: `none`, `sim`; `max_rpm` |
+| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once)); `max_rpm`, `min_rpm` |
+| `atc` | `type`: `none` or `rack`: M6 is remapped to `run/toolchange.ngc`, made from these: tool n in pocket n (`pockets`), pocket 1 at `x`, `y`, the others `dx`, `dy` apart; `z_clear`, `z_pocket`, `slide` (the holder enters its fork along +Y; 0: from above), `feed`; pins `unclamp` (the drawbar, motion's digital out 0), `air` (out 1), `clamped`, `released` (sensors, in 0 and 1: waited for up to `timeout` s; blank: `dwell`). A tool beyond the pockets is changed by hand (a message and a pause) |
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
 | `stmbl` | the drives' firmware: `fw` (null: this checkout's `STMBL_FW_VERSION`), `block` (a mismatch keeps the machine off; default true) |
-| `model` | the machine in the 3D view: `builtin` (the built-in gantry, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
+| `model` | the machine in the 3D view: `builtin` (the built-in machine of `type`, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
 | `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
 
 The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
@@ -131,7 +133,8 @@ a sudoers line lets that user load bitstreams and nothing else:
 
 **The Configure page** (also without the supervisor: then it says so and
 the INI is configured by hand):
-- **Machine, Axes & joints, Hardware, I/O, Console:** machine.json in forms (a joint per card; the drive's and the homing's fields follow their type). Blank fields take the default shown.
+- **Machine, Axes & joints, Hardware, Spindle, Tools & probe, I/O, Console:** machine.json in forms (a joint per card; the drive's and the homing's fields follow their type; a joint's screw lead and ratio show its mm a motor turn and the motor's rpm at top speed). Blank fields take the default shown. Tools & probe holds the probe, the tool setter and the rack tool changer.
+- **HAL pins:** each pin field has **Pins…**, a pin browser: LinuxCNC's pins while it runs (with their values and signals), else the names the board would give (said so), only the direction that fits (an input from the machine: pins that drive; an output: pins that are driven); type to filter, Enter or a click picks.
 - **3D model:** the machine in the 3D view from its own files: upload STL or OBJ parts, say what each rides on (the frame fixed, a gantry's bridge with Y, the X carriage with X and Y, the Z ram with all three, a moving table against X and Y), place, turn, scale and colour them, and switch the built-in gantry off. The 3D view sits beside the form and shows each change at once; Save keeps it for every browser. A CAD export of the machine at its home position, in mm, lines up with one offset (where the tool tip is).
 - **Custom HAL**, **machine.json** (as text; the forms and the text are the same file).
 - **Check** asks millweb to check machine.json and make its INI and HAL: problems are listed (a click goes to the field, marked), **Generated** shows the files and the changes against the saved ones.
@@ -334,6 +337,12 @@ the event log.
 - `vibspectrum` {node, spectrum: {df, rms}};
 - `vibtrend`, `vibconsole`.
 
+## Messages, progress, run statistics
+
+- **Warnings and faults** come up as a large card over the page (warnings go after 10 s, faults stay until a tap or a key; the card takes no clicks, so what is under it still works). The footer's line, now larger, opens the last message again; the Status page has them all.
+- **Uploading and loading a program** show a bar: reading the file, sending it (from the socket's buffer), LinuxCNC loading it and making the preview, then drawing it. A long path is turned into the 3D view in slices, the page staying alive between them.
+- **STATS** takes the MDI / JOG place while a cycle runs and gives it back after: run time (and on hold), pace against the estimate, G-code lines a second and lines run, maximum and mean velocity, contour error, the largest following error of each joint (and the gantry's Y1−Y2 skew), spindle load. The last run's numbers stay under STATS until the next run or Reset.
+
 ## The 3D setup
 
 What stands on the table in the 3D view: the built-in vise and stock by default, and
@@ -344,6 +353,7 @@ needs control.
 - **Top at work zero** puts its top at work Z0 and its front-left corner at X0 Y0; **On the table** sets its bottom on the table; **Turn 90°**, **Tip 90°**; **Remove**.
 - Each object is solid, see-through or hidden; the **fixtures** and **workpiece** buttons above the view do the same for all of them at once.
 - A new workpiece goes to the work zero, a new fixture onto the table under it.
+- **Tools:** on the Tools page each tool can have its own model (the tool and its holder in one STL or OBJ, its origin at the cutting tip, the spindle along +Z), uploaded there or chosen from the program folder's models, shifted, turned and scaled; the 3D view draws it in place of the plain cylinder. Kept with the setup (`tools`).
 
 
 ## On a tablet

@@ -39,6 +39,12 @@ MOTORS = [
     ("sr8_1",          2,      0.003,    0.05,     4, 0.00015,    10),
     ("weiler_z",       0.4,    0.01,     0.1667,   2, 0.000045,   20),
     ("wobl",           1.2,    0.005,    0.1333,   2, 0.00005,    10),
+    # SEW-EURODRIVE CMP40M/BP/KTY/RH1M (3000 rpm, 400 V; brake, resolver), from the
+    # plate and SEW's CMP catalog: R1 19.92 ohm, L1 45.5 mH line to line (halved
+    # here: phase values), Up0 56 V / 1000 rpm line rms -> psi 45.7 V phase peak
+    # / (2 pi 50 Hz); 6 poles (150 Hz at 3000 rpm); J 0.18 kg cm^2 with the
+    # brake; Imax 6 A rms -> 8.5 A peak. M0 0.8 Nm at I0 0.95 A, Mmax 3.8 Nm.
+    ("sew_cmp40m",     9.96,   0.02275,  0.1455,   3, 0.000018,   8.5),
     # synthetic
     ("syn_servo_2kw",  0.3,    0.004,    0.25,     4, 0.0012,     30),
     ("syn_torque_14p", 2.5,    0.015,    0.35,     14, 0.01,      8),

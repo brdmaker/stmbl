@@ -27,17 +27,28 @@ const Live = (() => {
       setTimeout(() => connect(), 2000);
     };
   }
-  function send(op, args = {}) {
+  // onSent(frac): how much of a large message has left the browser (the socket's buffer drains)
+  function send(op, args = {}, onSent) {
     return new Promise((resolve) => {
       if (!ws || ws.readyState !== 1) { resolve({ ok: false, err: "not connected" }); return; }
       const id = ++nid;
       pending.set(id, resolve);
-      ws.send(JSON.stringify({ op, id, ...args }));
+      const text = JSON.stringify({ op, id, ...args }), base = ws.bufferedAmount;
+      ws.send(text);
+      if (onSent) {
+        const sock = ws, tick = () => {
+          if (!pending.has(id) || sock !== ws) return;
+          const left = Math.max(0, sock.bufferedAmount - base);
+          onSent(1 - left / text.length);
+          if (left > 0) setTimeout(tick, 120);
+        };
+        tick();
+      }
       setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve({ ok: false, err: "no answer" }); } }, 130000);
     });
   }
-  async function act(op, args, label) {
-    const r = await send(op, args);
+  async function act(op, args, label, onSent) {
+    const r = await send(op, args, onSent);
     if (!r.ok) msg(`${label || op}: ${r.err}`, "warn");
     return r;
   }
@@ -52,7 +63,7 @@ const Live = (() => {
       case "tools": return tools(m.tools);
       case "offsets": return offsets(m);
       case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
-      case "setup": lastSetup = m.objects; return setupLoad(m.objects);
+      case "setup": lastSetup = m.objects; lastTools = m.tools; return setupLoad(m.objects, m.tools);
       case "hal": if (st.page === "debug") halShow(m.v); return;
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
@@ -79,6 +90,7 @@ const Live = (() => {
     connected = true; me = m.you; holder = m.control; info = m.machine;
     const lim = info.limits;
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
+    if (R) { if (R.type !== (info.type || "gantry")) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
     document.querySelector(".brand b").textContent = info.name.toUpperCase();
     document.querySelector(".brand span").textContent = `${info.coords} · LinuxCNC · millweb ${info.version}`;
     $("f-src").textContent = `live · ${location.host}`;
@@ -172,10 +184,12 @@ const Live = (() => {
     }
   }
   // the path: [kind, x, y, z, feed, line, tool] per segment, each from where the one before ended
-  function toProgram(m) {
+  // (async: a long path in slices, the page painting between them; onFrac(0..1))
+  async function toProgram(m, onFrac) {
     const segs = [], used = new Set(m.stats ? m.stats.tools : []), d = m.path || [];
     let [x0, y0, z0] = m.start || [0, 0, 0];
     for (let i = 0; i < d.length; i += 7) {
+      if (i && i % 280000 === 0) { if (onFrac) onFrac(i / d.length); await nextFrame(); }
       const k = d[i], x = d[i + 1], y = d[i + 2], z = d[i + 3], f = d[i + 4], line = d[i + 5], tool = d[i + 6];
       if (k === 3) { segs.push({ k: "tc", tool, line, x0, y0, z0, x, y, z }); used.add(tool); }
       else {
@@ -201,9 +215,15 @@ const Live = (() => {
     linesBusy = false;
     if (r.ok && prog.name === want) { prog.lines = r.lines; prog.line0 = r.start; prog.nlines = r.nlines; renderListing(); }
   };
-  function program(m) {
-    prog = toProgram(m);
+  let progSeq = 0;
+  async function program(m) {
+    const seq = ++progSeq, moves = Math.round((m.path || []).length / 7), label = `${m.name}: drawing ${moves.toLocaleString("en-US")} moves`;
+    busyShow(label, moves > 40000 ? 0 : null, "program"); await nextFrame();
+    const p = await toProgram(m, (f) => busyShow(label, 0.9 * f, "program"));
+    if (seq !== progSeq) return;  // another came meanwhile
+    prog = p;
     renderProgram(); rebuildPath();
+    busyHide("program"); busyHide("load");
     if (m.error) msg(`${m.name}: ${m.error}`, "warn");
     else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
@@ -224,6 +244,7 @@ const Live = (() => {
     $("msg").textContent = m.text;
     $("msg").style.color = m.lvl === "warn" ? C.warn : m.lvl === "bad" ? C.stop : C.ink;
     renderEvents();
+    if (m.lvl === "warn" || m.lvl === "bad") popMsg(m.text, m.lvl);
   }
 
   // ------------------------------------------------------------ console bits
@@ -356,8 +377,10 @@ const Live = (() => {
     modelBufs.set(path, { mtime: r.mtime, buf: buf.buffer });
     return buf.buffer;
   };
-  let lastSetup = null;  // the machine's: back to it when a change can't be saved
-  L.setupSave = (objects) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o) }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup); });
+  let lastSetup = null, lastTools = null;  // the machine's: back to them when a change can't be saved
+  L.setupSave = (objects, tools) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
+  L.modelFiles = () => files.filter((f) => f.kind === "model").map((f) => f.name);
+  L.modelUpload = async (name, buf) => { const r = await act("model_save", { name, data: b64(buf) }, "Upload " + name); if (r.ok) modelBufs.delete(name); return r.ok; };
   // the Debug page's HAL tab: the machine's HAL
   L.hal = {
     list: async () => { const r = await send("hal_list"); if (!r.ok) throw new Error(r.err); return { pins: r.pins, sigs: r.sigs, params: r.params }; },
@@ -376,6 +399,7 @@ const Live = (() => {
   L.viewsSave = (views) => send("views_save", { views });
   // the Configure page: machine.json, bitstreams, LinuxCNC's restarts (millweb-supervisor)
   L.supervised = () => !!(info && info.supervised);
+  L.info = () => info || {};
   L.conf = {
     get: () => send("config_get"),
     check: (text, custom) => send("config_check", { text, custom }),
@@ -467,9 +491,16 @@ const Live = (() => {
       const r = await act("program_save", { name: p.name, text: p.lines.join("\n") }, "Save " + p.name);
       if (!r.ok) return false;
     }
-    const r = await act("program_load", { name: p.name }, "Load " + p.name);
-    return r.ok;
+    return loadOnMachine(p.name);
   };
+  // LinuxCNC opens it, the server makes its preview, then the program message draws it
+  async function loadOnMachine(name) {
+    busyShow(`Loading ${name}: LinuxCNC reads it, the preview is made…`, null, "load");
+    const r = await act("program_load", { name }, "Load " + name);
+    if (!r.ok) busyHide("load");
+    else setTimeout(() => busyHide("load"), 30000);  // the preview never came (an unchanged program isn't sent again)
+    return r.ok;
+  }
   // the File page: the program folder's folders and programs, one folder at a time
   L.dir = ""; L.sel = null;  // the folder shown ("" the program folder); the selected {kind: "file" | "dir", path}
   const inDir = (path, d) => { const pre = d ? d + "/" : ""; return path.startsWith(pre) && !path.slice(pre.length).includes("/"); };
@@ -509,8 +540,11 @@ const Live = (() => {
     $("fl-rename").disabled = $("fl-delete").disabled = false;
     const name = files[i].name;
     if (files[i].kind === "model") return modelPreflight(name);
+    busyShow(`${name}: reading the preview…`, null, "preflight");
     const r = await send("program_get", { name });
-    if (r.ok && files[fileSel] && files[fileSel].name === name) renderPreflight(toProgram(r.program));
+    const p = r.ok && await toProgram(r.program, (f) => busyShow(`${name}: preparing the preview`, f, "preflight"));
+    busyHide("preflight");
+    if (p && files[fileSel] && files[fileSel].name === name) renderPreflight(p);
   };
   const openDir = (d) => { L.dir = d; L.sel = null; L.renderFiles(); };
   // the File page's clicks: the server's programs, not the simulation's library
@@ -528,7 +562,7 @@ const Live = (() => {
     }
     const i = +b.dataset.i, add = e.target.closest("[data-add]");
     if (add && files[i]) return addModel(files[i].name, add.dataset.add);
-    if (e.target.closest(".btn") && files[i] && files[i].kind !== "model" && files[i].name !== prog.name) act("program_load", { name: files[i].name }, "Load");
+    if (e.target.closest(".btn") && files[i] && files[i].kind !== "model" && files[i].name !== prog.name) loadOnMachine(files[i].name);
     L.selectFile(i);
   }, true);
   // a 3D model: its size and triangles where a program's preflight goes
@@ -592,8 +626,13 @@ const Live = (() => {
       if (f.size > lim * 1024 * 1024) { msg(`${f.name}: ${(f.size / 1048576).toFixed(1)} MB; ${model ? "3D models" : "uploads"} stop at ${lim} MB: copy it into the program folder`, "warn"); continue; }
       const name = here(f.name.replace(/[^\w.\- ]/g, "_"));
       if (files.some((x) => x.name === name) && !(await confirmP(`Replace ${name}?`, "A file of that name is there already."))) continue;
-      const r = model ? await act("model_save", { name, data: b64(await f.arrayBuffer()) }, "Upload " + f.name)
-        : await act("program_save", { name, text: await f.text() }, "Upload " + f.name);
+      const label = `Uploading ${name} (${(f.size / 1048576).toFixed(1)} MB)`, sent = (fr) => busyShow(fr < 1 ? label : `${name}: the machine saves it…`, fr < 1 ? 0.2 + 0.8 * fr : null, "upload");
+      busyShow(`Reading ${f.name}…`, 0, "upload");
+      const data = await readFile(f, model, (fr) => busyShow(`Reading ${f.name}`, 0.2 * fr, "upload"));
+      const r = data == null ? { ok: false } : model ? await act("model_save", { name, data: b64(data) }, "Upload " + f.name, sent)
+        : await act("program_save", { name, text: data }, "Upload " + f.name, sent);
+      busyHide("upload");
+      if (data == null) { msg(`${f.name}: could not be read`, "warn"); continue; }
       if (r.ok && model) modelBufs.delete(name);
       if (r.ok) {
         msg(`Uploaded ${name}`, "ok"); L.sel = { kind: "file", path: name };
@@ -601,6 +640,15 @@ const Live = (() => {
         if (i >= 0 && st.page === "file") { L.renderFiles(); L.selectFile(i); }
       }
     }
+  }
+  // the file's text (a program) or bytes (a model), with the reading's progress
+  function readFile(f, bytes, onFrac) {
+    return new Promise((res) => {
+      const rd = new FileReader();
+      rd.onprogress = (e) => { if (e.lengthComputable) onFrac(e.loaded / e.total); };
+      rd.onload = () => res(rd.result); rd.onerror = () => res(null);
+      if (bytes) rd.readAsArrayBuffer(f); else rd.readAsText(f);
+    });
   }
   function b64(buf) {
     const u = new Uint8Array(buf); let s = "";

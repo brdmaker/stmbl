@@ -9,27 +9,22 @@ netlist kicad-cli exports:
   - pin types: a net with a power input has a power output or a PWR_FLAG; no
     two power outputs, no two outputs, no output on a power output.
 
-  python3 check.py [NETLIST]   (default: exports one from brdstepper.kicad_sch)
+  kigen.py check <board dir>
 """
 import os
 import subprocess
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from sexp import parse, find, findall  # noqa: E402
-import parts  # noqa: E402
+from sexp import parse, find, findall
 
-PROJ = os.path.dirname(HERE)
+PROJ, parts = None, None  # set by run()
 
 
 def netlist():
-    if len(sys.argv) > 1:
-        return open(sys.argv[1]).read()
     with tempfile.TemporaryDirectory() as d:
-        out = os.path.join(d, "brdstepper.net")
-        subprocess.run(["kicad-cli", "sch", "export", "netlist", "-o", out, os.path.join(PROJ, "brdstepper.kicad_sch")],
+        out = os.path.join(d, "n.net")
+        subprocess.run(["kicad-cli", "sch", "export", "netlist", "-o", out, os.path.join(PROJ, parts.PROJECT + ".kicad_sch")],
                        check=True, stdout=subprocess.DEVNULL)
         return open(out).read()
 
@@ -37,8 +32,8 @@ def netlist():
 def pwr_flags():
     """The nets a PWR_FLAG sits on (netlists leave power symbols out): the
     global label at the end of each flag's pin stub."""
-    sch = parse(open(os.path.join(PROJ, "power.kicad_sch")).read())
-    labels = {(round(float(find(l, "at")[1]), 2), round(float(find(l, "at")[2]), 2)): l[1] for l in findall(sch, "global_label")}
+    sch = parse(open(os.path.join(PROJ, parts.PROJECT + ".kicad_sch")).read())
+    labels = {(round(float(find(l, "at")[1]), 2), round(float(find(l, "at")[2]), 2)): l[1] for l in findall(sch, "label")}
     out = []
     for s in findall(sch, "symbol"):
         if find(s, "lib_id")[1] == "power:PWR_FLAG":
@@ -47,7 +42,9 @@ def pwr_flags():
     return out
 
 
-def main():
+def run(proj_dir, parts_mod):
+    global PROJ, parts
+    PROJ, parts = proj_dir, parts_mod
     nl = parse(netlist())
     want = {}
     nc = set()
@@ -109,6 +106,3 @@ def main():
     print("OK" if not errs else "%d errors" % len(errs))
     return 1 if errs else 0
 
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -1,30 +1,29 @@
-# brdstepper KiCad project, generated from gen/parts.py (KiCad 7, its Python
-# pcbnew module, rsvg-convert and ImageMagick for the renders).
+# brdstepper KiCad project, generated from gen/parts.py and gen/board.py by
+# hardware/kigen (KiCad 7, its Python pcbnew module, rsvg-convert and
+# ImageMagick for the renders).
 #
 #   make            schematic, check, board, DRC, BOM, PDF, renders
 #   make sch        the schematic and its netlist check
 #   make pcb        the board (placement redone: hand edits to it are lost)
 
-SCH = brdstepper.kicad_sch power.kicad_sch mcu.kicad_sch bridges.kicad_sch encoder.kicad_sch interfaces.kicad_sch
+KIGEN = python3 ../kigen/kigen.py
 
 all: sch pcb drc bom doc
 
 sch:
-	python3 gen/gen.py
-	python3 gen/check.py
+	$(KIGEN) sch .
+	$(KIGEN) check .
 
 pcb: sch
-	python3 gen/pcb.py
+	$(KIGEN) pcb .
 
 drc:
-	python3 gen/drc.py
+	$(KIGEN) drc .
 
 bom:
-	python3 gen/bom.py
+	$(KIGEN) bom .
 
 doc:
-	mkdir -p doc
-	kicad-cli sch export pdf -o doc/brdstepper-schematic.pdf brdstepper.kicad_sch
-	gen/render.sh doc/brdstepper-placement.png
+	$(KIGEN) doc .
 
 .PHONY: all sch pcb drc bom doc
