@@ -181,6 +181,19 @@ class Machine(unittest.TestCase):
             mc.validate(m, self.d)
         self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
 
+    def test_example_machines(self):
+        """machines/*: each valid and made; the test stand's racks scale its drives, its switches home it."""
+        for d in sorted(os.listdir(os.path.join(MILL, "machines"))):
+            f = self.gen(json.load(open(os.path.join(MILL, "machines", d, "machine.json"))))
+            self.assertIn("[JOINT_0]", f["mill.ini"], d)
+        f = self.gen(json.load(open(os.path.join(MILL, "machines", "teststand", "machine.json"))))
+        k = 2 * 3.141592653589793 / 94.24778   # a 20-tooth module 1.5 pinion: 94.25 mm a turn
+        self.assertIn("setp j1-cmd.gain %r" % k, f["machine.hal"])
+        ini = ini_sections(f["mill.ini"])
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
+        self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["41"], ["10"]))   # Y homes at its +40 end
+        self.assertIn("net j2-home-sw hm2_7i96s.0.inm.00.input-04 => joint.2.home-sw-in", f["machine.hal"])
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}

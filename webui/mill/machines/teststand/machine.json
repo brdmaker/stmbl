@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "stmbl test stand",
+  "type": "bridge",
+  "units": "mm",
+  "servo_period_ns": 1000000,
+  "board": {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10", "config": "num_encoders=0 sserial_port_0=00000000", "watchdog_ms": 50},
+  "bitstream": {"loader": "none"},
+  "axes": {
+    "X": {"min": -35, "max": 35, "max_vel": 100, "max_acc": 500},
+    "Y": {"min": -40, "max": 40, "max_vel": 100, "max_acc": 500},
+    "Z": {"min": -40, "max": 0, "max_vel": 60, "max_acc": 400}
+  },
+  "joints": [
+    {"axis": "X", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 0}, "mech": {"lead": 94.24778, "ratio": 1}, "ferror": 2, "min_ferror": 0.5,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-02", "offset": -36, "pos": -30, "search_vel": -10, "latch_vel": 1, "sequence": 1}},
+    {"axis": "Y", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 1}, "mech": {"lead": 94.24778, "ratio": 1}, "ferror": 2, "min_ferror": 0.5,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-03", "offset": 41, "pos": 35, "search_vel": 10, "latch_vel": -1, "sequence": 1}},
+    {"axis": "Z", "drive": {"type": "stmbl_sserial", "port": 0, "channel": 2}, "mech": {"lead": 94.24778, "ratio": 1}, "ferror": 2, "min_ferror": 0.5,
+     "home": {"method": "switch", "switch": "hm2_7i96s.0.inm.00.input-04", "offset": 1, "pos": 0, "search_vel": 5, "latch_vel": -1, "sequence": 0}}
+  ],
+  "estop": {"input": "hm2_7i96s.0.inm.00.input-00"},
+  "probe": {"type": "none"},
+  "spindle": {"type": "none"},
+  "model": {"builtin": true, "parts": []},
+  "console": {"port": 8080}
+}

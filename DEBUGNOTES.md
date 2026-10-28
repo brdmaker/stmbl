@@ -2322,3 +2322,15 @@ Entry format:
   but the drive may still be settling and the two are read a servo cycle
   apart.
 - Fix:     idea: wait for inpos, or compare within 1 µm.
+
+## 2026-10-28  OpenSCAD: "may not be a valid 2-manifold" from a tangent counterbore
+- Area:    hardware/teststand/teststand.scad (the motor brackets)
+- Status:  Fixed
+- Symptom: the X and Z motor brackets exported with "Object may not be a
+  valid 2-manifold"; removing the motor's cuts didn't help.
+- Cause:   a bolt's counterbore (Ø16) exactly tangent to another face (a
+  gusset's side, the plate's bottom edge): CGAL leaves an edge shared by
+  two solids.
+- Fix:     moved the bolts so nothing is tangent. Also: OpenSCAD 2021's
+  ASCII STL of printed threads is huge (64 MB for the set); `--export-format
+  binstl` and 12 slices a pitch make it 11 MB.
