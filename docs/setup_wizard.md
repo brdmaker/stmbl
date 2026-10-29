@@ -36,6 +36,15 @@ servoterm-cli/servoterm-cli -d /dev/ttyACM0 --wizard           # USB
 servoterm-cli/servoterm-cli -d /tmp/drive-x --wizard           # smart-serial console (sserialterm)
 ```
 
+On real hardware the smart-serial console needs no LinuxCNC:
+`tools/sscon/sscon.sh` runs the Mesa driver and sserialterm in a HAL
+session and gives `/tmp/stmbl-con`. Put `console.sserial = 1` in the
+session: every step's config then keeps `load sserial` (its console only),
+so the resets after a config write don't take the console away. The script
+raises the port's fault limit (the flash erase stops the drive's rt for up
+to 0.5 s) and restarts the port when it stops. Use it when USB's console
+is unreliable under motion (the SEW bench, DEBUGNOTES 2026-10-29).
+
 | Option | Default | What |
 |---|---|---|
 | `--session FILE` | `stmbl-setup-session.txt` | everything asked and measured; run again to resume |

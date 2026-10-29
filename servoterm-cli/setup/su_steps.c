@@ -144,6 +144,7 @@ static int wait_state(su_wizard_t *w, const char *pin, double done, double timeo
   while(now() < end) {
     double s, f;
     if(su_link_get(w->link, pin, &s) < 0) {
+      say(w, SU_MSG_ERROR, "no answer from the drive for %s during %s", pin, what);
       return -1;
     }
     if(s != last) {
@@ -254,6 +255,16 @@ char *su_build_config(const su_state_t *st, int final) {
   const char *lk = su_get(st, "link.kind");
   if(final && lk && strcmp(lk, "none") != 0) {
     c = su_conf_link(c, lk);
+  }
+  // The wizard on the smart-serial console (sserialterm's pty): every
+  // step's config keeps sserial loaded, its console only, or the reset
+  // after a config write would take the console away. The final `link
+  // sserial` loads it itself. USB's console failed under motion on the SEW
+  // bench (DEBUGNOTES 2026-10-29).
+  if(su_get_num(st, "console.sserial", 0.0) > 0.0 && !(final && lk && strcmp(lk, "sserial") == 0)) {
+    c = su_conf_load(c, "sserial");
+    c = su_conf_set(c, "sserial0.rt_prio", "2", "console");
+    c = su_conf_set(c, "sserial0.frt_prio", "2", "console");
   }
   if(fb && fb->extra) {
     c = su_conf_set(c, "fb_switch0.mot_pos", strchr(fb->extra, '=') + 2, NULL);

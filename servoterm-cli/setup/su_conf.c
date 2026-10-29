@@ -195,15 +195,38 @@ int su_conf_has_link(const char *conf, const char *name) {
   return 0;
 }
 
+static char *insert_after_links(char *conf, const char *line);
+
 char *su_conf_link(char *conf, const char *name) {
   if(su_conf_has_link(conf, name)) {
     return conf;
   }
-  // after the last link line: templates first, settings after them
+  char line[128];
+  snprintf(line, sizeof(line), "link %s\n", name);
+  return insert_after_links(conf, line);
+}
+
+// "load COMP" after the templates, once
+char *su_conf_load(char *conf, const char *comp) {
+  char line[128];
+  snprintf(line, sizeof(line), "load %s\n", comp);
+  size_t ll = strlen(line);
+  for(const char *p = conf; *p;) {
+    if(strncmp(p, line, ll) == 0 || (strncmp(p, line, ll - 1) == 0 && p[ll - 1] == '\0')) {
+      return conf;
+    }
+    p = strchr(p, '\n');
+    p = p ? p + 1 : "";
+  }
+  return insert_after_links(conf, line);
+}
+
+// after the last link and load line: templates first, settings after them
+static char *insert_after_links(char *conf, const char *line) {
   const char *after = NULL;
   for(const char *p = conf; *p;) {
     const char *e = strchr(p, '\n');
-    if(strncmp(p, "link ", 5) == 0) {
+    if(strncmp(p, "link ", 5) == 0 || strncmp(p, "load ", 5) == 0) {
       after = e ? e + 1 : p + strlen(p);
     }
     if(!e) {
@@ -212,8 +235,6 @@ char *su_conf_link(char *conf, const char *name) {
     p = e + 1;
   }
   size_t at = after ? (size_t)(after - conf) : 0;
-  char line[128];
-  snprintf(line, sizeof(line), "link %s\n", name);
   size_t n  = strlen(conf), ll = strlen(line);
   char *out = malloc(n + ll + 1);
   memcpy(out, conf, at);

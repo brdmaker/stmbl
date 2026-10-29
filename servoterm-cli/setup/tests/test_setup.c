@@ -267,6 +267,21 @@ static void test_build(void) {
   ok(su_conf_get(c, "conf0.max_force", v, sizeof(v)) == 0, "build: torque limit once psi is known");
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: the final config fits the drive");
   free(c);
+
+  // the wizard on the smart-serial console: sserial stays loaded, once
+  su_state_parse(s, "console.sserial = 1\n");
+  c = su_build_config(s, 0);
+  const char *ld = strstr(c, "load sserial\n");
+  ok(ld && !strstr(ld + 1, "load sserial") && !su_conf_has_link(c, "sserial"),
+     "build: console over smart-serial: sserial loaded once, no command link");
+  ok(su_conf_get(c, "sserial0.rt_prio", v, sizeof(v)) == 0 && su_conf_get(c, "fault0.en", v, sizeof(v)) < 0,
+     "build: console only: its priorities, the enable not wired");
+  ok(ld && strstr(c, "link enc_fb0") < ld && ld < strstr(c, "sserial0.rt_prio"),
+     "build: loaded after the templates, before its settings");
+  free(c);
+  c = su_build_config(s, 1);
+  ok(su_conf_has_link(c, "sserial") && !strstr(c, "load sserial"), "build: the final link sserial loads it itself");
+  free(c);
   su_state_free(s);
 }
 

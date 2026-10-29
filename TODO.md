@@ -10,12 +10,14 @@ Open work, newest first. Bugs and findings go in `DEBUGNOTES.md`.
   config.
 - **USB console stalls while the motor runs** (DEBUGNOTES 2026-10-29, Open):
   the IN endpoint keeps a packet armed that the core never sends; abort and
-  resend don't revive it. Next: re-initialise the USB core when healing
+  resend don't revive it. Workaround: the wizard over smart-serial
+  (`tools/sscon/sscon.sh`). Next: re-initialise the USB core when healing
   fails, and check the bench's USB cable and grounding.
 - **Resolver on FB1:** needs an excitation on FB1's Z driver (TIM1 CH3,
   PE13) synced to FB0's, polarity demodulation for sin1/cos1 in `adc.c`, a
   `res_fb1` template; FB1 gets 1 of 10 ADC samples, so it is noisier.
-- **SEW CMP40M commissioning:** mechanical id (wizard step 12), tuning, then
+- **SEW CMP40M commissioning:** mechanical id done over smart-serial
+  (j 2.09e-5 kg m^2, f 0.022 Nm, d 1.6e-4 Nm s/rad); tuning (step 13), then
   brake, limits, link, verify, save; `conf/sew_cmp40m.txt` with the measured
   values (r 22.54 ohm, l 27.9 mH, 3 pole pairs, psi 0.1535 Wb).
 - Boot-time fault 11 (HV volt error at 57 ms, before the bus is measured)
