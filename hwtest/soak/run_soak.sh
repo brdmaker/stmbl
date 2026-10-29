@@ -6,6 +6,8 @@
 #   run_soak.sh console [soak.py options]   no LinuxCNC: health/console checks
 #                                           of an idle drive on /dev/ttyACM0
 #
+# Environment: SOAK_MAX_VEL=N (mm/s, the machine's top speed), SOAK_CONSOLE=sserial
+# (hw: the checks over the smart-serial console, not USB).
 # Common options: --hours H, --cycles N, --on-fault stop|continue,
 # --console-every N (long-line check, firmware >= v0.9.18-243). See
 # soak.py --help. Results: hwtest/soak/runs/<target>-<time>/summary.md.
@@ -53,6 +55,20 @@ EOS
 chmod +x "$RUN/lcnc/display.sh"
 sed -i "s|^DISPLAY *=.*|DISPLAY = $RUN/lcnc/display.sh|" "$INI"
 [ "$TARGET" = sim ] && sed -i "s|^TTY *=.*|TTY = $PORT|" "$INI"
+# SOAK_MAX_VEL=N: the machine's top speed (mm/s) in this copy, for a motor
+# slower than the burn-in machine's 500 mm/s (the SEW CMP40M at 202 V: 300)
+if [ -n "$SOAK_MAX_VEL" ]; then
+  sed -i "s|^\(MAX_VELOCITY *= *\)500 *$|\1$SOAK_MAX_VEL|" "$INI"
+fi
+# SOAK_CONSOLE=sserial (hw): the checks over the smart-serial console
+# (sserialterm in LinuxCNC's HAL, as hwtest/suite) instead of USB, whose
+# console stalls under motion on the SEW bench (DEBUGNOTES 2026-10-29)
+if [ "$TARGET" = hw ] && [ "$SOAK_CONSOLE" = sserial ]; then
+  cp "$REPO/hwtest/suite/hw_console.hal" "$RUN/lcnc/"
+  sed -i "s|^HALFILE = stmbl.hal|HALFILE = stmbl.hal\nHALFILE = hw_console.hal|" "$INI"
+  PORT=$RUN/drive-con
+  printf '\n[SSERIALTERM]\nTTY = %s\n' "$PORT" >> "$INI"
+fi
 
 export SOAK_ARGS="--target $TARGET --port $PORT --out $RUN $*"
 echo "soak run: $RUN"
