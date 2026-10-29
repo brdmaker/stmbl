@@ -16,6 +16,19 @@ Entry format:
 
 ---
 
+## 2026-10-29  EBAZ4205: LinuxCNC didn't start, "Too many levels of symbolic links"
+- Area:    the EBAZ4205 image (hostmot2 `ebaz4205/image`: ebaz-lcnc-modules), for millweb comps.py
+- Status:  Fixed (image 2026.10.29.3; .1 and .2 withdrawn)
+- Symptom: every loadrt failed: `hal_lib: dlopen: /usr/lib/linuxcnc/modules/hal_lib.so:
+  ... Too many levels of symbolic links`, LinuxCNC ended at once.
+- Cause:   the writable modules directory is a tmpfs of links to LinuxCNC's own
+  modules, kept at a bind mount /run/ebaz/lcnc-modules-stock. `/` is a shared
+  mount, so that bind was its peer: the tmpfs mounted over the modules directory
+  propagated onto the stock copy too, and the links pointed at themselves. The
+  chroot test of the image (halcompile only) couldn't see it.
+- Fix:     `mount --make-private` on the stock bind; the script checks hal_lib.so
+  resolves. Test on the board: hostmot2 `ebaz4205/tools/test-comps.sh`.
+
 ## 2026-10-28  EBAZ4205: LinuxCNC's NML gone after an SSH login as cnc ended
 - Area:    the EBAZ4205 image (hostmot2 repo `ebaz4205/image`), seen in millweb
 - Status:  Fixed (image 2026.10.28.3)
