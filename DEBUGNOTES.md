@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-10-29  SEW CMP40M: the KTY wiring couples PWM into the resolver
+- Area:    bench wiring; HV board motor temperature input (`mtemp`, hv0.mot_temp)
+- Status:  Workaround (KTY disconnected, mot_temp_type 0 for commissioning)
+- Symptom: Wizard step 12 stopped with fault 2 (resolver amplitude < 0.15).
+  Enabled at 0 A, no motion: res0.amp fell from 0.259 to ~0.20 and jumped
+  0.16..0.25; the KTY read 46..62 degC on a cold motor. res0.phase 0.85 is
+  already the best (swept disabled and enabled).
+- Cause:   The KTY goes to the HV board, whose ground is the HV side's. Its
+  wires run with the resolver's (SEW signal plug), so the inverter's
+  common-mode swing reaches the resolver inputs. With the KTY unplugged,
+  enabled at 0 A reads 0.259 +-0.001, the same as disabled.
+- Fix:     For now none: the thermal model only. Options: run the KTY wires
+  apart from the resolver's (or in the power cable), earth the HV supply's
+  DC-, or read the KTY on the LV side. FB1 can't take a resolver as is (no
+  excitation; 1 of 10 ADC samples), see the session of 2026-10-29.
+
 ## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
 - Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`
 - Status:  Fixed
