@@ -622,6 +622,19 @@ test("system updates: releases with notes, the UPDATE chip, upgrade with progres
   t.check(await t.until(() => document.getElementById("sys-check").disabled && document.getElementById("sys-latest").hidden), "and the buttons off");
 });
 
+// the Configure page's Backup tab: the machine folder as a .zip (restoring restarts LinuxCNC: server/tests/test_backup.py
+// and the board test in doc cover that)
+test("backup: the machine folder downloads as a .zip", async (t) => {
+  if (!M.hello.machine.supervised) return t.skip("not run by millweb-supervisor: no machine folder");
+  await t.nav("config");
+  await t.page.click('#cf-tabs button[data-t="backup"]');
+  const [dl] = await Promise.all([t.page.waitForEvent("download", { timeout: 30000 }), t.page.click("#cf-bkget")]);
+  t.check(/\.zip$/.test(dl.suggestedFilename()), `a .zip: ${dl.suggestedFilename()}`);
+  const z = await dl.path(), head = fs.readFileSync(z).subarray(0, 2).toString();
+  t.check(head === "PK", "a zip file");
+  t.check(fs.readFileSync(z).includes("machine.json"), "with machine.json in it");
+});
+
 // last: millweb goes away
 test("millweb stops: OFFLINE, and the page says so", async (t) => {
   if (REMOTE) return t.skip("remote: this would stop the board's millweb (and LinuxCNC with it)");

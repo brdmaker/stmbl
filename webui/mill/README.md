@@ -192,6 +192,27 @@ the INI is configured by hand):
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
+## Backup and restore of the machine folder
+
+The Configure page's **Backup** tab (`server/backup.py`):
+
+- **Download backup (.zip):** the whole machine folder: machine.json,
+  custom.hal, tool table, linuxcnc.var, `comp/`, `bitstreams/`, `models/`,
+  `history/` and (optional) the G-code in `nc_files/`; never `run/`, `logs/`
+  or `backups/`. `millweb-backup.json` in it names the machine, the date and
+  the system version.
+- **Restore from a backup:** the zip goes up in 3 MB pieces (a WebSocket
+  message is at most 8 MB) to `run/restore.part`; the page shows what would
+  change (changed, new, removed files) and the problems of its machine.json
+  before anything is written. Restore puts it in `run/restore.zip` and
+  restarts LinuxCNC: the supervisor applies it while LinuxCNC is down
+  (LinuxCNC writes linuxcnc.var when it ends), after saving the folder as it
+  was into `backups/` (the last 5). The folder then is the backup's: files it
+  doesn't have are removed, except the programs when it was made without them.
+  A zip of the machine folder itself (`machine/machine.json`) works too.
+- Ops: `backup_get` (`programs`; reading), `restore_upload` (`offset`,
+  `data`, `total`), `restore_apply` (control, no program running).
+
 ## The machine's own HAL components
 
 Put `NAME.comp` files (halcompile's format) into the machine folder's

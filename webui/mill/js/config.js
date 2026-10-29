@@ -213,6 +213,23 @@ const TABS = {
   hist: () => `<p class="note">Every save, newest first. Show compares a version with the editor; Load puts it in the editor (then Save it to go back to it).</p>
     <ul class="cf-hist">${cfg.history.map((h) => `<li><span>${esc(h.time || h.id)} <span class="muted">${esc(h.who || "")}${h.note ? " · " + esc(h.note) : ""}</span></span><button class="btn sm" data-hshow="${esc(h.id)}">Show</button><button class="btn sm" data-hload="${esc(h.id)}">Load</button></li>`).join("") || "<li class='muted'>No saves yet.</li>"}</ul>
     ${cfg.view ? `<h3>${esc(cfg.view.id)} → the editor</h3><pre class="cf-code cf-diff">${diffHtml(cfg.view.diff) || "(the same)"}</pre>` : ""}`,
+  backup: () => {
+    const r = cfg.restore, up = cfg.upload;
+    const list = (t, xs) => xs.length ? `<details><summary>${xs.length} ${t}</summary><div class="cf-files">${xs.slice(0, 300).map(esc).join("<br>")}${xs.length > 300 ? "<br>…" : ""}</div></details>` : "";
+    return `<h3>Download</h3>
+    <p class="note">The whole machine folder as one .zip: machine.json, custom HAL, tool table, offsets (linuxcnc.var), your comps, bitstreams, 3D models and the save history. Keep it on your PC, or restore it here or onto another controller.</p>
+    <div class="row"><label class="muted"><input type="checkbox" id="cf-bkprog" ${cfg.bkprog ? "checked" : ""}> with the G-code programs (nc_files)</label><button class="btn" id="cf-bkget">Download backup (.zip)</button></div>
+    <h3>Restore</h3>
+    <p class="note">From a backup .zip made here (or a zip of the machine folder). You see what it changes before anything is written. LinuxCNC stops, the folder becomes the backup's, LinuxCNC starts again; the folder as it was goes into backups/ first (the last 5 are kept). A backup without programs leaves the machine's programs as they are.</p>
+    <div class="row"><input type="file" id="cf-rsfile" accept=".zip,application/zip" hidden><button class="btn" id="cf-rsup"${up ? " disabled" : ""}>Restore from a backup…</button>
+      ${up ? `<span class="note">Uploading ${esc(up.name)}: ${Math.round(100 * up.done / up.total)} %</span>` : ""}</div>
+    ${r ? `<div class="cf-restore"><h3>${esc(r.file)}</h3>
+      <p>Machine <b>${esc(r.machine)}</b>${r.made ? `, made ${esc(r.made)}` : ""}${r.system ? ` on system ${esc(r.system)}` : ""} · ${r.files} files, ${(r.size / 1e6).toFixed(1)} MB${r.programs ? "" : " · without programs: the machine's stay"}</p>
+      ${r.problems.length ? `<p class="cf-err">Its machine.json has problems, LinuxCNC won't start with it until they are fixed: ${r.problems.slice(0, 5).map(([w, t]) => `<b>${esc(w || "machine.json")}</b> ${esc(t)}`).join("; ")}</p>` : ""}
+      <p>${r.changed.length + r.new.length + r.removed.length ? `${r.changed.length} changed, ${r.new.length} new, ${r.removed.length} removed, ${r.same} the same` : "The same as the machine folder now: nothing would change."}</p>
+      ${list("changed", r.changed)}${list("new", r.new)}${list("removed", r.removed)}
+      <div class="row"><button class="btn accent" id="cf-rsgo">Restore and restart LinuxCNC</button><button class="btn" id="cf-rsno">Cancel</button></div></div>` : ""}`;
+  },
   log: () => `<div class="row"><div class="seg" id="cf-logw"><button data-w="0" aria-pressed="${cfg.logw === 0}">last start</button><button data-w="1" aria-pressed="${cfg.logw === 1}">the one before</button><button data-w="2" aria-pressed="${cfg.logw === 2}">before that</button></div><button class="btn sm" id="cf-logref">Refresh</button></div>
     <pre class="cf-code" id="cf-log">${esc(cfg.log || "")}</pre>`,
 };
@@ -234,6 +251,37 @@ function selIn(path, choices, re) {
 }
 function diffHtml(d) {
   return esc(d || "").split("\n").map((l) => (/^\+(?!\+\+)/.test(l) ? `<span class="a">${l}</span>` : /^-(?!--)/.test(l) ? `<span class="d">${l}</span>` : /^@@/.test(l) ? `<span class="h">${l}</span>` : l)).join("\n");
+}
+
+// ------------------------------------------------------------ backup and restore of the machine folder (server/backup.py)
+cfg.bkprog = true;
+async function backupGet() {
+  $("cf-bkget").disabled = true;
+  const r = await cfgSrc().backupGet(cfg.bkprog);
+  if ($("cf-bkget")) $("cf-bkget").disabled = false;
+  if (!r.ok) { msg("Backup: " + r.err, "warn"); return; }
+  const bin = atob(r.data), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([u], { type: "application/zip" }));
+  a.download = r.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  msg(`${r.name} (${(r.size / 1e6).toFixed(1)} MB)`, "ok");
+}
+// in pieces: a WebSocket message to millweb is at most 8 MB
+async function restoreUpload(f) {
+  const PIECE = 3 << 20, b64 = (buf) => { let s = ""; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+  cfg.restore = null; cfg.upload = { name: f.name, done: 0, total: f.size }; renderCfg();
+  try {
+    let r = null;
+    for (let off = 0; off < f.size || off === 0; off += PIECE) {
+      r = await cfgSrc().restoreUpload(off, b64(await f.slice(off, off + PIECE).arrayBuffer()), f.size);
+      if (!r.ok) { msg(`${f.name}: ${r.err}`, "warn"); return; }
+      cfg.upload.done = Math.min(f.size, off + PIECE); if (cfg.tab === "backup") renderCfg();
+      if (!f.size) break;
+    }
+    if (r && r.restore) cfg.restore = Object.assign({ file: f.name }, r.restore);
+  } finally { cfg.upload = null; renderCfg(); }
 }
 
 // ------------------------------------------------------------ drawing
@@ -377,7 +425,23 @@ $("cf-body").addEventListener("click", async (e) => {
     renderCfg();
   }
   if (t.dataset.w !== undefined && t.closest("#cf-logw")) { cfg.logw = +t.dataset.w; cfgLog(); }
+  if (t.id === "cf-bkget") backupGet();
+  if (t.id === "cf-rsup") $("cf-rsfile").click();
+  if (t.id === "cf-rsno") { cfg.restore = null; renderCfg(); }
+  if (t.id === "cf-rsgo") {
+    const r = cfg.restore;
+    ask(`Restore ${r.file}?`, `LinuxCNC stops and starts again with the backup's machine folder (${r.changed.length} changed, ${r.new.length} new, ${r.removed.length} removed). The folder as it is now is kept in backups/.`, "", async () => {
+      const res = await cfgSrc().restoreApply();
+      if (!res.ok) { msg("Restore: " + res.err, "warn"); return; }
+      cfg.restore = null; msg("Restoring: LinuxCNC restarts with the backup…", "warn"); renderCfg();
+    }, "confirm");
+  }
   if (t.id === "cf-logref") cfgLog();
+});
+$("cf-body").addEventListener("change", (e) => {
+  if (e.target.id === "cf-bkprog") cfg.bkprog = e.target.checked;
+  if (e.target.id !== "cf-rsfile") return;
+  const f = e.target.files[0]; e.target.value = ""; if (f) restoreUpload(f);
 });
 $("cf-body").addEventListener("change", (e) => {
   if (e.target.id !== "cf-bsfile") return;
@@ -541,5 +605,8 @@ const cfgSim = (() => {
     bitstreamDelete: () => ok({ bitstreams: [] }),
     log: () => ok({ lines: ["(the simulation has no LinuxCNC: on a machine run by millweb-supervisor, its output is here)"] }),
     restart: () => ok({}), start: () => ok({}), stop: () => ok({}), status: () => ok({ status: { state: "simulated" } }),
+    backupGet: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder: on a machine, this downloads it" }),
+    restoreUpload: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder" }),
+    restoreApply: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder" }),
   };
 })();

@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
 WEBROOT = MILL
 sys.path.insert(0, HERE)
+import backup  # noqa: E402
 import comps  # noqa: E402
 import machineconf
 import sysupdate  # noqa: E402
@@ -241,6 +242,40 @@ class ConfigOps:
             return "no such file"
         return None
 
+    # the whole folder as a .zip, and a restore from one (backup.py)
+    def backup_get(self, programs=True):
+        name, data = backup.make(self.mdir, programs)
+        return {"name": name, "size": len(data), "data": base64.b64encode(data).decode()}
+
+    def restore_upload(self, offset, data, total):
+        """a piece of a backup; with the last: what restoring it would change"""
+        try:
+            raw = base64.b64decode(str(data), validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError("the file's data isn't base64")
+        try:
+            path = backup.upload(self.mdir, int(offset), raw, int(total))
+            if path is None:
+                return {"received": int(offset) + len(raw)}
+            return {"received": int(total), "restore": backup.inspect(self.mdir, path, self.restore_problems)}
+        except backup.Error as e:
+            raise ValueError(str(e))
+
+    def restore_problems(self, text, custom):
+        r = self.check(text, custom)
+        return r["errors"]
+
+    def restore_queue(self):
+        """the uploaded backup becomes the one the next start restores (LinuxCNC down: it writes linuxcnc.var)"""
+        part = backup.part_path(self.mdir)
+        if not os.path.exists(part):
+            raise ValueError("no backup uploaded")
+        try:
+            backup.inspect(self.mdir, part)
+        except backup.Error as e:
+            raise ValueError(str(e))
+        os.replace(part, backup.pending_path(self.mdir))
+
     def log(self, which=0, n=400):
         p = os.path.join(self.mdir, "logs", "linuxcnc.log" if not which else "linuxcnc.%d.log" % which)
         try:
@@ -378,6 +413,20 @@ class Supervisor:
             self.starts += 1
             self.open_log()
             self.set_state("loading", note="")
+            pending = backup.pending_path(self.mdir)
+            if os.path.exists(pending):
+                try:
+                    note = await asyncio.get_event_loop().run_in_executor(None, backup.apply, self.mdir, pending)
+                    self.log("== %s\n" % note)
+                    self.event("ok", note)
+                except (backup.Error, OSError, ValueError) as e:
+                    self.log("== restore failed: %s\n" % e)
+                    self.event("bad", "Restore failed: %s (the folder before it is in backups/)" % e)
+                finally:
+                    try:
+                        os.remove(pending)
+                    except OSError:
+                        pass
             try:
                 m, digest = self.machine()
                 machineconf.write_run(self.mdir, machineconf.generate(m, self.mdir, MILL))
@@ -643,10 +692,13 @@ class Supervisor:
                 return await reply(**self.ops.version(m.get("version")))
             if op == "mmodel_get":
                 return await reply(**await loop.run_in_executor(None, self.ops.model_get, m.get("name")))
+            if op == "backup_get":
+                return await reply(**await loop.run_in_executor(None, self.ops.backup_get, m.get("programs", True) is not False))
             if op in sysupdate.READ_OPS:
                 r = await self.sys.op(op, m, c.name)
                 return await reply(r) if isinstance(r, str) else await reply(**r)
-            if op not in ("config_save", "bitstream_save", "bitstream_delete", "mmodel_save", "mmodel_delete", "lcnc_start", "lcnc_restart", "lcnc_stop") + sysupdate.OPS:
+            if op not in ("config_save", "bitstream_save", "bitstream_delete", "mmodel_save", "mmodel_delete", "lcnc_start", "lcnc_restart", "lcnc_stop",
+                          "restore_upload", "restore_apply") + sysupdate.OPS:
                 return await reply("LinuxCNC isn't running (%s): only the Configure page works" % self.state)
             if self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -671,6 +723,13 @@ class Supervisor:
             if op in sysupdate.OPS:
                 r = await self.sys.op(op, m, c.name)
                 return await reply(r) if isinstance(r, str) else await reply(**r)
+            if op == "restore_upload":
+                return await reply(**await loop.run_in_executor(None, self.ops.restore_upload, m.get("offset", 0), m.get("data", ""), m.get("total", 0)))
+            if op == "restore_apply":
+                await loop.run_in_executor(None, self.ops.restore_queue)
+                self.event("warn", "%s restores the machine folder from a backup" % c.name)
+                self.start()
+                return await reply()
             if op in ("lcnc_start", "lcnc_restart"):
                 self.start()
                 return await reply()

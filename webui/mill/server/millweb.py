@@ -232,7 +232,7 @@ class Hub:
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
-                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
+                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get", "backup_get",
                       "vib_spectrum", "vib_trend", "vib_console_read", "sys_status", "sys_check"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
@@ -863,6 +863,23 @@ class Hub:
         if m.get("restart"):
             self.lcnc_end("restart", c)
         return {"version": hid}
+
+    async def op_backup_get(self, c, m):
+        return await self.run_bg(self.need_conf().backup_get, m.get("programs", True) is not False)
+
+    async def op_restore_upload(self, c, m):
+        return await self.run_bg(self.need_conf().restore_upload, m.get("offset", 0), m.get("data", ""), m.get("total", 0))
+
+    async def op_restore_apply(self, c, m):
+        """the uploaded backup: LinuxCNC ends, the supervisor restores the folder and starts it again"""
+        conf = self.need_conf()
+        err = self.restart_refused()
+        if err:
+            return err
+        await self.run_bg(conf.restore_queue)
+        self.event("warn", "%s restores the machine folder from a backup" % c.name)
+        self.lcnc_end("restart", c)
+        return {}
 
     async def op_bitstream_save(self, c, m):
         conf = self.need_conf()
