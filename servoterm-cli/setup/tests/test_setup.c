@@ -14,6 +14,7 @@
 #include "su_link.h"
 
 #include <pthread.h>
+#include <poll.h>
 #include <pty.h>
 #include <unistd.h>
 
@@ -411,6 +412,88 @@ static void test_conf_write(void) {
   pthread_join(th, NULL);
 }
 
+// The drive's USB re-enumerates (its console was stuck): the tty goes away,
+// a new one comes behind the same by-id link. su_link reopens it.
+static int re_master = -1;
+static volatile int re_stop;
+static void *re_drive(void *arg) {
+  (void)arg;
+  char line[128];
+  size_t n = 0;
+  char c;
+  while(!re_stop) {
+    struct pollfd pfd = {re_master, POLLIN, 0};
+    if(poll(&pfd, 1, 50) <= 0 || read(re_master, &c, 1) != 1) {
+      continue;
+    }
+    if(c != '\n') {
+      if(n < sizeof(line) - 1) {
+        line[n++] = c;
+      }
+      continue;
+    }
+    line[n] = 0;
+    n       = 0;
+    if(!strncmp(line, "getf ", 5)) {
+      char out[160];
+      snprintf(out, sizeof(out), "%s = 2.5\n", line + 5);
+      if(write(re_master, out, strlen(out)) < 0) {
+      }
+    }
+  }
+  return NULL;
+}
+
+static int re_pty(char *name, int *slave) {
+  int m;
+  if(openpty(&m, slave, name, NULL, NULL) < 0) {
+    return -1;
+  }
+  struct termios tio;
+  tcgetattr(*slave, &tio);
+  cfmakeraw(&tio);
+  tcsetattr(*slave, TCSANOW, &tio);
+  return m;
+}
+
+static void test_reconnect(void) {
+  char name[64], err[128], link[] = "/tmp/su-test-reconnect-XXXXXX";
+  int fd = mkstemp(link);
+  close(fd);
+  unlink(link);
+  int slave;
+  re_master = re_pty(name, &slave);
+  if(re_master < 0 || symlink(name, link) < 0) {
+    ok(0, "reconnect: pty");
+    return;
+  }
+  pthread_t th;
+  pthread_create(&th, NULL, re_drive, NULL);
+  su_link_t *l = su_link_open(link, err, sizeof(err));
+  double v = 0.0;
+  ok(l && su_link_get(l, "hv0.dc_volt", &v) == 0 && v == 2.5, "reconnect: answers before");
+  // gone: the old tty hangs up; a new one behind the link
+  re_stop = 1;
+  pthread_join(th, NULL);
+  re_stop = 0;
+  close(slave);
+  close(re_master);
+  unlink(link);
+  re_master = re_pty(name, &slave);
+  if(symlink(name, link) < 0) {
+  }
+  pthread_create(&th, NULL, re_drive, NULL);
+  v = 0.0;
+  ok(l && su_link_get(l, "hv0.dc_volt", &v) == 0 && v == 2.5 && su_link_reconnects(l) == 1,
+     "reconnect: the link reopens the drive's path after it went away");
+  su_link_close(l);
+  re_stop = 1;
+  pthread_join(th, NULL);
+  close(slave);
+  close(re_master);
+  unlink(link);
+}
+
 int main(void) {
   test_state();
   test_conf();
@@ -421,6 +504,7 @@ int main(void) {
   test_temp();
   test_build();
   test_conf_write();
+  test_reconnect();
   printf("1..%d\n# %d/%d passed\n", n, n - failed, n);
   return failed != 0;
 }

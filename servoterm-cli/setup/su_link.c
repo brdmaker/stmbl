@@ -19,6 +19,7 @@ struct su_link {
   char *dev;
   int fd;
   int in_frame;  // bytes of a scope frame still to drop
+  int reconnects;  // the device came back after it went away
   char *buf;     // text since the last clear
   size_t len, cap;
   void (*on_text)(void *, const char *, size_t);
@@ -131,6 +132,33 @@ void su_link_on_text(su_link_t *l, void (*fn)(void *, const char *, size_t), voi
   l->user    = user;
 }
 
+// The drive went away (its USB re-enumerates when its console was stuck,
+// usbd_cdc_core.c; a reset): open the same path again, for up to 15 s. A
+// stable path (/dev/serial/by-id/...) survives a new ttyACMn. 0: back.
+static int reconnect(su_link_t *l) {
+  if(l->fd >= 0) {
+    close(l->fd);
+    l->fd = -1;
+  }
+  double end = now() + 15.0;
+  while(now() < end) {
+    struct timespec ts = {0, 300000000};
+    nanosleep(&ts, NULL);
+    int fd = open_fd(l->dev);
+    if(fd >= 0) {
+      l->fd       = fd;
+      l->in_frame = 0;
+      l->reconnects++;
+      return 0;
+    }
+  }
+  return -1;
+}
+
+int su_link_reconnects(const su_link_t *l) {
+  return l->reconnects;
+}
+
 int su_link_send(su_link_t *l, const char *line) {
   size_t n = strlen(line);
   char buf[SU_LINE_MAX + 2];
@@ -141,10 +169,15 @@ int su_link_send(su_link_t *l, const char *line) {
   memcpy(buf, line, n);
   buf[n] = '\n';
   size_t off = 0;
+  int again   = 1;
   while(off < n + 1) {
     ssize_t w = write(l->fd, buf + off, n + 1 - off);
     if(w < 0) {
       if(errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+      if(again-- > 0 && reconnect(l) == 0) {  // the whole line again
+        off = 0;
         continue;
       }
       return -1;
@@ -186,10 +219,13 @@ int su_link_pump(su_link_t *l, double sec) {
       if(errno == EINTR || errno == EAGAIN) {
         continue;
       }
+      if(errno == EIO || errno == ENODEV || errno == ENXIO) {
+        return reconnect(l) == 0 ? text : -1;
+      }
       return -1;
     }
     if(n == 0) {
-      return -1;  // gone (USB unplugged, drive reset)
+      return reconnect(l) == 0 ? text : -1;  // gone (USB re-enumerated, drive reset)
     }
     text += demux(l, b, (int)n);
   }

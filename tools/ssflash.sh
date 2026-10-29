@@ -9,12 +9,16 @@
 #
 # Environment: HM2_CARD (hm2_7c81), HM2_DRIVER (the loadrt line's driver and
 # parameters; default from hwtest/burnin/stmbl.ini [HOSTMOT2]), HM2_CONFIG
-# (the driver's config string, if any), DEV (/dev/ttyACM0).
+# (the driver's config string, if any), DEV (the STMBL by-id link, else /dev/ttyACM0).
 # LinuxCNC and halrun must not be running; the drive must be disabled.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 CLI=$REPO/servoterm-cli/servoterm-cli
+# the drive's USB console by its serial number: after a console that stalled
+# the drive comes back as ttyACM1 while ttyACM0 is still held (DEBUGNOTES
+# 2026-10-29); the first STMBL one, else ttyACM0
+DEV=${DEV:-$(ls /dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00 2>/dev/null | head -1)}
 DEV=${DEV:-/dev/ttyACM0}
 CARD=${HM2_CARD:-hm2_7c81}
 DRIVER=${HM2_DRIVER:-$(python3 "$REPO/hwtest/hm2_driver.py" | sed "s/^loadrt //")}

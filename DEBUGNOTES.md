@@ -49,28 +49,33 @@ Entry format:
   excitation; 1 of 10 ADC samples), see the session of 2026-10-29.
 
 ## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
-- Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`
-- Status:  Open (one cause fixed, the stall under motion not)
+- Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`,
+  `src/usb_cdc.c`, `servoterm-cli/setup/su_link.c`
+- Status:  Workaround (the drive and the wizard recover; the cause on the
+  bench, interference, remains)
 - Symptom: `/dev/ttyACM0` stays, the console sends nothing, the drive runs
-  on (LED breathing, no watchdog reset) and still takes input (`reset`
-  works, a cdc_acm unbind/bind doesn't). Every wizard step 12 run on the SEW
-  bench ends so, mid-motion (47 s in, once).
-- Cause:   (1) Fixed: ST's CDC went idle right after arming a ZLP; the next
-  SOF armed a transfer over it (stuck after 350 port closes mid-output,
-  clean for 2000 now). Transfers also never end on a full packet any more
-  (63 + 1), so no ZLP is needed. (2) Open: `usbdiag` while stuck: state
-  busy, DIEPCTL EPENA, DIEPTSIZ 1 packet / 0 bytes left, DIEPINT TXFE (FIFO
-  empty), no NAKs counted; the abort (SNAK, EPDIS, FIFO flush) and resend,
-  every 200 ms while DTR is set, arm the same packet and it's never sent.
-  Only under motion: interference suspected (KTY coupling seen the same
-  day).
-- Fix:     (1) above; test hwtest/suite `usb: 1000 port closes...`.
-  Diagnostics: `usbdiag` (state into `errlog`), `about` "usb tx stalls
-  healed", DTR tracked (usb_dtr). Next: re-init the USB core when healing
-  fails; USB cable/ground on the bench. Found with the new watchdog,
-  `errlog` and breathing LED (host tests `test_wdog`, `test_errlog`; suite
-  `watchdog`). The stmbl bootloader clears the reset flags at power-on, so
-  "no flags" means power-on.
+  on and still takes input. Only under large motor currents: the wizard's
+  id_mot (10000 rad/s^2) stalled it every run; 2400 queries over 27 min of
+  soak motion (628 rad/s^2) never did.
+- Cause:   (1) Fixed: ST's CDC went idle right after arming a ZLP (stuck
+  after 350 port closes mid-output); transfers also never end on a full
+  packet now. (2) Under current: a transfer stays armed (DIEPTSIZ 1 packet,
+  0 bytes left, FIFO empty) and the host stops polling it; an abort, FIFO
+  flush and resend don't revive it, a re-enumeration does. Interference on
+  the USB link suspected (the Pi 4's xHCI and the bench's grounding).
+- Fix:     The drive heals a lost DataIn, aborts and resends a stuck
+  transfer while DTR is set, and after 3 aborts without the host taking
+  anything disconnects for 100 ms (DCTL SDIS, main loop): the host
+  enumerates it again (`about`: "usb tx stalls healed: N, re-enumerations:
+  N"; one wizard run: 44 / 14). The wizard reopens its device when it goes
+  away (by-id path, 15 s): steps 12-18 then ran through over USB. Progress
+  for the abort count is a DataIn from the core, not APP_Rx_ptr_out (a
+  resend moves it). Tests: hwtest/suite `usb: 1000 port closes...`,
+  servoterm-cli "reconnect: ..." (fails without). Still: tuning over USB
+  came out lower (pos_bw 11.3 vs 35.4 over smart-serial); the smart-serial
+  config stays on the drive. `usbdiag` puts the state in `errlog`.
+  `tools/ssflash.sh` now finds the drive by its by-id link: after a stall
+  it came back as ttyACM1 and ssburn failed on ttyACM0.
 
 ## 2026-10-29  Wizard: a lost deleteconf doubled the config; messages broke acks
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`)

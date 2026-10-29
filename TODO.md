@@ -8,11 +8,10 @@ Open work, newest first. Bugs and findings go in `DEBUGNOTES.md`.
   switching into it (DEBUGNOTES 2026-10-29). Read the sensor on an LV input
   instead (an analog input of io0, or FB1's spare sin/cos), selectable per
   config.
-- **USB console stalls while the motor runs** (DEBUGNOTES 2026-10-29, Open):
-  the IN endpoint keeps a packet armed that the core never sends; abort and
-  resend don't revive it. Workaround: the wizard over smart-serial
-  (`tools/sscon/sscon.sh`). Next: re-initialise the USB core when healing
-  fails, and check the bench's USB cable and grounding.
+- **USB console under motor current** (DEBUGNOTES 2026-10-29): the drive
+  and the wizard now recover (re-enumeration, reconnect), but it breaks
+  every few seconds during id_mot. Check the bench's USB cable, grounding,
+  a USB isolator. Find why the tuning over USB came out lower.
 - **Resolver on FB1:** needs an excitation on FB1's Z driver (TIM1 CH3,
   PE13) synced to FB0's, polarity demodulation for sin1/cos1 in `adc.c`, a
   `res_fb1` template; FB1 gets 1 of 10 ADC samples, so it is noisier.

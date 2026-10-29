@@ -612,10 +612,18 @@ uint8_t  usbd_cdc_EP0_RxReady (void  *pdev)
   * @param  epnum: endpoint number
   * @retval status
   */
+static uint32_t cdc_in_done;   /* stmbl: DataIns from the core (progress, cdc_tx_heal) */
+static uint8_t cdc_in_heal;    /* stmbl: DataIn called by cdc_tx_heal, not the core */
+
 uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
 {
   uint16_t USB_Tx_ptr;
   uint16_t USB_Tx_length;
+  
+  if (!cdc_in_heal)
+  {
+    cdc_in_done++;
+  }
   
   if (USB_Tx_State == USB_CDC_BUSY)
   {
@@ -730,6 +738,12 @@ uint8_t  usbd_cdc_DataOut (void *pdev, uint8_t epnum)
    progress for CDC_TX_STUCK_FRAMES frames is stuck too. */
 #define CDC_TX_STUCK_FRAMES 200
 extern volatile uint8_t usb_dtr;  /* src/usb_cdc.c */
+/* Aborts that didn't get the transfer going either (the host stopped
+   polling it): after CDC_TX_REENUM of them, ask the main loop for a soft
+   disconnect, so the host enumerates the drive again (usb_poll,
+   src/usb_cdc.c); a `reset` cured it so, without stopping the drive. */
+#define CDC_TX_REENUM 3
+volatile uint8_t usb_reenum_request = 0;
 #define CDC_TX_HEAL_FRAMES 20
 volatile uint32_t usb_tx_healed = 0;
 volatile uint32_t usb_sof_count = 0;  /* usbdiag */
@@ -762,6 +776,14 @@ static void cdc_tx_heal(void *pdev)
   USB_OTG_CORE_HANDLE *core = (USB_OTG_CORE_HANDLE *)pdev;
   uint32_t ep  = CDC_IN_EP & 0x7F;
   uint32_t ctl = USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL);
+  static uint32_t aborts = 0, last_done = 0;
+  /* progress is a transfer the host took (a DataIn from the core): a resend
+     moves APP_Rx_ptr_out by itself */
+  if (cdc_in_done != last_done)
+  {
+    last_done = cdc_in_done;
+    aborts    = 0;
+  }
   if (USB_Tx_State == USB_CDC_IDLE || APP_Rx_ptr_out != last_out)
   {
     lost_frames = starved_frames = stuck_frames = 0;
@@ -776,7 +798,9 @@ static void cdc_tx_heal(void *pdev)
     {
       lost_frames = 0;
       usb_tx_healed++;
+      cdc_in_heal = 1;
       usbd_cdc_DataIn(pdev, ep);
+      cdc_in_heal = 0;
     }
     return;
   }
@@ -794,6 +818,11 @@ static void cdc_tx_heal(void *pdev)
   }
   starved_frames = stuck_frames = 0;
   usb_tx_healed++;
+  if (++aborts >= CDC_TX_REENUM)
+  {
+    aborts = 0;
+    usb_reenum_request = 1;
+  }
   /* abort: NAK, then disable, then flush its FIFO */
   USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL, (ctl & ~DEPCTL_EPENA) | DEPCTL_SNAK);
   cdc_wait_int(core, ep, DIEPINT_INEPNE);
@@ -806,7 +835,9 @@ static void cdc_tx_heal(void *pdev)
   APP_Rx_length += cdc_last_len;
   last_out       = APP_Rx_ptr_out;
   USB_Tx_State   = USB_CDC_BUSY;
+  cdc_in_heal    = 1;
   usbd_cdc_DataIn(pdev, ep);
+  cdc_in_heal    = 0;
 }
 
 uint8_t  usbd_cdc_SOF (void *pdev)
