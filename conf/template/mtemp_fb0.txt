@@ -1,0 +1,7 @@
+# motor temperature sensor on FB0 pin 7 (to pin 8, GND)
+# instead of the HV board: needs JP2 open
+# (docs/motor_temp_lv.md); LV ground, no inverter noise
+load rpull
+rpull0.rt_prio = 13.4
+rpull0.v = io0.fb0
+mtemp0.r = rpull0.r

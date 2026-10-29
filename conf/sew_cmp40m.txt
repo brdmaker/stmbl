@@ -41,7 +41,8 @@ conf0.mot_fb_polecount = 1
 # The KTY on the HV board couples the inverter's switching into the resolver
 # (its wires share the signal cable): res0.amp fell to 0.16..0.25 enabled,
 # fault 2 under motion. Commissioned without it (thermal model only), see
-# DEBUGNOTES 2026-10-29 and TODO.md (KTY on the LV board).
+# DEBUGNOTES 2026-10-29. Better: the KTY on FB0 pins 7 / 8 with the
+# resolver, JP2 opened, `link mtemp_fb0` (docs/motor_temp_lv.md).
 res0.freq = 10000
 # brake BP (24 V DC, 0.95 Nm) on out0, as festo.txt; the wizard's brake test:
 # turns at 0.05 Nm released, slips at 1.15..1.20 Nm closed

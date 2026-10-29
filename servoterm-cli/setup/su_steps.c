@@ -277,6 +277,10 @@ char *su_build_config(const su_state_t *st, int final) {
   }
 
   int ts = su_temp_type(su_get(st, "motor.temp_sensor"));
+  const char *tin = su_get(st, "temp.input");
+  if(ts && tin && (strcmp(tin, "fb0") == 0 || strcmp(tin, "fb1") == 0)) {
+    c = su_conf_link(c, strcmp(tin, "fb0") == 0 ? "mtemp_fb0" : "mtemp_fb1");  // docs/motor_temp_lv.md
+  }
   if(ts) {
     c = su_conf_set_num(c, "conf0.mot_temp_type", ts, su_temp_ids[ts]);
     if(ts == 4) {
@@ -585,7 +589,21 @@ static su_result_t step_wiring(su_wizard_t *w) {
   }
   int ts = su_temp_type(su_get(w->st, "motor.temp_sensor"));
   if(ts) {
-    t = su_wiring_temp(ts);
+    // where it's measured: the HV board's input, or a feedback port's pin 7
+    // (docs/motor_temp_lv.md; FB0 only with a resolver: encoders need its
+    // +5 V). On the HV side the sensor's wires carry the inverter's
+    // switching: next to the resolver's they spoiled its signal (SEW).
+    int res = fb && strcmp(fb->id, "resolver") == 0;
+    const char *ids[3]   = {"hv", "fb1", "fb0"};
+    const char *names[3] = {"the HV board's motor temperature input",
+                            "the second feedback port FB1, pin 7 (a solder jumper to open)",
+                            "the feedback port FB0, pin 7, with the resolver (a solder jumper to open)"};
+    int k;
+    if(ask_choice(w, "temp.input", "Where is the temperature sensor connected?", ids, names, res ? 3 : 2, 0, &k) ==
+       SU_ABORT) {
+      return SU_ABORTED;
+    }
+    t = k == 0 ? su_wiring_temp(ts) : su_wiring_temp_fb(ts, k == 1 ? 1 : 0);
     say(w, SU_MSG_WIRING, "%s", t);
     free(t);
   }
@@ -612,14 +630,20 @@ static su_result_t check_temp(su_wizard_t *w) {
   }
   drive_sleep(w, 0.5);  // the sensor's filter settles
   double ohm, degc, err, tripped;
-  if(get(w, "hv0.mot_temp", &ohm) < 0 || get(w, "mtemp0.sensor", &degc) < 0 || get(w, "mtemp0.err", &err) < 0 ||
+  const char *in = su_get(w->st, "temp.input");
+  int on_fb       = in && strncmp(in, "fb", 2) == 0;
+  if(get(w, on_fb ? "rpull0.r" : "hv0.mot_temp", &ohm) < 0 || get(w, "mtemp0.sensor", &degc) < 0 ||
+     get(w, "mtemp0.err", &err) < 0 ||
      get(w, "mtemp0.tripped", &tripped) < 0) {
     return SU_FAIL;
   }
   su_set_num(w->st, "temp.cold_ohm", ohm);
   char msg[512];
   if(su_temp_check(ts, ohm, degc, err, tripped, msg, sizeof(msg))) {
-    say(w, SU_MSG_ERROR, "%s\nCheck its wiring, or redo the motor step with the right type.", msg);
+    say(w, SU_MSG_ERROR, "%s\nCheck its wiring, or redo the motor step with the right type.%s", msg,
+        on_fb && ohm < 0.0 ? "\nOn a feedback port: is its jumper open (cut)? Closed, pin 7 sits at +5 V and\n"
+                             "reads open (docs/motor_temp_lv.md)."
+                           : "");
     return SU_FAIL;
   }
   if(ts == 3 || ts == 5) {

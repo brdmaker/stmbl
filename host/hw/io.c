@@ -6,6 +6,7 @@
  */
 #include "io_comp.h"
 #include "hal.h"
+#include "rpull.h"
 
 HAL_COMP(io);
 
@@ -62,17 +63,26 @@ HAL_PIN(fbsd);
 HAL_PIN(master_arr);
 HAL_PIN(clock_scale);
 HAL_PIN(out0_state);  // sim only: the level DIO0 drives
+// sim only: a sensor on FB0 / FB1 pin 7 [ohm] (docs/motor_temp_lv.md); -1
+// open input (jumper open, nothing fitted), -2 (default) the jumper closed:
+// pin 7 at the port's +5 V. io0.fb0 / fb1 follow, as io4.c measures them.
+HAL_PIN(sim_fb0_r);
+HAL_PIN(sim_fb1_r);
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
   (void)period;
   (void)ctx_ptr;
   PIN(out0_state) = PIN(out0) > 0.0 ? 1.0 : 0.0;
+  float r0 = PIN(sim_fb0_r), r1 = PIN(sim_fb1_r);
+  PIN(fb0) = r0 <= -1.5 ? 5.0 : rpull_v(r0, 5.0, 10000.0, 11000.0);
+  PIN(fb1) = r1 <= -1.5 ? 5.0 : rpull_v(r1, 5.0, 10000.0, 11000.0);
 }
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
-  (void)pins;
+  PIN(sim_fb0_r) = -2.0;
+  PIN(sim_fb1_r) = -2.0;
 }
 
 hal_comp_t io_comp_struct = {

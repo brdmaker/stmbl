@@ -106,7 +106,14 @@ def temp_cases():
               expect_fail="too low for a pt1000")
     c2 = case(0, MOTORS[0])
     c2.update(name=c2["name"] + "-openwire", sensor="kty84", answer_sensor="kty84", wire=1, expect_fail="reads open")
-    return [c1, c2]
+    # the sensor on FB1's pin 7 (docs/motor_temp_lv.md): measured there; and
+    # with FB1's jumper never opened (pin 7 at +5 V): the wizard says so
+    c3 = case(0, MOTORS[0])
+    c3.update(name=c3["name"] + "-fb1", sensor="kty84", answer_sensor="kty84", temp_input="fb1")
+    c4 = case(0, MOTORS[0])
+    c4.update(name=c4["name"] + "-fb1jumper", sensor="kty84", answer_sensor="kty84", temp_input="fb1",
+              jumper_closed=True, expect_fail="jumper open")
+    return [c1, c2, c3, c4]
 
 
 def sim_file(c):
@@ -120,7 +127,9 @@ def sim_file(c):
         "hv0.sim_brake = %g" % (c["brake_torque"] if c["brake"] else 0.0),
         "hv0.sim_brake_delay = %g" % c["brake_delay"],
         "hv0.sim_temp_sensor = %d" % TEMP_IDS.index(c["sensor"]), "hv0.sim_temp = %g" % COLD,
-        "hv0.sim_temp_wire = %d" % c["wire"], ""])
+        "hv0.sim_temp_wire = %d" % c["wire"]] +
+        (["io0.sim_fb1_r = hv0.mot_temp"] if c.get("temp_input") == "fb1" and not c.get("jumper_closed") else []) +
+        [""])
 
 
 def answers(c, wait):
@@ -132,7 +141,7 @@ def answers(c, wait):
         "motor.rated_torque = %.3g" % torque, "motor.max_rpm = %g" % rpm,
         "motor.brake = %s" % ("y" if c["brake"] else "n"), "axis.vertical = %s" % ("y" if c["vertical"] else "n"),
         "motor.temp_sensor = %s" % c["answer_sensor"], "temp.ntc_r25 = 10000", "temp.ntc_b = 3950",
-        "temp.warn = 110", "temp.trip = 130",
+        "temp.warn = 110", "temp.trip = 130", "temp.input = %s" % c.get("temp_input", "hv"),
         "brake.voltage = 24", "brake.current = 0.5", "brake.output = 0", "brake.engage_ms = %g" % c["engage_ms"],
         "fbcheck.secured = y",
         # the load goes on for the brake step (and stays); the hand can't turn a closed brake

@@ -1,0 +1,50 @@
+# The motor's temperature sensor on FB0's pin 7 (docs/motor_temp_lv.md,
+# template mtemp_fb0): rpull0 turns the pin's voltage (io0.fb0: the 10 k
+# pull-up to +5 V against the sensor and the ADC's 11 k divider) into ohms
+# for mtemp0. The simulated sensor (hv0's model) sits on pin 7 instead of
+# the HV board's input.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+link mtemp_fb0
+io0.sim_fb0_r = hv0.mot_temp
+relink
+start
+lcnc 0 0
+run 0.3
+# KTY84-130 at 20 and 100 degC: 581 / 1000 ohm
+hv0.sim_temp_sensor = 1
+conf0.mot_temp_type = 1
+hv0.sim_temp = 20
+run 1.5
+io0.fb0
+rpull0.r
+mtemp0.sensor
+@expect io0.fb0[1] ~ 0.259 0.005
+@expect rpull0.r[1] ~ 581 1
+@expect mtemp0.sensor[1] ~ 20 0.5
+hv0.sim_temp = 100
+run 1.5
+mtemp0.sensor
+@expect mtemp0.sensor[2] ~ 100 0.5
+# PT1000 at 80
+hv0.sim_temp_sensor = 2
+conf0.mot_temp_type = 2
+hv0.sim_temp = 80
+run 1.5
+mtemp0.sensor
+@expect mtemp0.sensor[3] ~ 80 0.3
+# the wire breaks: open (the input reads 2.62 V, no current into a sensor)
+hv0.sim_temp_wire = 1
+run 0.5
+rpull0.r
+mtemp0.err
+@expect rpull0.r[2] == -1
+@expect mtemp0.err[1] == 1
+# the jumper never opened: pin 7 at +5 V reads open too
+hv0.sim_temp_wire = 0
+io0.sim_fb0_r = -2
+run 0.5
+io0.fb0
+rpull0.r
+@expect io0.fb0[2] == 5
+@expect rpull0.r[3] == -1
+@reject ^ERROR: (?!Fault 7)

@@ -269,6 +269,33 @@ static void test_build(void) {
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: the final config fits the drive");
   free(c);
 
+  // the temperature sensor on a feedback port's pin 7 (docs/motor_temp_lv.md)
+  su_state_parse(s, "motor.temp_sensor = kty84\ntemp.input = fb0\n");
+  c = su_build_config(s, 0);
+  ok(su_conf_has_link(c, "mtemp_fb0") && !su_conf_has_link(c, "mtemp_fb1") &&
+         su_conf_get(c, "conf0.mot_temp_type", v, sizeof(v)) == 0 && strcmp(v, "1") == 0,
+     "build: sensor on FB0 pin 7: mtemp_fb0 linked, the type kept");
+  free(c);
+  su_state_parse(s, "temp.input = fb1\n");
+  c = su_build_config(s, 1);
+  ok(su_conf_has_link(c, "mtemp_fb1") && !su_conf_has_link(c, "mtemp_fb0"), "build: sensor on FB1 pin 7: mtemp_fb1");
+  free(c);
+  su_state_parse(s, "temp.input = hv\n");
+  c = su_build_config(s, 0);
+  ok(!su_conf_has_link(c, "mtemp_fb0") && !su_conf_has_link(c, "mtemp_fb1"), "build: sensor on the HV board: no template");
+  free(c);
+  su_state_parse(s, "motor.temp_sensor = none\ntemp.input = fb0\n");
+  c = su_build_config(s, 0);
+  ok(!su_conf_has_link(c, "mtemp_fb0"), "build: no sensor: no mtemp_fb0 either");
+  free(c);
+  char *wt = su_wiring_temp_fb(1, 0);
+  ok(strstr(wt, "JP2") && strstr(wt, "pin 7") && strstr(wt, "pin 8") && strstr(wt, "FB0"),
+     "wiring: the sensor on FB0: pins 7 / 8 and the jumper JP2");
+  free(wt);
+  wt = su_wiring_temp_fb(2, 1);
+  ok(strstr(wt, "JP5") && strstr(wt, "FB1") && strstr(wt, "PT1000"), "wiring: on FB1: JP5");
+  free(wt);
+
   // the wizard on the smart-serial console: sserial stays loaded, once
   su_state_parse(s, "console.sserial = 1\n");
   c = su_build_config(s, 0);

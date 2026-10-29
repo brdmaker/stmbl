@@ -2,12 +2,11 @@
 
 Open work, newest first. Bugs and findings go in `DEBUGNOTES.md`.
 
-- **Motor temperature sensor on the LV board.** The KTY/PT1000/PTC input is
-  on the HV board (`mtemp`, hv0.mot_temp), whose ground is the HV side's; on
-  the SEW CMP40M its wires run with the resolver's and couple the inverter's
-  switching into it (DEBUGNOTES 2026-10-29). Read the sensor on an LV input
-  instead (an analog input of io0, or FB1's spare sin/cos), selectable per
-  config.
+- **Motor temperature sensor on the LV board:** firmware, templates
+  (`mtemp_fb0`, `mtemp_fb1`), wizard and the solder-pad mod are ready
+  (docs/motor_temp_lv.md). Next: open JP2 on the bench drive, KTY to FB0
+  pins 7 / 8, check the reading's resolution and that the resolver stays
+  clean enabled and under motion.
 - **USB console under motor current** (DEBUGNOTES 2026-10-29): the drive
   and the wizard now recover (re-enumeration, reconnect), but it breaks
   every few seconds during id_mot. Check the bench's USB cable, grounding,

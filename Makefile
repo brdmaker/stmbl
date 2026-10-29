@@ -94,6 +94,7 @@ SHARED_COMPS += shared/comps/fb_switch.c
 SHARED_COMPS += shared/comps/reslimit.c
 SHARED_COMPS += shared/comps/iit.c
 SHARED_COMPS += shared/comps/mtemp.c
+SHARED_COMPS += shared/comps/rpull.c
 SHARED_COMPS += shared/comps/vel_int.c
 SHARED_COMPS += shared/comps/gantry.c
 SHARED_COMPS += shared/comps/linrev.c
