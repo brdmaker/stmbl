@@ -225,6 +225,52 @@ class Machine(unittest.TestCase):
             mc.validate(bad, self.d)
         self.assertEqual({w for w, _ in cm.exception.errors}, {"axes.Y", "lathe.post", "spindle.index", "toolsetter"})
 
+    def test_turret_spindle(self):
+        """A lathe's turret (sim: the command its feedback; stepper: a stepgen and its index) on M6, its fault in
+        the E-STOP chain; an stmbl spindle drive in velocity mode through lathe.spindle."""
+        m = json.load(open(os.path.join(MILL, "machines", "emco_compact5", "machine.json")))
+        hal = self.gen(m)["machine.hal"]
+        self.assertIn("loadrt lathe turret=1 spindle=0", hal)
+        self.assertIn("net tool-change iocontrol.0.tool-change => lathe.turret.change", hal)
+        self.assertIn("net tool-changed lathe.turret.changed => iocontrol.0.tool-changed", hal)
+        self.assertIn("net turret-pos lathe.turret.pos-cmd => lathe.turret.pos-fb", hal)
+        self.assertIn("net turret-index lathe.turret.sim-index => lathe.turret.index", hal)
+        self.assertIn("net estop-loop-turret lathe.turret.chain-out => iocontrol.0.emc-enable-in", hal)
+        self.assertIn("addf lathe.turret servo-thread", hal)
+        self.assertNotIn("iocontrol.0.tool-change => iocontrol.0.tool-changed", hal)
+        os.makedirs(os.path.join(self.d, "bitstreams"), exist_ok=True)
+        open(os.path.join(self.d, "bitstreams", "ebaz4205.bin"), "wb").close()
+        m = json.load(open(os.path.join(MILL, "machines", "emco_compact5", "machine-stmbl.json")))
+        m["estop"] = {"input": "hm2_ebaz4205.0.gpio.011.in", "invert": True}
+        m["lathe"]["turret"]["index_invert"] = True
+        f = self.gen(m)
+        hal, ini = f["machine.hal"], ini_sections(f["mill.ini"])
+        self.assertIn("loadrt lathe turret=1 spindle=1", hal)
+        self.assertIn("loadrt not names=estop-not,spindle-fault-not,turret-index-not", hal)  # one load for each module
+        self.assertEqual(hal.count("loadrt not "), 1)
+        self.assertIn("setp hm2_ebaz4205.0.stepgen.00.position-scale 3200", hal)
+        self.assertIn("net turret-pos-cmd lathe.turret.pos-cmd => hm2_ebaz4205.0.stepgen.00.position-cmd", hal)
+        self.assertIn("net turret-index-raw hm2_ebaz4205.0.gpio.010.in => turret-index-not.in", hal)
+        self.assertIn("net estop-in estop-not.out => lathe.turret.chain-in", hal)
+        self.assertIn("net estop-in-turret lathe.turret.chain-out => spindle-ok-and.in0", hal)
+        self.assertIn("net estop-in-turret-spindle spindle-ok-and.out => estop-latch.0.ok-in", hal)
+        self.assertIn("net spindle-fault hm2_ebaz4205.0.stbl.0.2.fault => spindle-fault-not.in", hal)
+        self.assertIn("net spindle-vel-cmd lathe.spindle.vel-cmd => hm2_ebaz4205.0.stbl.0.2.vel_cmd", hal)
+        self.assertIn("net spindle-revs lathe.spindle.revs => spindle.0.revs", hal)
+        self.assertIn("net spindle-index spindle.0.index-enable <=> lathe.spindle.index-enable", hal)
+        self.assertIn("net spindle-con-fb hm2_ebaz4205.0.stbl.0.2.con_fb => sserialterm.2.con-fb", hal)
+        a = hal.index("addf hm2_ebaz4205.0.read"); b = hal.index("addf lathe.spindle"); c = hal.index("addf motion-controller")
+        self.assertTrue(a < b < c)  # the drive's feedback into revs before motion
+        self.assertTrue(hal.index("addf lathe.turret") < hal.index("addf hm2_ebaz4205.0.write"))
+        self.assertTrue(hal.index("loadrt not ") < hal.index("net "))
+        self.assertIn("S hm2_ebaz4205.0.stbl.0.2.current", " ".join(ini["MILLWEB"]["DRIVE"]))
+        bad = copy.deepcopy(m)
+        bad["lathe"]["turret"].update(stepgen="", index="", stations=40)
+        bad["spindle"]["channel"] = 1  # joint 1's drive
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(bad, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"lathe.turret.stepgen", "lathe.turret.index", "lathe.turret.stations", "spindle.type"})
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}

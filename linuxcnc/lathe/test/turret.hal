@@ -1,0 +1,13 @@
+loadrt threads name1=servo period1=1000000
+loadrt lathe turret=1 spindle=1
+addf lathe.turret servo
+addf lathe.spindle servo
+# an ideal closed-loop stepper: the command is the feedback; the simulated index at 0.37 turn
+net tcmd lathe.turret.pos-cmd => lathe.turret.pos-fb
+net tidx lathe.turret.sim-index => lathe.turret.index
+setp lathe.turret.sim-index-at 0.37
+setp lathe.turret.offset 0.05
+# the spindle: its drive simulated by feeding the command back (motor rad, wrapped by lathe.spindle.pos-cmd)
+net svel lathe.spindle.vel-cmd => lathe.spindle.vel-fb
+net spos lathe.spindle.pos-cmd => lathe.spindle.pos-fb
+start

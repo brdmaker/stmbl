@@ -170,6 +170,8 @@ const Live = (() => {
   }
   function slow() {
     if (slowSt.load != null) st.spindle.load = slowSt.load;
+    st.turret = slowSt.turret || null;
+    if (typeof LATHE !== "undefined" && LATHE) latheTurret();
     if (slowSt.bus != null) st.bus = slowSt.bus;
     if (slowSt.yaw != null) st.yaw = Math.abs(slowSt.yaw);
     if (slowSt.contour != null) st.err = slowSt.contour;

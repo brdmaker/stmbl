@@ -27,6 +27,27 @@ const cdef = (p) => cget(cfg.def, p);
 // a lathe's options for the 3D view (machmodel.js mm3dApply)
 const cfgLathe = () => { const la = (cfg.m && cfg.m.lathe) || {}; return { post: la.post || "front", dia: la.diameter !== false }; };
 
+// a lathe's turret (lathe.turret): M6 turns it forward to the station, then back onto its lock
+function cfgTurret() {
+  const tu = ((cfg.m.lathe || {}).turret) || {}, t = tu.type || "none", P = "lathe.turret";
+  return `<h3>Turret</h3><div class="cf-grid">
+      ${fld(P + ".type", "Turret", "sel", { re: true, def: "none", choices: [["none", "none: tools by hand"], ["stepper", "a stepper (step/dir), an index pulse a turn, locks running backwards"], ["sim", "simulated"]] })}
+      ${t !== "none" ? fld(P + ".stations", "Stations", "num", { help: "tool n on station (n − 1) mod stations + 1" }) : ""}</div>
+    ${t === "stepper" ? `<div class="cf-grid">
+      ${fld(P + ".stepgen", "Stepgen", "text", { help: "its HAL prefix, e.g. hm2_ebaz4205.0.stepgen.00" })}
+      ${fld(P + ".steps", "Steps a turret turn", "num", { help: "the stepper's steps × microsteps × gearing" })}
+      ${fld(P + ".index", "Index (bit in)", "pin", { dir: "out", help: "one pulse a turret turn" })}
+      ${fld(P + ".index_invert", "Index inverted", "bool")}</div>` : ""}
+    ${t !== "none" ? `<h3>Its moves <small class="muted">(turret turns, turns/s, s)</small></h3><div class="cf-grid">
+      ${fld(P + ".offset", "Station 1 after the index", "num")}
+      ${fld(P + ".overtravel", "Past the station", "num", { help: "forward past it before locking" })}
+      ${fld(P + ".lock", "Onto the lock", "num", { help: "back from the station onto the pawl: short of a stall" })}
+      ${fld(P + ".speed", "Speed", "num")}${fld(P + ".lock_speed", "Locking speed", "num")}${fld(P + ".acc", "Acceleration", "num")}
+      ${fld(P + ".dwell", "Dwell on the lock", "num")}${fld(P + ".timeout", "Change timeout", "num")}
+      ${fld(P + ".slip", "Index slip fault", "num", { help: "the index this far from where it should be: a fault (E-STOP)" })}
+      ${t === "sim" ? fld(P + ".sim_index_at", "Simulated index at", "num") : ""}</div>` : ""}`;
+}
+
 // ------------------------------------------------------------ fields
 // kind: text | num | bool | sel | lines (a list, a line each) | kv (KEY = value lines)
 function fld(path, label, kind = "text", o = {}) {
@@ -70,10 +91,15 @@ const TABS = {
       ${fld("display.min_spindle_override", "Spindle override min", "num")}
     </div>`,
   spindle: () => {
-    const sp = cfg.m.spindle || {}, hal = sp.type === "hal";
+    const sp = cfg.m.spindle || {}, hal = sp.type === "hal", stmbl = /^stmbl_/.test(sp.type || "");
     return `<div class="cf-grid">
-      ${fld("spindle.type", "Spindle", "sel", { re: true, choices: [["none", "none"], ["sim", "simulated (answers at once)"], ["hal", "its HAL pins (a VFD, a spindle drive)"]] })}
+      ${fld("spindle.type", "Spindle", "sel", { re: true, choices: [["none", "none"], ["sim", "simulated (answers at once)"], ["hal", "its HAL pins (a VFD, a spindle drive)"], ["stmbl_sserial", "an stmbl drive, smart-serial"], ["stmbl_can", "an stmbl drive, CAN"]] })}
       ${sp.type !== "none" ? fld("spindle.max_rpm", "Max (rpm)", "num") + fld("spindle.min_rpm", "Min (rpm)", "num", { help: "0: none" }) : ""}</div>
+      ${stmbl ? `<h3>Its drive <small class="muted">(velocity mode: the drive's config as conf/haas_spindle.txt, pid0.pos_en 0; its feedback counted into turns for G33 / G76 / G95)</small></h3><div class="cf-grid">
+        ${sp.type === "stmbl_sserial" ? fld("spindle.port", "Smart-serial port", "num") + fld("spindle.channel", "Channel", "num") : fld("spindle.bus", "CAN bus", "num") + fld("spindle.node", "Node", "num")}
+        ${fld("spindle.ratio", "Motor turns a spindle turn", "num", { help: "the belt's ratio: 2 for a motor at twice the spindle's speed" })}
+        ${fld("spindle.index_sensor", "Index sensor (bit in)", "pin", { dir: "out", help: "one pulse a spindle turn; blank: the motor's zero angle (right only when the ratio is whole)" })}
+        ${fld("spindle.console", "Its console on the Drives page", "bool", { def: true })}</div>` : ""}
       ${hal ? `<h3>Pins <small class="muted">(blank: not used)</small></h3><div class="cf-grid">
         ${fld("spindle.on", "On (bit out to it)", "pin", { dir: "in", help: "spindle.0.on" })}
         ${fld("spindle.forward", "Forward (bit)", "pin", { dir: "in", help: "spindle.0.forward" })}
@@ -94,8 +120,8 @@ const TABS = {
     <h3>Tool setter</h3>
     <label class="cf chk"><input type="checkbox" id="cf-ts"${cfg.m.toolsetter ? " checked" : ""}> A tool setter (the Tools page's Measure)</label>
     ${cfg.m.toolsetter ? `<div class="cf-grid">${fld("toolsetter.x", "X (machine)", "num")}${fld("toolsetter.y", "Y (machine)", "num")}${fld("toolsetter.z_above", "Z above it", "num")}${fld("toolsetter.z_ref", "Z of the reference tool's tip", "num", { help: "tool length = touched Z − this" })}${fld("toolsetter.travel", "Search travel", "num")}</div>` : ""}
-    <h3>Tool changer</h3><div class="cf-grid">
-      ${fld("atc.type", "Changer", "sel", { re: true, def: "none", choices: [["none", "none: tools by hand"], ["rack", "a rack (M6 runs the change)"]] })}</div>
+    ${cfg.m.type === "lathe" ? cfgTurret() : `<h3>Tool changer</h3><div class="cf-grid">
+      ${fld("atc.type", "Changer", "sel", { re: true, def: "none", choices: [["none", "none: tools by hand"], ["rack", "a rack (M6 runs the change)"]] })}</div>`}
     ${rack ? `<p class="note">Tool <i>n</i> sits in pocket <i>n</i>; pocket 1 at X, Y, the next ones a pitch further. A tool beyond the pockets is changed by hand (a message, then cycle start). Positions are machine coordinates; Generated shows the M6 it makes (run/toolchange.ngc).</p>
       <div class="cf-grid">
         ${fld("atc.pockets", "Pockets", "num")}
@@ -284,7 +310,7 @@ function markErrors() {
   p.hidden = !cfg.errors.length;
   p.innerHTML = cfg.errors.length ? `<h2>Problems <small>${cfg.errors.length}</small></h2><ul>${cfg.errors.map(([w, t]) => `<li data-go="${esc(w)}"><b>${esc(w || "machine.json")}</b>: ${esc(t)}</li>`).join("")}</ul>` : "";
 }
-const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^estop/.test(w) ? "io" : /^(probe|toolsetter|atc)/.test(w) ? "tools" : /^spindle/.test(w) ? "spindle" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
+const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^estop/.test(w) ? "io" : /^(probe|toolsetter|atc|lathe\.turret)/.test(w) ? "tools" : /^spindle/.test(w) ? "spindle" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
 
 // ------------------------------------------------------------ the source: millweb or the supervisor, or the simulation's example
 const cfgSupervised = () => (LIVE ? LIVE.supervised() : false);

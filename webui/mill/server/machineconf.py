@@ -28,6 +28,8 @@ VERSION = 1
 AXES = "XYZABCUVW"
 BOARDS = ("none", "hm2_eth", "hm2_spix", "hm2_rpspi", "hm2_soc_ol")
 DRIVES = ("sim", "stmbl_sserial", "stmbl_can", "stmbl_sim")
+SPINDLES = ("none", "sim", "hal", "stmbl_sserial", "stmbl_can")
+TURRETS = ("none", "sim", "stepper")
 LOADERS = ("none", "fpga_manager", "command")
 HOMING = ("absolute", "immediate", "switch", "index")
 # the machine's layout: a gantry (the bridge moves in Y over a fixed table, one or two Y joints) or a fixed
@@ -65,11 +67,19 @@ DEFAULT = {
     "probe": {"type": "none", "input": "", "invert": False, "sim_z": -100},
     # sim: answers at once; hal: its pins (on, forward, speed out in rpm, at-speed in); none
     # revs, index, speed_in: its encoder (spindle.0.revs, index-enable, speed-in in rps), for threading and G95
+    # stmbl_sserial (port, channel), stmbl_can (bus, node): an stmbl drive in velocity mode (linuxcnc/lathe's
+    # lathe.spindle): ratio motor turns a spindle turn; index_sensor: a once-a-turn sensor's pin (blank: the motor's zero)
     "spindle": {"type": "sim", "max_rpm": 24000, "min_rpm": 0, "on": "", "forward": "", "reverse": "", "speed": "", "at_speed": "",
-                "revs": "", "index": "", "speed_in": ""},
+                "revs": "", "index": "", "speed_in": "", "port": 0, "channel": 0, "bus": 0, "node": 1, "ratio": 1,
+                "index_sensor": "", "console": True},
     # type lathe: post front (the tools between the operator and the spindle's axis: +X toward the operator) or back;
     # diameter: X in diameter (G7) from the start
-    "lathe": {"post": "front", "diameter": True},
+    # turret (linuxcnc/lathe's lathe.turret): none, sim, or stepper (a stepgen's HAL prefix, steps a turret turn; index:
+    # the once-a-turn pulse's pin); it turns forward to a station and locks running backwards (turns, turns/s, s)
+    "lathe": {"post": "front", "diameter": True,
+              "turret": {"type": "none", "stations": 6, "stepgen": "", "steps": 3200, "index": "", "index_invert": False,
+                         "offset": 0, "overtravel": 0.03, "lock": 0.01, "speed": 1.0, "lock_speed": 0.2, "acc": 10,
+                         "dwell": 0.3, "timeout": 10, "slip": 0.02, "sim_index_at": 0.37}},
     # a rack tool changer, M6 remapped to run/toolchange.ngc: tool n sits in pocket n (1..pockets), the pockets in a
     # row from pocket 1 at (x, y) by (dx, dy); the holder enters its fork sideways along +Y by slide (0: from above).
     # unclamp drives the drawbar (true: released), clamped / released are its sensors (blank: a dwell instead), air
@@ -286,8 +296,29 @@ def validate(raw, mdir=None):
     if m["probe"]["type"] == "sim" and "Z" not in m["axes"]:
         errs.append(("probe.type", "the simulated probe needs a Z axis"))
     sp = m["spindle"]
-    if sp["type"] not in ("none", "sim", "hal"):
-        errs.append(("spindle.type", "none, sim or hal"))
+    if sp["type"] not in SPINDLES:
+        errs.append(("spindle.type", ", ".join(SPINDLES)))
+    elif sp["type"] == "stmbl_sserial":
+        if not hm2:
+            errs.append(("spindle.type", "a drive on smart-serial needs a Mesa board (board.type hm2_...)"))
+        _num(sp["port"], "spindle.port", errs, 0, 7, True)
+        _num(sp["channel"], "spindle.channel", errs, 0, 7, True)
+    elif sp["type"] == "stmbl_can":
+        if not m["can"]["spi"]:
+            errs.append(("can.spi", "the SPI device of each CAN bus (e.g. /dev/spidev0.0), or sim"))
+        _num(sp["bus"], "spindle.bus", errs, 0, max(0, len(m["can"]["spi"]) - 1), True)
+        _num(sp["node"], "spindle.node", errs, 1, 127, True)
+    if sp["type"] in ("stmbl_sserial", "stmbl_can"):
+        _num(sp["ratio"], "spindle.ratio", errs, 0.001, 1000)
+        if sp["index_sensor"] and not HALNAME.match(str(sp["index_sensor"])):
+            errs.append(("spindle.index_sensor", "a HAL pin name"))
+        if not isinstance(sp["console"], bool):
+            errs.append(("spindle.console", "true or false"))
+        k = (sp["port"], sp["channel"]) if sp["type"] == "stmbl_sserial" else (sp["bus"], sp["node"])
+        for i, j in enumerate(m["joints"]):
+            d = j.get("drive", {}) if isinstance(j, dict) else {}
+            if d.get("type") == sp["type"] and k == ((d.get("port"), d.get("channel")) if sp["type"] == "stmbl_sserial" else (d.get("bus"), d.get("node"))):
+                errs.append(("spindle.type", "the same drive as joint %d" % i))
     _num(sp["max_rpm"], "spindle.max_rpm", errs, 0, 200000)
     _num(sp["min_rpm"], "spindle.min_rpm", errs, 0, 200000)
     for k in ("on", "forward", "reverse", "speed", "at_speed", "revs", "index", "speed_in"):
@@ -308,7 +339,24 @@ def validate(raw, mdir=None):
             if a not in "XZ":
                 errs.append(("axes." + a, "a lathe here has X and Z only (C, Y: not yet)"))
         if m["atc"]["type"] != "none":
-            errs.append(("atc.type", "none on a lathe (its turret: not yet)"))
+            errs.append(("atc.type", "none on a lathe (its tools: lathe.turret)"))
+        tu = la["turret"] = dict(DEFAULT["lathe"]["turret"], **(la.get("turret") or {}))
+        if tu["type"] not in TURRETS:
+            errs.append(("lathe.turret.type", ", ".join(TURRETS)))
+        elif tu["type"] != "none":
+            _num(tu["stations"], "lathe.turret.stations", errs, 1, 32, True)
+            for k, lo, hi in (("offset", -1, 1), ("overtravel", 0, 0.5), ("lock", 0, 0.5), ("speed", 0.01, 10),
+                              ("lock_speed", 0.001, 10), ("acc", 0.01, 1000), ("dwell", 0, 10), ("timeout", 0.1, 120),
+                              ("slip", 0.001, 0.5), ("sim_index_at", 0, 1)):
+                _num(tu[k], "lathe.turret." + k, errs, lo, hi)
+            if not isinstance(tu["index_invert"], bool):
+                errs.append(("lathe.turret.index_invert", "true or false"))
+        if tu["type"] == "stepper":
+            if not tu["stepgen"] or not HALNAME.match(str(tu["stepgen"])):
+                errs.append(("lathe.turret.stepgen", "the stepgen's HAL prefix (e.g. hm2_7i76e.0.stepgen.03)"))
+            if not tu["index"] or not HALNAME.match(str(tu["index"])):
+                errs.append(("lathe.turret.index", "the index pulse's HAL pin (one a turret turn)"))
+            _num(tu["steps"], "lathe.turret.steps", errs, 1, 10000000)
         if m["toolsetter"] is not None:
             errs.append(("toolsetter", "none on a lathe"))
         if m["probe"]["type"] == "sim":
@@ -411,25 +459,33 @@ def _fmt(v):
     return str(v)
 
 
+DRIVE_PINS = ("pos_cmd", "vel_cmd", "pos_fb", "vel_fb", "enable", "fault", "index_enable", "current", "power", "con_cmd", "con_fb")
+
+
+def _drive(m, d):
+    """An stmbl drive's HAL prefix and pin names {pos_cmd, ...}: (None, None) for none"""
+    t = d["type"]
+    if t == "stmbl_sserial":
+        return "hm2_%s.0.stbl.%d.%d" % (m["board"]["name"], d["port"], d["channel"]), {k: k for k in DRIVE_PINS}
+    if t == "stmbl_can":
+        return "stmblcan.%d.%d" % (d["bus"], d["node"]), {k: k.replace("_", "-") for k in DRIVE_PINS}
+    if t == "stmbl_sim":
+        return "stmbl-sim.0", {k: k for k in DRIVE_PINS}
+    return None, None
+
+
 def drives_of(m):
-    """[(joint index, joint name, drive, HAL prefix, pin names {pos_cmd, ...}, console tty name or None)]."""
+    """[(joint index, joint name, drive, HAL prefix, pin names {pos_cmd, ...}, console tty name or None)]; an stmbl
+    spindle last, named S, its index None."""
     names, out = joint_names(m), []
-    b = m["board"]
     for i, j in enumerate(m["joints"]):
         d = j["drive"]
-        t = d["type"]
-        if t == "stmbl_sserial":
-            pre = "hm2_%s.0.stbl.%d.%d" % (b["name"], d["port"], d["channel"])
-            pins = {k: k for k in ("pos_cmd", "vel_cmd", "pos_fb", "vel_fb", "enable", "fault", "index_enable", "current", "power", "con_cmd", "con_fb")}
-        elif t == "stmbl_can":
-            pre = "stmblcan.%d.%d" % (d["bus"], d["node"])
-            pins = {k: k.replace("_", "-") for k in ("pos_cmd", "vel_cmd", "pos_fb", "vel_fb", "enable", "fault", "index_enable", "current", "power", "con_cmd", "con_fb")}
-        elif t == "stmbl_sim":
-            pre = "stmbl-sim.0"
-            pins = {k: k for k in ("pos_cmd", "vel_cmd", "pos_fb", "vel_fb", "enable", "fault", "index_enable", "current", "power", "con_cmd", "con_fb")}
-        else:
-            pre, pins = None, None
+        pre, pins = _drive(m, d)
         out.append((i, names[i], d, pre, pins, ("drive-%s" % names[i].lower()) if pre and d.get("console") else None))
+    sp = m["spindle"]
+    if sp["type"] in ("stmbl_sserial", "stmbl_can"):
+        pre, pins = _drive(m, sp)
+        out.append((None, "S", sp, pre, pins, "drive-s" if sp.get("console", True) else None))
     return out
 
 
@@ -446,6 +502,9 @@ def generate(m, mdir, mill, custom=None):
     hm2 = b["type"].startswith("hm2_")
     board = "hm2_%s.0" % b["name"] if hm2 else None
     cans = [x for x in drv if x[2]["type"] == "stmbl_can"]
+    lathe = m["type"] == "lathe"
+    turret = lathe and m["lathe"]["turret"]["type"] != "none"
+    sdrv = next(((x[3], x[4]) for x in drv if x[0] is None), None)  # an stmbl spindle drive: (prefix, pins)
     consoles = [x for x in drv if x[5]]
     maxv = max(ax["max_vel"] for ax in m["axes"].values())
     maxa = max(ax["max_acc"] for ax in m["axes"].values())
@@ -466,7 +525,6 @@ def generate(m, mdir, mill, custom=None):
         os.path.join(mdir, "machine.json"), datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     sec("EMC", ("VERSION", "1.1"), ("MACHINE", m["name"]), ("DEBUG", 0))
     d = m["display"]
-    lathe = m["type"] == "lathe"
     sec("DISPLAY", ("DISPLAY", os.path.join(mill, "millweb")), ("CYCLE_TIME", 0.1), ("POSITION_OFFSET", "RELATIVE"),
         ("LATHE", 1 if lathe else None), ("BACK_TOOL_LATHE", 1 if lathe and m["lathe"]["post"] == "back" else None),
         ("POSITION_FEEDBACK", "ACTUAL"), ("MAX_LINEAR_VELOCITY", maxv), ("DEFAULT_LINEAR_VELOCITY", round(maxv / 10, 3)),
@@ -537,6 +595,10 @@ def generate(m, mdir, mill, custom=None):
          "loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS" + (" num_dio=4" if m["atc"]["type"] == "rack" else "")]
     h = H.append
     first, last = [], []  # functions before motion (read) and after it (write)
+    loads = {}  # the stock comps by names= (each module loads once): {module: [names]}, loaded before the first net
+
+    def comp(mod, *names):
+        loads.setdefault(mod, []).extend(names)
     if hm2:
         h("loadrt hostmot2")
         args = ['config="%s"' % b["config"]] if b["config"] else []
@@ -562,10 +624,15 @@ def generate(m, mdir, mill, custom=None):
     if consoles:
         h("loadrt sserialterm tty=%s" % ",".join(os.path.join(run, x[5]) for x in consoles))
     # joints with a screw lead (mech): the drive works in motor radians, LinuxCNC in mm; scale comps between
-    mech = {i: m["joints"][i]["mech"] for i, n, dd, pre, pins, con in drv if pre and m["joints"][i].get("mech")}
+    mech = {i: m["joints"][i]["mech"] for i, n, dd, pre, pins, con in drv if pre and i is not None and m["joints"][i].get("mech")}
     if mech:
         h("loadrt scale names=%s" % ",".join("j%d-%s" % (i, k) for i in sorted(mech) for k in ("cmd", "vel", "fb")))
         first += ["j%d-fb" % i for i in sorted(mech)]
+    if turret or sdrv:
+        h("loadrt lathe turret=%d spindle=%d" % (1 if turret else 0, 1 if sdrv else 0))
+    if sdrv:
+        first.append("lathe.spindle")  # the drive's feedback into spindle.0.revs before motion reads it
+    loads_at = len(H)
     for f in first:
         h("addf %s servo-thread" % f)
     h("addf motion-command-handler servo-thread")
@@ -575,6 +642,8 @@ def generate(m, mdir, mill, custom=None):
         tail.append("sserialterm.%d" % k)
     h("")
     for i, n, dd, pre, pins, con in drv:
+        if i is None:
+            continue  # the spindle's drive: below
         h("# joint %d (%s): %s" % (i, n, {"sim": "simulated (its command is its feedback)", "stmbl_sserial": "stmbl drive over smart-serial",
                                           "stmbl_can": "stmbl drive over CAN", "stmbl_sim": "simulated stmbl drive"}[dd["type"]]))
         if not pre:
@@ -612,6 +681,33 @@ def generate(m, mdir, mill, custom=None):
     h("")
     # E-STOP: the input (true when the chain is closed) and a board's watchdog; else a loop
     e = m["estop"]
+
+    def chain(src, dst, name):
+        """src (a pin, or None: true) to dst through a lathe's checks: the turret's chain (a fault opens
+        it), the spindle drive's fault"""
+        if turret:
+            if src:
+                h("net %s %s => lathe.turret.chain-in" % (name, src))
+            else:
+                h("setp lathe.turret.chain-in 1")
+            src, name = "lathe.turret.chain-out", name + "-turret"
+        if sdrv:
+            comp("not", "spindle-fault-not")
+            comp("and2", "spindle-ok-and")
+            tail.insert(0, "spindle-fault-not")
+            tail.append("spindle-ok-and")
+            h("net spindle-fault %s.%s => spindle-fault-not.in" % (sdrv[0], sdrv[1]["fault"]))
+            h("net spindle-ok spindle-fault-not.out => spindle-ok-and.in1")
+            if src:
+                h("net %s %s => spindle-ok-and.in0" % (name, src))
+            else:
+                h("setp spindle-ok-and.in0 1")
+            src, name = "spindle-ok-and.out", name + "-spindle"
+        if src:
+            h("net %s %s => %s" % (name, src, dst))
+        else:
+            h("setp %s 1" % dst)
+
     if e["input"] or hm2:
         h("loadrt estop_latch")
         tail.append("estop-latch.0")
@@ -619,22 +715,22 @@ def generate(m, mdir, mill, custom=None):
         h("net estop-ok estop-latch.0.ok-out => iocontrol.0.emc-enable-in")
         if e["input"]:
             if e["invert"]:
-                h("loadrt not names=estop-not")
+                comp("not", "estop-not")
                 tail.insert(0, "estop-not")
                 h("net estop-raw %s => estop-not.in" % e["input"])
-                h("net estop-in estop-not.out => estop-latch.0.ok-in")
+                chain("estop-not.out", "estop-latch.0.ok-in", "estop-in")
             else:
-                h("net estop-in %s => estop-latch.0.ok-in" % e["input"])
+                chain(e["input"], "estop-latch.0.ok-in", "estop-in")
         else:
-            h("setp estop-latch.0.ok-in 1")
+            chain(None, "estop-latch.0.ok-in", "estop-in")
         if hm2:
             h("net watchdog %s.watchdog.has_bit => estop-latch.0.fault-in" % board)
     else:
-        h("net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in")
+        chain("iocontrol.0.user-enable-out", "iocontrol.0.emc-enable-in", "estop-loop")
     p = m["probe"]
     if p["type"] == "input":
         if p["invert"]:
-            h("loadrt not names=probe-not")
+            comp("not", "probe-not")
             tail.append("probe-not")
             h("net probe-raw %s => probe-not.in" % p["input"])
             h("net probe probe-not.out => motion.probe-input")
@@ -643,10 +739,10 @@ def generate(m, mdir, mill, custom=None):
     elif p["type"] == "sim":
         zj = next(i for i, j in enumerate(m["joints"]) if j["axis"] == "Z")
         h("# a simulated probe: trips when the tool tip (joint Z less the tool length) is below machine Z %s, during probe moves" % _fmt(p["sim_z"]))
-        h("loadrt sum2 names=probe-tipz")
-        h("loadrt wcomp names=probe-low,probe-moving")
-        h("loadrt conv_s32_float names=probe-mtype")
-        h("loadrt and2 names=probe-and")
+        comp("sum2", "probe-tipz")
+        comp("wcomp", "probe-low", "probe-moving")
+        comp("conv_s32_float", "probe-mtype")
+        comp("and2", "probe-and")
         tail += ["probe-tipz", "probe-low", "probe-mtype", "probe-moving", "probe-and"]
         h("net %s => probe-tipz.in0" % ("j%d" % zj if m["joints"][zj]["drive"]["type"] == "sim" else "j%d-pos-fb" % zj))  # Z's feedback signal
         h("net probe-tlo motion.tooloffset.z => probe-tipz.in1")
@@ -661,13 +757,46 @@ def generate(m, mdir, mill, custom=None):
         h("net probe-tip-low probe-low.out => probe-and.in0")
         h("net probe-moving probe-moving.out => probe-and.in1")
         h("net probe probe-and.out => motion.probe-input")
-    h("net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed")
+    if turret:  # a lathe's turret: M6 turns it (lathe.turret), T prepares nothing
+        tu = m["lathe"]["turret"]
+        h("# the turret: %d stations, homed on its index, locked running backwards (linuxcnc/lathe)" % tu["stations"])
+        for k, v in (("stations", tu["stations"]), ("offset", tu["offset"]), ("overtravel", tu["overtravel"]), ("lock", tu["lock"]),
+                     ("speed", tu["speed"]), ("lock-speed", tu["lock_speed"]), ("acc", tu["acc"]), ("dwell", tu["dwell"]),
+                     ("timeout", tu["timeout"]), ("slip", tu["slip"])):
+            h("setp lathe.turret.%s %s" % (k, _fmt(v)))
+        h("net tool-change iocontrol.0.tool-change => lathe.turret.change")
+        h("net tool-changed lathe.turret.changed => iocontrol.0.tool-changed")
+        h("net tool-number iocontrol.0.tool-prep-number => lathe.turret.tool")
+        h("net turret-on motion.motion-enabled => lathe.turret.enable")
+        if tu["type"] == "sim":  # no stepper: the command is the feedback, the index simulated
+            h("net turret-pos lathe.turret.pos-cmd => lathe.turret.pos-fb")
+            h("setp lathe.turret.sim-index-at %s" % _fmt(tu["sim_index_at"]))
+            h("net turret-index lathe.turret.sim-index => lathe.turret.index")
+        else:
+            sg = tu["stepgen"]
+            h("setp %s.position-scale %s" % (sg, _fmt(tu["steps"])))
+            h("setp %s.maxvel %s" % (sg, _fmt(tu["speed"] * 1.25)))
+            h("setp %s.maxaccel %s" % (sg, _fmt(tu["acc"] * 1.25)))
+            h("net turret-pos-cmd lathe.turret.pos-cmd => %s.position-cmd" % sg)
+            h("net turret-pos-fb %s.position-fb => lathe.turret.pos-fb" % sg)
+            h("net turret-enable lathe.turret.enable-out => %s.enable" % sg)
+            if tu["index_invert"]:
+                comp("not", "turret-index-not")
+                tail.insert(0, "turret-index-not")
+                h("net turret-index-raw %s => turret-index-not.in" % tu["index"])
+                h("net turret-index turret-index-not.out => lathe.turret.index")
+            else:
+                h("net turret-index %s => lathe.turret.index" % tu["index"])
+        h("net turret-reset iocontrol.0.user-request-enable => lathe.turret.reset")
+        tail.append("lathe.turret")
+    else:
+        h("net tool-change iocontrol.0.tool-change => iocontrol.0.tool-changed")
     h("net tool-prep iocontrol.0.tool-prepare => iocontrol.0.tool-prepared")
     sp = m["spindle"]
     if sp["type"] == "sim":
         h("setp spindle.0.at-speed 1")
         if lathe:  # an encoder too: threading (G33, G76) and feed per turn (G95) need it
-            h("loadrt sim_spindle names=sim-spindle")
+            comp("sim_spindle", "sim-spindle")
             h("setp sim-spindle.scale 1")
             tail.insert(0, "sim-spindle")
             h("net spindle-rps spindle.0.speed-out-rps => sim-spindle.velocity-cmd spindle.0.speed-in")
@@ -688,6 +817,28 @@ def generate(m, mdir, mill, custom=None):
             h("net spindle-index spindle.0.index-enable <=> %s" % sp["index"])
         if sp["speed_in"]:
             h("net spindle-rps-fb %s => spindle.0.speed-in" % sp["speed_in"])
+    elif sdrv:  # an stmbl drive in velocity mode: lathe.spindle commands it and sums its feedback into turns
+        pre, pins = sdrv
+        h("# the spindle: an stmbl drive in velocity mode (its pos_fb summed into spindle.0.revs, linuxcnc/lathe)")
+        h("setp lathe.spindle.ratio %s" % _fmt(sp["ratio"]))
+        h("net spindle-rps spindle.0.speed-out-rps => lathe.spindle.speed-rps")
+        h("net spindle-on spindle.0.on => lathe.spindle.on")
+        h("net spindle-vel-cmd lathe.spindle.vel-cmd => %s.%s" % (pre, pins["vel_cmd"]))
+        h("net spindle-pos-cmd lathe.spindle.pos-cmd => %s.%s" % (pre, pins["pos_cmd"]))
+        h("net spindle-enable motion.motion-enabled => %s.%s" % (pre, pins["enable"]))
+        h("net spindle-pos-fb %s.%s => lathe.spindle.pos-fb" % (pre, pins["pos_fb"]))
+        h("net spindle-vel-fb %s.%s => lathe.spindle.vel-fb" % (pre, pins["vel_fb"]))
+        h("net spindle-revs lathe.spindle.revs => spindle.0.revs")
+        h("net spindle-speed-fb lathe.spindle.speed-fb => spindle.0.speed-in")
+        h("net spindle-index spindle.0.index-enable <=> lathe.spindle.index-enable")
+        h("net spindle-at-speed lathe.spindle.at-speed => spindle.0.at-speed")
+        if sp["index_sensor"]:
+            h("setp lathe.spindle.use-sensor 1")
+            h("net spindle-index-sensor %s => lathe.spindle.index-sensor" % sp["index_sensor"])
+        con = next((k for k, x in enumerate(consoles) if x[0] is None), None)
+        if con is not None:
+            h("net spindle-con-fb %s.%s => sserialterm.%d.con-fb" % (pre, pins["con_fb"], con))
+            h("net spindle-con-cmd sserialterm.%d.con-cmd => %s.%s" % (con, pre, pins["con_cmd"]))
     t = m["atc"]
     if t["type"] == "rack":  # the M6 remap's I/O: motion's digital outputs 0 (drawbar), 1 (air); inputs 0 (clamped), 1 (released)
         h("net atc-unclamp motion.digital-out-00 => %s" % t["unclamp"])
@@ -700,6 +851,7 @@ def generate(m, mdir, mill, custom=None):
     h("")
     for f in tail + last:
         h("addf %s servo-thread" % f)
+    H[loads_at:loads_at] = ["loadrt %s names=%s" % (k, ",".join(v)) for k, v in loads.items()]
     hal = "\n".join(H) + "\n"
     out = {"mill.ini": ini, "machine.hal": hal}
     if t["type"] == "rack":

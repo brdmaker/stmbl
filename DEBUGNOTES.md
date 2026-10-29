@@ -2368,3 +2368,31 @@ Entry format:
   3.13) and the XCAF tree for names and placements: 1 min, no failures.
   Leaving out fasteners and what is inside covers took the parts from 17 MB
   to 5.7 MB (in under millweb's 5-6 MB a file).
+
+## 2026-10-29  millweb machine.hal: a stock comp loaded twice
+- Area:    webui/mill/server/machineconf.py (generate)
+- Status:  Fixed
+- Symptom: a machine with an inverted E-STOP input and an inverted probe (or
+  now an stmbl spindle, an inverted turret index) wrote `loadrt not names=…`
+  twice; LinuxCNC refuses the second load of a module.
+- Cause:   each feature loaded its own `not` / `and2` instance.
+- Fix:     generate() collects the names= comps and loads each module once,
+  with all its names, before the first net.
+
+## 2026-10-29  Lathe turret: M6 to a tool not in tool.tbl waits forever
+- Area:    linuxcnc/lathe (lathe.turret), LinuxCNC iocontrol
+- Status:  Known
+- Symptom: `T2 M6` with no T2 line in tool.tbl: the turret doesn't move, the
+  MDI never finishes (the rest of the changes work).
+- Cause:   LinuxCNC's tool table: a T it doesn't have is not prepared.
+- Fix:     every station's tool needs a line in tool.tbl (the lathe's Tools
+  page writes them).
+
+## 2026-10-29  stmbl spindle: the index without a sensor
+- Area:    linuxcnc/lathe (lathe.spindle)
+- Status:  Note
+- Symptom: threading passes would not line up with a belt ratio like 1.5.
+- Cause:   without an index sensor the index is the motor's zero angle,
+  which is a fixed spindle angle only when the ratio is a whole number.
+- Fix:     set `spindle.index_sensor` (one pulse a spindle turn) for other
+  ratios.

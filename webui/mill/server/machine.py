@@ -387,6 +387,8 @@ class Machine:
             out[k] = self._pin(self.sig[key])
         if out["pins"] == {}:
             del out["pins"]
+        if self._pin_exists("lathe.turret.station"):  # a lathe's turret (linuxcnc/lathe): where it is, its fault
+            out["turret"] = {k: self._pin("lathe.turret." + k) for k in ("station", "stations", "homed", "busy", "fault", "error")}
         if self.info_pcomp():
             out["pcomp"] = {k: self._pin("%s.%s" % (self.pcomp, k)) for k in ("shaper", "defl", "shrink", "servo", "jerk-ms", "fx", "fy-end", "fy-mid", "delay")}
         return out

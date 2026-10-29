@@ -103,7 +103,7 @@ it):
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
 | `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
-| `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …` |
+| `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …`. `turret` (see *Lathes*): `type` `none`, `sim`, `stepper` (`stepgen`: its HAL prefix, `steps` a turret turn, `index`: the once-a-turn pulse's pin, `index_invert`), `stations`, and its moves in turret turns: `offset` (station 1 after the index), `overtravel`, `lock`, `speed`, `lock_speed`, `acc`, `dwell`, `timeout`, `slip` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
@@ -111,7 +111,7 @@ it):
 | `can` | `spi` (a device a bus, or `sim`), `discover`, `spi_hz` |
 | `estop` | `input` (a HAL pin, true while the chain is closed), `invert`; a Mesa board's watchdog also trips it; no input and no board: a loop |
 | `probe` | `type`: `none`, `input` (`input`, `invert`), `sim` (trips below `sim_z`) |
-| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once), and its encoder for threading and G95: `revs` (spindle.0.revs, turns), `index` (index-enable), `speed_in` (turns/s)); `max_rpm`, `min_rpm`. A simulated spindle on a lathe gets a simulated encoder (`sim_spindle`), so G33 and G76 run |
+| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once), and its encoder for threading and G95: `revs` (spindle.0.revs, turns), `index` (index-enable), `speed_in` (turns/s)); `max_rpm`, `min_rpm`. A simulated spindle on a lathe gets a simulated encoder (`sim_spindle`), so G33 and G76 run. Or `stmbl_sserial` (`port`, `channel`) / `stmbl_can` (`bus`, `node`): an stmbl drive in velocity mode through `lathe.spindle` (linuxcnc/lathe), `ratio` motor turns a spindle turn, `index_sensor` (a once-a-turn sensor's pin; blank: the motor's zero angle), `console`; its fault opens the E-STOP chain; on the Drives page as `S` |
 | `atc` | `type`: `none` or `rack`: M6 is remapped to `run/toolchange.ngc`, made from these: tool n in pocket n (`pockets`), pocket 1 at `x`, `y`, the others `dx`, `dy` apart; `z_clear`, `z_pocket`, `slide` (the holder enters its fork along +Y; 0: from above), `feed`; pins `unclamp` (the drawbar, motion's digital out 0), `air` (out 1), `clamped`, `released` (sensors, in 0 and 1: waited for up to `timeout` s; blank: `dwell`). A tool beyond the pockets is changed by hand (a message and a pause) |
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
@@ -324,7 +324,15 @@ the event log.
 - **Preview:** LinuxCNC's interpreter with the INI's startup code (X words as diameters), its time at the spindle's rpm in G95, from the cutting speed at the diameter in G96, and at the pitch on G33/G76 lines.
 - **Probe and Dynamics:** not on a lathe.
 
-`machines/emco_compact5` is an example: simulated joints and spindle (with an encoder: G76 threads).
+**The turret** (`lathe.turret`, linuxcnc/lathe): a stepper on step/dir (a stepgen in position mode), one index pulse a turret turn, locked by running backwards onto its pawl, as on the Emco Compact 5. M6 turns it; T only names the tool:
+- **Homing:** the first change after a start or an E-STOP turns forward up to 1.5 turns to find the index (station 1 is `offset` after it).
+- **A change:** forward to the station (never backwards: that is the lock) and `overtravel` past it, back by `overtravel + lock` at `lock_speed` onto the pawl, a `dwell`, done. Tool *n* is on station (*n* − 1) mod `stations` + 1. Every tool used needs a line in tool.tbl: LinuxCNC refuses a T it doesn't have.
+- **Faults:** the index seen elsewhere than it should be (`slip`: lost steps, a stall), no index while homing, a change longer than `timeout`. Any of these opens the E-STOP chain; the reset after it homes the turret again on the next change.
+- **The console:** the Tools page says the station, homed or not, and the fault.
+
+**AC servos everywhere** (`machines/emco_compact5/machine-stmbl.json`): stmbl drives on X, Z and the spindle on smart-serial, the turret's stepper on a stepgen, and an EBAZ4205 (Zynq) card running hostmot2 (`hm2_soc_ol`, its bitstream through `fpga_manager`). The board's name, its stepgen and GPIO numbers, and the X/Z leads in the file are placeholders: set them to the card's bitstream and the machine. The spindle drive's config is velocity mode, as `conf/haas_spindle.txt` (`pid0.pos_en = 0`).
+
+`machines/emco_compact5` is an example: simulated joints, spindle (with an encoder: G76 threads) and turret.
 Its 3D model comes from the machine's STEP file through `tools/step2parts.py`; see its README.
 
 **Two lathes in one machine** (a twin-spindle lathe such as the CTX TWIN, a controller each side) are

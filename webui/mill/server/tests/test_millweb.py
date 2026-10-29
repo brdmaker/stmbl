@@ -572,6 +572,21 @@ class HalShow(unittest.TestCase):
         self.assertEqual(d["params"][0], ["motion-command-handler.tmax", "s32", "RW", "motmod", "66844"])
 
 
+class TurretStatus(Base):
+    async def asyncSetUp(self):
+        self.HAL = FakeHal({"lathe.turret.station": 3, "lathe.turret.stations": 6, "lathe.turret.homed": True,
+                            "lathe.turret.busy": False, "lathe.turret.fault": False, "lathe.turret.error": 0})
+        await super().asyncSetUp()
+
+    async def test_slow(self):
+        """A lathe's turret (lathe.turret's pins) in the slow status: its station, homed, its fault."""
+        self.assertEqual(self.m.slow()["turret"], {"station": 3, "stations": 6, "homed": True, "busy": False, "fault": False, "error": 0})
+        self.HAL.pins.update({"lathe.turret.fault": True, "lathe.turret.error": 2})
+        self.assertEqual(self.m.slow()["turret"]["error"], 2)
+        del self.HAL.pins["lathe.turret.station"]
+        self.assertNotIn("turret", self.m.slow())
+
+
 class HalPage(Base):
     async def asyncSetUp(self):
         self.HAL = FakeHal({"joint.0.f-error": 0.25, "motion.analog-in-00": 0.0, "key": True})

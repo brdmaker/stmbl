@@ -999,6 +999,7 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   t.check(await t.until(() => st.tools[0].d === 1.6), "nose R 0.8: D 1.6 in the table");
   await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "2");
   t.check(await t.until(() => st.tools[0].q === 2), "the orientation");
+  t.check(/^Turret: station \d of 6/.test(await t.text("#tl-turret")) && await t.ev(() => getComputedStyle($("tl-turret")).display !== "none"), "the turret's station");
   // a wizard: turning to Ø20 over 30
   await t.nav("wiz");
   t.check(await t.ev(() => document.querySelector(".lathe-cards") && !document.querySelector(".lathe-cards").hidden && [...document.querySelectorAll("#p-wiz > .cards")].filter((c) => !c.hidden).length === 1), "the lathe's wizards, not the mill's");
@@ -1019,6 +1020,16 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   t.check(await t.ev(() => library.some((p) => /BRACKET/.test(p.name)) && st.tools.some((x) => x.t === 12) && !document.getElementById("d-y").closest(".axis").hidden), "its programs, tools and Y back");
   await t.page.selectOption('[data-path="type"]', "lathe");
   t.check(await t.until(() => R.type === "lathe" && LATHE && !!document.querySelector('[data-path="lathe.post"]')), "type lathe in Configure: a lathe, its tool post's field");
+  await t.click('#cf-tabs button[data-t="tools"]');
+  t.check(await t.until(() => !!document.querySelector('[data-path="lathe.turret.type"]') && !document.querySelector('[data-path="atc.type"]')), "a lathe's Tools tab: its turret, no rack changer");
+  await t.page.selectOption('[data-path="lathe.turret.type"]', "stepper");
+  t.check(await t.until(() => ["stepgen", "steps", "index", "overtravel", "lock", "slip"].every((k) => document.querySelector(`[data-path="lathe.turret.${k}"]`))), "a stepper turret: its stepgen, steps, index, its moves");
+  await t.page.selectOption('[data-path="lathe.turret.type"]', "none");
+  await t.click('#cf-tabs button[data-t="spindle"]');
+  await t.page.selectOption('[data-path="spindle.type"]', "stmbl_sserial");
+  t.check(await t.until(() => ["port", "channel", "ratio", "index_sensor"].every((k) => document.querySelector(`[data-path="spindle.${k}"]`))), "an stmbl spindle: its port, channel, ratio, index sensor");
+  await t.page.selectOption('[data-path="spindle.type"]', "sim");
+  await t.click('#cf-tabs button[data-t="machine"]');
   await t.page.selectOption('[data-path="lathe.post"]', "back");
   t.check(await t.until(() => LATHE && LATHE.post === "back" && LATHE.s === 1 && (document.querySelector('#jogpad [data-j="y+"]').textContent === "X+")), "a back post: +X away from the operator, the pad's up arrow X+");
   await t.page.selectOption('[data-path="type"]', "gantry");

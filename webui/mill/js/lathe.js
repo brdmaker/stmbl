@@ -208,7 +208,20 @@ function latheJogDir(dir) {
 }
 
 // ------------------------------------------------------------ the tools page
+const TURRET_E = ["", "no index within 1.5 turns", "the index where it shouldn't be: slipped or lost steps", "the change took too long", "no such station"];
+// the turret's state (live: lathe.turret's pins through slow; the simulation: the tool's station of 6)
+function latheTurret() {
+  const tu = st.turret || (LIVE ? null : { station: st.tool > 0 ? (st.tool - 1) % 6 + 1 : 0, stations: 6, homed: st.tool > 0, busy: false, fault: false, error: 0 });
+  let el = $("tl-turret");
+  if (!el) { el = document.createElement("p"); el.id = "tl-turret"; el.className = "note"; const n = $("tl-note"); if (n) n.after(el); else return; }
+  el.hidden = !tu;
+  if (!tu) return;
+  el.classList.toggle("bad", !!tu.fault);
+  el.textContent = tu.fault ? `Turret fault: ${TURRET_E[tu.error] || "error " + tu.error}. Reset the E-STOP: the turret homes again on the next change.`
+    : `Turret: ${tu.busy ? "turning…" : tu.homed ? `station ${tu.station} of ${tu.stations}` : "not homed (the first M6 finds its index)"}. Tool n is on station (n − 1) mod ${tu.stations} + 1.`;
+}
 function latheRenderTools() {
+  latheTurret();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">X off</th><th class="n">Z off</th><th class="n">Nose R</th><th class="n">Q</th><th class="n">Wear</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in the turret" : ""}</td>
       <td class="n">${t.p}</td>
