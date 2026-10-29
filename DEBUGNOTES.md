@@ -2334,3 +2334,37 @@ Entry format:
 - Fix:     moved the bolts so nothing is tangent. Also: OpenSCAD 2021's
   ASCII STL of printed threads is huge (64 MB for the set); `--export-format
   binstl` and 12 slices a pitch make it 11 MB.
+
+## 2026-10-29  LinuxCNC lathes: M2 puts the plane back to G17
+- Area:    webui/mill (lathe programs, the wizards)
+- Status:  Note
+- Symptom: after a lathe program's M2 the modal state shows G17, though the
+  INI's RS274NGC_STARTUP_CODE starts with G18 (G7 stays).
+- Cause:   M2/M30 reset the plane (LinuxCNC's documented M2 behaviour).
+- Fix:     every lathe program states G18 (and G7/G8) in its first lines:
+  the wizards and the demo do.
+
+## 2026-10-29  millweb preview: a lathe's program timed at 0.1 mm/min
+- Area:    webui/mill/server/preview.py (Canon._feed)
+- Status:  Fixed
+- Symptom: a lathe program's remaining time read 44 h: its F0.1 (G95, mm a
+  turn) was timed as mm/min; G76's passes, with no F at all, at the last F.
+- Cause:   the canon gets F and the motion, not the feed mode or the spindle
+  sync; the interpreter's line state has feed_mode (950: G95), speed (the S
+  word: rpm, or m/min with G96, gcodes[13] 960), not the block's words.
+- Fix:     G95: F x rpm (G96: from the cutting speed at the move's
+  diameter, the spindle's max at most); G33 / G76 lines: their pitch (K / P,
+  read from the file's text, by line number from 1, as the canon numbers
+  them) x rpm. The test program: 42 s estimated, 50 s run in LinuxCNC.
+
+## 2026-10-29  A STEP assembly as millweb model parts (tools/step2parts.py)
+- Area:    webui/mill/tools/step2parts.py
+- Status:  Note
+- Symptom: gmsh (with OCC) meshed the Emco Compact 5's 19 MB STEP in 8.5 min
+  and then stopped on one bad face ("1D mesh not a closed loop").
+- Cause:   gmsh builds a real FE surface mesh, face by face.
+- Fix:     OpenCASCADE's own tessellator (BRepMesh, the OCP wheel:
+  pip install cadquery-ocp; it installs for the python3 pip runs, here
+  3.13) and the XCAF tree for names and placements: 1 min, no failures.
+  Leaving out fasteners and what is inside covers took the parts from 17 MB
+  to 5.7 MB (in under millweb's 5-6 MB a file).

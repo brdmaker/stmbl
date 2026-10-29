@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "Emco Compact 5 CNC",
+  "type": "lathe",
+  "lathe": {"post": "front", "diameter": true},
+  "units": "mm",
+  "servo_period_ns": 1000000,
+  "board": {"type": "none"},
+  "bitstream": {"loader": "none"},
+  "axes": {
+    "X": {"min": -2, "max": 50, "max_vel": 40, "max_acc": 400},
+    "Z": {"min": -260, "max": 0, "max_vel": 60, "max_acc": 500}
+  },
+  "joints": [
+    {"axis": "X", "drive": {"type": "sim"}, "ferror": 1, "min_ferror": 0.1, "home": {"method": "absolute", "pos": 50, "sequence": 0}},
+    {"axis": "Z", "drive": {"type": "sim"}, "ferror": 1, "min_ferror": 0.1, "home": {"method": "absolute", "pos": 0, "sequence": 1}}
+  ],
+  "estop": {"input": ""},
+  "probe": {"type": "none"},
+  "spindle": {"type": "sim", "max_rpm": 3000},
+  "model": {"builtin": true, "tip": [136.3, 0, 0], "parts": []},
+  "console": {"port": 8080}
+}

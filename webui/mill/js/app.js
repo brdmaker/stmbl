@@ -337,10 +337,10 @@ function homeAxis(a) {
   st.homed[a] = false; updateChips();
   setTimeout(() => { st.homed[a] = true; updateChips(); msg(`${a.toUpperCase()} homed: absolute scale, no motion`, "ok"); }, 450);
 }
-$("b-homeall").addEventListener("click", () => LIVE ? LIVE.home("all") : ["z", "x", "y"].forEach((a, i) => setTimeout(() => homeAxis(a), i * 300)));
+$("b-homeall").addEventListener("click", () => LIVE ? LIVE.home("all") : (LATHE ? ["x", "z"] : ["z", "x", "y"]).forEach((a, i) => setTimeout(() => homeAxis(a), i * 300)));
 $("b-zeroall").addEventListener("click", () => { if (LIVE) return LIVE.zeroAll(); zeroAxis("x", 0); zeroAxis("y", 0); zeroAxis("z", 0); });
-$("b-gotozero").addEventListener("click", () => { const sz = Math.max(st.pos.z, 10); moveTo([{ x: st.pos.x, y: st.pos.y, z: sz }, { x: 0, y: 0, z: sz }, { x: 0, y: 0, z: 5 }], `Go to ${off().n} X0 Y0 Z5`); });
-$("b-park").addEventListener("click", () => { const w = toWork({ x: 500, y: 980, z: 0 }); moveTo([{ x: st.pos.x, y: st.pos.y, z: w.z }, { x: w.x, y: w.y, z: w.z }], "Park: Z up, the bridge to the back"); });
+$("b-gotozero").addEventListener("click", () => { if (LATHE) { const sx = Math.max(st.pos.x, LATHE.stockD / 2 + 3); moveTo([{ x: sx, y: 0, z: st.pos.z }, { x: sx, y: 0, z: 2 }, { x: 0, y: 0, z: 2 }], `Go to ${off().n} X0 Z2`); return; } const sz = Math.max(st.pos.z, 10); moveTo([{ x: st.pos.x, y: st.pos.y, z: sz }, { x: 0, y: 0, z: sz }, { x: 0, y: 0, z: 5 }], `Go to ${off().n} X0 Y0 Z5`); });
+$("b-park").addEventListener("click", () => { if (LATHE) { const w = toWork({ x: TRAVEL.x[1], y: 0, z: TRAVEL.z[1] }); moveTo([{ x: w.x, y: 0, z: st.pos.z }, { x: w.x, y: 0, z: w.z }], "Park: X out, then Z to its end"); return; } const w = toWork({ x: 500, y: 980, z: 0 }); moveTo([{ x: st.pos.x, y: st.pos.y, z: w.z }, { x: w.x, y: w.y, z: w.z }], "Park: Z up, the bridge to the back"); });
 $$("#dro-mode button").forEach((b) => b.addEventListener("click", () => { st.dro = b.dataset.c; $$("#dro-mode button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); }));
 
 // ============================================================ motion
@@ -487,7 +487,7 @@ function renderRunStats() {
   const run = rs.wall - rs.hold, est = rs.estT - rs.est0, pace = est > 1 && run > 1 ? est / run : null;
   const f0 = (v) => Math.round(v).toLocaleString("en-US"), f1 = (v) => v.toFixed(1);
   const cell = (k, v, sub = "", warn = false) => `<div class="${warn ? "warn" : ""}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
-  const gantry = !R || R.type !== "bridge", joints = gantry ? [0, 1, 2, 3] : [0, 1, 3];  // a fixed bridge has one Y
+  const gantry = !R || R.type === "gantry", joints = gantry ? [0, 1, 2, 3] : R.type === "lathe" ? [0, 3] : [0, 1, 3];  // a fixed bridge has one Y, a lathe none
   $("rs-head").textContent = `${rs.done ? (rs.end === "done" ? "Last run, finished" : "Last run, stopped") : st.run === "hold" ? "Running · on hold" : "Running"}: ${rs.name}`;
   $("rstats").innerHTML = [
     cell("RUN TIME", mmss(rs.wall), rs.hold > 0.5 ? `${mmss(rs.hold)} on hold` : "&nbsp;"),
@@ -576,6 +576,7 @@ $("files").addEventListener("click", (e) => {
 function fillToolSelects() {
   const opts = st.tools.filter((t) => t.t !== 99).map((t) => `<option value="${t.t}">T${t.t} · Ø${t.d}</option>`).join("");
   for (const [id, def] of [["fz-t", 12], ["bc-t", 5], ["cp-t", 3]]) { const s = $(id), v = s.value || def; s.innerHTML = opts; s.value = toolOf(+v) ? v : String(st.tools[0].t); }
+  if (typeof latheToolSelects === "function") latheToolSelects();
 }
 const num = (id) => +$(id).value;
 $("fz-go").addEventListener("click", () => { if (loadProgram(plan(genFacing({ w: num("fz-w"), l: num("fz-l"), d: Math.abs(num("fz-d")), s: clamp(num("fz-s"), 10, 95), f: num("fz-f"), t: num("fz-t") })))) showPage("main"); });
@@ -602,6 +603,7 @@ $("tp-go").addEventListener("click", () => probeCycle("plate"));
 
 // ============================================================ TOOLS page
 function renderTools() {
+  if (typeof LATHE !== "undefined" && LATHE) { renderToolModel(); return latheRenderTools(); }
   renderToolModel();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
@@ -641,7 +643,7 @@ $("tm-file").addEventListener("change", async (e) => {
   renderToolModel(); $("tm-src").value = name; toolModelChanged();
   msg(`T${st.toolSel ?? st.tool}: ${name}`, "ok");
 });
-$("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" ? e.target.value : +e.target.value; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: "diameter", l: "length", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
+$("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" ? e.target.value : +e.target.value * (+e.target.dataset.scale || 1); if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: e.target.dataset.scale ? "nose radius" : "diameter", l: LATHE ? "Z offset" : "length", x: "X offset", q: "orientation", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
 $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
 $("tl-del").addEventListener("click", () => { if (LIVE) return LIVE.toolDelete(st.toolSel); if (st.toolSel === st.tool) { msg("Unload the tool before deleting it.", "warn"); return; } st.tools = st.tools.filter((t) => t.t !== st.toolSel); renderTools(); fillToolSelects(); msg(`T${st.toolSel} deleted`, "info"); });
@@ -747,6 +749,7 @@ $("jog-inc").addEventListener("click", (e) => { const b = e.target.closest("butt
 $("jog-rate").addEventListener("input", (e) => { st.jogRate = +e.target.value; $("jog-rate-v").textContent = st.jogRate + " mm/min"; });
 let jogHeld = null;
 function jogStep(dir) {
+  if (typeof LATHE !== "undefined" && LATHE) { dir = latheJogDir(dir); if (!dir) return; }
   if (LIVE) return LIVE.jog(dir);
   if (!ready()) return;
   if (busy()) { msg("Jogging is off while the program runs.", "warn"); return; }
@@ -903,7 +906,15 @@ function buildBuiltin(type) {
   const { machine, mat, box, cyl } = R;
   machine.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   machine.clear();
-  R.type = type; R.tableG = null;
+  R.type = type; R.tableG = null; R.spinG = null; R.stock = null; R.stockG = null;
+  if (type === "lathe") {  // lathe.js: the console becomes a lathe's, and the scene its
+    latheEnter(latheOpts);
+    Object.assign(R, latheBuild(machine));
+    latheStock(); sizeLimits(); buildTool();
+    if (typeof mm3dBuiltin === "function") mm3dBuiltin(mm3d.builtin);
+    return;
+  }
+  if (typeof LATHE !== "undefined" && LATHE) latheExit();
   const bridge = new THREE.Group(), carriage = new THREE.Group(), ram = new THREE.Group(), headG = new THREE.Group(), toolG = new THREE.Group(), coolant = new THREE.Group();
   machine.add(bridge); bridge.add(carriage); carriage.add(ram); ram.add(headG);
   if (type === "bridge") {
@@ -994,9 +1005,12 @@ function buildBuiltin(type) {
   if (typeof mm3dBuiltin === "function") mm3dBuiltin(mm3d.builtin);
   if (typeof applyLooks === "function") applyLooks();
 }
+// a lathe's options for buildBuiltin("lathe"): {post, dia} (machine.json's lathe, or LinuxCNC's [DISPLAY])
+let latheOpts = {};
 // the travel box (soft limits) in the work's frame
 function sizeLimits() {
   if (!R) return;
+  if (R.type === "lathe") return latheLimits();
   const dx = TRAVEL.x[1] - TRAVEL.x[0], dy = TRAVEL.y[1] - TRAVEL.y[0], dz = TRAVEL.z[1] - TRAVEL.z[0];
   R.limits.scale.set(Math.max(dx, 1), Math.max(dy, 1), Math.max(dz, 1));
   R.limits.position.set(TRAVEL.x[0] + dx / 2, TRAVEL.y[0] + dy / 2, ZTOP + TRAVEL.z[0] + dz / 2);
@@ -1011,6 +1025,7 @@ function buildTool() {
   $("v-tool").textContent = "T" + st.tool; $("f-tool").textContent = "T" + st.tool;
   $("sp-tool").textContent = `T${st.tool} Ø${t.d} · ${t.c.replace(/^[\d.]+ mm /, "")}`;
   if (!R) return;
+  if (R.type === "lathe" && !setup.tools[String(st.tool)]) return latheBuildTool();
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
   // its own 3D model (the Tools page): the tip at its origin, the spindle along +Z
   const tm = setup.tools[String(st.tool)];
@@ -1041,11 +1056,19 @@ function rebuildPath() {
   const S = prog.segs.filter((s) => s.k === "mv"), n = S.length;
   const pos = new Float32Array(n * 6), col = new Float32Array(n * 6);
   const o = off(), g = st.g92;
-  S.forEach((s, i) => pos.set([s.x0 + o.x + g.x, s.y0 + o.y + g.y, s.z0 + o.z + g.z + ZTOP, s.x + o.x + g.x, s.y + o.y + g.y, s.z + o.z + g.z + ZTOP], i * 6));
+  if (R.type === "lathe") S.forEach((s, i) => pos.set([...latheVp(s.x0, 0, s.z0), ...latheVp(s.x, 0, s.z)], i * 6));  // the work's frame is the scene's
+  else S.forEach((s, i) => pos.set([s.x0 + o.x + g.x, s.y0 + o.y + g.y, s.z0 + o.z + g.z + ZTOP, s.x + o.x + g.x, s.y + o.y + g.y, s.z + o.z + g.z + ZTOP], i * 6));
   R.pathGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   R.pathGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   R.pathGeo.computeBoundingSphere();
   R.pathSegs = S; pathDone = -2; colorPath(true);
+  // a lathe's path drawn over everything (it lies inside the see-through stock), and mirrored across the
+  // axis, faint: the part's section
+  for (const l of [R.pathLine, R.trail]) { l.material.depthTest = R.type !== "lathe"; l.renderOrder = R.type === "lathe" ? 10 : 0; }
+  if (R.type === "lathe") {
+    if (!R.pathMirror) { R.pathMirror = new THREE.LineSegments(R.pathGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.25 })); R.pathMirror.scale.y = -1; R.workG.add(R.pathMirror); }
+    R.pathMirror.visible = true;
+  } else if (R.pathMirror) R.pathMirror.visible = false;
   placeObjects();  // the setup's objects and the origin follow the work offset
   R.trailLen = 0; R.trailGeo.setDrawRange(0, 0);
 }
@@ -1064,7 +1087,7 @@ function colorPath(all) {
   let from = 0, to = S.length;
   if (!all && pathDone >= 0) { from = Math.min(pathDone, doneTo); to = Math.max(pathDone, doneTo); }
   pathDone = doneTo;
-  const a = col.array;
+  const a = col.array, lit = R.type === "lathe";  // a lathe's path: brighter (a small part over the slides)
   for (let i = from; i < to; i++) {
     const s = S[i];
     let c;
@@ -1072,7 +1095,7 @@ function colorPath(all) {
     else if (st.color === "err") c = ramp(s.errMean / 60);
     else if (st.color === "feed") c = ramp(s.f / 6000);
     else c = toolColors[s.tool] || GREY_COL;
-    const k = i < doneTo ? 1 : s.rapid ? .45 : .5, j = i * 6;
+    const k = i < doneTo ? 1 : lit ? (s.rapid ? .6 : .85) : s.rapid ? .45 : .5, j = i * 6;
     a[j] = a[j + 3] = c[0] * k; a[j + 1] = a[j + 4] = c[1] * k; a[j + 2] = a[j + 5] = c[2] * k;
   }
   col.updateRange.offset = from * 6; col.updateRange.count = to > from ? (to - from) * 6 : 0;
@@ -1091,7 +1114,7 @@ function setCam(kind, instant) {
     side: [[cx - 3100 * k, cy, 520], [cx, cy, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
     follow: [[sx - 260, sy - 420, sz + 300], [sx, sy, sz]],
   };
-  const v = views[kind];
+  const v = R.type === "lathe" ? latheCam(kind) : views[kind];
   R.camAnim = { from: [R.cam.position.toArray(), R.controls ? R.controls.target.toArray() : [500, 500, 0]], to: v, t: instant ? 1 : 0 };
 }
 $$("[data-cam]").forEach((b) => b.addEventListener("click", () => setCam(b.dataset.cam)));
@@ -1110,6 +1133,7 @@ $$("[data-show]").forEach((b) => b.addEventListener("click", () => {
 
 function update3d(dt, tip, moving, cutting) {
   if (!R) return;
+  if (R.type === "lathe") return latheUpdate3d(dt, tip, moving, cutting);
   const m = toMach(tip), k = st.show.defl ? st.exag : 0;
   // the head lags under acceleration and the bridge yaws: drawn k times larger
   const yaw = st.yaw * 1e-6 * k * (st.fe[1] > st.fe[2] ? 1 : -1), hx = st.err * 1e-3 * k * .6, hy = st.err * 1e-3 * k * .8;
@@ -1150,16 +1174,21 @@ function update3d(dt, tip, moving, cutting) {
     }
   }
   R.sparkGeo.attributes.position.needsUpdate = true;
+  view3d(dt, [wx, wy + R.workG.position.y, wz], R.type === "bridge" ? [(TRAVEL.x[0] + TRAVEL.x[1]) / 2, 0, 100] : [500, 500, 100]);
+}
+// the camera (its move to a preset, or following the tool at tgt), the path's colours, the frame; look: where
+// to look without the orbit controls
+function view3d(dt, tgt, look) {
   if (R.camAnim) {
     const a = R.camAnim; a.t = Math.min(1, a.t + dt * 1.8); const e = 1 - Math.pow(1 - a.t, 3);
     const lerp = (p, q) => p.map((v, i) => v + (q[i] - v) * e);
     R.cam.position.set(...lerp(a.from[0], a.to[0])); if (R.controls) R.controls.target.set(...lerp(a.from[1], a.to[1]));
     if (a.t >= 1) R.camAnim = null;
   } else if (R.follow && R.controls) {
-    const tgt = new THREE.Vector3(wx, wy + R.workG.position.y, wz), d = tgt.clone().sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));  // the tool in the view (a moving table: y 0)
+    const d = new THREE.Vector3(...tgt).sub(R.controls.target).multiplyScalar(Math.min(1, dt * 4));  // the tool in the view (a moving table: y 0)
     R.controls.target.add(d); R.cam.position.add(d);
   }
-  if (R.controls) R.controls.update(); else R.cam.lookAt(R.type === "bridge" ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, R.type === "bridge" ? 0 : 500, 100);
+  if (R.controls) R.controls.update(); else R.cam.lookAt(...look);
   colorPath(false);
   R.renderer.render(R.scene, R.cam);
 }
@@ -1249,7 +1278,7 @@ function tick(now) {
       for (let j = st.seg + 1; j <= i; j++) {
         const p = mo.segs[j - 1], s = mo.segs[j];
         if (p.k === "tc") { st.tool = p.tool; buildTool(); msg(`T${p.tool} M6: ${(toolOf(p.tool) || { c: "" }).c}`, "info"); }
-        if (s.k === "m3") { const m = prog.lines[s.line - 1].match(/S(\d+)/); spindle(1, m ? +m[1] : 12000); }
+        if (s.k === "m3") { const m = prog.lines[s.line - 1].match(/S(\d+)/); spindle(1, s.rpm || (m ? +m[1] : 12000)); }  // a lathe's G96: its rpm on the segment
         if (s.k === "m5") spindle(0);
         if (s.k === "m8") setCool("flood", true);
         if (s.k === "m9") setCool("flood", false);
@@ -1324,8 +1353,9 @@ function renderUi(tip, seg, moving, pTot) {
     b.style.width = wpc + "%"; b.style.left = (v < 0 ? 50 - wpc : 50) + "%"; b.style.background = Math.abs(v) > 12 ? C.warn : C.accent;
   });
   $("ds-y").textContent += ` · Y1−Y2 ${(st.fe[1] - st.fe[2]).toFixed(1)} µm`;
+  if (typeof LATHE !== "undefined" && LATHE) latheDro(show, mach, tip);
   const fcmd = seg && seg.k === "mv" && !seg.rapid ? seg.f : 0;
-  $("modal").textContent = LIVE && LIVE.modal ? LIVE.modal : [off().n, "G17", st.units === "in" ? "G20" : "G21", "G90", "G94", "G40", "G43 H" + st.tool, "G64 P0.02", st.spindle.dir > 0 ? "M3" : st.spindle.dir < 0 ? "M4" : "M5", st.cool.flood ? "M8" : st.cool.mist ? "M7" : "M9", "T" + st.tool, "F" + fcmd, "S" + st.spindle.s].join(" ");
+  $("modal").textContent = LIVE && LIVE.modal ? LIVE.modal : LATHE ? [off().n, "G18", LATHE.dia ? "G7" : "G8", "G21", "G90", "G95", "G40", "T" + st.tool, st.spindle.dir > 0 ? "M3" : st.spindle.dir < 0 ? "M4" : "M5", st.cool.flood ? "M8" : "M9", "S" + st.spindle.s].join(" ") : [off().n, "G17", st.units === "in" ? "G20" : "G21", "G90", "G94", "G40", "G43 H" + st.tool, "G64 P0.02", st.spindle.dir > 0 ? "M3" : st.spindle.dir < 0 ? "M4" : "M5", st.cool.flood ? "M8" : st.cool.mist ? "M7" : "M9", "T" + st.tool, "F" + fcmd, "S" + st.spindle.s].join(" ");
   $("sp-rpm").textContent = Math.round(st.spindle.rpm).toLocaleString("en-US");
   const atSpeed = st.spindle.dir && Math.abs(st.spindle.rpm - st.spindle.s * st.ovr.spin) < 300;
   $("sp-led").classList.toggle("on", !!atSpeed);

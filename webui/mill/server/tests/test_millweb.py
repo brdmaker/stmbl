@@ -63,6 +63,44 @@ class FakeHal:
         self.pins[name] = v
 
 
+class LatheToolTable(unittest.TestCase):
+    def test_round_trip(self):
+        """A lathe's tool.tbl: X offset, orientation and angles kept; a mill's stays as it was."""
+        d = tempfile.mkdtemp(prefix="tooltbl.")
+        try:
+            p = os.path.join(d, "tool.tbl")
+            open(p, "w").write("T1 P1 X-0.5 Z+2 D0.8 I95 J-5 Q3 ;turning\nT5 P5 D6 Z48.1 ;endmill\n")
+            t = machine.parse_tool_table(p)
+            self.assertEqual(t[0], {"t": 1, "p": 1, "d": 0.8, "z": 2.0, "x": -0.5, "i": 95.0, "j": -5.0, "q": 3, "c": "turning"})
+            self.assertNotIn("x", t[1])
+            machine.write_tool_table(p, t)
+            lines = open(p).read().splitlines()
+            self.assertEqual(lines[0], "T1 P1 X-0.5000 Q3 I95.0 J-5.0 D0.8000 Z+2.0000 ;turning")
+            self.assertEqual(lines[1], "T5 P5 D6.0000 Z+48.1000 ;endmill")
+            self.assertEqual(machine.parse_tool_table(p), t)
+        finally:
+            shutil.rmtree(d)
+
+
+class LatheFeed(unittest.TestCase):
+    def test_feed_per_turn(self):
+        """The preview's feed in mm/min: G95 at the rpm; G96 from the cutting speed at the diameter (the spindle's
+        max at most); a threading line at its pitch a turn."""
+        c = preview.Canon({}, "", spindle_max=2500.0)
+        c.feedrate = 0.1
+        class S:  # the interpreter's state on a line
+            feed_mode, speed, gcodes = 950, 800.0, (0,) * 13 + (970,)
+        c.state = S()
+        self.assertAlmostEqual(c._feed(10, 10), 80.0)                       # G97 S800: 0.1 x 800
+        S.gcodes, S.speed = (0,) * 13 + (960,), 120.0                         # G96 S120 at diameter 20
+        self.assertAlmostEqual(c._feed(10, 10), 0.1 * 120000 / (3.141592653589793 * 20))
+        self.assertAlmostEqual(c._feed(0.1, 0.1), 0.1 * 2500)                 # near the centre: the spindle's max
+        c.pitch, c.lineno, S.gcodes, S.speed = {7: 1.5}, 7, (0,) * 13 + (970,), 700.0
+        self.assertAlmostEqual(c._feed(10, 10), 1.5 * 700)                   # G76 P1.5 at S700
+        S.feed_mode, c.lineno = 940, 8
+        self.assertEqual(c._feed(10, 10), 0.1)                                # G94: as given
+
+
 class Base(unittest.IsolatedAsyncioTestCase):
     INI_EXTRA = ""   # more [MILLWEB] keys
     HAL = None

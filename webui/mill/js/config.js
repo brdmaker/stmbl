@@ -24,6 +24,9 @@ function cset(o, p, v) {
 }
 const cdef = (p) => cget(cfg.def, p);
 
+// a lathe's options for the 3D view (machmodel.js mm3dApply)
+const cfgLathe = () => { const la = (cfg.m && cfg.m.lathe) || {}; return { post: la.post || "front", dia: la.diameter !== false }; };
+
 // ------------------------------------------------------------ fields
 // kind: text | num | bool | sel | lines (a list, a line each) | kv (KEY = value lines)
 function fld(path, label, kind = "text", o = {}) {
@@ -58,7 +61,9 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("type", "Machine", "sel", { def: "gantry", live: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["lathe", "lathe: X and Z, the console a lathe's"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${cfg.m.type === "lathe" ? fld("lathe.post", "Tool post", "sel", { def: "front", re: true, choices: [["front", "in front of the spindle's axis (+X toward the operator)"], ["back", "behind it (+X away from the operator)"]] }) +
+        fld("lathe.diameter", "X as a diameter (G7) from the start", "bool", { def: true }) : ""}
       ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
       ${fld("display.max_feed_override", "Feed override max", "num", { help: "2: 200 %" })}
       ${fld("display.max_spindle_override", "Spindle override max", "num")}
@@ -74,7 +79,11 @@ const TABS = {
         ${fld("spindle.forward", "Forward (bit)", "pin", { dir: "in", help: "spindle.0.forward" })}
         ${fld("spindle.reverse", "Reverse (bit)", "pin", { dir: "in", help: "spindle.0.reverse" })}
         ${fld("spindle.speed", "Speed (float, rpm)", "pin", { dir: "in", help: "spindle.0.speed-out-abs; scale it in Custom HAL if the drive wants volts or Hz" })}
-        ${fld("spindle.at_speed", "At speed (bit in)", "pin", { dir: "out", help: "blank: at speed at once" })}</div>` : ""}`;
+        ${fld("spindle.at_speed", "At speed (bit in)", "pin", { dir: "out", help: "blank: at speed at once" })}</div>` : ""}
+      ${sp.type === "hal" ? `<h3>Its encoder <small class="muted">(threading G33 / G76 and feed per turn G95 need it; a simulated spindle has one)</small></h3><div class="cf-grid">
+        ${fld("spindle.revs", "Position (float, turns)", "pin", { dir: "out", help: "spindle.0.revs: e.g. an encoder's position, scaled to turns" })}
+        ${fld("spindle.index", "Index enable (bit io)", "pin", { dir: "in", help: "spindle.0.index-enable: the encoder's index" })}
+        ${fld("spindle.speed_in", "Speed (float, turns/s)", "pin", { dir: "out", help: "spindle.0.speed-in" })}</div>` : ""}`;
   },
   tools: () => {
     const pr = cfg.m.probe || {}, t = cfg.m.atc || {}, rack = t.type === "rack";
@@ -185,7 +194,9 @@ const TABS = {
     }).join("");
     return `<div class="cf-model"><div class="cf-body">
         <p class="note">The machine in the 3D view: its parts as STL or OBJ files, each placed as it is with the machine at X0 Y0 Z0 and the <b>tool tip at the origin</b>, moving with the axes it rides on. Changes show in the view at once; Save keeps them.</p>
-        ${fld("model.builtin", "The built-in machine, a gantry or a fixed bridge as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${fld("model.builtin", "The built-in machine, a gantry, a fixed bridge or a lathe as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${cfg.m.type === "lathe" ? `<p class="note">A lathe's parts: drawn with the spindle's axis along X through Y0 Z0 and the chuck's face at X0 (tools/step2parts.py makes them from a STEP assembly); a part that rides with Z (the saddle) or X and Z (the cross slide, the turret) moves from where its files have the tool's tip:</p>
+          <div class="cf-grid">${["X", "Y", "Z"].map((a, k) => fld(`model.tip.${k}`, `The tool's tip in the files: ${a}`, "num", { def: 0 })).join("")}</div>` : ""}
         ${cards || `<p class="note">No parts yet: upload a file, then Add part.</p>`}
         <div class="row"><button class="btn sm" id="cf-addpart">Add part</button><input type="file" id="cf-mfile" accept=".stl,.obj" hidden><button class="btn sm" id="cf-mup">Upload a model…</button>
           ${cfg.models.map((x) => `<button class="btn sm" data-mdel="${esc(x.name)}" title="Delete ${esc(x.name)}">× ${esc(x.name)}</button>`).join("")}</div>
@@ -232,7 +243,7 @@ function renderCfg() {
   $$("#cf-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === cfg.tab)));
   $("cf-body").innerHTML = TABS[cfg.tab]();
   markErrors();
-  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry"); }
+  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry", cfgLathe()); }
   renderCfgBar();
 }
 function cfgText() { return cfg.m ? JSON.stringify(cfg.m, null, 2) + "\n" : cfg.text; }
@@ -342,7 +353,7 @@ $("cf-body").addEventListener("change", (e) => {
   cset(cfg.m, el.dataset.path, readField(el));
   cfg.text = cfgText();
   if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
-  if (el.dataset.path.startsWith("model") || el.dataset.path === "type") mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry");  // the view follows the form
+  if (el.dataset.path.startsWith("model") || el.dataset.path === "type" || el.dataset.path.startsWith("lathe")) mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry", cfgLathe());  // the view follows the form
 });
 $("cf-body").addEventListener("input", (e) => { if (e.target.id === "cf-json" || e.target.id === "cf-custom") { syncFromEditors(); renderCfgBar(); } });
 $("cf-body").addEventListener("click", async (e) => {
@@ -519,7 +530,8 @@ const cfgSim = (() => {
       if (!m.name) errs.push(["name", "a name"]);
       for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
       for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
-      if (m.type && !["gantry", "bridge"].includes(m.type)) errs.push(["type", "gantry or bridge"]);
+      if (m.type && !["gantry", "bridge", "lathe"].includes(m.type)) errs.push(["type", "gantry, bridge or lathe"]);
+      if (m.type === "lathe") for (const a of Object.keys(m.axes || {})) if (!"XZ".includes(a)) errs.push([`axes.${a}`, "a lathe here has X and Z only"]);
       if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
     },

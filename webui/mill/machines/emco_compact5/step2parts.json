@@ -1,0 +1,16 @@
+{
+  "prefix": "emco_c5",
+  "frame": {"origin": [224.3, 175.0, -213.0], "x": [1, 0, 0], "y": [0, 0, -1], "z": [0, 1, 0]},
+  "deflection": 0.8,
+  "keep": ["lead screw complete"],
+  "skip": ["din ", "iso ", "zsr ", "zsb ", "zrg ", "washer", "retaining", "spring", "set screw", " nut"],
+  "skip_leaf": {"contains": ["skf", "spindle z", "worm", "sprocket", "lfterflgel", "bearing", "bush", "shim", "key", "pulley", "shaft"],
+                "exact": ["wheel", "spindle", "upper nut", "lower nut", "nut housing", "upper nut z", "lower nut z", "nut housing z"]},
+  "split": [{"match": "lead screw complete", "group": "z", "inside": [0, 360, 480]}],
+  "groups": [
+    {"name": "xz", "match": ["turret toolpost", "020 cross slide", "070 gib", "cover sheet"]},
+    {"name": "z", "match": ["slide assembly"]},
+    {"name": "spindle", "match": ["main spindle", "independent chuck"]}
+  ],
+  "default": "fixed"
+}

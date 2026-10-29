@@ -972,6 +972,61 @@ test("3D view: see-through objects draw in a fixed order (no flicker); the chips
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, the turret's tools, wizards, a program to its end, back to a mill", async (t) => {
+  const emco = require("fs").readFileSync(path.join(MILL, "machines", "emco_compact5", "machine.json"), "utf8");
+  await t.ev((x) => localStorage.setItem("pmc.machine", x), emco);
+  await t.page.reload();
+  t.check(await t.until(() => typeof R !== "undefined" && R && R.type === "lathe" && LATHE && document.body.classList.contains("lathe")), "machine.json's type lathe: the console is a lathe's");
+  t.check(await t.ev(() => LATHE.post === "front" && LATHE.dia && TRAVEL.x[1] === 50 && TRAVEL.z[0] === -260), "front post, diameter mode, its travel");
+  t.check(await t.ev(() => document.getElementById("d-y").closest(".axis").hidden && document.getElementById("b-zeroall").textContent === "Zero XZ"), "no Y in the DRO");
+  t.check(/^Ø50\.000$/.test(await t.text("#d-x")) && /^r 25\.000/.test(await t.text("#ds-x")), "X as a diameter (Ø50, r 25)");
+  t.check(await t.ev(() => prog.name === "SHAFT-M20_OP1.ngc" && prog.lines.includes("G18 G7 G21 G90 G40 G54 G95") && prog.segs.every((s) => s.y0 === 0 && s.y === 0)), "a lathe's program: G18 G7, no Y");
+  t.check(await t.ev(() => prog.lines.some((l) => /^G1 Z-40\.000 F0\.22$/.test(l)) && prog.lines.some((l) => /^G0 X20\.500$/.test(l)) && Math.max(...prog.segs.map((s) => s.x)) <= 25.01), "X words diameters (X20.500), positions radii");
+  t.check(await t.ev(() => R.pathMirror && R.pathMirror.visible && R.spinG && R.toolG.children.length >= 2), "the path mirrored across the axis, the chuck, the tool's insert and holder");
+  // jog: left/right Z, up/down X (up: away from the operator on a front post)
+  await t.click("#st-jog");
+  await t.ev(() => { st.jogInc = 1; });
+  const p0 = await pos(t);
+  await t.click('#jogpad [data-j="x+"]'); await t.click('#jogpad [data-j="y+"]');
+  const p1 = await pos(t);
+  t.check(near(p1.z - p0.z, 1) && near(p1.x - p0.x, -1) && near(p1.y, 0), `jog: Z+1, X−1 (the "up" arrow on a front post): ${JSON.stringify(p1)}`);
+  t.check((await t.text('#jogpad [data-j="x+"]')) === "Z+" && await t.ev(() => document.querySelector('#jogpad [data-j="z+"]').hidden), "the pad's labels; no Z± for Y");
+  await t.click("#st-mdi");
+  // the turret's tools: X / Z offsets, nose radius, orientation
+  await t.nav("tool");
+  t.check(await t.until(() => /X off/.test(document.querySelector("#tool-t thead").textContent) && /Nose R/.test(document.querySelector("#tool-t thead").textContent)), "the tool table: X off, Z off, Nose R, Q");
+  await t.page.fill('#tool-t [data-k="d"][data-i="0"]', "0.8"); await t.page.press('#tool-t [data-k="d"][data-i="0"]', "Tab");
+  t.check(await t.until(() => st.tools[0].d === 1.6), "nose R 0.8: D 1.6 in the table");
+  await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "2");
+  t.check(await t.until(() => st.tools[0].q === 2), "the orientation");
+  // a wizard: turning to Ø20 over 30
+  await t.nav("wiz");
+  t.check(await t.ev(() => document.querySelector(".lathe-cards") && !document.querySelector(".lathe-cards").hidden && [...document.querySelectorAll("#p-wiz > .cards")].filter((c) => !c.hidden).length === 1), "the lathe's wizards, not the mill's");
+  await t.page.fill("#lt-d1", "20"); await t.page.fill("#lt-l", "30");
+  await t.click("#lt-go");
+  t.check(await t.until(() => /^TURN_D20x30/.test(prog.name) && st.page === "main"), "Turning: made and loaded");
+  t.check(await t.ev(() => prog.lines.some((l) => /^G1 X20\.000/.test(l) || /^G0 X20\.000/.test(l)) && Math.min(...prog.segs.filter((s) => s.k === "mv" && !s.rapid).map((s) => s.x)) >= 9.99), "its finishing pass at Ø20, nothing below");
+  await stop(t);
+  await t.ev(() => { st.m1 = false; });
+  await t.click("#b-start");
+  await t.until(() => st.run === "run");
+  await ffwd(t, await t.ev(() => prog.total - 0.3));
+  t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  // back to a mill: the Configure page's type
+  await t.nav("config");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !LATHE && !document.body.classList.contains("lathe")), "type gantry: the mill's console again");
+  t.check(await t.ev(() => library.some((p) => /BRACKET/.test(p.name)) && st.tools.some((x) => x.t === 12) && !document.getElementById("d-y").closest(".axis").hidden), "its programs, tools and Y back");
+  await t.page.selectOption('[data-path="type"]', "lathe");
+  t.check(await t.until(() => R.type === "lathe" && LATHE && !!document.querySelector('[data-path="lathe.post"]')), "type lathe in Configure: a lathe, its tool post's field");
+  await t.page.selectOption('[data-path="lathe.post"]', "back");
+  t.check(await t.until(() => LATHE && LATHE.post === "back" && LATHE.s === 1 && (document.querySelector('#jogpad [data-j="y+"]').textContent === "X+")), "a back post: +X away from the operator, the pad's up arrow X+");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !LATHE), "and a gantry again");
+  await t.ev(() => localStorage.removeItem("pmc.machine"));
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("Debug page, drives (simulation): firmware versions; a config backed up, patched for this firmware and restored", async (t) => {
   await t.nav("debug");
   await t.click('#dbg-tab button[data-t="drives"]');
