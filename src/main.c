@@ -52,7 +52,6 @@ void wdog_rt(void);
 const char *wdog_reset_name(void);
 void errlog_boot(void);  // src/errlog_f4.c
 void errlog_poll(void);
-void usb_poll(void);  // src/usb_cdc.c
 
 volatile uint64_t systime = 0;
 
@@ -176,8 +175,7 @@ void about(char *ptr) {
   printf("firmware v%lu\n", (uint32_t)version_info.fw_version);  // STMBL_FW_VERSION; `version` has all of them
   printf("last reset: %s (`crash` for a crash or hang)\n", wdog_reset_name());
   extern volatile uint32_t usb_tx_healed;  // usbd_cdc_core.c
-  extern volatile uint32_t usb_reenums;
-  printf("usb tx stalls healed: %lu, re-enumerations: %lu\n", usb_tx_healed, usb_reenums);
+  printf("usb tx stalls healed: %lu\n", usb_tx_healed);
   call_cmd("name");
   call_cmd("motor");
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
@@ -256,7 +254,6 @@ int main(void) {
     crash_running();
     wdog_poll();
     errlog_poll();
-    usb_poll();
     //cdc_poll();
     Wait(1);
   }

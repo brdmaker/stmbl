@@ -51,8 +51,8 @@ Entry format:
 ## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
 - Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`,
   `src/usb_cdc.c`, `servoterm-cli/setup/su_link.c`
-- Status:  Workaround (the drive and the wizard recover; the cause on the
-  bench, interference, remains)
+- Status:  Open (the stall under current; the wizard reconnects, smart-serial
+  avoids it)
 - Symptom: `/dev/ttyACM0` stays, the console sends nothing, the drive runs
   on and still takes input. Only under large motor currents: the wizard's
   id_mot (10000 rad/s^2) stalled it every run; 2400 queries over 27 min of
@@ -63,19 +63,20 @@ Entry format:
   0 bytes left, FIFO empty) and the host stops polling it; an abort, FIFO
   flush and resend don't revive it, a re-enumeration does. Interference on
   the USB link suspected (the Pi 4's xHCI and the bench's grounding).
-- Fix:     The drive heals a lost DataIn, aborts and resends a stuck
-  transfer while DTR is set, and after 3 aborts without the host taking
-  anything disconnects for 100 ms (DCTL SDIS, main loop): the host
-  enumerates it again (`about`: "usb tx stalls healed: N, re-enumerations:
-  N"; one wizard run: 44 / 14). The wizard reopens its device when it goes
-  away (by-id path, 15 s): steps 12-18 then ran through over USB. Progress
-  for the abort count is a DataIn from the core, not APP_Rx_ptr_out (a
-  resend moves it). Tests: hwtest/suite `usb: 1000 port closes...`,
-  servoterm-cli "reconnect: ..." (fails without). Still: tuning over USB
-  came out lower (pos_bw 11.3 vs 35.4 over smart-serial); the smart-serial
-  config stays on the drive. `usbdiag` puts the state in `errlog`.
-  `tools/ssflash.sh` now finds the drive by its by-id link: after a stall
-  it came back as ttyACM1 and ssburn failed on ttyACM0.
+- Fix:     The drive heals a lost DataIn, and aborts and resends a transfer
+  the host polls (NAKs) but never gets. The wizard reopens its device when
+  it goes away (by-id path, 15 s). A re-enumeration after "DTR set, no
+  progress for 200 ms" was tried and removed: it also fired on plain flow
+  control (a reader that paused 8 s, the host's tty full), looped (a bus
+  reset left the CDC state busy, 45 in 10 min; usbd_cdc_Init clears it now)
+  and left the console one packet behind (every soak answer one command
+  late). From the drive's side a host that stopped polling looks like flow
+  control. usbmon (/dev/usbmon1) saw EPIPE on the bulk IN during a soak.
+  Tests: hwtest/suite `usb: 1000 port closes...`, servoterm-cli "reconnect:
+  ..." (fails without). Tuning over USB came out lower (pos_bw 11.3 vs 35.4
+  over smart-serial); the smart-serial config stays on the drive.
+  `usbdiag` puts the state in `errlog`. `tools/ssflash.sh` finds the drive
+  by its by-id link (it came back as ttyACM1, ssburn failed on ttyACM0).
 
 ## 2026-10-29  Wizard: a lost deleteconf doubled the config; messages broke acks
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`)

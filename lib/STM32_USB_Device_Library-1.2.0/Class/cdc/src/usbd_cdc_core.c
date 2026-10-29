@@ -432,6 +432,8 @@ __ALIGN_BEGIN uint8_t usbd_cdc_OtherCfgDesc[USB_CDC_CONFIG_DESC_SIZ]  __ALIGN_EN
   * @param  cfgidx: Configuration index
   * @retval status
   */
+static void cdc_tx_reset(void);
+
 uint8_t  usbd_cdc_Init (void  *pdev, 
                                uint8_t cfgidx)
 {
@@ -467,6 +469,12 @@ uint8_t  usbd_cdc_Init (void  *pdev,
                    CDC_OUT_EP,
                    (uint8_t*)(USB_Rx_Buffer),
                    CDC_DATA_OUT_PACKET_SIZE);
+  
+  /* stmbl: a fresh IN side. A bus reset leaves these as they were: busy,
+     data pending, DTR set; cdc_tx_heal then found the new connection stuck
+     at once and re-enumerated again, for good (SEW bench soak, 45 in 10
+     min). Output from before the reset is dropped. */
+  cdc_tx_reset();
   
   return USBD_OK;
 }
@@ -732,18 +740,13 @@ uint8_t  usbd_cdc_DataOut (void *pdev, uint8_t epnum)
      and get NAKs (DIEPINT bit 13), for good. Seen while the power stage switched with noise
      coupling in (usbdiag). After CDC_TX_HEAL_FRAMES frames of that: NAK,
      disable the endpoint, flush its FIFO and send the transfer again.
-   A closed port sends no IN tokens: an armed transfer then waits.
-   The polls weren't always seen (the core flags a NAK once, not per
-   token), so also: the port open (DTR) and the transfer armed without
-   progress for CDC_TX_STUCK_FRAMES frames is stuck too. */
-#define CDC_TX_STUCK_FRAMES 200
+   A closed port sends no IN tokens: an armed transfer then waits. So does
+   one the host doesn't poll because its tty is full (flow control): a
+   "no progress while DTR is set" rule, and a re-enumeration after it, fired
+   on that (a reader that paused for 8 s) and left the console one packet
+   behind; both are gone. From the drive's side a host that stopped polling
+   can't be told from flow control. */
 extern volatile uint8_t usb_dtr;  /* src/usb_cdc.c */
-/* Aborts that didn't get the transfer going either (the host stopped
-   polling it): after CDC_TX_REENUM of them, ask the main loop for a soft
-   disconnect, so the host enumerates the drive again (usb_poll,
-   src/usb_cdc.c); a `reset` cured it so, without stopping the drive. */
-#define CDC_TX_REENUM 3
-volatile uint8_t usb_reenum_request = 0;
 #define CDC_TX_HEAL_FRAMES 20
 volatile uint32_t usb_tx_healed = 0;
 volatile uint32_t usb_sof_count = 0;  /* usbdiag */
@@ -770,23 +773,23 @@ static int cdc_wait_int(USB_OTG_CORE_HANDLE *core, uint32_t ep, uint32_t bit)
   return -1;
 }
 
+static void cdc_tx_reset(void)
+{
+  USB_Tx_State       = USB_CDC_IDLE;
+  APP_Rx_ptr_out     = APP_Rx_ptr_in;
+  APP_Rx_length      = 0;
+  usb_dtr            = 0;  /* the host sets it again when it opens the port */
+}
+
 static void cdc_tx_heal(void *pdev)
 {
-  static uint32_t lost_frames = 0, starved_frames = 0, stuck_frames = 0, last_out = 0;
+  static uint32_t lost_frames = 0, starved_frames = 0, last_out = 0;
   USB_OTG_CORE_HANDLE *core = (USB_OTG_CORE_HANDLE *)pdev;
   uint32_t ep  = CDC_IN_EP & 0x7F;
   uint32_t ctl = USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL);
-  static uint32_t aborts = 0, last_done = 0;
-  /* progress is a transfer the host took (a DataIn from the core): a resend
-     moves APP_Rx_ptr_out by itself */
-  if (cdc_in_done != last_done)
-  {
-    last_done = cdc_in_done;
-    aborts    = 0;
-  }
   if (USB_Tx_State == USB_CDC_IDLE || APP_Rx_ptr_out != last_out)
   {
-    lost_frames = starved_frames = stuck_frames = 0;
+    lost_frames = starved_frames = 0;
     last_out = APP_Rx_ptr_out;
     USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPINT, DIEPINT_POLLED);
     return;
@@ -811,18 +814,12 @@ static void cdc_tx_heal(void *pdev)
     USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPINT, DIEPINT_POLLED);
     starved_frames++;
   }
-  stuck_frames = usb_dtr ? stuck_frames + 1 : 0;
-  if (starved_frames < CDC_TX_HEAL_FRAMES && stuck_frames < CDC_TX_STUCK_FRAMES)
+  if (starved_frames < CDC_TX_HEAL_FRAMES)
   {
     return;
   }
-  starved_frames = stuck_frames = 0;
+  starved_frames = 0;
   usb_tx_healed++;
-  if (++aborts >= CDC_TX_REENUM)
-  {
-    aborts = 0;
-    usb_reenum_request = 1;
-  }
   /* abort: NAK, then disable, then flush its FIFO */
   USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL, (ctl & ~DEPCTL_EPENA) | DEPCTL_SNAK);
   cdc_wait_int(core, ep, DIEPINT_INEPNE);

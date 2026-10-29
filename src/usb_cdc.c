@@ -144,6 +144,7 @@ void USBD_USR_Init(void) {
 
 void USBD_USR_DeviceReset(uint8_t speed) {
   usb_cdc_status = USB_CDC_DETACHED;
+  usb_dtr        = 0;  // no port open after a bus reset
 }
 
 void USBD_USR_DeviceConfigured(void) {
@@ -198,27 +199,6 @@ int cdc_tx(void *data, uint32_t len) {
     }
   }
   return len;
-}
-
-// The CDC IN side stuck for good (usbd_cdc_core.c, cdc_tx_heal): disconnect
-// for 100 ms (DCTL soft disconnect), the host enumerates the drive again.
-// From the main loop; the USB interrupt is held off around the register
-// write (STM32F4 errata: the FIFO write must not meet other OTG accesses).
-volatile uint32_t usb_reenums = 0;
-void usb_poll(void) {
-  extern volatile uint8_t usb_reenum_request;
-  if(!usb_reenum_request) {
-    return;
-  }
-  usb_reenum_request = 0;
-  usb_reenums++;
-  NVIC_DisableIRQ(OTG_FS_IRQn);
-  USB_OTG_MODIFY_REG32(&USB_OTG_dev.regs.DREGS->DCTL, 0, 2);  // SDIS
-  NVIC_EnableIRQ(OTG_FS_IRQn);
-  Wait(100);
-  NVIC_DisableIRQ(OTG_FS_IRQn);
-  USB_OTG_MODIFY_REG32(&USB_OTG_dev.regs.DREGS->DCTL, 2, 0);
-  NVIC_EnableIRQ(OTG_FS_IRQn);
 }
 
 int cdc_getline(char *ptr, int len) {
