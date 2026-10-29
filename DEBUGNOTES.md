@@ -16,26 +16,25 @@ Entry format:
 
 ---
 
-## 2026-10-29  F4 hung after enable at 0 A (SEW bench)
-- Area:    F4 application, enable path (cause unknown)
-- Status:  Open
-- Symptom: Clean drive (fault 0, 202 V, res0.amp 0.259), `hv0.q_cmd = 0`,
-  `hv0.d_cmd = 0` set by hand, then `fault0.en = 1`: no console answer from
-  then on, USB re-enumerated (the F4 restarted) and the console stayed dead
-  until a 24 V power cycle. Nothing recorded (last_fault is RAM; after the
-  cycle it shows 11, the bus rising at boot).
-- Cause:   Unknown. Compare the hardboot note in `src/config.c` (USB
-  enumerates, console dead: core locked up).
-- Fix:     Not found yet, but the next one can't hide: the F4 has an
-  independent watchdog now (2 s, fed by the main loop only while rt runs,
-  `src/wdog.c`), the crash record names a hang and the console command, and
-  `errlog` keeps boots, crashes, hangs and drive faults in flash sector 3
-  (`src/errlog_f4.c`), through a power cycle. The yellow/green state LED
-  breathes while rt and the main loop run; the HV board's red LED blinks
-  20 ms every 2 s while it runs without fault. Tests: host
-  `test_wdog`, `test_errlog`; hwtest/suite `watchdog`. Note: the stmbl
-  bootloader clears the reset flags at power-on, so "no flags" means
-  power-on (`shared/wdog.h`).
+## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
+- Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`
+- Status:  Fixed
+- Symptom: SEW bench, twice during console-heavy scripts (enable tests):
+  `/dev/ttyACM0` stays, the console sends nothing, the drive runs on (LED
+  breathing, no watchdog reset) and still takes input (`reset` worked). The
+  first time the USB also re-enumerated once and a 24 V cycle recovered it.
+- Cause:   ST's CDC set the IN state idle right after arming a ZLP (a
+  transfer ending on a 64-byte packet). With `CDC_IN_FRAME_INTERVAL=1` the
+  next SOF started a transfer over the pending ZLP, a DataIn was lost and
+  the state stayed busy for good. Closing the port mid-output (our scripts,
+  servoterm-cli) makes it likely: stuck after 350 open/close rounds in 23 s.
+- Fix:     Busy until the ZLP's own DataIn; and a heal in the SOF handler
+  (busy but the endpoint no longer enabled for 20 frames: resume, counted
+  as `usb tx stalls healed` in `about`; 0 so far). 2000 rounds clean. Test:
+  hwtest/suite `usb: 1000 port closes...`. Found with the new watchdog,
+  `errlog` and breathing LED (`src/wdog.c`, `src/errlog_f4.c`; host tests
+  `test_wdog`, `test_errlog`; suite `watchdog`). Note: the stmbl bootloader
+  clears the reset flags at power-on, so "no flags" means power-on.
 
 ## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`

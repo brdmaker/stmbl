@@ -662,7 +662,12 @@ uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
                NULL,
                0);
     
-    USB_Tx_State = USB_CDC_IDLE;
+    /* stmbl: busy until the ZLP is taken (APP_Rx_length is 0, so its DataIn
+       goes idle). Idle at once let the next SOF start a transfer over the
+       pending ZLP: a DataIn got lost and the state stayed busy, the console
+       sent nothing again while it still took input (SEW bench 2026-10-29,
+       hwtest/suite usb_stall). */
+    USB_Tx_State = USB_CDC_BUSY;
   }
   return USBD_OK;
 }
@@ -701,9 +706,35 @@ uint8_t  usbd_cdc_DataOut (void *pdev, uint8_t epnum)
   * @param  epnum: endpoint number
   * @retval status
   */
+/* stmbl: a transfer the core finished (endpoint no longer enabled) while
+   the state still says busy has lost its DataIn: after CDC_TX_HEAL_FRAMES
+   frames, go on as if it had come. Counted in usb_tx_healed (`about`). */
+#define CDC_TX_HEAL_FRAMES 20
+volatile uint32_t usb_tx_healed = 0;
+
+static void cdc_tx_heal(void *pdev)
+{
+  static uint32_t idle_frames = 0;
+  USB_OTG_CORE_HANDLE *core = (USB_OTG_CORE_HANDLE *)pdev;
+  uint32_t ctl = USB_OTG_READ_REG32(&core->regs.INEP_REGS[CDC_IN_EP & 0x7F]->DIEPCTL);
+  if (USB_Tx_State == USB_CDC_IDLE || (ctl & 0x80000000)) /* EPENA: in flight */
+  {
+    idle_frames = 0;
+    return;
+  }
+  if (++idle_frames >= CDC_TX_HEAL_FRAMES)
+  {
+    idle_frames = 0;
+    usb_tx_healed++;
+    usbd_cdc_DataIn(pdev, CDC_IN_EP & 0x7F);
+  }
+}
+
 uint8_t  usbd_cdc_SOF (void *pdev)
 {      
   static uint32_t FrameCount = 0;
+  
+  cdc_tx_heal(pdev);
   
   if (FrameCount++ == CDC_IN_FRAME_INTERVAL)
   {

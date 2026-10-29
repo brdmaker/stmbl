@@ -174,6 +174,8 @@ void about(char *ptr) {
   printf("size: %lu crc:%lx\n", version_info.image_size, version_info.image_crc);
   printf("firmware v%lu\n", (uint32_t)version_info.fw_version);  // STMBL_FW_VERSION; `version` has all of them
   printf("last reset: %s (`crash` for a crash or hang)\n", wdog_reset_name());
+  extern volatile uint32_t usb_tx_healed;  // usbd_cdc_core.c
+  printf("usb tx stalls healed: %lu\n", usb_tx_healed);
   call_cmd("name");
   call_cmd("motor");
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
