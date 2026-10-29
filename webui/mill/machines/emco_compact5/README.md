@@ -8,7 +8,8 @@ smart-serial, the turret's stepper on a stepgen with its index on a GPIO, an EBA
 (`hm2_soc_ol`). Copy it to the machine folder as machine.json and set:
 - **Board:** its `name` (in its pins: `hm2_<name>.0…`), `config`, and the bitstream file.
 - **Joints:** the drives' port and channel, each `mech` lead and ratio (2 mm here: a placeholder).
-- **Spindle:** its drive's channel, `ratio` (motor turns a spindle turn), an index sensor if it has one.
+- **Spindle:** its drive's channel and `ratio` (motor turns a spindle turn): 1 on this lathe, with the motor
+  direct 1:1, so no index sensor is needed (the motor's zero angle is the spindle's index).
 - **Turret:** its `stepgen`, `steps` a turret turn, the `index` pin, and `offset` (station 1 after
   the index), `overtravel` and `lock` measured on the machine: start with a slow `lock_speed`.
 
