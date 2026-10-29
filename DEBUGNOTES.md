@@ -16,6 +16,18 @@ Entry format:
 
 ---
 
+## 2026-10-29  F4 hung after enable at 0 A (SEW bench)
+- Area:    F4 application, enable path (cause unknown)
+- Status:  Open
+- Symptom: Clean drive (fault 0, 202 V, res0.amp 0.259), `hv0.q_cmd = 0`,
+  `hv0.d_cmd = 0` set by hand, then `fault0.en = 1`: no console answer from
+  then on, USB re-enumerated (the F4 restarted) and the console stayed dead
+  until a 24 V power cycle. Nothing recorded (last_fault is RAM; after the
+  cycle it shows 11, the bus rising at boot).
+- Cause:   Unknown. Compare the hardboot note in `src/config.c` (USB
+  enumerates, console dead: core locked up).
+- Fix:     None yet. The 24 V supply (TSX3510P, GPIB 11) recovers it. No test.
+
 ## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`
 - Status:  Open (drive repaired; how the text got doubled is not known)
