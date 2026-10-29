@@ -3739,3 +3739,19 @@ Entry format:
 - Symptom: After its first flash it ran, answered `about`, then disconnected
   46 s after a start and never enumerated again (neither as STMBL nor DFU).
 - Fix:     None: the user found the board faulty and replaced it.
+
+## 2026-10-29  hv_update fails at CRC_CHECK with an old F3 bootloader (v0.9.18-184)
+- Area:    f3_boot (on the HV board), src/comps/hv.c (hv_update)
+- Status:  Workaround
+- Symptom: A drive from v0.9.18-207 updated to master: hv_update went
+  through ERASE_FLASH and SEND_APP, then FLASH_FAILED at CRC_CHECK, twice;
+  afterwards the F3 stayed in its bootloader (fault 9, HV values frozen).
+- Cause:   The image was written exactly (the F3's flash read back equals
+  obj_hvf3/hvf3.bin, whose STM32 CRC is 0), but that board's F3 bootloader,
+  v0.9.18-184, rejected it, at the update and at boot. Its source reads the
+  same as today's; the binary on the board computes the CRC differently.
+- Fix:     Replace the F3 bootloader: DC bus off, USB on the HV board's own
+  micro-USB (P11; its GND is the HV side's, VBUS not connected), JP1 (bottom
+  side beside P11, BOOT0 to 3.3 V) shorted while an isolated 24..48 V powers
+  the HV input, then make f3_all_btburn. Afterwards the F3 ran master (hv=1).
+  Drives with an F3 bootloader older than ~v0.9.18-207 may need this.
