@@ -62,17 +62,22 @@ class Config:
 
 
 def parse_tool_table(path):
-    """tool.tbl: T P D Z ;comment -> [{t, p, d, z, c}]"""
+    """tool.tbl: T P D Z ;comment -> [{t, p, d, z, c}]; a lathe's also X (its X offset), Q (the
+    orientation, 1-9), I and J (the front and back angles): x, q, i, j"""
     tools = []
     try:
         with open(path, errors="replace") as f:
             for line in f:
                 body, _, comment = line.partition(";")
-                w = dict(re.findall(r"([TPDZXYR])\s*([-+]?\d*\.?\d+)", body.upper()))
+                w = dict(re.findall(r"([TPDZXYRQIJ])\s*([-+]?\d*\.?\d+)", body.upper()))
                 if "T" not in w:
                     continue
-                tools.append({"t": int(float(w["T"])), "p": int(float(w.get("P", w["T"]))),
-                              "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": comment.strip()})
+                t = {"t": int(float(w["T"])), "p": int(float(w.get("P", w["T"]))),
+                     "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": comment.strip()}
+                for k in "XQIJ":
+                    if k in w:
+                        t[k.lower()] = int(float(w[k])) if k == "Q" else float(w[k])
+                tools.append(t)
     except OSError:
         pass
     return tools
@@ -83,7 +88,9 @@ def write_tool_table(path, tools):
         shutil.copy(path, path + ".bak")
     with open(path + ".tmp", "w") as f:
         for t in sorted(tools, key=lambda t: t["t"]):
-            f.write("T%d P%d D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], t["d"], t["z"], t.get("c", "").replace("\n", " ")))
+            lathe = "".join((" X%+.4f" % t["x"] if "x" in t else "") + (" Q%d" % t["q"] if t.get("q") else "") +
+                            (" I%.1f" % t["i"] if "i" in t else "") + (" J%.1f" % t["j"] if "j" in t else ""))
+            f.write("T%d P%d%s D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], lathe, t["d"], t["z"], t.get("c", "").replace("\n", " ")))
     os.replace(path + ".tmp", path)
 
 
@@ -281,8 +288,12 @@ class Machine:
             lim[a] = {"min": cfg.num(sec, "MIN_LIMIT", 0.0), "max": cfg.num(sec, "MAX_LIMIT", 0.0),
                       "vel": cfg.num(sec, "MAX_VELOCITY", 0.0) * 60, "acc": cfg.num(sec, "MAX_ACCELERATION", 0.0)}
         mtype = (cfg.get("MILLWEB", "MACHINE_TYPE", "gantry") or "gantry").lower()
+        if (cfg.get("DISPLAY", "LATHE", "0") or "0").strip().lower() in ("1", "yes", "true"):
+            mtype = "lathe"
         return {"name": cfg.get("EMC", "MACHINE", "LinuxCNC"), "coords": self.coords, "limits": lim,
-                "type": mtype if mtype in ("gantry", "bridge") else "gantry",
+                "type": mtype if mtype in ("gantry", "bridge", "lathe") else "gantry",
+                "lathe": {"post": "back" if (cfg.get("DISPLAY", "BACK_TOOL_LATHE", "0") or "0").strip().lower() in ("1", "yes", "true") else "front"}
+                if mtype == "lathe" else None,
                 "maxv": self.maxv * 60, "units": "mm", "nc_dir": self.nc_dir,
                 "spindle_max": cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0),
                 "jog_default": cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 30.0) * 60,
@@ -355,7 +366,7 @@ class Machine:
             "pos": [round(x, 4), round(y, 4), round(z, 4)],
             "mach": [round(act[0] - tlo[0], 4), round(act[1] - tlo[1], 4), round(act[2] - tlo[2], 4)],
             "wcs": wi, "g5x": [round(g5x[i], 4) for i in range(3)], "g92": [round(g92[i], 4) for i in range(3)],
-            "rot": round(s.rotation_xy, 4), "tool": s.tool_in_spindle, "tlo": round(tlo[2], 4), "wcs_ok": s.g5x_index > 0,
+            "rot": round(s.rotation_xy, 4), "tool": s.tool_in_spindle, "tlo": round(tlo[2], 4), "tlox": round(tlo[0], 4), "wcs_ok": s.g5x_index > 0,
             "dtg": [round(v, 4) for v in s.dtg[:3]], "fe": fe, "vel": round(s.current_vel * 60, 1),
             "feed": round(s.settings[1], 1),
             "spin": {"dir": sp.get("direction", 0), "s": round(abs(spd), 1), "enabled": bool(sp.get("enabled", 0)),
@@ -679,8 +690,16 @@ class Machine:
             return err
         clean = []
         for t in tools:
-            clean.append({"t": int(t["t"]), "p": int(t.get("p", t["t"])), "d": float(t.get("d", 0)), "z": float(t.get("z", 0)),
-                          "c": str(t.get("c", ""))[:120]})
+            c = {"t": int(t["t"]), "p": int(t.get("p", t["t"])), "d": float(t.get("d", 0)), "z": float(t.get("z", 0)),
+                 "c": str(t.get("c", ""))[:120]}
+            for k in ("x", "i", "j"):  # a lathe's
+                if t.get(k) is not None:
+                    c[k] = float(t[k])
+            if t.get("q"):
+                if not 0 <= int(t["q"]) <= 9:
+                    return "a tool's orientation: 0 to 9"
+                c["q"] = int(t["q"])
+            clean.append(c)
         if len({t["t"] for t in clean}) != len(clean):
             return "tool numbers must be unique"
         write_tool_table(self.tool_file, clean)

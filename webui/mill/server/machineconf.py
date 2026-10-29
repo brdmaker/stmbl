@@ -32,7 +32,9 @@ LOADERS = ("none", "fpga_manager", "command")
 HOMING = ("absolute", "immediate", "switch", "index")
 # the machine's layout: a gantry (the bridge moves in Y over a fixed table, one or two Y joints) or a fixed
 # bridge over a table that moves in Y (Scripta CN 720 style: one joint an axis); the console draws it
-TYPES = ("gantry", "bridge")
+# or a lathe: X (the cross slide, its DRO a diameter) and Z (along the spindle), the tools on a post in front of
+# or behind the spindle's axis
+TYPES = ("gantry", "bridge", "lathe")
 CONSOLE_KEYS = {  # [MILLWEB] keys the console section may set as extra (the rest have fields of their own)
     "POLL_HZ", "HAL_HZ", "PREVIEW_SEGS", "PREVIEW_TIMEOUT", "PREVIEW_NICE", "DRIVE_POLL_MS", "CERT", "KEY", "PCOMP",
     "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN"}
@@ -62,7 +64,12 @@ DEFAULT = {
     "estop": {"input": "", "invert": False},
     "probe": {"type": "none", "input": "", "invert": False, "sim_z": -100},
     # sim: answers at once; hal: its pins (on, forward, speed out in rpm, at-speed in); none
-    "spindle": {"type": "sim", "max_rpm": 24000, "min_rpm": 0, "on": "", "forward": "", "reverse": "", "speed": "", "at_speed": ""},
+    # revs, index, speed_in: its encoder (spindle.0.revs, index-enable, speed-in in rps), for threading and G95
+    "spindle": {"type": "sim", "max_rpm": 24000, "min_rpm": 0, "on": "", "forward": "", "reverse": "", "speed": "", "at_speed": "",
+                "revs": "", "index": "", "speed_in": ""},
+    # type lathe: post front (the tools between the operator and the spindle's axis: +X toward the operator) or back;
+    # diameter: X in diameter (G7) from the start
+    "lathe": {"post": "front", "diameter": True},
     # a rack tool changer, M6 remapped to run/toolchange.ngc: tool n sits in pocket n (1..pockets), the pockets in a
     # row from pocket 1 at (x, y) by (dx, dy); the holder enters its fork sideways along +Y by slide (0: from above).
     # unclamp drives the drawbar (true: released), clamped / released are its sensors (blank: a dwell instead), air
@@ -79,7 +86,7 @@ DEFAULT = {
     # block: a drive with another firmware (or an HV board, or a config needing a patch) keeps the machine off
     "stmbl": {"fw": None, "block": True},
 }
-MOVES = re.compile(r"^(?:-?([XYZ]))?(?:-?([XYZ]))?(?:-?([XYZ]))?$")
+MOVES = re.compile(r"^(?:-?([XYZ]))?(?:-?([XYZ]))?(?:-?([XYZ]))?S?$")  # S: turns with the spindle (a lathe's chuck)
 
 
 class Invalid(ValueError):
@@ -283,9 +290,29 @@ def validate(raw, mdir=None):
         errs.append(("spindle.type", "none, sim or hal"))
     _num(sp["max_rpm"], "spindle.max_rpm", errs, 0, 200000)
     _num(sp["min_rpm"], "spindle.min_rpm", errs, 0, 200000)
-    for k in ("on", "forward", "reverse", "speed", "at_speed"):
+    for k in ("on", "forward", "reverse", "speed", "at_speed", "revs", "index", "speed_in"):
         if sp[k] and not HALNAME.match(str(sp[k])):
             errs.append(("spindle." + k, "a HAL pin name"))
+    if sp["index"] and not sp["revs"]:
+        errs.append(("spindle.index", "only with its revs pin (the encoder's position)"))
+    if m["type"] == "lathe":
+        la = m["lathe"]
+        if la.get("post") not in ("front", "back"):
+            errs.append(("lathe.post", "front or back"))
+        if not isinstance(la.get("diameter"), bool):
+            errs.append(("lathe.diameter", "true or false"))
+        for a in "XZ":
+            if a not in m["axes"]:
+                errs.append(("axes." + a, "a lathe has X and Z"))
+        for a in m["axes"]:
+            if a not in "XZ":
+                errs.append(("axes." + a, "a lathe here has X and Z only (C, Y: not yet)"))
+        if m["atc"]["type"] != "none":
+            errs.append(("atc.type", "none on a lathe (its turret: not yet)"))
+        if m["toolsetter"] is not None:
+            errs.append(("toolsetter", "none on a lathe"))
+        if m["probe"]["type"] == "sim":
+            errs.append(("probe.type", "none or input on a lathe"))
     if sp["type"] == "hal" and not (sp["on"] or sp["speed"] or sp["forward"]):
         errs.append(("spindle.on", "at least one of its pins: on, forward or speed"))
     t = m["atc"]
@@ -322,6 +349,9 @@ def validate(raw, mdir=None):
     md = m["model"]
     if not isinstance(md.get("builtin", True), bool):
         errs.append(("model.builtin", "true or false"))
+    tip = md.get("tip", [0, 0, 0])  # where the tool's tip is in the parts' files (a lathe's: they move from there)
+    if not isinstance(tip, list) or len(tip) != 3 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in tip):
+        errs.append(("model.tip", "3 numbers"))
     if not isinstance(md.get("parts", []), list) or len(md.get("parts", [])) > 40:
         errs.append(("model.parts", "a list of at most 40 parts"))
         md["parts"] = []
@@ -337,7 +367,7 @@ def validate(raw, mdir=None):
             errs.append((w + ".file", "models/%s isn't there (upload it)" % f))
         mv = MOVES.match(str(pt.get("moves", "")))
         if not mv or len([a for a in mv.groups() if a]) != len(set(a for a in mv.groups() if a)):
-            errs.append((w + ".moves", "the axes it moves with: '' (fixed), Y, XY, XYZ, -X (a moving table) …"))
+            errs.append((w + ".moves", "the axes it moves with: '' (fixed), Y, XY, XYZ, -X (a moving table), S (with the spindle) …"))
         for k, n in (("pos", 3), ("rot", 3)):
             v = pt.get(k, [0, 0, 0])
             if not isinstance(v, list) or len(v) != n or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
@@ -436,7 +466,9 @@ def generate(m, mdir, mill, custom=None):
         os.path.join(mdir, "machine.json"), datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     sec("EMC", ("VERSION", "1.1"), ("MACHINE", m["name"]), ("DEBUG", 0))
     d = m["display"]
+    lathe = m["type"] == "lathe"
     sec("DISPLAY", ("DISPLAY", os.path.join(mill, "millweb")), ("CYCLE_TIME", 0.1), ("POSITION_OFFSET", "RELATIVE"),
+        ("LATHE", 1 if lathe else None), ("BACK_TOOL_LATHE", 1 if lathe and m["lathe"]["post"] == "back" else None),
         ("POSITION_FEEDBACK", "ACTUAL"), ("MAX_LINEAR_VELOCITY", maxv), ("DEFAULT_LINEAR_VELOCITY", round(maxv / 10, 3)),
         ("PROGRAM_PREFIX", os.path.join(mdir, "nc_files")), ("MAX_FEED_OVERRIDE", d["max_feed_override"]),
         ("MAX_SPINDLE_OVERRIDE", d["max_spindle_override"]), ("MIN_SPINDLE_OVERRIDE", d["min_spindle_override"]))
@@ -462,6 +494,7 @@ def generate(m, mdir, mill, custom=None):
     sec("MILLWEB", *mw)
     atc = m["atc"]["type"] == "rack"
     sec("RS274NGC", ("PARAMETER_FILE", os.path.join(mdir, "linuxcnc.var")),
+        ("RS274NGC_STARTUP_CODE", "G18 %s G21 G40 G49 G80 G90 G94 G97" % ("G7" if m["lathe"]["diameter"] else "G8") if lathe else None),
         ("SUBROUTINE_PATH", run if atc else None), ("REMAP", "M6 modalgroup=6 ngc=toolchange" if atc else None))
     sec("EMCMOT", ("EMCMOT", "motmod"), ("COMM_TIMEOUT", 1.0), ("SERVO_PERIOD", m["servo_period_ns"]))
     sec("TASK", ("TASK", "milltask"), ("CYCLE_TIME", 0.01))
@@ -633,6 +666,13 @@ def generate(m, mdir, mill, custom=None):
     sp = m["spindle"]
     if sp["type"] == "sim":
         h("setp spindle.0.at-speed 1")
+        if lathe:  # an encoder too: threading (G33, G76) and feed per turn (G95) need it
+            h("loadrt sim_spindle names=sim-spindle")
+            h("setp sim-spindle.scale 1")
+            tail.insert(0, "sim-spindle")
+            h("net spindle-rps spindle.0.speed-out-rps => sim-spindle.velocity-cmd spindle.0.speed-in")
+            h("net spindle-revs sim-spindle.position-fb => spindle.0.revs")
+            h("net spindle-index spindle.0.index-enable <=> sim-spindle.index-enable")
     elif sp["type"] == "hal":
         for k, pin, nm in (("on", "spindle.0.on", "spindle-on"), ("forward", "spindle.0.forward", "spindle-cw"),
                            ("reverse", "spindle.0.reverse", "spindle-ccw"), ("speed", "spindle.0.speed-out-abs", "spindle-rpm")):
@@ -642,6 +682,12 @@ def generate(m, mdir, mill, custom=None):
             h("net spindle-at-speed %s => spindle.0.at-speed" % sp["at_speed"])
         else:
             h("setp spindle.0.at-speed 1")
+        if sp["revs"]:
+            h("net spindle-revs %s => spindle.0.revs" % sp["revs"])
+        if sp["index"]:
+            h("net spindle-index spindle.0.index-enable <=> %s" % sp["index"])
+        if sp["speed_in"]:
+            h("net spindle-rps-fb %s => spindle.0.speed-in" % sp["speed_in"])
     t = m["atc"]
     if t["type"] == "rack":  # the M6 remap's I/O: motion's digital outputs 0 (drawbar), 1 (air); inputs 0 (clamped), 1 (released)
         h("net atc-unclamp motion.digital-out-00 => %s" % t["unclamp"])

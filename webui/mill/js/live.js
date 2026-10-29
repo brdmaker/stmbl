@@ -163,6 +163,7 @@ const Live = (() => {
     if ("mline" in m) L.mline = m.mline;
     if ("line" in m) L.iline = m.line;
     if ("mline" in m || "line" in m) L.line = L.mline || L.iline || L.line;
+    if (m.gcodes !== undefined && typeof LATHE !== "undefined" && LATHE) LATHE.dia = !/\bG8\b/.test(m.gcodes);  // G7: X as a diameter
     if (m.gcodes !== undefined || m.mcodes !== undefined) {
       L.gcodes = m.gcodes ?? L.gcodes; L.mcodes = m.mcodes ?? L.mcodes;
       L.modal = `${L.gcodes || ""} ${L.mcodes || ""}`.trim();
@@ -228,7 +229,7 @@ const Live = (() => {
     else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
   function tools(list) {
-    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, wear: 0, life: 100, c: t.c }));
+    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, wear: 0, life: 100, c: t.c }));
     if (st.page === "tool") renderTools();
     fillToolSelects(); buildTool();
   }
@@ -356,7 +357,8 @@ const Live = (() => {
   L.toolLoad = (t) => act("tool_load", { t }, `T${t} M6`);
   L.toolsSave = () => {  // after edits settle
     clearTimeout(toolsTimer);
-    toolsTimer = setTimeout(() => act("tools_save", { tools: st.tools.map((t) => ({ t: t.t, p: t.p, d: t.d, z: t.l, c: t.c })) }, "Tool table"), 400);
+    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j"].filter((k) => t[k] != null).map((k) => [k, t[k]]));  // a lathe's
+    toolsTimer = setTimeout(() => act("tools_save", { tools: st.tools.map((t) => ({ t: t.t, p: t.p, d: t.d, z: t.l, c: t.c, ...lathe(t) })) }, "Tool table"), 400);
   };
   L.toolAdd = () => {
     const n = Math.max(0, ...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1;

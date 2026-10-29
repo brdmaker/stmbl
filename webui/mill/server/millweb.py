@@ -1048,10 +1048,14 @@ class Hub:
                 fut.exception()  # retrieved: no "never retrieved" warning
 
     async def _preview_child(self, path, active, tl):
+        # the INI's startup code first (a lathe: G18 G7, X words as diameters); a lathe tool's X offset, angles, orientation
         req = {"path": path, "var": self.m.var_file, "unitcode": "G21", "active": active,
-               "tools": {t["t"]: (t["t"], 0.0, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4, 0, 0, 0) for t in tl},
+               "initcode": self.cfg.get("RS274NGC", "RS274NGC_STARTUP_CODE", "") or "",
+               "tools": {t["t"]: (t["t"], t.get("x", 0.0) / 25.4, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4,
+                                  t.get("i", 0.0), t.get("j", 0.0), t.get("q", 0)) for t in tl},
                "pockets": [t["t"] for t in tl], "max_segs": self.pv_segs, "timeout": self.pv_timeout,
-               "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0)}
+               "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0),
+               "spindle_max": self.cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0)}
         head, ptext = {"error": None, "truncated": None, "stats": None, "lines": 0, "start": [0, 0, 0]}, "[]"
         nice = int(self.cfg.num("MILLWEB", "PREVIEW_NICE", 10))
         proc = await asyncio.create_subprocess_exec(sys.executable, preview.__file__, stdin=asyncio.subprocess.PIPE,

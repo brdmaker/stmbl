@@ -181,6 +181,50 @@ class Machine(unittest.TestCase):
             mc.validate(m, self.d)
         self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
 
+    def test_example_machines(self):
+        """machines/*: each valid and made; the test stand's racks scale its drives, its switches home it."""
+        for d in sorted(os.listdir(os.path.join(MILL, "machines"))):
+            f = self.gen(json.load(open(os.path.join(MILL, "machines", d, "machine.json"))))
+            self.assertIn("[JOINT_0]", f["mill.ini"], d)
+        f = self.gen(json.load(open(os.path.join(MILL, "machines", "teststand", "machine.json"))))
+        k = 2 * 3.141592653589793 / 94.24778   # a 20-tooth module 1.5 pinion: 94.25 mm a turn
+        self.assertIn("setp j1-cmd.gain %r" % k, f["machine.hal"])
+        ini = ini_sections(f["mill.ini"])
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
+        self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["66"], ["10"]))   # Y homes at its +65 end
+        self.assertIn("net j2-home-sw hm2_7i96s.0.inm.00.input-04 => joint.2.home-sw-in", f["machine.hal"])
+
+    def test_lathe(self):
+        """machines/emco_compact5: X Z, G18 G7 at the start, LATHE in [DISPLAY], a simulated spindle encoder."""
+        m = json.load(open(os.path.join(MILL, "machines", "emco_compact5", "machine.json")))
+        f = self.gen(m)
+        ini, hal = ini_sections(f["mill.ini"]), f["machine.hal"]
+        self.assertEqual(ini["DISPLAY"]["LATHE"], ["1"])
+        self.assertNotIn("BACK_TOOL_LATHE", ini["DISPLAY"])
+        self.assertTrue(ini["RS274NGC"]["RS274NGC_STARTUP_CODE"][0].startswith("G18 G7 "))
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["trivkins coordinates=XZ"])
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["lathe"])
+        self.assertIn("net spindle-revs sim-spindle.position-fb => spindle.0.revs", hal)
+        self.assertIn("net spindle-index spindle.0.index-enable <=> sim-spindle.index-enable", hal)
+        m["lathe"] = {"post": "back", "diameter": False}
+        m["spindle"] = {"type": "hal", "max_rpm": 3000, "on": "vfd.run", "speed": "vfd.rpm", "revs": "enc.position", "index": "enc.index-enable"}
+        f = self.gen(m)
+        ini, hal = ini_sections(f["mill.ini"]), f["machine.hal"]
+        self.assertEqual(ini["DISPLAY"]["BACK_TOOL_LATHE"], ["1"])
+        self.assertIn(" G8 ", ini["RS274NGC"]["RS274NGC_STARTUP_CODE"][0])
+        self.assertIn("net spindle-revs enc.position => spindle.0.revs", hal)
+        self.assertIn("net spindle-index spindle.0.index-enable <=> enc.index-enable", hal)
+        self.assertNotIn("sim-spindle", hal)
+        bad = copy.deepcopy(m)
+        bad["axes"]["Y"] = {"min": 0, "max": 10, "max_vel": 10, "max_acc": 100}
+        bad["joints"].append({"axis": "Y", "drive": {"type": "sim"}})
+        bad["lathe"]["post"] = "side"
+        bad["spindle"]["revs"] = ""
+        bad["toolsetter"] = {"x": 0, "y": 0, "z_above": 0, "z_ref": 0, "travel": 10}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(bad, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"axes.Y", "lathe.post", "spindle.index", "toolsetter"})
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}
