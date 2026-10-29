@@ -26,7 +26,16 @@ Entry format:
   cycle it shows 11, the bus rising at boot).
 - Cause:   Unknown. Compare the hardboot note in `src/config.c` (USB
   enumerates, console dead: core locked up).
-- Fix:     None yet. The 24 V supply (TSX3510P, GPIB 11) recovers it. No test.
+- Fix:     Not found yet, but the next one can't hide: the F4 has an
+  independent watchdog now (2 s, fed by the main loop only while rt runs,
+  `src/wdog.c`), the crash record names a hang and the console command, and
+  `errlog` keeps boots, crashes, hangs and drive faults in flash sector 3
+  (`src/errlog_f4.c`), through a power cycle. The yellow/green state LED
+  breathes while rt and the main loop run; the HV board's red LED blinks
+  20 ms every 2 s while it runs without fault. Tests: host
+  `test_wdog`, `test_errlog`; hwtest/suite `watchdog`. Note: the stmbl
+  bootloader clears the reset flags at power-on, so "no flags" means
+  power-on (`shared/wdog.h`).
 
 ## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`

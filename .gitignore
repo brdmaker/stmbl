@@ -39,6 +39,8 @@ host/test_bootloader
 host/test_bip
 host/test_stmblcan
 host/test_vibproto
+host/test_wdog
+host/test_errlog
 brdstepper/obj
 vibsensor/obj
 host/servoterm

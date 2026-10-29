@@ -44,6 +44,15 @@ uint32_t hal_get_systick_freq() {
   return (RCC_Clocks.HCLK_Frequency);
 }
 
+void wdog_boot(void);   // src/wdog.c
+void wdog_start(void);
+void wdog_poll(void);
+void wdog_crumb(void);
+void wdog_rt(void);
+const char *wdog_reset_name(void);
+void errlog_boot(void);  // src/errlog_f4.c
+void errlog_poll(void);
+
 volatile uint64_t systime = 0;
 
 void SysTick_Handler(void) {
@@ -54,6 +63,7 @@ void SysTick_Handler(void) {
 void TIM_SLAVE_HANDLER(void) {
   TIM_ClearITPendingBit(TIM_SLAVE, TIM_IT_Update);
   hal_run_frt();
+  wdog_crumb();
   if(TIM_GetITStatus(TIM_SLAVE, TIM_IT_Update) == SET) {
     if(hal.flash_grace > 0) {  // late after a flash write (fwup)
       hal.flash_late++;
@@ -69,6 +79,7 @@ void TIM_SLAVE_HANDLER(void) {
 void DMA2_Stream0_IRQHandler(void) {
   DMA_ClearITPendingBit(DMA2_Stream0, DMA_IT_TCIF0);
   hal_run_rt();
+  wdog_rt();
   if(hal.flash_grace > 0) {
     hal.flash_grace--;
     if(DMA_GetITStatus(DMA2_Stream0, DMA_IT_TCIF0) == SET) {
@@ -162,6 +173,7 @@ void about(char *ptr) {
   // printf("CPU ID     %lx %lx %lx\n",U_ID[0], U_ID[1], U_ID[2]);
   printf("size: %lu crc:%lx\n", version_info.image_size, version_info.image_crc);
   printf("firmware v%lu\n", (uint32_t)version_info.fw_version);  // STMBL_FW_VERSION; `version` has all of them
+  printf("last reset: %s (`crash` for a crash or hang)\n", wdog_reset_name());
   call_cmd("name");
   call_cmd("motor");
   volatile const version_info_t *bt_version_info = (void *)0x08000188;
@@ -215,8 +227,10 @@ int main(void) {
   // Relocate interrupt vectors
   extern void *g_pfnVectors;
   SCB->VTOR = (uint32_t)&g_pfnVectors;
+  wdog_boot();  // the reset cause, before crash_safe_mode() counts
 
   setup();
+  errlog_boot();  // before rt: compacting erases a sector
   hal_init(0.0002, 0.00005);
   // hal load comps
   load_comp(comp_by_name("term"));
@@ -230,11 +244,14 @@ int main(void) {
 
   TIM_Cmd(TIM_MASTER, ENABLE);
   TIM_ITConfig(TIM_SLAVE, TIM_IT_Update, ENABLE);
+  wdog_start();
 
   while(1)  //run non realtime stuff
   {
     hal_run_nrt();
     crash_running();
+    wdog_poll();
+    errlog_poll();
     //cdc_poll();
     Wait(1);
   }
@@ -243,5 +260,6 @@ int main(void) {
 void Wait(uint32_t ms) {
   uint64_t t = systime + ms;
   while(t >= systime) {
+    wdog_poll();
   }
 }

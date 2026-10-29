@@ -117,9 +117,17 @@ test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp
 test_vibproto: tests/test_vibproto.c ../shared/vibproto.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_vibproto.c -lm
 
+# shared/wdog.h: reset cause, watchdog feeding, the breathing LED (src/wdog.c)
+test_wdog: tests/test_wdog.c ../shared/wdog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
+
+# shared/errlog.c: the flash error log (src/errlog_f4.c) on a simulated flash
+test_errlog: tests/test_errlog.c ../shared/errlog.c ../shared/errlog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_errlog.c ../shared/errlog.c
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto
+check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog
 	@./test_ssq
 	@./test_sscon
 	@./test_cur_offset
@@ -127,6 +135,8 @@ check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test
 	@./test_bip
 	@./test_stmblcan
 	@./test_vibproto
+	@./test_wdog
+	@./test_errlog
 	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
 	@$(PYTHON) ../tools/vibmon/test_vibmon.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py

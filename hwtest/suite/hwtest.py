@@ -426,6 +426,35 @@ def t_safe_mode(ctx):
     ctx.cli(ctx.a.usb, "-c", "crash clear")
 
 
+def errlog_entries(ctx):
+    rc, out = ctx.cli(ctx.a.usb, "-c", "errlog all")
+    return [l for l in out.splitlines() if re.match(r"\s*\d+\s+boot ", l)]
+
+
+@test("drive", "watchdog: a hung main loop or interrupts reset the drive, `crash` and `errlog` name it", targets=("hw",))
+def t_watchdog(ctx):
+    took = []
+    for how in ("main", "irq"):
+        ctx.cli(ctx.a.usb, "-c", "crash clear")
+        before = len(errlog_entries(ctx))
+        t0 = time.monotonic()
+        ctx.cli(ctx.a.usb, "-c", "wdtest " + how, quiet=0.3, timeout=20)
+        need(ctx.wait_port(ctx.a.usb, gone_first=True), "wdtest %s: the drive didn't reset" % how)
+        took.append(time.monotonic() - t0)
+        rc, out = ctx.cli(ctx.a.usb, "-c", "crash")
+        need("last reset: watchdog" in out and "last: Watchdog" in out and "console command: wdtest" in out,
+             "wdtest %s: record: %s" % (how, out[-300:]))
+        new = errlog_entries(ctx)[before:]
+        need(any("HANG: watchdog reset cmd wdtest" in l for l in new), "wdtest %s: errlog: %s" % (how, new))
+        need(any("boot: watchdog" in l for l in new), "wdtest %s: no watchdog boot entry: %s" % (how, new))
+        h = hal_info(ctx, ctx.a.usb)
+        need(h["state"] == "HAL_OK2" and h["rt_funcs"], "wdtest %s: HAL after the reset: %s" % (how, h["state"]))
+    ctx.cli(ctx.a.usb, "-c", "crash clear")
+    got = dump(ctx, ctx.a.usb, "after-watchdog.conf")
+    need(got == baseline(ctx), "config differs after the watchdog resets")
+    return "back after %.1f / %.1f s" % tuple(took)
+
+
 def dfu_present():
     r = subprocess.run(["dfu-util", "-l"], capture_output=True, text=True)
     return "0483:df11" in r.stdout
