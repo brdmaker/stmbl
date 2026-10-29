@@ -18,6 +18,7 @@ typedef enum {
   ERRLOG_CRASH,     // code: the fault handler; a, b, c: pc, lr, cfsr
   ERRLOG_WATCHDOG,  // a hang
   ERRLOG_FAULT,     // code: fault_t; a, b, c: dc_volt, hv_temp, mot_temp (float bits)
+  ERRLOG_NOTE,      // code, a, b, c: what the writer says (usbdiag: the USB state)
 } errlog_type_t;
 
 typedef struct {

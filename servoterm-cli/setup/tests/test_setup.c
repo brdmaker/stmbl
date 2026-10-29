@@ -11,6 +11,11 @@
 #include "su_steps.h"
 #include "su_version.h"
 #include "su_wiring.h"
+#include "su_link.h"
+
+#include <pthread.h>
+#include <pty.h>
+#include <unistd.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -265,6 +270,118 @@ static void test_build(void) {
   su_state_free(s);
 }
 
+
+// A fake drive on a pty for su_conf_write: answers deleteconf, appendconf,
+// confcrc, flashsaveconf and showconf like src/config.c, and mixes the
+// drive's own messages into the answers, as a faulted drive does.
+static struct {
+  int fd;
+  char ram[4096], flash[4096];
+  int noise;       // a message before every answer
+  int drop_delete; // deleteconf lost (as on the SEW bench)
+  int stop;
+} fd_drive;
+
+static void say(const char *s) {
+  if(write(fd_drive.fd, s, strlen(s)) < 0) {
+  }
+}
+
+static void *fake_drive(void *arg) {
+  (void)arg;
+  char line[256];
+  size_t n = 0;
+  while(!fd_drive.stop) {
+    char c;
+    if(read(fd_drive.fd, &c, 1) != 1) {
+      break;
+    }
+    if(c != '\n') {
+      if(n < sizeof(line) - 1) {
+        line[n++] = c;
+      }
+      continue;
+    }
+    line[n] = 0;
+    n       = 0;
+    if(!line[0]) {
+      continue;
+    }
+    if(fd_drive.noise) {
+      say("ERROR: Fault 9: HV timeout error\nWARNING: over temperature (motor) current clamping active\n");
+    }
+    char out[512];
+    if(!strcmp(line, "deleteconf")) {
+      if(!fd_drive.drop_delete) {
+        fd_drive.ram[0] = 0;
+      }
+    } else if(!strncmp(line, "appendconf ", 11)) {
+      snprintf(out, sizeof(out), "adding %s\n", line + 11);
+      say(out);
+      strncat(fd_drive.ram, line + 11, sizeof(fd_drive.ram) - strlen(fd_drive.ram) - 2);
+      strcat(fd_drive.ram, "\n");
+    } else if(!strcmp(line, "confcrc")) {
+      snprintf(out, sizeof(out), "\nsize: %zu words: %zu crc:1234\n", strlen(fd_drive.ram), strlen(fd_drive.ram) / 4);
+      say(out);
+    } else if(!strcmp(line, "flashsaveconf")) {
+      strcpy(fd_drive.flash, fd_drive.ram);
+      snprintf(out, sizeof(out), "erasing flash page...\nsaving conf\nOK %zu bytes written\n", strlen(fd_drive.ram) + 1);
+      say(out);
+    } else if(!strcmp(line, "showconf")) {
+      say(fd_drive.flash);
+      if(fd_drive.noise) {
+        say("INFO: Disabled \n");
+      }
+    }
+  }
+  return NULL;
+}
+
+static void test_conf_write(void) {
+  int master, slave;
+  char name[64], err[256];
+  if(openpty(&master, &slave, name, NULL, NULL) < 0) {
+    ok(0, "conf write: openpty");
+    return;
+  }
+  struct termios tio;
+  tcgetattr(slave, &tio);
+  cfmakeraw(&tio);
+  tcsetattr(slave, TCSANOW, &tio);
+  fd_drive.fd = master;
+  strcpy(fd_drive.flash, "link pid\nold.pin = 1\n");
+  strcpy(fd_drive.ram, fd_drive.flash);  // the boot loads flash into RAM
+  pthread_t th;
+  pthread_create(&th, NULL, fake_drive, NULL);
+  su_link_t *l = su_link_open(name, err, sizeof(err));
+  ok(l != NULL, "conf write: fake drive opened");
+  if(!l) {
+    return;
+  }
+  const char *conf = "link pid\nlink pmsm\nconf0.r = 22.5 # id_pmsm\n";
+
+  fd_drive.noise = 1;
+  int r = su_conf_write(l, conf, err, sizeof(err));
+  ok(r == 0 && !strcmp(fd_drive.flash, conf), "conf write: fault messages in the answers don't break it");
+  if(r) {
+    printf("#   %s\n", err);
+  }
+
+  strcpy(fd_drive.ram, fd_drive.flash);
+  fd_drive.noise       = 0;
+  fd_drive.drop_delete = 1;
+  r = su_conf_write(l, "link pid\nconf0.r = 1\n", err, sizeof(err));
+  ok(r < 0 && !strcmp(fd_drive.flash, conf), "conf write: a lost deleteconf stops it, the flash isn't doubled");
+  ok(strstr(err, "deleteconf") != NULL, "conf write: and says so");
+  fd_drive.drop_delete = 0;
+
+  fd_drive.stop = 1;
+  su_link_close(l);
+  close(slave);
+  close(master);
+  pthread_join(th, NULL);
+}
+
 int main(void) {
   test_state();
   test_conf();
@@ -274,6 +391,7 @@ int main(void) {
   test_wiring();
   test_temp();
   test_build();
+  test_conf_write();
   printf("1..%d\n# %d/%d passed\n", n, n - failed, n);
   return failed != 0;
 }

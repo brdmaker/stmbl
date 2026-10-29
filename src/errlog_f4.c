@@ -94,6 +94,13 @@ static uint32_t fbits(float f) {
   return u;
 }
 
+// A note from elsewhere (usbdiag), written at once.
+int errlog_note(uint32_t code, uint32_t a, uint32_t b, uint32_t c) {
+  errlog_entry_t e = {errlog_head(ERRLOG_NOTE, code, elog.boot), (uint32_t)systime, a, b, c, -1, -1, -1, -1, 0};
+  crumbs(&e);
+  return errlog_append(&elog, &e);
+}
+
 // The main loop: log drive faults.
 void errlog_poll(void) {
   static hal_pin_inst_t *fault, *en_out, *dc, *hvt, *mot;
@@ -171,6 +178,9 @@ static void print_entry(uint32_t i, const errlog_entry_t *e) {
       break;
     case ERRLOG_FAULT:
       printf("fault %lu %s, dc %.1f V, hv %.1f C, motor %.1f C", code, fault_name(code), bitsf(e->a), bitsf(e->b), bitsf(e->c));
+      break;
+    case ERRLOG_NOTE:
+      printf("note %lu: 0x%08lx 0x%08lx 0x%08lx", code, e->a, e->b, e->c);
       break;
     default:
       printf("type %lu code %lu", ERRLOG_TYPE(e), code);

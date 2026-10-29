@@ -34,23 +34,42 @@ Entry format:
 
 ## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
 - Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`
+- Status:  Open (one cause fixed, the stall under motion not)
+- Symptom: `/dev/ttyACM0` stays, the console sends nothing, the drive runs
+  on (LED breathing, no watchdog reset) and still takes input (`reset`
+  works, a cdc_acm unbind/bind doesn't). Every wizard step 12 run on the SEW
+  bench ends so, mid-motion (47 s in, once).
+- Cause:   (1) Fixed: ST's CDC went idle right after arming a ZLP; the next
+  SOF armed a transfer over it (stuck after 350 port closes mid-output,
+  clean for 2000 now). Transfers also never end on a full packet any more
+  (63 + 1), so no ZLP is needed. (2) Open: `usbdiag` while stuck: state
+  busy, DIEPCTL EPENA, DIEPTSIZ 1 packet / 0 bytes left, DIEPINT TXFE (FIFO
+  empty), no NAKs counted; the abort (SNAK, EPDIS, FIFO flush) and resend,
+  every 200 ms while DTR is set, arm the same packet and it's never sent.
+  Only under motion: interference suspected (KTY coupling seen the same
+  day).
+- Fix:     (1) above; test hwtest/suite `usb: 1000 port closes...`.
+  Diagnostics: `usbdiag` (state into `errlog`), `about` "usb tx stalls
+  healed", DTR tracked (usb_dtr). Next: re-init the USB core when healing
+  fails; USB cable/ground on the bench. Found with the new watchdog,
+  `errlog` and breathing LED (host tests `test_wdog`, `test_errlog`; suite
+  `watchdog`). The stmbl bootloader clears the reset flags at power-on, so
+  "no flags" means power-on.
+
+## 2026-10-29  Wizard: a lost deleteconf doubled the config; messages broke acks
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`)
 - Status:  Fixed
-- Symptom: SEW bench, twice during console-heavy scripts (enable tests):
-  `/dev/ttyACM0` stays, the console sends nothing, the drive runs on (LED
-  breathing, no watchdog reset) and still takes input (`reset` worked). The
-  first time the USB also re-enumerated once and a 24 V cycle recovered it.
-- Cause:   ST's CDC set the IN state idle right after arming a ZLP (a
-  transfer ending on a 64-byte packet). With `CDC_IN_FRAME_INTERVAL=1` the
-  next SOF started a transfer over the pending ZLP, a DataIn was lost and
-  the state stayed busy for good. Closing the port mid-output (our scripts,
-  servoterm-cli) makes it likely: stuck after 350 open/close rounds in 23 s.
-- Fix:     Busy until the ZLP's own DataIn; and a heal in the SOF handler
-  (busy but the endpoint no longer enabled for 20 frames: resume, counted
-  as `usb tx stalls healed` in `about`; 0 so far). 2000 rounds clean. Test:
-  hwtest/suite `usb: 1000 port closes...`. Found with the new watchdog,
-  `errlog` and breathing LED (`src/wdog.c`, `src/errlog_f4.c`; host tests
-  `test_wdog`, `test_errlog`; suite `watchdog`). Note: the stmbl bootloader
-  clears the reset flags at power-on, so "no flags" means power-on.
+- Symptom: The flash config held its 21 lines twice (two hv comps, see
+  below); later "no ack for line 18 (appendconf ...)" with the drive's fault
+  messages in the answers.
+- Cause:   Any output counted as the answer to `deleteconf` (which prints
+  nothing), so a lost one appended to the old RAM text; the ack had to be
+  the first line of the answer; "Fault 9: HV timeout error" in the
+  flashsaveconf answer read as a failure; read-back kept message lines.
+- Fix:     RAM size 0 checked after deleteconf (`confcrc`), acks searched
+  in the answer, the RAM size checked before flashsaveconf, drive messages
+  dropped from the read-back. Test: servoterm-cli `make check`, "conf write:
+  ..." on a fake drive (fails 3 of 4 without the fix).
 
 ## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`

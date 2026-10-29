@@ -13,6 +13,35 @@ struct ringbuf usb_rx_buf = {.buf = (char[RX_QUEUE_SIZE]){0}, .bufsize = RX_QUEU
 
 
 static USB_OTG_CORE_HANDLE USB_OTG_dev;
+volatile uint8_t usb_dtr = 0;  // see VCP_Ctrl
+
+// The CDC IN side's state, into the flash error log: when the console
+// stops sending but still takes input, `usbdiag`, then `reset`, then
+// `errlog` shows how it got stuck (DEBUGNOTES 2026-10-29).
+#include <stdio.h>
+#include "commands.h"
+#include "errlog.h"
+#include "main.h"
+extern uint8_t USB_Tx_State;
+extern uint32_t APP_Rx_ptr_in, APP_Rx_ptr_out, APP_Rx_length;
+extern volatile uint32_t usb_tx_healed, usb_sof_count;
+int errlog_note(uint32_t code, uint32_t a, uint32_t b, uint32_t c);  // errlog_f4.c
+
+void usbdiag(char *ptr) {
+  (void)ptr;
+  uint32_t ep   = CDC_IN_EP & 0x7F;
+  uint32_t ctl  = USB_OTG_READ_REG32(&USB_OTG_dev.regs.INEP_REGS[ep]->DIEPCTL);
+  uint32_t siz  = USB_OTG_READ_REG32(&USB_OTG_dev.regs.INEP_REGS[ep]->DIEPTSIZ);
+  uint32_t ints = USB_OTG_READ_REG32(&USB_OTG_dev.regs.INEP_REGS[ep]->DIEPINT);
+  uint32_t sof0 = usb_sof_count;
+  Wait(20);
+  uint32_t sofs = usb_sof_count - sof0;  // ~20 while the host keeps the bus up
+  errlog_note(1, USB_Tx_State | (sofs & 0xff) << 8 | (usb_tx_healed & 0xffff) << 16, APP_Rx_ptr_in << 16 | (APP_Rx_ptr_out & 0xffff), APP_Rx_length | (uint32_t)usb_dtr << 31);
+  errlog_note(2, ctl, siz, ints);
+  printf("usb: dtr %u, tx state %u, sofs/20ms %lu, healed %lu, in %lu out %lu len %lu, diepctl %08lx dieptsiz %08lx diepint %08lx\n",
+         usb_dtr, USB_Tx_State, sofs, usb_tx_healed, APP_Rx_ptr_in, APP_Rx_ptr_out, APP_Rx_length, ctl, siz, ints);
+}
+COMMAND("usbdiag", usbdiag, "the USB console's send state, also into the error log");
 
 static uint16_t VCP_Init(void) {
   return USBD_OK;
@@ -22,7 +51,14 @@ static uint16_t VCP_DeInit(void) {
   return USBD_OK;
 }
 
+// DTR from SET_CONTROL_LINE_STATE: the host has the port open (Linux
+// cdc_acm sets it on open, clears it on close). The CDC IN heal only
+// unsticks a transfer while it's set (usbd_cdc_core.c).
+
 static uint16_t VCP_Ctrl(uint32_t Cmd, uint8_t *Buf, uint32_t Len) {
+  if(Cmd == SET_CONTROL_LINE_STATE && Buf) {  // no data: Buf is the request
+    usb_dtr = ((USB_SETUP_REQ *)Buf)->wValue & 1;
+  }
   return USBD_OK;
 }
 
