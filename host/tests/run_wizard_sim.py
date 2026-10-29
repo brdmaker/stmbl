@@ -229,7 +229,15 @@ def checks(c, rc, out, st):
         chk(abs(num(st, "temp.cold") - COLD) < 1.5, "temperature sensor (%s) cold: %s degC, true %g" %
             (c["sensor"], st.get("temp.cold"), COLD))
     chk(num(st, "verify.step") < 0.05, "verify: position error after the steps %s rad" % st.get("verify.step"))
-    if c["brake"]:
+    if c["brake"] and not c["vertical"]:
+        # the automatic test: the drive pushes against the closed brake
+        slip = min(num(st, "brake.slip_pos"), num(st, "brake.slip_neg"))
+        chk(abs(slip - c["brake_torque"]) < 0.25 * c["brake_torque"],
+            "brake test: slips at %s / %s Nm, the brake's %.3g Nm" %
+            (st.get("brake.slip_pos"), st.get("brake.slip_neg"), c["brake_torque"]))
+        chk(0 < num(st, "brake.release_torque") < 0.5 * c["brake_torque"],
+            "brake test: released, turns at %s Nm" % st.get("brake.release_torque"))
+    if c["brake"] and c["vertical"]:
         chk(num(st, "brake.hold_drift") < 0.05, "brake holds with the drive off: moved %s rad" %
             st.get("brake.hold_drift"))
         chk(num(st, "brake.drop") < 0.01, "no sag at disable: %s rad" % st.get("brake.drop"))

@@ -977,6 +977,119 @@ static double drift(su_wizard_t *w, double p0, double t) {
 //  3. it holds with the drive off: the user tries to turn the shaft;
 //  4. at disable the axis doesn't sag: the outputs hold for brake_time
 //     while the brake grips; if it sags, brake_time goes up and again.
+// The torque at which the shaft starts to move: the drive holds here, the
+// position command steps dir rad away, and the torque limit rises from
+// step_t to max_t, step_t every 0.1 s. The position loop stops the shaft at
+// the command, so a slipping brake can't let it run. Returns the torque, -1
+// when it never moved, -2 when the drive faulted or stopped answering.
+static double breakaway(su_wizard_t *w, double dir, double max_t, double step_t, double *moved) {
+  double p0, p = 0.0, f;
+  *moved = 0.0;
+  if(get(w, "fb_switch0.pos_fb", &p0) < 0) {
+    return -2.0;
+  }
+  set_num(w, "pid0.max_torque", step_t);
+  set_num(w, "pid0.neg_min_torque", step_t);
+  set_num(w, "pid0.pos_ext_cmd", remainder(p0 + dir, 2.0 * M_PI));
+  double found = -1.0;
+  for(double tq = step_t; tq <= max_t + 1e-9; tq += step_t) {
+    set_num(w, "pid0.max_torque", tq);
+    set_num(w, "pid0.neg_min_torque", tq);
+    drive_sleep(w, 0.1);
+    if(su_link_get(w->link, "fb_switch0.pos_fb", &p) < 0 || drive_fault(w, &f) > 0) {
+      found = -2.0;
+      break;
+    }
+    *moved = remainder(p - p0, 2.0 * M_PI);
+    if(fabs(*moved) > 0.02) {
+      found = tq;
+      break;
+    }
+  }
+  set_num(w, "pid0.pos_ext_cmd", found > 0.0 ? p : p0);  // stop pushing
+  set_num(w, "pid0.max_torque", step_t);
+  set_num(w, "pid0.neg_min_torque", step_t);
+  drive_sleep(w, 0.2);
+  return found;
+}
+
+// The brake without a hand at the shaft (horizontal axes): released, the
+// shaft turns at friction torque; held (the drive enabled, the brake output
+// off), the torque it slips at, both ways, up to 2.5x the motor's rated
+// torque (not its peak: a stalled motor at peak current heats fast, 2.4 kW
+// in the SEW CMP40M's windings). It must hold at least the rated torque. A
+// vertical axis keeps the hand checks: a slipping brake would drop the load.
+static su_result_t brake_auto(su_wizard_t *w) {
+  su_motor_t m;
+  su_limits_t lim;
+  motor_from_state(w->st, &m);
+  su_motor_limits(&m, bus_of(w->st), &lim);
+  double rated  = m.rated_torque > 0.0 ? m.rated_torque : 0.3 * lim.max_force;
+  double max_t  = lim.max_force > 0.0 ? fmin(lim.max_force, 2.5 * rated) : 2.5 * rated;
+  double step_t = fmax(max_t / 40.0, 0.005);
+  double rel_t  = fmin(0.5 * rated, max_t);
+  char out[16];
+  snprintf(out, sizeof(out), "io0.out%d", (int)su_get_num(w->st, "brake.output", 0.0));
+  // the test pushes against the brake on purpose: no position or saturation
+  // fault (the reset at the end loads the config again)
+  set(w, "conf0.max_pos_error", "0");
+  set(w, "conf0.max_sat", "1000");
+  double p0, moved[3] = {0.0, 0.0, 0.0}, tq[3];
+  if(hold_here(w, &p0) < 0) {
+    disable(w);
+    su_link_reset(w->link, 20.0);
+    say(w, SU_MSG_ERROR, "The drive did not enable.");
+    return SU_FAIL;
+  }
+  say(w, SU_MSG_INFO, "Brake released by the drive: the torque that turns the shaft...");
+  tq[0] = breakaway(w, 0.3, rel_t, step_t, &moved[0]);
+  set(w, out, "0");  // the brake closes, the drive stays enabled
+  drive_sleep(w, 0.3);
+  say(w, SU_MSG_INFO, "Brake closed, the drive pushing against it up to %.2f Nm, both ways...", max_t);
+  tq[1] = tq[0] < -1.5 ? -2.0 : breakaway(w, 0.5, max_t, step_t, &moved[1]);
+  tq[2] = tq[1] < -1.5 ? -2.0 : breakaway(w, -0.5, max_t, step_t, &moved[2]);
+  disable(w);
+  su_link_reset(w->link, 20.0);  // the links and limits the test overrode
+  if(tq[0] < -1.5 || tq[1] < -1.5 || tq[2] < -1.5) {
+    say(w, SU_MSG_ERROR, "The drive faulted or stopped answering during the brake test.");
+    return SU_FAIL;
+  }
+  su_set_num(w->st, "brake.release_torque", tq[0]);
+  su_set_num(w->st, "brake.slip_pos", tq[1]);  // -1: held up to brake.test_torque
+  su_set_num(w->st, "brake.slip_neg", tq[2]);
+  su_set_num(w->st, "brake.test_torque", max_t);
+  if(tq[0] < 0.0) {
+    say(w, SU_MSG_ERROR,
+        "With the brake released the shaft didn't turn at %.2f Nm: the brake doesn't release.\n"
+        "Check its wiring (DIO%d, the relay), its voltage, and that the output is the one configured.",
+        rel_t, (int)su_get_num(w->st, "brake.output", 0.0));
+    return SU_FAIL;
+  }
+  say(w, SU_MSG_INFO, "Released: the shaft turns at %.3f Nm.", tq[0]);
+  double slip = fmin(tq[1] < 0.0 ? max_t : tq[1], tq[2] < 0.0 ? max_t : tq[2]);
+  if(tq[1] < 0.0 && tq[2] < 0.0) {
+    say(w, SU_MSG_INFO, "Closed: no slip up to %.2f Nm (%.1fx rated), either way.", max_t, max_t / rated);
+  } else {
+    char a[24], b[24];
+    snprintf(a, sizeof(a), tq[1] < 0.0 ? "> %.2f" : "%.2f", tq[1] < 0.0 ? max_t : tq[1]);
+    snprintf(b, sizeof(b), tq[2] < 0.0 ? "> %.2f" : "%.2f", tq[2] < 0.0 ? max_t : tq[2]);
+    say(w, SU_MSG_INFO, "Closed: it slips at %s / %s Nm (+ / -), the motor's rated torque is %.2f Nm.", a, b, rated);
+  }
+  if(slip <= tq[0] * 2.0) {
+    say(w, SU_MSG_ERROR, "Closed and released it turns at about the same torque: the brake doesn't close.\n"
+                         "Is it wired the right way (closed while the output is off)?");
+    return SU_FAIL;
+  }
+  if(slip < rated) {
+    say(w, SU_MSG_ERROR,
+        "The brake slips at %.2f Nm, below the motor's rated %.2f Nm: worn, or the wrong brake\n"
+        "for this motor?",
+        slip, rated);
+    return SU_FAIL;
+  }
+  return SU_OK;
+}
+
 static su_result_t step_brake(su_wizard_t *w) {
   if(su_get_num(w->st, "motor.brake", 0.0) <= 0.0) {
     say(w, SU_MSG_INFO, "No holding brake: nothing to do.");
@@ -986,7 +1099,14 @@ static su_result_t step_brake(su_wizard_t *w) {
   if(apply_config(w, 0) < 0) {
     return SU_FAIL;
   }
-  double p0, p1;
+  double p0, p1, d;
+  if(!vertical && su_get_num(w->st, "brake.manual", 0.0) <= 0.0) {
+    su_result_t r = brake_auto(w);
+    if(r != SU_OK) {
+      return r;
+    }
+    goto disable_test;
+  }
   // 1. released: with the drive off and the brake released by the drive
   // (fault0.brake_release), the shaft turns by hand. (Moving the motor
   // proves nothing: its peak torque is often above the brake's.)
@@ -1034,7 +1154,7 @@ static su_result_t step_brake(su_wizard_t *w) {
                    w->link) == SU_ABORT) {
     return SU_ABORTED;
   }
-  double d = drift(w, p0, vertical ? 2.0 : 0.2);
+  d = drift(w, p0, vertical ? 2.0 : 0.2);
   su_set_num(w->st, "brake.hold_drift", d);
   if(d > 0.05) {
     say(w, SU_MSG_ERROR,
@@ -1046,6 +1166,7 @@ static su_result_t step_brake(su_wizard_t *w) {
   say(w, SU_MSG_INFO, "Holds with the drive off (moved %.4f rad).", d);
 
   // 4. no sag at disable
+disable_test:;
   double bt = su_get_num(w->st, "brake.time", 0.0) > 0.0 ? su_get_num(w->st, "brake.time", 0.15) : 0.0;
   if(bt <= 0.0) {
     double ms = su_get_num(w->st, "brake.engage_ms", -1.0);

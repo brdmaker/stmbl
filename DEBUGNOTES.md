@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-10-29  Wizard over smart-serial: getf missed answers on the slow console
+- Area:    `servoterm-cli/setup/su_link.c` (`su_link_get`)
+- Status:  Fixed
+- Symptom: Over the smart-serial console (~1 kB/s) steps failed with "no
+  answer from the drive for fb_switch0.pos_fb" after a reset, though the
+  drive answered every try (strace).
+- Cause:   su_link_get stopped at the first newline: the previous answer's
+  tail, with only the start of its own ("fb_switch0.pos_fb = -"). All
+  three tries failed so. USB delivers an answer in one burst.
+- Fix:     Read until the pin's own line is complete. Test: servoterm-cli
+  `make check`, "get: the last answer's tail first..." (fails without).
+  Also: the host simulator lacked `confcrc` (the config write's checks,
+  every wizard sim case failed), and its brake followed `io0.out0` through
+  a link the boot's relink had collapsed to fault0.mot_brake, so a console
+  override of the output didn't reach it: `io0.out0_state` now (host/hw/io.c).
+
 ## 2026-10-29  SEW CMP40M: the KTY wiring couples PWM into the resolver
 - Area:    bench wiring; HV board motor temperature input (`mtemp`, hv0.mot_temp)
 - Status:  Workaround (KTY disconnected, mot_temp_type 0 for commissioning)

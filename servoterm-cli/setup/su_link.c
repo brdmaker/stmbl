@@ -260,16 +260,42 @@ int su_parse_pin(const char *text, const char *pin, double *v) {
   return found ? 0 : -1;
 }
 
+// the pin's answer line is complete: "pin = v\n" (or "pin <= src = v\n")
+static int pin_line_done(const char *text, const char *pin) {
+  size_t pl = strlen(pin);
+  for(const char *p = text; p && *p;) {
+    const char *e = strchr(p, '\n');
+    if(!e) {
+      return 0;  // the last line, still coming
+    }
+    if(strncmp(p, pin, pl) == 0 && (strncmp(p + pl, " = ", 3) == 0 || strncmp(p + pl, " <= ", 4) == 0)) {
+      return 1;
+    }
+    p = e + 1;
+  }
+  return 0;
+}
+
 int su_link_get(su_link_t *l, const char *pin, double *v) {
   char cmd[SU_LINE_MAX + 1];
   snprintf(cmd, sizeof(cmd), "getf %s", pin);  // full precision (setup api 1)
+  // Read until the pin's own line is complete. The first newline isn't
+  // enough: on the smart-serial console (~1 kB/s) the last answer's tail
+  // still comes in after the command, and every try failed on it (the SEW
+  // bench's brake step, DEBUGNOTES 2026-10-29).
   for(int attempt = 0; attempt < 3; attempt++) {
-    const char *t = su_link_query(l, cmd, 0.15, "\n", 2.0);
-    if(!t) {
+    su_link_clear(l);
+    if(su_link_send(l, cmd) < 0) {
       return -1;
     }
-    if(su_parse_pin(t, pin, v) == 0) {
-      return 0;
+    double end = now() + 2.0;
+    while(now() < end) {
+      if(su_link_pump(l, 0.05) < 0) {
+        return -1;
+      }
+      if(pin_line_done(su_link_text(l), pin) && su_parse_pin(su_link_text(l), pin, v) == 0) {
+        return 0;
+      }
     }
   }
   return -1;

@@ -342,6 +342,13 @@ static void *fake_drive(void *arg) {
       strcpy(fd_drive.flash, fd_drive.ram);
       snprintf(out, sizeof(out), "erasing flash page...\nsaving conf\nOK %zu bytes written\n", strlen(fd_drive.ram) + 1);
       say(out);
+    } else if(!strncmp(line, "getf ", 5)) {
+      // smart-serial (~1 kB/s): the last answer's tail and the start of this
+      // one come first, the rest after more than a read's 50 ms
+      snprintf(out, sizeof(out), "%s%s = -", fd_drive.noise ? "0.000000\n" : "", line + 5);
+      say(out);
+      usleep(120000);
+      say("1.5\n");
     } else if(!strcmp(line, "showconf")) {
       if(fd_drive.noise) {
         say("\n");  // the smart-serial console's answer starts so
@@ -384,6 +391,10 @@ static void test_conf_write(void) {
   if(r) {
     printf("#   %s\n", err);
   }
+
+  double gv = 0.0;
+  ok(su_link_get(l, "fb_switch0.pos_fb", &gv) == 0 && gv == -1.5,
+     "get: the last answer's tail first (slow console) doesn't hide the value");
 
   strcpy(fd_drive.ram, fd_drive.flash);
   fd_drive.noise       = 0;

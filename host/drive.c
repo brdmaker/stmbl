@@ -153,6 +153,18 @@ void deleteconf(char *ptr) {
 }
 COMMAND("deleteconf", deleteconf, "delete config");
 
+// as src/config.c: the RAM config's bytes in hex, then its size (the setup
+// wizard checks deleteconf and the appends by it, servoterm-cli/setup)
+void confcrc(char *ptr) {
+  size_t len = strnlen(config, sizeof(config) - 1);
+  for(size_t i = 0; i < len; i++) {
+    printf("%x ", config[i]);
+  }
+  printf("\n");
+  printf("size: %zu words: %zu crc:0\n", len, len / 4);
+}
+COMMAND("confcrc", confcrc, "foo");
+
 // --- Boot / reset (src/main.c) ------------------------------------------------
 static char sim_extra[4096];
 static int reset_pending = 0;

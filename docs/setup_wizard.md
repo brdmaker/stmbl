@@ -75,7 +75,7 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 11 | `electrical` | `id_pmsm`: resistance, inductance, pole pairs, phase order, commutation offset, flux; cross-checked against the nameplate |
 | 12 | `mechanical` | `id_mot` twice: inertia, friction, damping |
 | 13 | `tuning` | `id_pid`: position and velocity loop gains |
-| 14 | `brake` | the holding brake (below): released by the drive, holds with the drive off, no sag at disable |
+| 14 | `brake` | the holding brake (below): released by the drive, holds, no sag at disable. Horizontal axes: automatic (the drive pushes against it, below); vertical: by hand |
 | 15 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
 | 16 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
 | 17 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
@@ -160,6 +160,21 @@ drop while the brake closes (docs/emergency_stop.md).
 Positions are read from the feedback's own pin (`enc_fb0.pos`, ...):
 `fb_switch0.pos_fb` stands still while the drive is disabled.
 
+
+**Automatic test (horizontal axes).** No hand at the shaft: the drive holds
+its position, the command steps 0.3 rad (released) or 0.5 rad (closed) away
+and the torque limit (`pid0.max_torque`, `neg_min_torque`) rises in 40
+steps, 0.1 s each, until the shaft moves 0.02 rad. Released, it must turn
+below half the rated torque (friction); closed (the brake output forced off
+while enabled), the torque it slips at, both ways, up to 2.5x the rated
+torque (not the peak: a stalled motor at peak current heats fast). It must
+hold at least the rated torque. The position loop stops the shaft at the
+command, so a slipping brake can't let it run. The session gets
+`brake.release_torque`, `brake.slip_pos`, `brake.slip_neg` (-1: no slip up
+to `brake.test_torque`). `brake.manual = 1` asks for the hand checks
+instead; a vertical axis always gets them (a slipping brake would drop the
+load). On the SEW CMP40M (BP brake, 0.95 Nm): turns at 0.05 Nm released,
+slips at 1.15..1.20 Nm closed.
 ## Motor temperature sensor
 
 **In the drive.** The HV board measures the sensor's resistance

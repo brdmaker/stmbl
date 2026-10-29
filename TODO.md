@@ -16,9 +16,10 @@ Open work, newest first. Bugs and findings go in `DEBUGNOTES.md`.
 - **Resolver on FB1:** needs an excitation on FB1's Z driver (TIM1 CH3,
   PE13) synced to FB0's, polarity demodulation for sin1/cos1 in `adc.c`, a
   `res_fb1` template; FB1 gets 1 of 10 ADC samples, so it is noisier.
-- **SEW CMP40M commissioning:** mechanical id done over smart-serial
-  (j 2.09e-5 kg m^2, f 0.022 Nm, d 1.6e-4 Nm s/rad); tuning (step 13), then
-  brake, limits, link, verify, save; `conf/sew_cmp40m.txt` with the measured
-  values (r 22.54 ohm, l 27.9 mH, 3 pole pairs, psi 0.1535 Wb).
+- **SEW CMP40M:** commissioned (wizard, all steps, `conf/sew_cmp40m.txt`)
+  without the KTY. Put the KTY back once it's read on the LV board (above),
+  and run at 314 V for the full 3000 rpm.
+- **Wizard simulator:** `syn_torque_14p` fails at the torque constant check
+  (identified 1.31 vs nameplate 10.4 Nm/A), already before 2026-10-29.
 - Boot-time fault 11 (HV volt error at 57 ms, before the bus is measured)
   is logged on every boot.

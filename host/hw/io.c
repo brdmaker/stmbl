@@ -1,6 +1,8 @@
 /*
  * Simulation stand-in for src/comps/hw/io4.c: same pins, no hardware behind them.
- * Inputs read low; outputs (brake, LEDs, fan) go nowhere.
+ * Inputs read low; outputs (LEDs, fan) go nowhere. out0_state is what the
+ * brake output (DIO0) drives, as the F4 does: out0's source now, after a
+ * console override too (hv0.sim_brake_release follows it).
  */
 #include "io_comp.h"
 #include "hal.h"
@@ -59,6 +61,14 @@ HAL_PIN(fb1z);
 HAL_PIN(fbsd);
 HAL_PIN(master_arr);
 HAL_PIN(clock_scale);
+HAL_PIN(out0_state);  // sim only: the level DIO0 drives
+
+static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
+  (void)period;
+  (void)ctx_ptr;
+  PIN(out0_state) = PIN(out0) > 0.0 ? 1.0 : 0.0;
+}
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
@@ -68,7 +78,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 hal_comp_t io_comp_struct = {
     .name      = "io",
     .nrt       = 0,
-    .rt        = 0,
+    .rt        = rt_func,
     .frt       = 0,
     .nrt_init  = nrt_init,
     .rt_start  = 0,
