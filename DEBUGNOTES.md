@@ -16,6 +16,26 @@ Entry format:
 
 ---
 
+## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`
+- Status:  Open (drive repaired; how the text got doubled is not known)
+- Symptom: SEW commissioning, wizard step 12 onward: endless "Fault 9: HV
+  timeout", the F3 sends nothing (hv0.crc_error 0, fw_version -1, dc_volt 0)
+  across LV and 24 V power cycles. HV board LED: 1 blink per 1.2 s (F3 app
+  running, fault 1 = no valid packet from the F4). The wizard's own
+  `--dump`/`--load` fail in the fault flood.
+- Cause:   The flash config held its 21 lines twice. Every `link pid` loads
+  a full set of comps, so the drive ran `hv0` and `hv1` (and pid1, fault1, ...)
+  on the one F3 UART; the F3 never sees a valid packet, and it only starts
+  sending after one. Which write doubled it is open: `su_conf_write` takes
+  any output as the answer to `deleteconf`, so a lost `deleteconf` appends to
+  the old RAM text. Note `showconf` prints the flash text, not RAM
+  (`confcrc` prints the RAM size).
+- Fix:     Rewrote one copy (deleteconf, confcrc size 0, appendconf, size
+  check, flashsaveconf, showconf compare), reset: link up, 202 V, no fault.
+  Ideas: confirm `deleteconf` (RAM size 0) before appending; refuse a second
+  instance of the hardware comps (hv, adc, io) in `load_comp`. No test yet.
+
 ## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
 - Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
 - Status:  Fixed
