@@ -268,13 +268,23 @@ static int is_message(const char *line, size_t len) {
   return 0;
 }
 
+// ... and blank lines: the smart-serial console starts its answer with one
+static int is_blank(const char *line, size_t len) {
+  for(size_t i = 0; i < len; i++) {
+    if(line[i] != ' ' && line[i] != '\t' && line[i] != '\r' && line[i] != '\n') {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static char *drop_messages(const char *in) {
   char *out = malloc(strlen(in) + 1);
   size_t o  = 0;
   for(const char *p = in; *p;) {
     const char *e = strchr(p, '\n');
     size_t len    = e ? (size_t)(e - p) + 1 : strlen(p);
-    if(!is_message(p, len)) {
+    if(!is_message(p, len) && !is_blank(p, len)) {
       memcpy(out + o, p, len);
       o += len;
     }
@@ -356,7 +366,11 @@ int su_conf_write(su_link_t *l, const char *text, char *err, size_t errlen) {
     return -1;
   }
   char *back = su_conf_read(l);
-  int ok     = back && strcmp(back, conf) == 0;
+  char *sent = drop_messages(conf);  // without blank lines, as read back
+  char *want = su_conf_normalize(sent);
+  int ok     = back && strcmp(back, want) == 0;
+  free(sent);
+  free(want);
   free(back);
   free(conf);
   if(!ok) {

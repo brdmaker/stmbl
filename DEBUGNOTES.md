@@ -69,7 +69,9 @@ Entry format:
 - Fix:     RAM size 0 checked after deleteconf (`confcrc`), acks searched
   in the answer, the RAM size checked before flashsaveconf, drive messages
   dropped from the read-back. Test: servoterm-cli `make check`, "conf write:
-  ..." on a fake drive (fails 3 of 4 without the fix).
+  ..." on a fake drive (fails 3 of 4 without the fix). Over smart-serial the
+  read-back starts with a blank line ("verify failed: flash differs"):
+  blank lines are ignored in the compare (same test, fails without).
 
 ## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
 - Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`

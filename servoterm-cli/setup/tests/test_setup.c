@@ -343,6 +343,9 @@ static void *fake_drive(void *arg) {
       snprintf(out, sizeof(out), "erasing flash page...\nsaving conf\nOK %zu bytes written\n", strlen(fd_drive.ram) + 1);
       say(out);
     } else if(!strcmp(line, "showconf")) {
+      if(fd_drive.noise) {
+        say("\n");  // the smart-serial console's answer starts so
+      }
       say(fd_drive.flash);
       if(fd_drive.noise) {
         say("INFO: Disabled \n");
