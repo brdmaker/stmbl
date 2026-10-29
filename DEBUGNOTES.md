@@ -3699,3 +3699,43 @@ Entry format:
   but the drive may still be settling and the two are read a servo cycle
   apart.
 - Fix:     idea: wait for inpos, or compare within 1 µm.
+
+## 2026-10-29  A new drive's erased config flash: servoterm-cli --load aborted
+- Area:    src/config.c (showconf, flashloadconf, conf_flash_text), host/drive.c, shared/confident.h (conf_text)
+- Status:  Fixed
+- Symptom: The first config load into a new drive (blank F4, flashed over
+  DFU): "no ack for line 1 (appendconf #stmbl_conf_version 1), got:
+  stmbl_conf_version 1", load aborted.
+- Cause:   The config sector had never been written: erased flash, all 0xFF
+  with no terminating 0. showconf printed it as a string (on past the
+  sector until some 0 byte), flashloadconf copied 15 KB of it into the
+  unterminated RAM config. servoterm-cli's backup read it with showconf, took
+  a 0xFF for a scope frame's marker and swallowed the next 8 bytes: the
+  first ack's "adding #".
+- Fix:     conf_text(): erased flash (first byte 0xFF) is an empty config, for
+  the firmware and the simulator; showconf prints at most the config's size,
+  flashloadconf terminates. Test: host/tests/test_servoterm_ident.py
+  test_load_into_erased_flash (fails without it, as on the drive).
+
+## 2026-10-29  After make btburn the drive came back in DFU at every start
+- Area:    bootloader/src/main.c (the DFU request word in CCM), src (the app's `bootloader` command, SystemInit)
+- Status:  Open
+- Symptom: The new drive (USB 207D35A45631): make btburn (bootloader.py's
+  `bootloader`, then DFU, download, leave to 0x08010000): back in ROM DFU
+  0.45 s later; a leave to 0x08000000: DFU again at once; the next leave to
+  0x08000000 booted the application. Flash read back exactly the build.
+- Cause:   Not found. Fits the request word (0xD0F0B007 at 0x1000FE00)
+  surviving into the application, whose SystemInit takes a request an
+  older bootloader passed on, until a start through the bootloader cleared
+  it.
+- Fix:     Recovery: dfu-util -a 0 -s 0x08000000:4:leave -U <file> (a 4-byte
+  read, then leave) until it starts. Next: reproduce on a drive with the
+  debugger, check whether the bootloader's clear reaches CCM before the ROM
+  jump.
+
+## 2026-10-29  Bench: a new drive dropped off USB for good
+- Area:    hardware (drive with USB serial 207D35A45631)
+- Status:  Known
+- Symptom: After its first flash it ran, answered `about`, then disconnected
+  46 s after a start and never enumerated again (neither as STMBL nor DFU).
+- Fix:     None: the user found the board faulty and replaced it.
