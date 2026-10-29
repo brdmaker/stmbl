@@ -8,7 +8,9 @@ Each start:
   2. the FPGA's bitstream is loaded (bitstream.loader: fpga_manager or a
      command; with reload "changed" only when it isn't loaded already since
      this boot);
-  3. `linuxcnc run/mill.ini` runs, with millweb as its display, until it ends.
+  3. the machine's own HAL components, comp/*.comp, are compiled (cached) and
+     installed (comps.py);
+  4. `linuxcnc run/mill.ini` runs, with millweb as its display, until it ends.
 
 Then: run/request says why it ended. "restart" (the console's Restart, after a
 save) starts again at once; "stop" waits for a Start; nothing (a crash, a
@@ -39,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MILL = os.path.dirname(HERE)
 WEBROOT = MILL
 sys.path.insert(0, HERE)
+import comps  # noqa: E402
 import machineconf
 import sysupdate  # noqa: E402
 import wsserver  # noqa: E402
@@ -394,6 +397,15 @@ class Supervisor:
                 self.want = "stop"
                 self.set_state("failed", str(e))
                 continue
+            try:
+                note = await asyncio.get_event_loop().run_in_executor(None, comps.build, self.mdir, self.log)
+                if note:
+                    self.event("info", note)
+            except comps.Error as e:
+                self.log("%s\n" % e)
+                self.want = "stop"
+                self.set_state("failed", str(e))
+                continue
             await self.unserve()
             ran = await self.run_linuxcnc(digest)
             if self.quit.is_set():
@@ -451,6 +463,7 @@ class Supervisor:
         import pty
         ini = os.path.join(self.mdir, "run", "mill.ini")
         env = dict(os.environ, MILLWEB_SUPERVISED="1")
+        env["PATH"] = comps.bin_dir(self.mdir) + os.pathsep + env.get("PATH", "")  # userspace comps: loadusr NAME
         env.pop("DISPLAY", None)  # no X error windows
         t0 = time.time()
         # on a terminal: the linuxcnc script sends its output to temporary

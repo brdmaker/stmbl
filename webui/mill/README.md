@@ -191,6 +191,26 @@ the INI is configured by hand):
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
+## The machine's own HAL components
+
+Put `NAME.comp` files (halcompile's format) into the machine folder's
+`comp/`: before every LinuxCNC start the supervisor compiles them with
+`halcompile` and installs them (`server/comps.py`), so `custom.hal` can say
+`loadrt NAME` (a realtime component) or `loadusr NAME` (one with
+`option userspace yes;`, put on LinuxCNC's PATH from `run/comp-bin`).
+
+- Compiled once: `run/comp-cache` keeps each result, keyed by the source and
+  the LinuxCNC it was built for (a system update compiles them again, once).
+- A compile error stops the start like a bad machine.json: the first error in
+  the state line, halcompile's whole output in the log (Configure page).
+- A comp named like one of LinuxCNC's own modules replaces it (the event log
+  says so); taken out of `comp/`, LinuxCNC's own is back.
+- It needs halcompile and a compiler on the controller and a writable modules
+  directory: the EBAZ4205 image has both (a tmpfs of links to LinuxCNC's
+  modules bound over `/usr/lib/linuxcnc/modules`; `MILLWEB_RTLIB_STOCK`
+  names the originals). `MILLWEB_HALCOMPILE` and `MILLWEB_RTLIB_DIR` override
+  the tool and the directory (the tests use `test/fake-halcompile`).
+
 ## System updates
 
 On a controller whose image has an update helper (the EBAZ4205 A/B image:
