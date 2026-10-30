@@ -31,6 +31,7 @@ SEL = $(if $(K),-k "$(K)",) $(if $(SHOTS),--shots $(SHOTS),)
 
 test:
 	cd server && python3 -m unittest discover -s tests
+	node test/stock_test.js
 
 test-gui-sim:
 	node test/gui/sim_suite.js $(SEL)

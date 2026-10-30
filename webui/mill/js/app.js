@@ -35,11 +35,11 @@ const st = {
     { n: "G59.1", x: 0, y: 0, z: 0 }, { n: "G59.2", x: 0, y: 0, z: 0 }, { n: "G59.3", x: 0, y: 0, z: 0 },
   ],
   tools: [
-    { t: 1, p: 1, d: 12.0, l: 62.415, wear: 0.004, life: 72, c: "12 mm 3-flute roughing endmill" },
-    { t: 3, p: 3, d: 6.0, l: 48.130, wear: 0.002, life: 82, c: "6 mm 3-flute carbide endmill" },
-    { t: 5, p: 5, d: 5.0, l: 71.902, wear: 0.000, life: 95, c: "5 mm carbide drill" },
-    { t: 7, p: 7, d: 10.0, l: 55.660, wear: 0.000, life: 100, c: "10 mm 90° chamfer mill" },
-    { t: 12, p: 12, d: 50.0, l: 40.220, wear: 0.010, life: 64, c: "50 mm face mill, 4 inserts" },
+    { t: 1, p: 1, d: 12.0, l: 62.415, wear: 0.004, life: 72, fl: 3, c: "12 mm 3-flute roughing endmill" },
+    { t: 3, p: 3, d: 6.0, l: 48.130, wear: 0.002, life: 82, fl: 3, c: "6 mm 3-flute carbide endmill" },
+    { t: 5, p: 5, d: 5.0, l: 71.902, wear: 0.000, life: 95, fl: 2, c: "5 mm carbide drill" },
+    { t: 7, p: 7, d: 10.0, l: 55.660, wear: 0.000, life: 100, fl: 2, c: "10 mm 90° chamfer mill" },
+    { t: 12, p: 12, d: 50.0, l: 40.220, wear: 0.010, life: 64, fl: 4, c: "50 mm face mill, 4 inserts" },
     { t: 99, p: 99, d: 2.0, l: 110.000, wear: 0, life: 100, c: "3D touch probe" },
   ],
   tool: 3, toolSel: 3,
@@ -556,12 +556,13 @@ function selectFile(i) {
 function renderPreflight(p) {
   $("fl-name").textContent = p.name;
   const e = p.ext, mn = toMach({ x: e.x[0], y: e.y[0], z: e.z[0] }), mx = toMach({ x: e.x[1], y: e.y[1], z: e.z[1] });
-  const fits = inside(mn) && inside(mx), missing = [...p.tools].filter((t) => !toolOf(t)), deep = e.z[0] < -STOCK.h;
+  const fits = inside(mn) && inside(mx), missing = [...p.tools].filter((t) => !toolOf(t)), deep = !(typeof LATHE !== "undefined" && LATHE) && e.z[0] < -STOCK.h;
   const ps = p.stats, part = !!p.truncated;  // from the machine: over every move (part: interpreting stopped early)
   $("fl-cards").innerHTML = `
     <div class="card"><h3>Travel <span class="pill ${part ? "warn" : fits ? "ok" : "bad"}">${part ? (fits ? "FITS SO FAR" : "OUTSIDE") : fits ? "FITS" : "OUTSIDE"}</span></h3><dl class="kv"><dt>X</dt><dd>${e.x[0].toFixed(1)} … ${e.x[1].toFixed(1)}</dd><dt>Y</dt><dd>${e.y[0].toFixed(1)} … ${e.y[1].toFixed(1)}</dd><dt>Z</dt><dd>${e.z[0].toFixed(1)} … ${e.z[1].toFixed(1)}</dd></dl><p class="note">In ${off().n}, checked against the soft limits.</p></div>
     <div class="card"><h3>Tools <span class="pill ${missing.length ? "bad" : "ok"}">${missing.length ? "MISSING" : "ALL IN THE TABLE"}</span></h3><dl class="kv">${[...p.tools].map((t) => { const tl = toolOf(t); return `<dt>T${t}</dt><dd>${tl ? "Ø" + tl.d.toFixed(1) + " · L " + tl.l.toFixed(2) + " · life " + tl.life + " %" : "not in the table"}</dd>`; }).join("")}</dl></div>
     <div class="card"><h3>Time and dynamics <span class="pill ${deep ? "warn" : "info"}">${deep ? "THROUGH THE STOCK" : "ESTIMATE"}</span></h3><dl class="kv"><dt>Cycle (planner, 0.5 g)</dt><dd>${mmss(p.total)}</dd><dt>Cutting length</dt><dd>${Math.round(p.cutLen)} mm</dd><dt>Predicted path error p99</dt><dd>${Math.round(pct(p.segs.filter((s) => s.cut).map((s) => s.errMean), 0.99))} µm</dd><dt>Tool changes</dt><dd>${p.segs.filter((s) => s.k === "tc").length}</dd>${ps ? `<dt>Moves</dt><dd>${ps.moves.toLocaleString("en-US")}${ps.stride > 1 ? ` · drawn: every ${ps.stride}th point` : ""}</dd>` : ""}</dl>${part ? `<p class="note">${esc(p.truncated)}: travel, time and tools cover the lines read.</p>` : ""}</div>`;
+  if (typeof LATHE !== "undefined" && LATHE && p.segs) $("fl-cards").appendChild(latheRemCard(p));  // the stock through the run
   const nl = p.nlines || p.lines.length, shown = Math.min(400, p.lines.length);
   $("fl-code").textContent = p.lines.slice(0, shown).join("\n") + (nl > shown ? `\n… ${(nl - shown).toLocaleString("en-US")} more lines` : "");
 }
@@ -605,10 +606,11 @@ $("tp-go").addEventListener("click", () => probeCycle("plate"));
 function renderTools() {
   if (typeof LATHE !== "undefined" && LATHE) { renderToolModel(); return latheRenderTools(); }
   renderToolModel();
-  $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
+  $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Flutes</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
       <td class="n">${t.p}</td><td class="n"><input data-k="d" data-i="${i}" type="number" step="0.001" value="${t.d.toFixed(3)}" aria-label="T${t.t} diameter"></td>
       <td class="n"><input data-k="l" data-i="${i}" type="number" step="0.001" value="${t.l.toFixed(3)}" aria-label="T${t.t} length"></td>
+      <td class="n"><input data-k="fl" data-i="${i}" type="number" step="1" min="0" max="64" value="${t.fl || ""}" placeholder="—" aria-label="T${t.t} flutes"></td>
       <td class="n"><input data-k="wear" data-i="${i}" type="number" step="0.001" value="${t.wear.toFixed(3)}" aria-label="T${t.t} wear"></td>
       <td class="n"><span class="pill ${t.life < 70 ? "warn" : "ok"}">${t.life} %</span></td>
       <td><input class="txt" data-k="c" data-i="${i}" value="${esc(t.c)}" aria-label="T${t.t} comment"></td></tr>`).join("") + "</tbody>";
@@ -643,7 +645,7 @@ $("tm-file").addEventListener("change", async (e) => {
   renderToolModel(); $("tm-src").value = name; toolModelChanged();
   msg(`T${st.toolSel ?? st.tool}: ${name}`, "ok");
 });
-$("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" ? e.target.value : +e.target.value * (+e.target.dataset.scale || 1); if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: e.target.dataset.scale ? "nose radius" : "diameter", l: LATHE ? "Z offset" : "length", x: "X offset", q: "orientation", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
+$("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" || k === "ins" ? e.target.value : k === "fl" ? (Math.round(+e.target.value) || undefined) : +e.target.value * (+e.target.dataset.scale || 1); if (typeof latheVer !== "undefined") latheVer++; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: e.target.dataset.scale ? "nose radius" : "diameter", l: LATHE ? "Z offset" : "length", x: "X offset", q: "orientation", fl: "flutes", ins: "insert", w: "insert width", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
 $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
 $("tl-del").addEventListener("click", () => { if (LIVE) return LIVE.toolDelete(st.toolSel); if (st.toolSel === st.tool) { msg("Unload the tool before deleting it.", "warn"); return; } st.tools = st.tools.filter((t) => t.t !== st.toolSel); renderTools(); fillToolSelects(); msg(`T${st.toolSel} deleted`, "info"); });
@@ -1226,7 +1228,7 @@ function plotBeam(machX) {
 }
 function plotSpectrum(rpm, load, moving) {
   const P = plotCanvas("pl-spec"); if (!P) return; const [g, w, H] = P;
-  const fmax = 1200, h = H - 16, flutes = st.tool === 12 ? 4 : st.tool === 5 ? 2 : 3, tooth = rpm / 60 * flutes, bins = 120;
+  const fmax = 1200, h = H - 16, flutes = (toolOf(st.tool) || {}).fl || 3, tooth = rpm / 60 * flutes, bins = 120;
   for (let f = 0; f <= fmax; f += 300) { const xx = 4 + f / fmax * (w - 8); g.fillStyle = C.line; g.fillRect(xx, 0, 1, h); g.fillStyle = C.faint; g.fillText(String(f), Math.min(xx + 2, w - 28), H - 3); }
   for (let b = 0; b < bins; b++) {
     const f = (b + .5) / bins * fmax, pk = (fc, a, bw) => a * Math.exp(-(((f - fc) / bw) ** 2));

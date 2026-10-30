@@ -319,10 +319,31 @@ the event log.
 - **DRO:** X as a diameter (Ø, the radius below it) in G7, as a radius in G8, following LinuxCNC's modal state; Z; no Y. Positions stay radii, as LinuxCNC keeps them.
 - **The view:** the spindle's axis along the screen, the chuck turning with the stock in it, the saddle and cross slide following the tool. XZ is the operator's view (+X down for a front post, up for a back one). The path is drawn over the stock and mirrored across the axis, faint: the part's section.
 - **Jog:** left/right Z, up/down X (up: away from the operator on a front post).
-- **Tools:** the turret's tools with X and Z offsets, nose radius, orientation (Q 1–9, LinuxCNC's), drawn as an insert and its holder. tool.tbl keeps X, Q, I, J.
+- **Tools:** the turret's tools with X and Z offsets, nose radius, orientation (Q 1–9, LinuxCNC's: Q2 an outside turning tool, Q3 a boring bar, Q6 a thread or parting tool across, Q7 a drill on the axis, as AXIS draws them), the insert's shape, a grooving insert's width and the cutting edge's length (the tool database), drawn as the insert and its holder. tool.tbl keeps X, Q, I, J.
 - **Wizards:** facing, turning (roughing passes to an allowance, then a finish), threading (G76), grooving and parting off. The programs are G18 G7 G95, at constant cutting speed (G96) where it fits.
 - **Preview:** LinuxCNC's interpreter with the INI's startup code (X words as diameters), its time at the spindle's rpm in G95, from the cutting speed at the diameter in G96, and at the pitch on G33/G76 lines.
 - **Probe and Dynamics:** not on a lathe.
+
+**The tool database.** LinuxCNC's tool table has no place for a tool's flutes or its insert, so millweb keeps them in a tag at the end of the tool's comment, `;6 mm endmill {fl=3 cl=18}` (LinuxCNC keeps comments when it writes the table, a touch-off too). The Tools page edits them:
+- **`fl`:** flutes (a mill's Tools page; the spectrum's tooth-pass line uses it).
+- **`ins`:** a lathe insert's shape: `80`, `55`, `35` (rhombus), `60` (a thread), `groove`, `round`, `drill`.
+- **`w`:** a grooving insert's width.
+- **`cl`:** the cutting edge's length (a mill's: the flute length).
+
+**Material removal** (`js/stock.js`, the browser's; no load on the board):
+- **The stock:** Ø, a tube's bore, the length out of the chuck, its face's Z in the work's coordinates, the chuck's Ø. Set on the File page's Preflight card and kept with the 3D setup (`lathe` in millweb-setup.json).
+- **The model:** the stock in 0.05 mm slices along Z, each a ring. Each move sweeps the tool's insert outline through it, from the tool table as AXIS draws it: orientation, nose radius, front and back angles (I, J), else the insert's shape. Exact for turned shapes, nose radius and fillets included. A thread can't be cut into a turned section: a 60° insert's passes along Z keep the major Ø and note the thread's depth (drawn as a saw).
+- **The view:** the stock cut as the program runs (and as LinuxCNC runs it, line by line), coloured by the tool that cut each surface. A part cut off stays where it was. "Show the finished part" runs it all.
+- **The check** (Preflight, every program shown on the File page, and each program loaded: a warning when it finds a crash risk):
+  - G0 into the stock;
+  - the tool or its holder into the chuck;
+  - the holder in the part (a cut deeper than the insert reaches);
+  - a cut deeper than 70 % of the insert's edge;
+  - an outside tool past the axis;
+  - a part off (where, and how long).
+
+  Each finding gives its line (a tap shows it in the listing) and a mark in the view. Also shown: the volume taken, cutting against air time, each tool's material removal rate and deepest cut, the threads, the part.
+- **Not modelled:** the jaws' shape (the chuck is a cylinder from its face), a holder other than a 12 mm shank (a Ø10 bar for an inside tool), tool deflection, chip load. A program the preview draws with merged moves (past 100 000) is checked on the merged path.
 
 **The turret** (`lathe.turret`, linuxcnc/lathe): a stepper on step/dir (a stepgen in position mode), one index pulse a turret turn, locked by running backwards onto its pawl, as on the Emco Compact 5. M6 turns it; T only names the tool:
 - **Homing:** the first change after a start or an E-STOP turns forward up to 1.5 turns to find the index (station 1 is `offset` after it).

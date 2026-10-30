@@ -922,7 +922,7 @@ class Hub:
 
     async def op_setup_save(self, c, m):
         """The objects on the table for the 3D view: every browser gets them."""
-        err = await self.run(self.m.cmd_setup_save, m["objects"], m.get("tools"))
+        err = await self.run(self.m.cmd_setup_save, m["objects"], m.get("tools"), m.get("lathe"))
         if not err:
             self.broadcast(self.setup_msg())
         return err
@@ -955,7 +955,7 @@ class Hub:
 
     # ------------------------------------------------------------ data
     def setup_msg(self):
-        return {"t": "setup", "objects": self.m.setup(), "tools": self.m.setup_tools()}
+        return {"t": "setup", "objects": self.m.setup(), "tools": self.m.setup_tools(), "lathe": self.m.setup_lathe()}
 
     def files_msg(self):
         files, dirs = self.m.programs()

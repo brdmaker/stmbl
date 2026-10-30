@@ -205,10 +205,11 @@ let saveTimer = null;
 function saveSetup() {  // the machine's setup after edits settle; the simulation's stays in the page
   if (!LIVE) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects, setup.tools), 300);
+  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects, setup.tools, setup.lathe), 300);
 }
-function setupLoad(objects, tools) {  // from the machine
+function setupLoad(objects, tools, lathe) {  // from the machine
   setup.objects = JSON.parse(JSON.stringify(objects));
+  if (lathe !== undefined) { setup.lathe = lathe || null; if (typeof latheStock === "function") latheStock(); }
   if (tools) { setup.tools = JSON.parse(JSON.stringify(tools)); buildTool(); if (st.page === "tool") renderToolModel(); }
   if (setup.sel && !objOf(setup.sel)) setup.sel = null;
   buildObjects(); selectObject(setup.sel);

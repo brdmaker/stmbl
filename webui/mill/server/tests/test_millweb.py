@@ -81,6 +81,25 @@ class LatheToolTable(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_tag(self):
+        """The tool database's tag at the comment's end: flutes, a lathe insert's shape, width and edge; kept
+        through a write, bad keys dropped, braces in a comment not taken for one."""
+        d = tempfile.mkdtemp(prefix="tooltbl.")
+        try:
+            p = os.path.join(d, "tool.tbl")
+            open(p, "w").write("T3 P3 D6 Z48.1 ;6 mm endmill {fl=3 cl=18}\nT4 P4 X0.4 Z3 D0.2 Q2 ;2 mm parting {ins=groove w=2 cl=20 zz=1 fl=x}\n"
+                               "T5 P5 D5 Z71 ;drill {not a tag} here\n")
+            t = machine.parse_tool_table(p)
+            self.assertEqual((t[0]["c"], t[0]["fl"], t[0]["cl"]), ("6 mm endmill", 3, 18.0))
+            self.assertEqual((t[1]["c"], t[1]["ins"], t[1]["w"], t[1]["cl"]), ("2 mm parting", "groove", 2.0, 20.0))
+            self.assertNotIn("fl", t[1])
+            self.assertEqual(t[2]["c"], "drill {not a tag} here")
+            machine.write_tool_table(p, t)
+            self.assertIn(";6 mm endmill {fl=3 cl=18}", open(p).read())
+            self.assertEqual(machine.parse_tool_table(p), t)
+        finally:
+            shutil.rmtree(d)
+
 
 class LatheFeed(unittest.TestCase):
     def test_feed_per_turn(self):
@@ -271,6 +290,16 @@ class Protocol(Base):
         self.assertTrue(os.path.exists(os.path.join(self.d, "tool.tbl.bak")))
         r = await self.call(ws, "tools_save", tools=tools + [tools[0]])
         self.assertFalse(r["ok"])
+        # the tool database's fields: into the comment's tag, checked
+        tools[0].update(fl=3, cl=18)
+        tools[1].update(c="a {brace}", ins="groove", w=2.5)
+        self.assertTrue((await self.call(ws, "tools_save", tools=tools))["ok"])
+        txt = open(os.path.join(self.d, "tool.tbl")).read()
+        self.assertIn(";endmill {fl=3 cl=18}", txt)
+        self.assertIn(";a (brace) {ins=groove w=2.5}", txt)
+        for bad in ({"fl": 99}, {"ins": "hex"}, {"w": -1}):
+            r = await self.call(ws, "tools_save", tools=[dict(tools[0], **bad)])
+            self.assertFalse(r["ok"], bad)
         # programs
         r = await self.call(ws, "program_save", name="../evil.ngc", text="M2")
         self.assertFalse(r["ok"])  # no way out of NC_DIR

@@ -61,9 +61,55 @@ class Config:
         return os.path.normpath(os.path.join(self.dir, os.path.expanduser(v)))
 
 
+# millweb's own tool data, a tag at the end of tool.tbl's comment (LinuxCNC keeps comments when it writes the
+# table): fl flutes; a lathe's ins (the insert: 80, 55, 35, 60 a thread, groove, round, drill), w its width
+# (a grooving insert's), cl its cutting edge length (a mill's: the flute length)
+TOOL_TAG = {"fl": int, "ins": str, "w": float, "cl": float}
+INSERTS = ("80", "55", "35", "60", "groove", "round", "drill")
+
+
+def split_comment(comment):
+    """'6 mm endmill {fl=3}' -> ('6 mm endmill', {'fl': 3}); unknown or bad keys dropped."""
+    m = re.search(r"\s*\{([^{}]*)\}\s*$", comment)
+    if not m:
+        return comment.strip(), {}
+    out = {}
+    for k, _, v in (x.partition("=") for x in m.group(1).split()):
+        try:
+            if k in TOOL_TAG and v:
+                out[k] = TOOL_TAG[k](float(v)) if TOOL_TAG[k] is int else TOOL_TAG[k](v)
+        except ValueError:
+            pass
+    return comment[:m.start()].strip(), out
+
+
+def join_comment(c, t):
+    tag = " ".join("%s=%s" % (k, ("%g" % t[k]) if isinstance(t[k], float) else t[k]) for k in TOOL_TAG if t.get(k) not in (None, ""))
+    return (c + " {%s}" % tag) if tag else c
+
+
+LATHE_STOCK = {"d": (0.5, 2000), "bore": (0, 2000), "stick": (1, 3000), "face": (-500, 500), "chuckD": (10, 3000)}
+
+
+def lathe_check(o):
+    """A lathe's stock in the setup: d (Ø), bore, stick (out of the chuck), face (its Z), chuckD; ValueError else."""
+    if not isinstance(o, dict):
+        raise ValueError("a lathe's stock: d, bore, stick, face, chuckD")
+    out = {}
+    for k, (lo, hi) in LATHE_STOCK.items():
+        if k in o:
+            v = o[k]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ValueError("the stock's %s: %g to %g" % (k, lo, hi))
+            out[k] = float(v)
+    if out.get("bore", 0) >= out.get("d", 32):
+        raise ValueError("the stock's bore: less than its diameter")
+    return out
+
+
 def parse_tool_table(path):
     """tool.tbl: T P D Z ;comment -> [{t, p, d, z, c}]; a lathe's also X (its X offset), Q (the
-    orientation, 1-9), I and J (the front and back angles): x, q, i, j"""
+    orientation, 1-9), I and J (the front and back angles): x, q, i, j; the comment's tag: fl, ins, w, cl"""
     tools = []
     try:
         with open(path, errors="replace") as f:
@@ -72,8 +118,10 @@ def parse_tool_table(path):
                 w = dict(re.findall(r"([TPDZXYRQIJ])\s*([-+]?\d*\.?\d+)", body.upper()))
                 if "T" not in w:
                     continue
+                c, tag = split_comment(comment)
                 t = {"t": int(float(w["T"])), "p": int(float(w.get("P", w["T"]))),
-                     "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": comment.strip()}
+                     "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": c}
+                t.update(tag)
                 for k in "XQIJ":
                     if k in w:
                         t[k.lower()] = int(float(w[k])) if k == "Q" else float(w[k])
@@ -90,7 +138,7 @@ def write_tool_table(path, tools):
         for t in sorted(tools, key=lambda t: t["t"]):
             lathe = "".join((" X%+.4f" % t["x"] if "x" in t else "") + (" Q%d" % t["q"] if t.get("q") else "") +
                             (" I%.1f" % t["i"] if "i" in t else "") + (" J%.1f" % t["j"] if "j" in t else ""))
-            f.write("T%d P%d%s D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], lathe, t["d"], t["z"], t.get("c", "").replace("\n", " ")))
+            f.write("T%d P%d%s D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], lathe, t["d"], t["z"], join_comment(t.get("c", "").replace("\n", " "), t)))
     os.replace(path + ".tmp", path)
 
 
@@ -693,7 +741,20 @@ class Machine:
         clean = []
         for t in tools:
             c = {"t": int(t["t"]), "p": int(t.get("p", t["t"])), "d": float(t.get("d", 0)), "z": float(t.get("z", 0)),
-                 "c": str(t.get("c", ""))[:120]}
+                 "c": str(t.get("c", ""))[:120].replace("{", "(").replace("}", ")")}
+            if t.get("fl") not in (None, "", 0):
+                if not 1 <= int(t["fl"]) <= 64:
+                    return "a tool's flutes: 1 to 64"
+                c["fl"] = int(t["fl"])
+            if t.get("ins"):
+                if str(t["ins"]) not in INSERTS:
+                    return "a tool's insert: " + ", ".join(INSERTS)
+                c["ins"] = str(t["ins"])
+            for k in ("w", "cl"):
+                if t.get(k) not in (None, "", 0):
+                    if not 0 < float(t[k]) <= 500:
+                        return "a tool's %s: above 0, at most 500 mm" % {"w": "width", "cl": "cutting length"}[k]
+                    c[k] = float(t[k])
             for k in ("x", "i", "j"):  # a lathe's
                 if t.get(k) is not None:
                     c[k] = float(t[k])
@@ -923,6 +984,14 @@ class Machine:
         except (OSError, ValueError, KeyError, TypeError):
             return [dict(o) for o in DEFAULT_SETUP]
 
+    def setup_lathe(self):
+        """A lathe's stock (lathe_check's form), or None."""
+        try:
+            with open(self.setup_file) as f:
+                return json.load(f).get("lathe")
+        except (OSError, ValueError, AttributeError):
+            return None
+
     def setup_tools(self):
         """The tools' 3D models (tools_check's form); none when there is no setup file."""
         try:
@@ -932,12 +1001,13 @@ class Machine:
         except (OSError, ValueError, AttributeError):
             return {}
 
-    def cmd_setup_save(self, objects, tools=None):
-        """objects: the setup's; tools: the tools' models (None: as they are)."""
+    def cmd_setup_save(self, objects, tools=None, lathe=None):
+        """objects: the setup's; tools: the tools' models (None: as they are); lathe: a lathe's stock (None: as it is)."""
         objects = setup_check(objects, lambda n: self._safe(n, kind="model"))
         tools = self.setup_tools() if tools is None else tools_check(tools, lambda n: self._safe(n, kind="model"))
+        lathe = self.setup_lathe() if lathe is None else lathe_check(lathe)
         with open(self.setup_file + ".tmp", "w") as f:
-            json.dump({"objects": objects, "tools": tools}, f, indent=1)
+            json.dump({"objects": objects, "tools": tools, "lathe": lathe}, f, indent=1)
         os.replace(self.setup_file + ".tmp", self.setup_file)
         return None
 

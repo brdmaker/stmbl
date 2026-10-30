@@ -495,6 +495,9 @@ test("tools page: select, load, add, delete, edit, measure", async (t) => {
   await t.nav("tool");
   t.check(await t.ev(() => document.querySelectorAll("#tool-t tbody tr").length === 6), "six tools");
   t.check((await t.text("#tool-t tr.active td")).includes("T3 ● in spindle"), "T3 in the spindle");
+  t.check(await t.ev(() => /Flutes/.test($("tool-t").querySelector("thead").textContent) && $("tool-t").querySelector('[data-k="fl"][data-i="0"]').value === "3"), "the flutes column (the tool database)");
+  await t.page.fill('#tool-t [data-k="fl"][data-i="1"]', "4"); await t.page.press('#tool-t [data-k="fl"][data-i="1"]', "Tab");
+  t.check(await t.until(() => st.tools[1].fl === 4), "flutes edited: T3 4");
   await t.click('#tool-t tr[data-t="5"] td:first-child');
   t.check((await t.attr('#tool-t tr[data-t="5"]', "class")) === "sel", "select T5");
   await t.click("#tl-load");
@@ -997,8 +1000,12 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   t.check(await t.until(() => /X off/.test(document.querySelector("#tool-t thead").textContent) && /Nose R/.test(document.querySelector("#tool-t thead").textContent)), "the tool table: X off, Z off, Nose R, Q");
   await t.page.fill('#tool-t [data-k="d"][data-i="0"]', "0.8"); await t.page.press('#tool-t [data-k="d"][data-i="0"]', "Tab");
   t.check(await t.until(() => st.tools[0].d === 1.6), "nose R 0.8: D 1.6 in the table");
+  await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "3");
+  t.check(await t.until(() => st.tools[0].q === 3), "the orientation");
   await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "2");
-  t.check(await t.until(() => st.tools[0].q === 2), "the orientation");
+  await t.page.selectOption('#tool-t [data-k="ins"][data-i="0"]', "55");
+  t.check(await t.until(() => st.tools[0].ins === "55"), "the insert's shape (the tool database)");
+  await t.page.selectOption('#tool-t [data-k="ins"][data-i="0"]', "80");
   t.check(/^Turret: station \d of 6/.test(await t.text("#tl-turret")) && await t.ev(() => getComputedStyle($("tl-turret")).display !== "none"), "the turret's station");
   // a wizard: turning to Ø20 over 30
   await t.nav("wiz");
@@ -1013,6 +1020,16 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   await t.until(() => st.run === "run");
   await ffwd(t, await t.ev(() => prog.total - 0.3));
   t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  // material removal: the stock cut as it ran, the File page's check, the demo's thread and part off
+  t.check(await t.until(() => LREM.R && LREM.R.i === prog.segs.length && LREM.meshes.length >= 1), "the stock followed the run to its end");
+  t.check(await t.ev(async () => { const r = await latheCheck(plan(latheDemo())); return r.S.parts.length === 1 && r.S.thr.some((v) => v > 0.8) && !r.find.some((f) => f.level === "bad"); }), "the demo: a thread, a part off, no crash risk");
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /CLEAN|WARNING/.test($("fl-rem").querySelector("h3").textContent)), "Preflight: Material removal checked");
+  await t.page.fill("#ls-stick", "25"); await t.page.press("#ls-stick", "Tab");
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent) && /into the chuck/.test($("fl-rem").textContent)), "25 mm out of the chuck, turned over 30: into the chuck, a crash risk");
+  await t.click(".rem-find li.bad");
+  t.check(await t.until(() => st.page === "main" && st.selLine > 0 && $("gl-" + st.selLine) && $("gl-" + st.selLine).classList.contains("sel")), "a finding's line shown in the listing");
+  await t.ev(() => latheStockSave({ stick: 60 }));
   // back to a mill: the Configure page's type
   await t.nav("config");
   await t.page.selectOption('[data-path="type"]', "gantry");

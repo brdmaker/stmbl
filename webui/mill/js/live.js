@@ -63,7 +63,7 @@ const Live = (() => {
       case "tools": return tools(m.tools);
       case "offsets": return offsets(m);
       case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
-      case "setup": lastSetup = m.objects; lastTools = m.tools; return setupLoad(m.objects, m.tools);
+      case "setup": lastSetup = m.objects; lastTools = m.tools; return setupLoad(m.objects, m.tools, m.lathe);
       case "hal": if (st.page === "debug") halShow(m.v); return;
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
@@ -228,7 +228,8 @@ const Live = (() => {
     else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
   function tools(list) {
-    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, wear: 0, life: 100, c: t.c }));
+    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, fl: t.fl, ins: t.ins, w: t.w, cl: t.cl, wear: 0, life: 100, c: t.c }));
+    if (typeof latheVer !== "undefined") latheVer++;  // the lathe's checks with these tools
     if (st.page === "tool") renderTools();
     fillToolSelects(); buildTool();
   }
@@ -356,7 +357,7 @@ const Live = (() => {
   L.toolLoad = (t) => act("tool_load", { t }, `T${t} M6`);
   L.toolsSave = () => {  // after edits settle
     clearTimeout(toolsTimer);
-    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j"].filter((k) => t[k] != null).map((k) => [k, t[k]]));  // a lathe's
+    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j", "fl", "ins", "w", "cl"].filter((k) => t[k] != null && t[k] !== "").map((k) => [k, t[k]]));  // a lathe's; the tag's
     toolsTimer = setTimeout(() => act("tools_save", { tools: st.tools.map((t) => ({ t: t.t, p: t.p, d: t.d, z: t.l, c: t.c, ...lathe(t) })) }, "Tool table"), 400);
   };
   L.toolAdd = () => {
@@ -379,7 +380,7 @@ const Live = (() => {
     return buf.buffer;
   };
   let lastSetup = null, lastTools = null;  // the machine's: back to them when a change can't be saved
-  L.setupSave = (objects, tools) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
+  L.setupSave = (objects, tools, lathe) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools, lathe }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
   L.modelFiles = () => files.filter((f) => f.kind === "model").map((f) => f.name);
   L.modelUpload = async (name, buf) => { const r = await act("model_save", { name, data: b64(buf) }, "Upload " + name); if (r.ok) modelBufs.delete(name); return r.ok; };
   // the Debug page's HAL tab: the machine's HAL

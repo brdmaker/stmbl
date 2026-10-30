@@ -4,9 +4,14 @@
    orientation, the stock turning in the chuck, lathe programs and wizards (face, turn, thread, groove).
 
    The view: the spindle's axis along scene x through y 0, z 0, the chuck's face at x 0; the work's X0 is the
-   axis, its Z0 the stock's face (LATHE.face along x); scene y = -X for a front post, +X for a back one, so
+   axis, its Z0 at LATHE.face along x (the stock's face at its set-up's Z); scene y = -X for a front post, +X for a back one, so
    the top view is the operator's (AXIS's). Positions are radii, as LinuxCNC keeps them: only the DRO and the
-   G-code's X words are diameters. Classic script after machmodel.js; app.js calls in where R.type is "lathe". */
+   G-code's X words are diameters. Classic script after stock.js and machmodel.js; app.js calls in where R.type is
+   "lathe".
+
+   The stock (Ø, bore, length out of the chuck, its face's Z; the setup's, saved with it) is cut as the program
+   runs: stock.js sweeps each move's insert through it, the view draws what is left coloured by the tool that
+   cut it. A program's whole run is checked when it is shown on the File page (Preflight: Material removal). */
 "use strict";
 
 let LATHE = null;  // { post, dia, face, stockD, stockL, s (scene y per +X) } while the console is a lathe's
@@ -15,7 +20,7 @@ let latheSaved = null;  // the mill's own state while a lathe's replaces it (the
 // ------------------------------------------------------------ entering and leaving
 function latheEnter(o = {}) {
   const was = !!LATHE;
-  LATHE = { post: o.post === "back" ? "back" : "front", dia: o.dia !== false, face: 60, stockD: 32, stockL: 60, spin: 0 };
+  LATHE = { post: o.post === "back" ? "back" : "front", dia: o.dia !== false, face: 59, stockD: 32, stockL: 60, spin: 0, final: false };
   LATHE.s = LATHE.post === "front" ? -1 : 1;
   document.body.classList.add("lathe");
   if (!was && !LIVE) {  // the simulation: a lathe's tools, offsets, travel and programs
@@ -87,9 +92,7 @@ function latheBuild(machine) {
     const jaw = box(16, 14, 26, mat.rail, -6, 0, 0, false), a = k * 2 * Math.PI / 3;
     jaw.position.set(-6, Math.cos(a) * 34, Math.sin(a) * 34); jaw.rotation.x = a; spinG.add(jaw);
   }
-  // see-through, and not in the depth buffer: the toolpath inside it shows
-  const stock = cylX(16, 60, mat.stock, 30); stock.material = mat.stock.clone(); stock.material.transparent = true; stock.material.opacity = 0.4; stock.material.depthWrite = false;
-  const stockG = new THREE.Group(); stockG.add(stock); machine.add(stockG);  // the stock: shown with a model's parts too
+  const stockG = new THREE.Group(); machine.add(stockG);  // the stock (latheRemMesh): shown with a model's parts too
   const carriage = new THREE.Group(), ram = new THREE.Group(), headG = new THREE.Group(), toolG = new THREE.Group(), coolant = new THREE.Group(), bridge = new THREE.Group();
   machine.add(bridge); bridge.add(carriage); carriage.add(ram); ram.add(headG); headG.add(toolG);
   // the saddle on the ways, the cross slide on it (toward the operator for a front post), the tool post
@@ -98,15 +101,184 @@ function latheBuild(machine) {
   ram.add(box(46, 46, 60, mat.dark, 30, s * 40, -32));
   const noz = R.cyl(2, 24, mat.accent, 0, s * 14, 14, 8); noz.rotation.x = s * 0.7; coolant.add(noz);  // aimed at the tip
   ram.add(coolant);
-  R.spinG = spinG; R.stock = stock; R.stockG = stockG;
+  R.spinG = spinG; R.stock = null; R.stockG = stockG; LREM.R = null; LREM.meshes = [];
   return { bridge, carriage, ram, headG, toolG, coolant };
 }
-function latheStock() {
-  if (!R || !R.stock || !LATHE) return;
-  R.stock.scale.set(LATHE.stockL / 60, LATHE.stockD / 32, LATHE.stockD / 32);
-  R.stock.position.x = LATHE.stockL / 2;
-  LATHE.face = LATHE.stockL;
+// the stock's set-up: Ø, bore (a tube's), out of the chuck, its face at work Z, the chuck's Ø
+const LSTOCK_DEF = { d: 32, bore: 0, stick: 60, face: 1, chuckD: 100 };
+let latheVer = 0;  // the tools changed: the checks again
+function latheStockOpts() {
+  let o = typeof setup !== "undefined" && setup.lathe;
+  if (!o && !LIVE) try { o = JSON.parse(localStorage.getItem("pmc.lathestock") || "null"); } catch (e) { /* storage blocked */ }
+  return { ...LSTOCK_DEF, ...(o || {}) };
 }
+function latheStockSave(o) {
+  setup.lathe = { ...latheStockOpts(), ...o };
+  if (LIVE) saveSetup(); else try { localStorage.setItem("pmc.lathestock", JSON.stringify(setup.lathe)); } catch (e) { /* storage blocked */ }
+  latheStock();
+}
+// the scene from the set-up: the chuck's face at scene x 0, the stock out of it, the work's Z0 at LATHE.face
+function latheStock() {
+  if (!LATHE) return;
+  const o = latheStockOpts();
+  LATHE.stockD = o.d; LATHE.stockL = o.stick; LATHE.face = o.stick - o.face;
+  if (R && R.type === "lathe") rebuildPath();
+}
+
+// ------------------------------------------------------------ the stock as the program cuts it (stock.js)
+const LREM = { R: null, prog: null, key: "", ver: 0, built: -1, at: 0, meshes: [], checked: null };
+const latheRemKey = () => JSON.stringify(latheStockOpts()) + "|" + latheVer;
+function latheToolCol(t) {
+  if (toolColors[t]) return toolColors[t];
+  const h = (t * 0.137) % 1, c = new THREE.Color().setHSL(h, 0.75, 0.6);
+  return [c.r, c.g, c.b];
+}
+// every frame: the stock as far as the program is (the move on, as far as it is); the whole program when it is
+// done or the finished part is asked for; the raw stock otherwise
+function latheRemFollow(now) {
+  if (!R || !R.stockG) return;
+  let to = 0, u = 0;
+  if (st.motion === prog && busy()) {
+    to = st.seg;
+    const s = prog.segs[to];
+    if (!LIVE && s && s.t > 0) u = clamp((st.t - s.t0) / s.t, 0, 1);
+  } else if (st.run === "done" || LATHE.final) to = prog.segs.length;
+  const key = latheRemKey();
+  if (!LREM.R || LREM.prog !== prog || LREM.key !== key || to < LREM.R.i) {
+    if (LREM.prog !== prog || LREM.key !== key) latheCheckLoaded();
+    LREM.R = LSTOCK.begin({ ...latheStockOpts(), dz: 0.05 }); LREM.prog = prog; LREM.key = key; LREM.ver++;
+  }
+  if (to > LREM.R.i || u > 0) {
+    const lim = Math.min(to, LREM.R.i + 4000);  // a long way to go: some each frame
+    LSTOCK.run(LREM.R, prog.segs, st.tools, lim, lim === to ? u : 0, false);
+    LREM.ver++;
+  }
+  if (LREM.ver !== LREM.built && (now - LREM.at > 120 || !busy())) { latheRemMesh(); LREM.built = LREM.ver; LREM.at = now; }
+}
+// what is left, revolved: one mesh a solid stretch, coloured by the cutting tool; a part cut off where it was,
+// see-through
+function latheRemMesh() {
+  for (const m of LREM.meshes) { R.stockG.remove(m); m.geometry.dispose(); }
+  LREM.meshes = [];
+  const S = LREM.R.S;
+  latheProfile(S.rin, S.rout, S.tin, S.tout, S.thr, 0, S, false);
+  for (const p of S.parts) latheProfile(p.rin, p.rout, p.tin, p.tout, p.thr, p.i0, S, true);
+}
+// a thread's slices: their major Ø, a saw of its depth (0.5 mm a tooth: the look, not its pitch)
+function latheProfile(rin, rout, tin, tout, thr, i0, S, off) {
+  const n = rout.length, step = Math.max(1, Math.round(Math.max(S.stick / 600, S.dz) / S.dz)), z = (i) => S.z0 + (i0 + i + 0.5) * S.dz;
+  const solid = (i) => rout[i] > rin[i] + 1e-6;
+  const runs = []; let cur = null;
+  for (let i = 0; i < n; i += step) {
+    const j = Math.min(n - 1, i + (step >> 1));
+    if (solid(j)) { if (!cur) runs.push(cur = []); cur.push(j); } else cur = null;
+  }
+  const base = [0.62, 0.66, 0.71], h = step * S.dz / 2;
+  const mix = (t) => { if (!t) return base; const c = latheToolCol(t); return [c[0] * 0.7 + base[0] * 0.3, c[1] * 0.7 + base[1] * 0.3, c[2] * 0.7 + base[2] * 0.3]; };
+  for (const run of runs) {
+    const a = run[0], b = run[run.length - 1], pts = [], col = [];
+    const add = (r, zz, c) => { pts.push(new THREE.Vector2(Math.max(r, 0), zz)); col.push(c); };
+    add(rin[a], z(a) - h, base); add(rout[a], z(a) - h, base);
+    for (const i of run) {
+      if (thr[i] > 0) { const zz = z(i), u = ((zz % 0.5) + 0.5) % 0.5 / 0.5; add(rout[i] - thr[i] * (1 - Math.abs(2 * u - 1)), zz, mix(tout[i])); }
+      else add(rout[i], z(i), mix(tout[i]));
+    }
+    add(rout[b], z(b) + h, mix(tout[b])); add(rin[b], z(b) + h, base);
+    for (let k = run.length - 1; k >= 0; k--) add(rin[run[k]], z(run[k]), mix(tin[run[k]]));
+    add(rin[a], z(a) - h, base);
+    const g = new THREE.LatheGeometry(pts, 48);
+    const c = new Float32Array(g.attributes.position.count * 3);
+    for (let i = 0; i <= 48; i++) for (let j = 0; j < pts.length; j++) c.set(col[j], (i * pts.length + j) * 3);
+    g.setAttribute("color", new THREE.BufferAttribute(c, 3));
+    g.rotateZ(-Math.PI / 2);  // its axis (the profile's height, the work's Z) along the scene's x
+    if (!LREM.mat) {
+      LREM.mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.45, side: THREE.DoubleSide });
+      LREM.matOff = LREM.mat.clone(); LREM.matOff.transparent = true; LREM.matOff.opacity = 0.85; LREM.matOff.depthWrite = false;
+    }
+    const m = new THREE.Mesh(g, off ? LREM.matOff : LREM.mat);
+    m.position.x = LATHE.face;
+    R.stockG.add(m); LREM.meshes.push(m);
+  }
+}
+// a program's whole run through the stock: its findings and numbers (kept on it until the stock or tools change)
+async function latheCheck(p) {
+  const key = latheRemKey();
+  if (p.removal && p.removal.key === key) return p.removal;
+  const R2 = LSTOCK.begin({ ...latheStockOpts(), dz: 0.05 });
+  for (let i = 0; i < p.segs.length;) {
+    i = Math.min(p.segs.length, i + 20000);
+    LSTOCK.run(R2, p.segs, st.tools, i);
+    if (i < p.segs.length) await nextFrame();
+  }
+  const order = { bad: 0, warn: 1, info: 2 };
+  R2.find.sort((a, b) => order[a.level] - order[b.level] || a.line - b.line);
+  R2.key = key; p.removal = R2;
+  return R2;
+}
+// the loaded program checked: its findings in the view, a word when something would go wrong
+function latheCheckLoaded() {
+  const p = prog;
+  if (!p || !p.segs.length) { latheMarks([]); return; }
+  latheCheck(p).then((r) => {
+    if (p !== prog) return;
+    latheMarks(r.find);
+    const bad = r.find.filter((f) => f.level === "bad");
+    if (bad.length && LREM.checked !== p) msg(`${p.name}: ${bad.length} crash risk${bad.length > 1 ? "s" : ""} in the simulation. ${nline(bad[0].line)}: ${bad[0].text}. File page, Preflight.`, "warn");
+    LREM.checked = p;
+    if (st.page === "file" && $("fl-rem")) renderPreflight(p);
+  });
+}
+// the findings in the view: a mark at each
+function latheMarks(find) {
+  if (!R) return;
+  if (!R.findG) { R.findG = new THREE.Group(); R.findG.renderOrder = 12; R.workG.add(R.findG); }
+  R.findG.clear();
+  const col = { bad: 0xff4d5e, warn: 0xffb547, info: 0x4cc9ff };
+  for (const f of find.slice(0, 200)) {
+    const m = new THREE.Mesh(R.markGeo || (R.markGeo = new THREE.SphereGeometry(1.4, 12, 8)), new THREE.MeshBasicMaterial({ color: col[f.level], depthTest: false }));
+    m.renderOrder = 12; m.position.set(...latheVp(f.x, 0, f.z)); R.findG.add(m);
+  }
+}
+// the Preflight card: the stock's set-up, what the run takes off, what it would do wrong
+function latheRemCard(p) {
+  const o = latheStockOpts(), el = document.createElement("div");
+  el.className = "card"; el.id = "fl-rem";
+  const num = (k, l, step) => `<label>${l}<input id="ls-${k}" type="number" step="${step}" value="${o[k]}"></label>`;
+  const head = (pill, cls) => `<h3>Material removal <span class="pill ${cls}">${pill}</span></h3>`;
+  const form = `<div class="form">${num("d", "Stock Ø", 0.5)}${num("bore", "Bore Ø (tube)", 0.5)}${num("stick", "Out of the chuck", 1)}${num("face", "Its face at Z", 0.1)}${num("chuckD", "Chuck Ø", 5)}</div>`;
+  const r = p.removal && p.removal.key === latheRemKey() ? p.removal : null;
+  if (!r) { el.innerHTML = head("CHECKING…", "info") + form; latheCheck(p).then(() => { if ($("fl-rem") === el && st.page === "file") el.replaceWith(latheRemCard(p)); }); return el; }
+  const nb = r.find.filter((f) => f.level === "bad").length, nw = r.find.filter((f) => f.level === "warn").length, S = r.S;
+  let dmax = 0, last = -1; for (let i = 0; i < S.n; i++) if (LSTOCK.solid(S, i)) { dmax = Math.max(dmax, S.rout[i] * 2); last = i; }
+  const cm3 = (v) => (v / 1000).toFixed(1) + " cm³";
+  const tools = Object.entries(r.stat.byTool).filter(([, b]) => b.vol > 0.5).map(([t, b]) => `<dt>T${t}</dt><dd>${cm3(b.vol)} · ${b.mrr.toFixed(1)}/min · ap ${b.depth.toFixed(2)}</dd>`).join("");
+  const part = S.parts[S.parts.length - 1];
+  // the threads: their stretches, depth and major Ø
+  const threads = []; for (const P of [S, ...S.parts]) { const o = P === S ? 0 : P.i0; let a = -1; for (let i = 0; i <= P.thr.length; i++) { if (i < P.thr.length && P.thr[i] > 0) { if (a < 0) a = i; } else if (a >= 0) { const sl = Array.from(P.thr.slice(a, i)); threads.push(`<dt>Thread</dt><dd>Ø${(P.rout[a] * 2).toFixed(2)} · ${Math.max(...sl).toFixed(2)} deep · Z${(S.z0 + (o + i) * S.dz).toFixed(1)}…${(S.z0 + (o + a) * S.dz).toFixed(1)}</dd>`); a = -1; } } }
+  el.innerHTML = head(nb ? `${nb} CRASH RISK${nb > 1 ? "S" : ""}` : nw ? `${nw} WARNING${nw > 1 ? "S" : ""}` : "CLEAN", nb ? "bad" : nw ? "warn" : "ok") + form +
+    `<dl class="kv"><dt>Removed</dt><dd>${cm3(r.stat.vol)} of ${cm3(S.vol0)}</dd><dt>Cut · air</dt><dd>${mmss(r.stat.cutT)} · ${mmss(r.stat.air)}</dd>${tools}
+      ${threads.join("")}${part ? `<dt>Part off</dt><dd>Ø${(Math.max(...part.rout) * 2).toFixed(2)} × ${(part.rout.length * S.dz).toFixed(1)}</dd>` : ""}
+      <dt>In the chuck</dt><dd>${last >= 0 ? `Ø${dmax.toFixed(2)} × ${((last + 1) * S.dz).toFixed(1)}` : "nothing"}</dd></dl>` +
+    (r.find.length ? `<ul class="rem-find">${r.find.slice(0, 14).map((f) => `<li class="${f.level}" data-line="${f.line}"><b>${nline(f.line)}</b> ${esc(f.text)}</li>`).join("")}${r.find.length > 14 ? `<li class="muted">… ${r.find.length - 14} more</li>` : ""}</ul>` : `<p class="note">No rapid into the stock, the tools and holders clear of the part and the chuck, every cut within its insert.</p>`) +
+    `<div class="row"><button class="btn sm" id="ls-final" aria-pressed="${LATHE.final}">${LATHE.final ? "Showing the finished part" : "Show the finished part"}</button></div>`;
+  return el;
+}
+document.addEventListener("change", (e) => {
+  const m = e.target.id && e.target.id.match(/^ls-(d|bore|stick|face|chuckD)$/); if (!m) return;
+  const v = +e.target.value; if (!Number.isFinite(v)) return;
+  latheStockSave({ [m[1]]: v });
+  const p = LIVE ? null : library[fileSel];
+  if (st.page === "file") { if (LIVE) LIVE.selectFile(fileSel); else renderPreflight(p); }
+});
+document.addEventListener("click", (e) => {
+  if (e.target.id === "ls-final") { LATHE.final = !LATHE.final; e.target.setAttribute("aria-pressed", String(LATHE.final)); e.target.textContent = LATHE.final ? "Showing the finished part" : "Show the finished part"; return; }
+  const li = e.target.closest && e.target.closest(".rem-find li[data-line]"); if (!li) return;
+  // the line in the loaded program's listing
+  const n = +li.dataset.line;
+  if ($("fl-name").textContent !== prog.name) { msg(`Load the program to see ${nline(n)} in it.`, "info"); return; }
+  showPage("main"); st.selLine = n; renderListing();
+  const d = $("gl-" + n); if (d) { d.scrollIntoView({ block: "center" }); $("b-runfrom").disabled = false; $("b-runfrom").textContent = `Run from ${nline(n)}`; }
+});
 
 // every frame: the slides at the tool, the stock turning, the trail and chips, the camera
 function latheUpdate3d(dt, tip, moving, cutting) {
@@ -117,6 +289,7 @@ function latheUpdate3d(dt, tip, moving, cutting) {
   if (R.stockG) R.stockG.rotation.x = LATHE.spin;
   R.machine.visible = st.show.machine; R.workG.position.set(0, 0, 0); R.objGroup.visible = false;
   R.triad.position.set(LATHE.face, 0, 0); R.triad.rotation.z = 0;
+  latheRemFollow(performance.now());
   mm3dPlace({ x: tx, y: ty, z: 0, lathe: true });
   R.pathLine.visible = st.show.path; R.trail.visible = st.show.path; if (R.pathMirror) R.pathMirror.visible = st.show.path;
   R.limits.visible = st.show.limits; R.coolant.visible = st.cool.flood || st.cool.mist;
@@ -158,40 +331,34 @@ function latheCam(kind) {
 }
 
 // ------------------------------------------------------------ the tools: a holder and its insert, by orientation
-// LinuxCNC's orientation (Q, 1-9): where the tool's controlled point is on its nose, seen with +Z to the right
-// and +X up (a back post's view; a front post mirrors it). The body lies the other way.
-const Q_DIR = { 1: [1, 1], 2: [1, -1], 3: [-1, -1], 4: [-1, 1], 5: [0, 1], 6: [1, 0], 7: [0, -1], 8: [-1, 0], 9: [0, 0] };
+// LinuxCNC's orientation (Q, 1-9): where the nose's centre is from the controlled point (glcanon.py's lathe_shapes):
+// Q2 an outside turning tool (its point toward -X -Z), Q3 a boring bar, Q6 a thread or a parting tool across,
+// Q7 a drill on the axis. The outline and holder are stock.js's, the ones the checks cut with.
+// ins: the insert's shape (80°, 55°, 35° rhombus, 60° thread, groove, round, drill); w: a grooving insert's width;
+// cl: its cutting edge length (the tool database's tag in tool.tbl's comment)
+const INSERTS = [["", "—"], ["80", "80° rhombus"], ["55", "55° rhombus"], ["35", "35° rhombus"], ["60", "60° thread"], ["groove", "groove / part"], ["round", "round"], ["drill", "drill"]];
 const LATHE_TOOLS = [
-  { t: 1, p: 1, x: 0, l: 0, d: 0.8, q: 3, wear: 0, life: 90, c: "CCMT 09 R0.4 · OD turning, 80°" },
-  { t: 2, p: 2, x: 1.2, l: -2.5, d: 0.4, q: 3, wear: 0, life: 100, c: "DCMT 07 R0.2 · OD finishing, 55°" },
-  { t: 3, p: 3, x: 0.6, l: 1.5, d: 0.2, q: 8, wear: 0, life: 100, c: "16ER 60° · OD threading" },
-  { t: 4, p: 4, x: 0.4, l: 3.0, d: 0.2, q: 3, wear: 0, life: 85, c: "2 mm · grooving and parting" },
-  { t: 5, p: 5, x: -0.8, l: 0.5, d: 0.4, q: 1, wear: 0, life: 100, c: "boring bar Ø10 · ID turning" },
-  { t: 6, p: 6, x: 0, l: 20, d: 6, q: 7, wear: 0, life: 100, c: "6 mm drill · on the centre" },
+  { t: 1, p: 1, x: 0, l: 0, d: 0.8, q: 2, ins: "80", cl: 9, wear: 0, life: 90, c: "CCMT 09 R0.4 · OD turning, 80°" },
+  { t: 2, p: 2, x: 1.2, l: -2.5, d: 0.4, q: 2, ins: "55", cl: 7, wear: 0, life: 100, c: "DCMT 07 R0.2 · OD finishing, 55°" },
+  { t: 3, p: 3, x: 0.6, l: 1.5, d: 0.2, q: 6, ins: "60", cl: 8, wear: 0, life: 100, c: "16ER 60° · OD threading" },
+  { t: 4, p: 4, x: 0.4, l: 3.0, d: 0.2, q: 2, ins: "groove", w: 2, cl: 20, wear: 0, life: 85, c: "2 mm · grooving and parting" },
+  { t: 5, p: 5, x: -0.8, l: 0.5, d: 0.4, q: 3, ins: "55", cl: 7, wear: 0, life: 100, c: "boring bar Ø10 · ID turning" },
+  { t: 6, p: 6, x: 0, l: 20, d: 6, q: 7, ins: "drill", cl: 40, fl: 2, wear: 0, life: 100, c: "6 mm drill · on the centre" },
 ];
 function latheBuildTool() {
-  const t = toolOf(st.tool) || { d: 0.8, q: 3, c: "" };
+  const t = toolOf(st.tool) || { d: 0.8, q: 2 };
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
-  const s = LATHE.s, q = Q_DIR[t.q || 3] || [-1, -1], m = R.mat;
-  if (t.q === 7 || t.q === 5) {  // a drill or a centre tool on the axis, along Z
-    const g = new THREE.CylinderGeometry(t.d / 2, t.d / 2, 60, 16); g.rotateZ(Math.PI / 2);
-    const dr = new THREE.Mesh(g, m.tool); dr.position.set(30 * (t.q === 7 ? 1 : -1), 0, 0); R.toolG.add(dr);
-    return;
-  }
-  // the insert: a flat rhombus (80°, 55° for a finishing tool, 60° for a thread) in the XZ plane, its tip on the
-  // controlled point, its bisector toward the body (away from the nose's point)
-  const bz = -q[1], bxr = -q[0], bl = Math.hypot(bz, bxr) || 1, b = [bz / bl, s * bxr / bl];  // in the scene's x, y
-  const ang = (/55°/.test(t.c) ? 55 : /60°|thread/i.test(t.c) ? 60 : 80) * Math.PI / 180 / 2, L = 9;
-  const rot = (v, a) => [v[0] * Math.cos(a) - v[1] * Math.sin(a), v[0] * Math.sin(a) + v[1] * Math.cos(a)];
-  const p1 = rot(b, ang).map((v) => v * L), p3 = rot(b, -ang).map((v) => v * L), p2 = b.map((v) => v * 2 * L * Math.cos(ang));
-  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(p1[0], p1[1]); sh.lineTo(p2[0], p2[1]); sh.lineTo(p3[0], p3[1]); sh.closePath();
-  const g = new THREE.ExtrudeGeometry(sh, { depth: 4, bevelEnabled: false }); g.translate(0, 0, -2);
-  R.toolG.add(new THREE.Mesh(g, m.accent));
-  // the holder: a 12 mm shank from behind the insert to the post: across (along X) for an OD tool, along Z
-  // for a boring bar (an inside tool's body can't reach across the axis)
-  const inside = bxr < 0, c = p2.map((v) => v * 0.6), len = 60;
-  if (inside) R.toolG.add(R.box(len, 10, 10, m.dark, c[0] + len / 2 * Math.sign(bz || 1), c[1], 0));
-  else R.toolG.add(R.box(12, len, 12, m.dark, c[0], c[1] + s * len / 2, 0));
+  const sh = LSTOCK.toolShape(t), s = LATHE.s, m = R.mat;
+  // a hull (x a radius, z) as a flat shape in the scene's x (Z) and y (s·X)
+  const flat = (h, depth, mat) => {
+    const pts = [...h.lo, ...h.hi.slice(1, -1).reverse()], sh2 = new THREE.Shape();
+    pts.forEach(([x, z], k) => (k ? sh2.lineTo(z, s * x) : sh2.moveTo(z, s * x)));
+    sh2.closePath();
+    const g = new THREE.ExtrudeGeometry(sh2, { depth, bevelEnabled: false }); g.translate(0, 0, -depth / 2);
+    return new THREE.Mesh(g, mat);
+  };
+  R.toolG.add(flat(sh.poly, sh.ins === "drill" ? Math.max(1, t.d) : 4, sh.ins === "drill" ? m.tool : m.accent));
+  if (sh.holder) R.toolG.add(flat(sh.holder, sh.side > 0 ? 12 : 10, m.dark));
 }
 
 // ------------------------------------------------------------ the DRO and the jog pad
@@ -222,13 +389,16 @@ function latheTurret() {
 }
 function latheRenderTools() {
   latheTurret();
-  $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">X off</th><th class="n">Z off</th><th class="n">Nose R</th><th class="n">Q</th><th class="n">Wear</th><th>Comment</th></tr></thead><tbody>` +
+  $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">X off</th><th class="n">Z off</th><th class="n">Nose R</th><th class="n">Q</th><th class="n">Insert</th><th class="n">Width</th><th class="n">Edge</th><th class="n">Wear</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in the turret" : ""}</td>
       <td class="n">${t.p}</td>
       <td class="n"><input data-k="x" data-i="${i}" type="number" step="0.001" value="${(+(t.x || 0)).toFixed(3)}" aria-label="T${t.t} X offset"></td>
       <td class="n"><input data-k="l" data-i="${i}" type="number" step="0.001" value="${(+(t.l || 0)).toFixed(3)}" aria-label="T${t.t} Z offset"></td>
       <td class="n"><input data-k="d" data-scale="2" data-i="${i}" type="number" step="0.1" value="${(t.d / 2).toFixed(2)}" aria-label="T${t.t} nose radius"></td>
       <td class="n"><select data-k="q" data-i="${i}" aria-label="T${t.t} orientation">${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<option value="${n}"${(t.q || 0) === n ? " selected" : ""}>${n}</option>`).join("")}</select></td>
+      <td class="n"><select data-k="ins" data-i="${i}" aria-label="T${t.t} insert">${INSERTS.map(([v, l]) => `<option value="${v}"${(t.ins || "") === v ? " selected" : ""}>${l}</option>`).join("")}</select></td>
+      <td class="n"><input data-k="w" data-i="${i}" type="number" step="0.1" min="0" value="${t.w || ""}" placeholder="—" aria-label="T${t.t} insert width"></td>
+      <td class="n"><input data-k="cl" data-i="${i}" type="number" step="0.5" min="0" value="${t.cl || ""}" placeholder="—" aria-label="T${t.t} cutting edge length"></td>
       <td class="n"><input data-k="wear" data-i="${i}" type="number" step="0.001" value="${(+(t.wear || 0)).toFixed(3)}" aria-label="T${t.t} wear"></td>
       <td><input class="txt" data-k="c" data-i="${i}" value="${esc(t.c)}" aria-label="T${t.t} comment"></td></tr>`).join("") + "</tbody>";
 }

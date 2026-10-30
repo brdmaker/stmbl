@@ -2396,3 +2396,45 @@ Entry format:
   which is a fixed spindle angle only when the ratio is a whole number.
 - Fix:     set `spindle.index_sensor` (one pulse a spindle turn) for other
   ratios.
+
+## 2026-10-30  Lathe tool orientation Q drawn mirrored
+- Area:    webui/mill/js/lathe.js (the tool's drawing), the simulated tools
+- Status:  Fixed
+- Symptom: an outside turning tool needed Q3 to look right in millweb;
+  LinuxCNC (G41/G42, AXIS) means Q2 for it.
+- Cause:   my orientation table swapped X and Z against LinuxCNC's.
+  glcanon.py lathe_shapes is the reference: the nose's centre is at
+  r·(dx, dz) from the controlled point (Q2: (1, 1)).
+- Fix:     stock.js's toolShape follows glcanon.py (the edges from I, J as
+  AXIS draws them); the view draws its outline; the demo tools are Q2 (turning,
+  grooving), Q6 (thread), Q3 (boring bar), Q7 (drill).
+
+## 2026-10-30  Material removal: a thread in a turned section
+- Area:    webui/mill/js/stock.js
+- Status:  Workaround
+- Symptom: threading passes turned the thread down to its minor Ø; pulling
+  the insert straight out of the groove read as a G0 into the stock.
+- Cause:   the stock is axisymmetric (rings along Z): a helix isn't.
+- Fix:     a 60° insert's passes along Z keep the major Ø and record the
+  depth (half the groove's volume taken); moving out over a thread cuts
+  nothing. Programs threading with another insert are cut as turning.
+
+## 2026-10-30  Live preview before the first status: machine coordinates
+- Area:    webui/mill/server/millweb.py (preview)
+- Status:  Known
+- Symptom: a program asked for before millweb has LinuxCNC's first status
+  came back with the work offset in it (X440 Z-195 for X15 Z0).
+- Cause:   the preview takes out the G5x + G92 from millweb's state, empty
+  until the first poll.
+- Fix:     none needed for the console (it asks after it has the status);
+  a test client waits for g5x first.
+
+## 2026-10-30  GUI sim suite: "the footer's line opens the last again"
+- Area:    webui/mill/test/gui/sim_suite.js (messages case)
+- Status:  Open
+- Symptom: fails alone and in the full run (51/52), also on the commit
+  before the material removal work: during its 10.5 s wait an "M1
+  optional stop" message becomes the last one, so the footer opens that.
+- Cause:   not found yet; the simulation's program reaches its M1 while
+  the case waits.
+- Fix:     idea: stop the program at the case's start (stop(t)).
