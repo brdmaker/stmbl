@@ -214,7 +214,7 @@ def setup_check(objects, model_path):
             raise ValueError("an object's src: builtin:vise, builtin:stock or model:<path>")
         num = lambda v, lim: max(-lim, min(lim, float(v))) if math.isfinite(float(v)) else 0.0  # noqa: E731
         c = {"id": str(o.get("id", ""))[:40] or "o%d" % len(out), "name": str(o.get("name", ""))[:80],
-             "role": o.get("role") if o.get("role") in ("fixture", "workpiece") else "fixture", "src": src,
+             "role": o.get("role") if o.get("role") in ("fixture", "workpiece", "part") else "fixture", "src": src,
              "frame": o.get("frame") if o.get("frame") in ("work", "machine") else "work",
              "pos": [num(v, 10000) for v in list(o.get("pos", (0, 0, 0)))[:3]],
              "rot": [num(v, 360) for v in list(o.get("rot", (0, 0, 0)))[:3]],

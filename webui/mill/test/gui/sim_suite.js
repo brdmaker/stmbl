@@ -869,6 +869,7 @@ test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it
 });
 
 test("messages: a warning as a large card that goes by itself; a fault stays until a tap; the footer opens the last again", async (t) => {
+  await stop(t);  // the simulation starts mid-program: its M1 would be the last message
   await t.ev(() => msg("Just so you know", "info"));
   t.check(await t.ev(() => document.getElementById("popmsg").hidden), "info: only the footer");
   await t.ev(() => msg("Soft limit: X can't go further", "warn"));
@@ -1003,6 +1004,23 @@ test("material removal (mill): the stock cut as it runs, the Preflight check, a 
   t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
   t.check(await t.until(() => MREM.R && MREM.R.i === prog.segs.length && MREM.mesh && MREM.mesh.visible && !setup.nodes.get("stock").node.visible), "the cut stock shown in place of the block");
   t.check(await t.ev(() => { const S = MREM.R.S; let cut = 0; for (let k = 0; k < S.top.length; k++) if (S.top[k] < S.top0[k] - 1) cut++; return cut > 10000; }), "cells cut down");
+  // against the finished part: a block faced to Z-0.5 (the facing program's result); then 0.2 higher: a gouge
+  await t.ev(() => {
+    const q = (o, a, b, c, d) => o.push(...a, ...b, ...c, ...a, ...c, ...d), tr = [];
+    q(tr, [0, 0, -0.5], [120, 0, -0.5], [120, 80, -0.5], [0, 80, -0.5]); q(tr, [0, 0, -25], [0, 80, -25], [120, 80, -25], [120, 0, -25]);
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(tr), 3)); g.computeBoundingBox();
+    setup.geoms.set("part.stl", g);
+    setup.objects.push({ id: "part", name: "part.stl", role: "part", src: "model:part.stl", frame: "work", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, look: "glass" });
+    buildObjects();
+    const p = library.find((x) => /FACING/.test(x.name)); loadProgram(p); fileSel = library.indexOf(p);
+  });
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /100\.0 % within ±0\.05/.test($("fl-rem").textContent) && /Gouges\s*none/.test($("fl-rem").innerText), null, 15000), "the facing against a part faced to Z-0.5: 100 % within ±0.05");
+  await t.ev(() => { objOf("part").pos = [0, 0, 0.2]; placeObjects(); renderPreflight(prog); });
+  t.check(await t.until(() => $("fl-rem") && /cuts 0\.20 mm into the part/.test($("fl-rem").textContent) && /1 CRASH RISK/.test($("fl-rem").textContent), null, 15000), "the part 0.2 higher: a 0.20 mm gouge, its line, one crash risk");
+  await t.click("#ms-cmp");
+  t.check(await t.until(() => MREM.cmp && MREM.final), "coloured against the part");
+  await t.ev(() => { setup.objects = setup.objects.filter((o) => o.id !== "part"); buildObjects(); MREM.cmp = false; MREM.final = false; });
   await t.ev(() => { st.m1 = true; });
   t.check(t.errors.length === 0, "no script errors");
 });

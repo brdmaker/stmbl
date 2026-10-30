@@ -93,6 +93,33 @@ ok(M.toolShape({ d: 5, c: "5 mm carbide drill" }).ty === "drill" && M.toolShape(
   const S = M.stock({ tris: [tris], cell: 0.5 });
   ok(near(S.top[S.nx * 10 + 10], 0, 1e-6) && near(S.bot[S.nx * 10 + 10], -10, 1e-6) && near(S.vol0, 12000, 1), "a model: its top and bottom", [S.vol0]);
 }
+// against the finished part: a block faced to Z-0.5; a pocket 20 x 20, 3 deep in it
+{
+  const quad = (out, a, b, c, d) => out.push(...a, ...b, ...c, ...a, ...c, ...d);
+  const block = (zt) => { const t = []; quad(t, [0, 0, zt], [120, 0, zt], [120, 80, zt], [0, 80, zt]); quad(t, [0, 0, -25], [0, 80, -25], [120, 80, -25], [120, 0, -25]); return new Float32Array(t); };
+  const face = (z, line) => { const segs = []; for (let y = -10; y <= 90; y += 40) segs.push(mv([-30, y, z], [150, y, z], { tool: 1, line })); return segs; };
+  let R = M.simulate({ ...BOX, part: [block(-0.5)] }, face(-0.5, 20), T);
+  ok(R.cmp && R.cmp.gouge.area === 0 && R.cmp.left.area === 0 && R.cmp.ok === R.cmp.cells, "faced to the part's Z-0.5: all within ±0.05", R.cmp && [R.cmp.gouge.area, R.cmp.left.area]);
+  R = M.simulate({ ...BOX, part: [block(-0.5)] }, face(-0.7, 21), T);
+  ok(near(R.cmp.gouge.max, 0.2, 1e-4) && R.find.some((f) => f.kind === "gouge" && f.line === 21 && f.level === "bad"), "faced to Z-0.7: a 0.2 gouge, line 21", R.find);
+  R = M.simulate({ ...BOX, part: [block(-0.5)] }, face(-0.3, 22), T);
+  ok(near(R.cmp.left.max, 0.2, 1e-4) && near(R.cmp.left.vol, 120 * 80 * 0.2, 120 * 80 * 0.2 * 0.01) && !R.find.some((f) => f.kind === "gouge"), "faced to Z-0.3: 0.2 left all over, no gouge", [R.cmp.left.max, R.cmp.left.vol]);
+  // the pocket: its floor at -3 from (50, 30) to (70, 50)
+  const t = [];
+  quad(t, [0, 0, 0], [50, 0, 0], [50, 80, 0], [0, 80, 0]); quad(t, [70, 0, 0], [120, 0, 0], [120, 80, 0], [70, 80, 0]);
+  quad(t, [50, 0, 0], [70, 0, 0], [70, 30, 0], [50, 30, 0]); quad(t, [50, 50, 0], [70, 50, 0], [70, 80, 0], [50, 80, 0]);
+  quad(t, [50, 30, -3], [70, 30, -3], [70, 50, -3], [50, 50, -3]); quad(t, [0, 0, -25], [0, 80, -25], [120, 80, -25], [120, 0, -25]);
+  const part = new Float32Array(t), pocket = (over, line) => {
+    const segs = [mv([53, 33, 5], [53, 33, -3], { line })];
+    for (let y = 33; y <= 47; y += 2) segs.push(mv([53, y, -3], [67 + (y === 41 ? over : 0), y, -3], { line: y === 41 ? line + 1 : line }), mv([67, y, -3], [53, y + 2 > 47 ? 47 : y + 2, -3], { line }));
+    return segs;
+  };
+  R = M.simulate({ ...BOX, part: [part] }, pocket(0, 30), T);
+  ok(R.cmp.gouge.area === 0 && R.cmp.left.max > 2 && R.cmp.left.area < 20, "the pocket: no gouge; its corners left (R3 can't reach them)", [R.cmp.gouge.area, R.cmp.left.max, R.cmp.left.area]);
+  R = M.simulate({ ...BOX, part: [part] }, pocket(1, 30), T);
+  const g = R.find.find((f) => f.kind === "gouge");
+  ok(g && g.line === 31 && near(R.cmp.gouge.max, 3, 1e-4) && R.cmp.gouge.at.x > 70, "a pass 1 mm too long: a 3 mm gouge in the wall, on its line", [g, R.cmp.gouge.max]);
+}
 // a move in parts: the same
 {
   const segs = [...plunge(10, 40, -3, 3), mv([10, 40, -3], [110, 60, -5]), mv([110, 60, -5], [20, 20, -1])];

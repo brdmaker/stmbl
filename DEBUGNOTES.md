@@ -2431,13 +2431,13 @@ Entry format:
 
 ## 2026-10-30  GUI sim suite: "the footer's line opens the last again"
 - Area:    webui/mill/test/gui/sim_suite.js (messages case)
-- Status:  Open
+- Status:  Fixed
 - Symptom: fails alone and in the full run (51/52), also on the commit
   before the material removal work: during its 10.5 s wait an "M1
   optional stop" message becomes the last one, so the footer opens that.
-- Cause:   not found yet; the simulation's program reaches its M1 while
-  the case waits.
-- Fix:     idea: stop the program at the case's start (stop(t)).
+- Cause:   the simulation starts with its demo program running; it reached
+  its M1 while the case waited, and that became the last message.
+- Fix:     the case stops the program first (stop(t)).
 
 ## 2026-10-30  Mill material removal: a fixture as its bounding box
 - Area:    webui/mill/js/mstock.js, millrem.js (fixtures)

@@ -248,7 +248,7 @@ function latheRemCard(p) {
   const form = `<div class="form">${num("d", "Stock Ø", 0.5)}${num("bore", "Bore Ø (tube)", 0.5)}${num("stick", "Out of the chuck", 1)}${num("face", "Its face at Z", 0.1)}${num("chuckD", "Chuck Ø", 5)}</div>`;
   const r = p.removal && p.removal.key === latheRemKey() ? p.removal : null;
   if (!r) { el.innerHTML = head("CHECKING…", "info") + form; latheCheck(p).then(() => { if ($("fl-rem") === el && st.page === "file") el.replaceWith(latheRemCard(p)); }); return el; }
-  const nb = r.find.filter((f) => f.level === "bad").length, nw = r.find.filter((f) => f.level === "warn").length, S = r.S;
+  const nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn"), S = r.S;
   let dmax = 0, last = -1; for (let i = 0; i < S.n; i++) if (LSTOCK.solid(S, i)) { dmax = Math.max(dmax, S.rout[i] * 2); last = i; }
   const cm3 = (v) => (v / 1000).toFixed(1) + " cm³";
   const tools = Object.entries(r.stat.byTool).filter(([, b]) => b.vol > 0.5).map(([t, b]) => `<dt>T${t}</dt><dd>${cm3(b.vol)} · ${b.mrr.toFixed(1)}/min · ap ${b.depth.toFixed(2)}</dd>`).join("");

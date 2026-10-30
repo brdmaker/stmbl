@@ -455,6 +455,14 @@ class Protocol(Base):
         self.assertNotIn("extra", st["objects"][2])
         saved = json.load(open(os.path.join(self.d, "millweb-setup.json")))
         self.assertEqual(saved["objects"][2]["src"], "model:fixtures/plate.stl")
+        # the finished part (the material removal compares with it); an unknown role: a fixture
+        ok(await self.call(ws, "setup_save", objects=objs + [{"id": "q", "name": "part", "role": "part", "src": "model:a.stl", "frame": "work",
+                                                               "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1, "look": "glass"},
+                                                              {"id": "r", "role": "toy", "src": "model:b.obj"}]))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 5)
+        self.assertEqual([o["role"] for o in st["objects"][3:]], ["part", "fixture"])
+        ok(await self.call(ws, "setup_save", objects=objs))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 3)
         for bad, why in (([{"src": "model:nope.stl"}], "no such model"), ([{"src": "file:/etc/passwd"}], "src"),
                          ([{"src": "model:../x.stl"}], "names"), ([{"src": "builtin:vise", "id": "a"}, {"src": "builtin:stock", "id": "a"}], "unique"),
                          ("x", "a list"), ([{"src": "builtin:vise", "pos": [1, 2]}], "three numbers")):

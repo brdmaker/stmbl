@@ -6,12 +6,12 @@
 "use strict";
 
 // budget: the drawn surface's points, halved while frames take over 50 ms with it shown (a software renderer)
-const MREM = { R: null, prog: null, key: "", ver: 0, built: -1, at: 0, mesh: null, checked: null, final: false, through: -1, budget: 40000, last: 0, slow: 0 };
+const MREM = { R: null, prog: null, key: "", ver: 0, built: -1, at: 0, mesh: null, checked: null, final: false, cmp: false, through: -1, budget: 40000, last: 0, slow: 0 };
 let millRemVer = 0;  // the setup's objects changed (their nodes rebuilt): the stock again
 
 // the setup in the work's coordinates: the workpieces as boxes or triangles, the fixtures as boxes
 function millRemSetup() {
-  const o = off(), g = st.g92, boxes = [], tris = [], fixtures = { boxes: [], tris: [] };
+  const o = off(), g = st.g92, boxes = [], tris = [], fixtures = { boxes: [], tris: [] }, part = [];
   if (!R) return { boxes, tris, fixtures };
   R.objGroup.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(R.objGroup.matrixWorld).invert(), w = new THREE.Vector3(o.x + g.x, o.y + g.y, o.z + g.z + ZTOP);
@@ -24,18 +24,19 @@ function millRemSetup() {
       m.multiplyMatrices(inv, c.matrixWorld);
       if (builtin) {
         const box = c.geometry.boundingBox.clone().applyMatrix4(m);
+        if (ob.role === "part") return;  // a part is a model
         (ob.role === "fixture" ? fixtures.boxes : boxes).push({ name, x0: box.min.x - w.x, y0: box.min.y - w.y, z0: box.min.z - w.z, x1: box.max.x - w.x, y1: box.max.y - w.y, z1: box.max.z - w.z });
       } else {
         const p = c.geometry.attributes.position, v = new THREE.Vector3(), out = new Float32Array(p.count * 3);
         for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m).sub(w); out.set([v.x, v.y, v.z], i * 3); }
-        (ob.role === "fixture" ? fixtures.tris : tris).push(out);
+        (ob.role === "fixture" ? fixtures.tris : ob.role === "part" ? part : tris).push(out);
       }
     });
   }
-  return { boxes, tris, fixtures };
+  return { boxes, tris, fixtures, part };
 }
 const millRemKey = () => JSON.stringify([setup.objects.map((o) => [o.id, o.src, o.role, o.pos, o.rot, o.scale, o.frame]), off(), st.g92, typeof latheVer !== "undefined" ? latheVer : 0, millRemVer, setup.nodes.size]);
-const millRemOpts = () => ({ ...millRemSetup(), cell: 0.25, maxCells: 250000 });
+const millRemOpts = () => ({ ...millRemSetup(), cell: 0.25, maxCells: 250000, tol: 0.05 });
 
 // every frame: the stock as far as the program is; all of it when done or the finished part is asked for
 function millRemFollow(now) {
@@ -49,7 +50,9 @@ function millRemFollow(now) {
   const key = millRemKey();
   if (!MREM.R || MREM.prog !== prog || MREM.key !== key || to < MREM.R.i) {
     if (MREM.prog !== prog || MREM.key !== key) millCheckLoaded();
-    MREM.R = MSTOCK.begin(millRemOpts()); MREM.prog = prog; MREM.key = key; MREM.ver++; MREM.through = -1;
+    const o = millRemOpts();
+    MREM.R = MSTOCK.begin(o); MREM.prog = prog; MREM.key = key; MREM.ver++; MREM.through = -1;
+    MREM.R.P = o.part.length ? MSTOCK.partMap(MREM.R.S, o.part) : null;  // the finished part on its cells (the view's colours)
   }
   if (to > MREM.R.i || u > 0) {
     const lim = Math.min(to, MREM.R.i + 3000);
@@ -73,7 +76,7 @@ function millRemMesh() {
   const S = MREM.R.S, sd = Math.max(1, Math.ceil(Math.sqrt(S.nx * S.ny / MREM.budget))), nx = Math.ceil(S.nx / sd), ny = Math.ceil(S.ny / sd), N = nx * ny;
   const o = off(), g = st.g92, c = S.cell * sd;
   let full = false;
-  if (!MREM.mesh || MREM.mesh.userData.S !== S || MREM.mesh.userData.sd !== sd) {
+  if (!MREM.mesh || MREM.mesh.userData.S !== S || MREM.mesh.userData.sd !== sd || MREM.mesh.userData.cmp !== MREM.cmp) {
     if (MREM.mesh) { MREM.mesh.parent.remove(MREM.mesh); MREM.mesh.geometry.dispose(); }
     const geo = new THREE.BufferGeometry(), ring = [];
     for (let i = 0; i < nx; i++) ring.push(i);
@@ -90,9 +93,9 @@ function millRemMesh() {
       nor.set(n, (N + r) * 3); nor.set(n, (N + ring.length + r) * 3);
     });
     for (const [n, a] of [["position", pos], ["color", col], ["normal", nor]]) geo.setAttribute(n, new THREE.BufferAttribute(a, 3));
-    geo.userData = { ring, N, h: new Float32Array(N), bot: new Float32Array(N), sol: new Uint8Array(N), tool: new Uint8Array(N) };
+    geo.userData = { ring, N, h: new Float32Array(N), bot: new Float32Array(N), sol: new Uint8Array(N), tool: new Uint8Array(N), cell: new Int32Array(N) };
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.5 });
-    MREM.mesh = new THREE.Mesh(geo, mat); MREM.mesh.userData.S = S; MREM.mesh.userData.sd = sd; MREM.through = -1;
+    MREM.mesh = new THREE.Mesh(geo, mat); MREM.mesh.userData.S = S; MREM.mesh.userData.sd = sd; MREM.mesh.userData.cmp = MREM.cmp; MREM.through = -1;
     R.workG.add(MREM.mesh);
     full = true;
   }
@@ -105,18 +108,18 @@ function millRemMesh() {
   // each point from its block of cells: the lowest solid top (a hole: none solid)
   let holes = full;
   for (let j = j0; j <= j1; j++) for (let i = 0; i < nx; i++) {
-    let lo = Infinity, bot = Infinity, t = 0, any = false;
+    let lo = Infinity, bot = Infinity, t = 0, any = false, km = -1;
     for (let jj = j * sd; jj < Math.min(S.ny, j * sd + sd); jj++) for (let ii = i * sd; ii < Math.min(S.nx, i * sd + sd); ii++) {
       const k = jj * S.nx + ii;
       if (S.tool[k] === 255) continue;
       bot = Math.min(bot, S.bot[k]);
       if (!MSTOCK.solid(S, k)) continue;
       any = true;
-      if (S.top[k] < lo) { lo = S.top[k]; t = S.top[k] < S.top0[k] - 1e-6 ? S.tool[k] : 0; }
+      if (S.top[k] < lo) { lo = S.top[k]; km = k; t = S.top[k] < S.top0[k] - 1e-6 ? S.tool[k] : 0; }
     }
     const k = j * nx + i, sol = any ? 1 : 0;
     if (sol !== U.sol[k]) holes = true;
-    U.sol[k] = sol; U.bot[k] = Number.isFinite(bot) ? bot : 0; U.h[k] = any ? lo : U.bot[k]; U.tool[k] = t;
+    U.sol[k] = sol; U.bot[k] = Number.isFinite(bot) ? bot : 0; U.h[k] = any ? lo : U.bot[k]; U.tool[k] = t; U.cell[k] = km;
   }
   const base = [0.78, 0.81, 0.85], H = (i, j) => U.h[Math.min(ny - 1, Math.max(0, j)) * nx + Math.min(nx - 1, Math.max(0, i))];
   for (let j = Math.max(0, j0 - 1); j <= Math.min(ny - 1, j1 + 1); j++) for (let i = 0; i < nx; i++) {
@@ -125,7 +128,14 @@ function millRemMesh() {
     const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * c), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * c), l = Math.hypot(gx, gy, 1);
     nor[k * 3] = -gx / l; nor[k * 3 + 1] = -gy / l; nor[k * 3 + 2] = 1 / l;
     let cc = base;
-    if (t) { const tc = toolColors[t] || millToolCol(t); cc = [tc[0] * 0.75 + base[0] * 0.25, tc[1] * 0.75 + base[1] * 0.25, tc[2] * 0.75 + base[2] * 0.25]; }
+    const P = MREM.cmp && MREM.R.P, kc = U.cell[k];
+    if (P && kc >= 0 && !Number.isNaN(P.lo[kc])) {  // against the part: red a gouge, blue stock left (to 2 mm), green within ±0.05
+      const z = U.h[k];
+      if (z < P.lo[kc] - 0.05) { const f = Math.min(1, (P.lo[kc] - z) / 0.5); cc = [1, 0.45 - 0.3 * f, 0.45 - 0.3 * f]; }
+      else if (z > P.hi[kc] + 0.05) { const f = Math.min(1, (z - P.hi[kc]) / 2); cc = [0.55 - 0.35 * f, 0.75 - 0.3 * f, 1]; }
+      else cc = [0.37, 0.88, 0.55];
+    } else if (P) cc = [0.45, 0.48, 0.52];
+    else if (t) { const tc = toolColors[t] || millToolCol(t); cc = [tc[0] * 0.75 + base[0] * 0.25, tc[1] * 0.75 + base[1] * 0.25, tc[2] * 0.75 + base[2] * 0.25]; }
     col.set(cc, k * 3);
   }
   ring.forEach((k, r) => {
@@ -166,6 +176,7 @@ async function millCheck(p) {
     MSTOCK.run(R2, p.segs, st.tools, i);
     if (i < p.segs.length) await nextFrame();
   }
+  if (R2.o.part.length) MSTOCK.against(R2, R2.o.part, R2.o.tol);  // the finished part: gouges, stock left
   const order = { bad: 0, warn: 1, info: 2 };
   R2.find.sort((a, b) => order[a.level] - order[b.level] || a.line - b.line);
   R2.key = key; p.mremoval = R2;
@@ -193,6 +204,8 @@ function millMarks(find) {
     m.renderOrder = 12; m.position.set(f.x + o.x + g.x, f.y + o.y + g.y, f.z + o.z + g.z + ZTOP); R.mfindG.add(m);
   }
 }
+// how many findings of a level, a kind and tool counted once (as remFindList shows them)
+const remCount = (find, level) => new Set(find.filter((f) => f.level === level).map((f) => f.kind + ":" + f.tool)).size;
 // findings for a card: one item a kind and tool (its first line; how many lines more), the worst first
 function remFindList(find) {
   const groups = new Map();
@@ -207,19 +220,29 @@ function millRemCard(p) {
   if (!setup.objects.some((o) => o.role === "workpiece")) { el.innerHTML = head("NO STOCK", "info") + `<p class="note">No workpiece in the 3D setup: add one (the stock) to check the program against it.</p>`; return el; }
   const r = p.mremoval && p.mremoval.key === millRemKey() ? p.mremoval : null;
   if (!r) { el.innerHTML = head("CHECKING…", "info"); millCheck(p).then(() => { if ($("fl-rem") === el && st.page === "file") el.replaceWith(millRemCard(p)); }); return el; }
-  const nb = r.find.filter((f) => f.level === "bad").length, nw = r.find.filter((f) => f.level === "warn").length, S = r.S;
+  const nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn"), S = r.S;
   const cm3 = (v) => (v / 1000).toFixed(1) + " cm³";
   const tools = Object.entries(r.stat.byTool).filter(([, b]) => b.vol > 0.5).map(([t, b]) => `<dt>T${t}</dt><dd>${cm3(b.vol)} · ${b.mrr.toFixed(1)}/min · ap ${b.ap.toFixed(2)}${b.fz > 0 ? ` · fz ${b.fz.toFixed(3)}` : ""}</dd>`).join("");
   let zl = Infinity; for (let k = 0; k < S.top.length; k++) if (MSTOCK.solid(S, k)) zl = Math.min(zl, S.top[k]);
   el.innerHTML = head(nb ? `${nb} CRASH RISK${nb > 1 ? "S" : ""}` : nw ? `${nw} WARNING${nw > 1 ? "S" : ""}` : "CLEAN", nb ? "bad" : nw ? "warn" : "ok") +
     `<dl class="kv"><dt>Stock</dt><dd>${(S.nx * S.cell).toFixed(0)} × ${(S.ny * S.cell).toFixed(0)} · ${S.cell.toFixed(2)} mm cells</dd><dt>Removed</dt><dd>${cm3(r.stat.vol)} of ${cm3(S.vol0)}</dd><dt>Cut · air</dt><dd>${mmss(r.stat.cutT)} · ${mmss(r.stat.air)}</dd>${tools}
-      <dt>Deepest floor</dt><dd>${Number.isFinite(zl) ? "Z" + zl.toFixed(2) : "—"}</dd></dl>` +
+      <dt>Deepest floor</dt><dd>${Number.isFinite(zl) ? "Z" + zl.toFixed(2) : "—"}</dd></dl>` + millCmpBlock(r) +
     (r.find.length ? remFindList(r.find)
       : `<p class="note">No rapid into the stock; every cut within the flutes; holders and tools clear of the stock and the fixtures.</p>`) +
-    `<div class="row"><button class="btn sm" id="ms-final" aria-pressed="${MREM.final}">${MREM.final ? "Showing the finished part" : "Show the finished part"}</button></div>`;
+    `<div class="row"><button class="btn sm" id="ms-final" aria-pressed="${MREM.final}">${MREM.final ? "Showing the finished part" : "Show the finished part"}</button>${r.cmp ? `<button class="btn sm" id="ms-cmp" aria-pressed="${MREM.cmp}">${MREM.cmp ? "Coloured against the part" : "Colour against the part"}</button>` : ""}</div>`;
   return el;
 }
+// the comparison with the finished part (the setup's part): gouges, stock left, within the tolerance
+function millCmpBlock(r) {
+  const c = r.cmp;
+  if (!c) return `<p class="note">Add the finished part's model to the setup (role: finished part) to compare the result with it.</p>`;
+  const pct = c.cells ? (100 * c.ok / c.cells).toFixed(1) : "—", at = c.gouge.at;
+  return `<dl class="kv"><dt>Against the part</dt><dd>${pct} % within ±${c.tol}</dd>
+    <dt>Gouges</dt><dd class="${c.gouge.area ? "bad" : ""}">${c.gouge.area ? `${c.gouge.area.toFixed(1)} mm² · to ${c.gouge.max.toFixed(2)} mm${at ? ` · ${nline(at.line)} T${at.tool}` : ""}` : "none"}</dd>
+    <dt>Stock left</dt><dd>${c.left.area ? `${(c.left.vol / 1000).toFixed(2)} cm³ · to ${c.left.max.toFixed(2)} mm` : "none"}</dd></dl>`;
+}
 document.addEventListener("click", (e) => {
+  if (e.target.id === "ms-cmp") { MREM.cmp = !MREM.cmp; MREM.final = MREM.final || MREM.cmp; MREM.built = -1; e.target.setAttribute("aria-pressed", String(MREM.cmp)); e.target.textContent = MREM.cmp ? "Coloured against the part" : "Colour against the part"; return; }
   if (e.target.id !== "ms-final") return;
   MREM.final = !MREM.final; e.target.setAttribute("aria-pressed", String(MREM.final)); e.target.textContent = MREM.final ? "Showing the finished part" : "Show the finished part";
 });

@@ -61,22 +61,7 @@ const MSTOCK = (() => {
         S.bot[k] = Math.min(S.bot[k], b.z0);
       }
     }
-    // a model: each triangle over the cells under it, its height there into their top and bottom
-    for (const T of tris) for (let t = 0; t + 8 < T.length; t += 9) {
-      const ax = T[t], ay = T[t + 1], az = T[t + 2], bx = T[t + 3], by = T[t + 4], bz = T[t + 5], qx = T[t + 6], qy = T[t + 7], qz = T[t + 8];
-      const den = (by - qy) * (ax - qx) + (qx - bx) * (ay - qy);
-      if (Math.abs(den) < 1e-12) continue;  // edge-on from above
-      const i0 = Math.max(0, Math.floor((Math.min(ax, bx, qx) - x0) / cell - 0.5)), i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, bx, qx) - x0) / cell - 0.5));
-      const j0 = Math.max(0, Math.floor((Math.min(ay, by, qy) - y0) / cell - 0.5)), j1 = Math.min(ny - 1, Math.ceil((Math.max(ay, by, qy) - y0) / cell - 0.5));
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-        const px = cx(i), py = cy(j);
-        const u = ((by - qy) * (px - qx) + (qx - bx) * (py - qy)) / den, v = ((qy - ay) * (px - qx) + (ax - qx) * (py - qy)) / den, w = 1 - u - v;
-        if (u < -1e-9 || v < -1e-9 || w < -1e-9) continue;
-        const z = u * az + v * bz + w * qz, k = j * nx + i;
-        if (z > S.top[k]) S.top[k] = z;
-        if (z < S.bot[k]) S.bot[k] = z;
-      }
-    }
+    raster(S, tris, S.top, S.bot);  // a model: its triangles' highest and lowest point over each cell
     for (let k = 0; k < nx * ny; k++) {
       if (!(S.top[k] > S.bot[k])) { S.top[k] = S.bot[k] = 0; S.tool[k] = 255; continue; }  // no stock here
       S.vol0 += (S.top[k] - S.bot[k]) * cell * cell;
@@ -84,15 +69,78 @@ const MSTOCK = (() => {
     }
     S.top0 = S.top.slice();
     S.dirty = [Infinity, -Infinity];
+    S.line = new Int32Array(nx * ny);  // the line that cut each cell last
     return S;
   }
+  // each triangle over the cells under it (their centres): its height there into top (the highest) and bot
+  function raster(S, tris, top, bot) {
+    const { x0, y0, cell, nx, ny } = S;
+    for (const T of tris) for (let t = 0; t + 8 < T.length; t += 9) {
+      const ax = T[t], ay = T[t + 1], az = T[t + 2], bx = T[t + 3], by = T[t + 4], bz = T[t + 5], qx = T[t + 6], qy = T[t + 7], qz = T[t + 8];
+      const den = (by - qy) * (ax - qx) + (qx - bx) * (ay - qy);
+      if (Math.abs(den) < 1e-12) continue;  // edge-on from above
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx, qx) - x0) / cell - 0.5)), i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, bx, qx) - x0) / cell - 0.5));
+      const j0 = Math.max(0, Math.floor((Math.min(ay, by, qy) - y0) / cell - 0.5)), j1 = Math.min(ny - 1, Math.ceil((Math.max(ay, by, qy) - y0) / cell - 0.5));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = x0 + (i + 0.5) * cell, py = y0 + (j + 0.5) * cell;
+        const u = ((by - qy) * (px - qx) + (qx - bx) * (py - qy)) / den, v = ((qy - ay) * (px - qx) + (ax - qx) * (py - qy)) / den, w = 1 - u - v;
+        if (u < -1e-9 || v < -1e-9 || w < -1e-9) continue;
+        const z = u * az + v * bz + w * qz, k = j * nx + i;
+        if (z > top[k]) top[k] = z;
+        if (bot && z < bot[k]) bot[k] = z;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ against the finished part
+  // the part's model on the stock's cells: {top, lo, hi} (lo/hi: the lowest and highest top of a cell and its eight
+  // neighbours: a wall inside a cell counts neither as a gouge nor as stock left); NaN off the part
+  function partMap(S, tris) {
+    const n = S.nx * S.ny, top = new Float32Array(n).fill(-Infinity), lo = new Float32Array(n), hi = new Float32Array(n);
+    raster(S, tris, top, null);
+    for (let j = 0; j < S.ny; j++) for (let i = 0; i < S.nx; i++) {
+      const k = j * S.nx + i;
+      if (top[k] === -Infinity) { lo[k] = hi[k] = NaN; continue; }
+      let a = Infinity, b = -Infinity;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj;
+        if (ii < 0 || jj < 0 || ii >= S.nx || jj >= S.ny) continue;
+        const v = top[jj * S.nx + ii] === -Infinity ? S.bot[jj * S.nx + ii] : top[jj * S.nx + ii];  // off the part: down to the stock's bottom
+        a = Math.min(a, v); b = Math.max(b, v);
+      }
+      lo[k] = a; hi[k] = b;
+    }
+    return { top, lo, hi };
+  }
+  // the stock now against the part: per cell d (the stock's top less the part's: < 0 a gouge, > 0 stock left, NaN
+  // off the part), the gouges (each line that cut one: its deepest), what is left, the share within tol
+  function compare(S, P, tol = 0.05) {
+    const n = S.nx * S.ny, d = new Float32Array(n).fill(NaN), a = S.cell * S.cell;
+    const out = { d, tol, gouge: { max: 0, area: 0, at: null, lines: new Map() }, left: { max: 0, vol: 0, area: 0 }, cells: 0, ok: 0 };
+    for (let k = 0; k < n; k++) {
+      if (Number.isNaN(P.lo[k]) || S.tool[k] === 255) continue;
+      const z = solid(S, k) ? S.top[k] : S.bot[k];
+      out.cells++;
+      if (z < P.lo[k] - tol) {
+        const g = P.lo[k] - z; d[k] = -g;
+        out.gouge.area += a;
+        if (g > out.gouge.max) { out.gouge.max = g; out.gouge.at = { x: S.x0 + (k % S.nx + 0.5) * S.cell, y: S.y0 + ((k / S.nx | 0) + 0.5) * S.cell, z, line: S.line[k], tool: S.tool[k] }; }
+        const L = S.line[k], m = out.gouge.lines.get(L);
+        if (!m || g > m.g) out.gouge.lines.set(L, { g, tool: S.tool[k], x: S.x0 + (k % S.nx + 0.5) * S.cell, y: S.y0 + ((k / S.nx | 0) + 0.5) * S.cell, z });
+      } else if (z > P.hi[k] + tol) {
+        const l = z - P.hi[k]; d[k] = l;
+        out.left.max = Math.max(out.left.max, l); out.left.vol += l * a; out.left.area += a;
+      } else { d[k] = 0; out.ok++; }
+    }
+    return out;
+  }
   const solid = (S, k) => S.tool[k] !== 255 && S.top[k] > S.bot[k] + 1e-6;
-  const copy = (S) => ({ ...S, top: S.top.slice(), tool: S.tool.slice() });
+  const copy = (S) => ({ ...S, top: S.top.slice(), tool: S.tool.slice(), line: S.line.slice() });
 
   // one move of a tool from p0 to p1 ([x, y, z], its tip): the stock cut (unless dry: a probe) and what it found
   // {vol: removed [mm³], ap: the deepest cut, flutes: deeper than the flutes by, holder: the holder's overlap,
   //  through: below the stock's bottom by}
-  function cut(S, sh, tool, p0, p1, dry) {
+  function cut(S, sh, tool, p0, p1, dry, line) {
     const out = { vol: 0, ap: 0, flutes: 0, holder: 0, through: 0, touched: 0 };
     const lo = Math.min(p0[2], p1[2]);
     // the holder's wider ring only when its bottom can be below the stock's top
@@ -141,7 +189,7 @@ const MSTOCK = (() => {
         if (zb < S.bot[k]) out.through = Math.max(out.through, S.bot[k] - zb);
         out.vol += depth * c * c;
         if (dry) continue;
-        S.top[k] = Math.max(zb, S.bot[k]); S.tool[k] = tool;
+        S.top[k] = Math.max(zb, S.bot[k]); S.tool[k] = tool; if (line) S.line[k] = line;
         const D = S.dirty;  // the rows changed since the view last drew
         if (j < D[0]) D[0] = j;
         if (j > D[1]) D[1] = j;
@@ -206,7 +254,7 @@ const MSTOCK = (() => {
       const tool = s.tool || R.tool;
       if (!tool) continue;
       const sh = shapeOf(R, tools, tool), p0 = [s.x0, s.y0, s.z0], p1 = [s.x, s.y, s.z];
-      const r = cut(R.S, sh, tool, p0, p1, sh.probe);
+      const r = cut(R.S, sh, tool, p0, p1, sh.probe, s.line);
       const len = Math.hypot(s.x - s.x0, s.y - s.y0, s.z - s.z0), t = s.t || (s.f > 0 ? len / s.f * 60 : 0);
       if (!sh.probe) {
         R.stat.vol += r.vol;
@@ -235,17 +283,26 @@ const MSTOCK = (() => {
     }
     if (u > 0 && R.i < segs.length && segs[R.i].k === "mv") {  // the move on: as far as it is
       const s = segs[R.i], tool = s.tool || R.tool, sh = tool && shapeOf(R, tools, tool);
-      if (sh && !sh.probe) cut(R.S, sh, tool, [s.x0, s.y0, s.z0], [s.x0 + (s.x - s.x0) * u, s.y0 + (s.y - s.y0) * u, s.z0 + (s.z - s.z0) * u]);
+      if (sh && !sh.probe) cut(R.S, sh, tool, [s.x0, s.y0, s.z0], [s.x0 + (s.x - s.x0) * u, s.y0 + (s.y - s.y0) * u, s.z0 + (s.z - s.z0) * u], false, s.line);
     }
     return R;
   }
+  // a run's findings for the gouges against the part (o.part: its triangles), and R.cmp
+  function against(R, partTris, tol = 0.05) {
+    if (!partTris || !partTris.length) return null;
+    R.P = R.P || partMap(R.S, partTris);
+    const c = R.cmp = compare(R.S, R.P, tol), fmt = (v) => (+v).toFixed(2);
+    for (const [line, g] of c.gouge.lines) R.find.push({ kind: "gouge", level: "bad", line, tool: g.tool, x: g.x, y: g.y, z: g.z, text: `T${g.tool} cuts ${fmt(g.g)} mm into the part` });
+    return c;
+  }
   function simulate(o, segs, tools) {
     const R = run(begin(o), segs, tools, segs.length);
+    if (o.part) against(R, o.part, o.tol);
     const order = { bad: 0, warn: 1, info: 2 };
     R.find.sort((a, b) => order[a.level] - order[b.level] || a.line - b.line);
     return R;
   }
 
-  return { toolShape, prof, stock, fixtures, fixHit, cut, copy, begin, run, simulate, solid };
+  return { toolShape, prof, stock, fixtures, fixHit, cut, copy, begin, run, simulate, solid, raster, partMap, compare, against };
 })();
 if (typeof module !== "undefined") module.exports = MSTOCK;

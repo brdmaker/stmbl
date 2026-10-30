@@ -387,6 +387,12 @@ M-code subroutines on both sides:
   - through the stock's bottom (a note).
 
   Repeats are one finding with their count; a tap shows the line, and marks sit in the view. Also shown: the volume, cutting against air time, each tool's removal rate, deepest cut and chip load (from its flutes and the spindle's speed, when the program gives it).
+- **Against the finished part:** a model in the setup with the role *finished part* (the File page's **+ part**, or the object's panel), placed like the stock, see-through. After the whole run its top is compared with the stock's, cell by cell:
+  - a **gouge** (the stock below the part by more than ±0.05 mm) is a crash risk, given with the line and tool that cut it;
+  - **stock left** is its volume and thickness;
+  - the share within ±0.05.
+
+  A wall inside a cell counts as neither: a gouge is measured from the part's lowest point among a cell and its neighbours, stock left from the highest. **Colour against the part** shows the run's result red where it gouges (deeper red to 0.5 mm), blue where stock is left (to 2 mm), green within the tolerance.
 - **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path.
 
 ## The 3D setup

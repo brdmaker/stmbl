@@ -515,7 +515,7 @@ const Live = (() => {
       sub.map((x) => { const n = files.filter((f) => f.name.startsWith(x + "/")).length;
         return `<button class="file dir" data-dir="${esc(x)}" aria-pressed="${sel("dir", x)}"><span><b>${esc(baseName(x))}/</b><br><span class="muted">${n} program${n === 1 ? "" : "s"}</span></span><span></span><span class="btn sm" data-open="1">Open</span></button>`; }).join("") +
       here.map(([f, i]) => f.kind === "model"
-        ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${(f.size / 1024).toFixed(1)} kB${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span></span></button>`
+        ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${(f.size / 1024).toFixed(1)} kB${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span><span class="btn sm" data-add="part">+ part</span></span></button>`
         : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
       `<p class="note">No programs in ${d ? esc(d) : esc(info ? info.nc_dir : "the program folder")}. Upload some, or drop them here.</p>`;
     if (L.sel && !(L.sel.kind === "dir" ? dirs.includes(L.sel.path) : files.some((f) => f.name === L.sel.path))) L.sel = null;
@@ -572,7 +572,7 @@ const Live = (() => {
     $("fl-cards").innerHTML = `<div class="card"><h3>3D model <span class="pill ${inSetup(name) ? "ok" : "info"}">${inSetup(name) ? "IN THE SETUP" : "NOT IN THE SETUP"}</span></h3><dl class="kv">
       <dt>Size X × Y × Z</dt><dd>${m.size.map((v) => v.toFixed(1)).join(" × ")} mm</dd><dt>Triangles</dt><dd>${m.tris.toLocaleString("en-US")}</dd></dl>
       ${big < 5 ? `<p class="note">Under 5 mm across: drawn in inches? Set its scale to 25.4 in the 3D view.</p>` : ""}
-      <div class="row"><button class="btn sm" data-addsel="fixture">Add as fixture</button><button class="btn sm" data-addsel="workpiece">Add as workpiece</button></div></div>`;
+      <div class="row"><button class="btn sm" data-addsel="fixture">Add as fixture</button><button class="btn sm" data-addsel="workpiece">Add as workpiece</button><button class="btn sm" data-addsel="part" title="The finished part: the program's result is compared with it">Add as the finished part</button></div></div>`;
     $("fl-code").textContent = "Added to the setup it appears in the 3D view: a workpiece with its top at work Z0 and its front-left corner at X0 Y0, a fixture on the table under the work zero. Click it there to move, turn, scale or hide it.";
   }
   $("fl-cards").addEventListener("click", (e) => { const b = e.target.closest("[data-addsel]"); if (b && LIVE && L.sel) addModel(L.sel.path, b.dataset.addsel); });
