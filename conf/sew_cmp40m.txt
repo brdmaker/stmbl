@@ -4,20 +4,32 @@ link pmsm
 link res_fb0
 link misc
 # SEW-EURODRIVE CMP40M/BP/KTY/RH1M/SB, 3000 rpm, 400 V class (on a PSF121
-# planetary gear unit, i = 10: this config is the motor's side). From the
-# plate and SEW's CMP catalog, line-to-line values halved; not yet run:
-# measure r and l, then autotune (host/tests/motors.py sew_cmp40m).
-conf0.r = 9.96
-conf0.l = 0.02275
-conf0.psi = 0.1455
+# planetary gear unit, i = 10: this config is the motor's side).
+# Commissioned with the setup wizard on the Delta bench, 2026-10-29, gear
+# removed, 202 V bus (drive 208535A05631, report in that drive's backups):
+# r, l, psi, offset (id_pmsm), j, d, f, o (id_mot), the gains (id_pid).
+# Catalog values before that: r 9.96, l 0.02275, psi 0.1455, j 1.8e-5.
+conf0.r = 22.5362
+conf0.l = 0.0278759
+conf0.psi = 0.153473
 conf0.polecount = 3
-conf0.j = 0.000018
-conf0.max_ac_cur = 8.5
-conf0.max_force = 3.8
-conf0.max_vel = 314
+conf0.out_rev = 1
+conf0.mot_fb_offset = -0.556972
+conf0.j = 2.08642e-05
+conf0.d = 0.000163318
+conf0.f = 0.0218855
+conf0.o = -0.000351823
+conf0.pos_bw = 35.3813
+conf0.vel_bw = 500
+conf0.vel_d = 1.93044
+conf0.max_ac_cur = 8.48528
+iit0.cur_boost = 5
+conf0.max_force = 5.86018
+# 2000 rpm on the bench's 202 V; at 314 V the back-EMF allows ~3000 rpm
+conf0.max_vel = 209.44
 conf0.mot_fb_rev = 1
-# RH1M: a 2-pole resolver (one electrical turn per turn); try 10 kHz, then
-# 5 kHz if res0.amp is low; res0.phase and the offset from commissioning
+# RH1M: a 2-pole resolver (one electrical turn per turn), 10 kHz; res0.amp
+# 0.259 at res0.phase 0.85 (the default, swept: the best)
 conf0.mot_fb_polecount = 1
 # SEW resolver cable (green, 5 pairs) to the feedback RJ45, measured:
 #   grey/pink R1/R2 excitation 77.4 ohm  -> 5 Ref+ / 4 Ref-
@@ -26,6 +38,13 @@ conf0.mot_fb_polecount = 1
 #   brown/white KTY84 576 ohm at ~20 C (to the HV temp connector, hv0.mot_temp in ohm)
 #   violet/black 1 ohm: a bridge at the motor, unused
 # angle backwards: swap green and yellow
+# The KTY on the HV board couples the inverter's switching into the resolver
+# (its wires share the signal cable): res0.amp fell to 0.16..0.25 enabled,
+# fault 2 under motion. Commissioned without it (thermal model only), see
+# DEBUGNOTES 2026-10-29. Better: the KTY on FB0 pins 7 / 8 with the
+# resolver, JP2 opened, `link mtemp_fb0` (docs/motor_temp_lv.md).
 res0.freq = 10000
-# brake BP (24 V DC, 0.95 Nm) on out0, as festo.txt
+# brake BP (24 V DC, 0.95 Nm) on out0, as festo.txt; the wizard's brake test:
+# turns at 0.05 Nm released, slips at 1.15..1.20 Nm closed
 io0.out0 = fault0.mot_brake
+fault0.brake_time = 0.15

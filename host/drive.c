@@ -31,6 +31,7 @@
 #include "commands.h"
 #include "drive.h"
 #include "version_number.h"
+#include "confident.h"
 
 // 1 kHz millisecond counter that the firmware exposes via SysTick.
 volatile uint64_t systime = 0;
@@ -104,7 +105,7 @@ unsigned drive_flash_version(void) {
 }
 
 const char *conf_flash_text(void) {  // shared/commands.c: version, the boot check
-  return flash;
+  return conf_text(flash);
 }
 
 char *conf_ram(size_t *size) {  // shared/commands.c: name, motor
@@ -113,7 +114,8 @@ char *conf_ram(size_t *size) {  // shared/commands.c: name, motor
 }
 
 void flashloadconf(char *ptr) {
-  strncpy(config, flash, sizeof(config));
+  strncpy(config, conf_flash_text(), sizeof(config) - 1);
+  config[sizeof(config) - 1] = 0;
 }
 COMMAND("flashloadconf", flashloadconf, "load config from flash");
 
@@ -134,7 +136,8 @@ void loadconf(char *ptr) {
 COMMAND("loadconf", loadconf, "parse config");
 
 void showconf(char *ptr) {
-  printf("%s", flash);
+  const char *t = conf_flash_text();
+  printf("%.*s", (int)strnlen(t, sizeof(config) - 1), t);
 }
 COMMAND("showconf", showconf, "show config");
 
@@ -149,6 +152,18 @@ void deleteconf(char *ptr) {
   config[0] = '\0';
 }
 COMMAND("deleteconf", deleteconf, "delete config");
+
+// as src/config.c: the RAM config's bytes in hex, then its size (the setup
+// wizard checks deleteconf and the appends by it, servoterm-cli/setup)
+void confcrc(char *ptr) {
+  size_t len = strnlen(config, sizeof(config) - 1);
+  for(size_t i = 0; i < len; i++) {
+    printf("%x ", config[i]);
+  }
+  printf("\n");
+  printf("size: %zu words: %zu crc:0\n", len, len / 4);
+}
+COMMAND("confcrc", confcrc, "foo");
 
 // --- Boot / reset (src/main.c) ------------------------------------------------
 static char sim_extra[4096];

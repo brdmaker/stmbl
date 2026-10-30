@@ -16,6 +16,105 @@ Entry format:
 
 ---
 
+## 2026-10-29  Wizard over smart-serial: getf missed answers on the slow console
+- Area:    `servoterm-cli/setup/su_link.c` (`su_link_get`)
+- Status:  Fixed
+- Symptom: Over the smart-serial console (~1 kB/s) steps failed with "no
+  answer from the drive for fb_switch0.pos_fb" after a reset, though the
+  drive answered every try (strace).
+- Cause:   su_link_get stopped at the first newline: the previous answer's
+  tail, with only the start of its own ("fb_switch0.pos_fb = -"). All
+  three tries failed so. USB delivers an answer in one burst.
+- Fix:     Read until the pin's own line is complete. Test: servoterm-cli
+  `make check`, "get: the last answer's tail first..." (fails without).
+  Also: the host simulator lacked `confcrc` (the config write's checks,
+  every wizard sim case failed), and its brake followed `io0.out0` through
+  a link the boot's relink had collapsed to fault0.mot_brake, so a console
+  override of the output didn't reach it: `io0.out0_state` now (host/hw/io.c).
+
+## 2026-10-29  SEW CMP40M: the KTY wiring couples PWM into the resolver
+- Area:    bench wiring; HV board motor temperature input (`mtemp`, hv0.mot_temp)
+- Status:  Workaround (KTY disconnected, mot_temp_type 0 for commissioning)
+- Symptom: Wizard step 12 stopped with fault 2 (resolver amplitude < 0.15).
+  Enabled at 0 A, no motion: res0.amp fell from 0.259 to ~0.20 and jumped
+  0.16..0.25; the KTY read 46..62 degC on a cold motor. res0.phase 0.85 is
+  already the best (swept disabled and enabled).
+- Cause:   The KTY goes to the HV board, whose ground is the HV side's. Its
+  wires run with the resolver's (SEW signal plug), so the inverter's
+  common-mode swing reaches the resolver inputs. With the KTY unplugged,
+  enabled at 0 A reads 0.259 +-0.001, the same as disabled.
+- Fix:     For now none: the thermal model only. Options: run the KTY wires
+  apart from the resolver's (or in the power cable), earth the HV supply's
+  DC-, or read the KTY on the LV side. FB1 can't take a resolver as is (no
+  excitation; 1 of 10 ADC samples), see the session of 2026-10-29.
+
+## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
+- Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`,
+  `src/usb_cdc.c`, `servoterm-cli/setup/su_link.c`
+- Status:  Open (the stall under current; the wizard reconnects, smart-serial
+  avoids it)
+- Symptom: `/dev/ttyACM0` stays, the console sends nothing, the drive runs
+  on and still takes input. Only under large motor currents: the wizard's
+  id_mot (10000 rad/s^2) stalled it every run; 2400 queries over 27 min of
+  soak motion (628 rad/s^2) never did.
+- Cause:   (1) Fixed: ST's CDC went idle right after arming a ZLP (stuck
+  after 350 port closes mid-output); transfers also never end on a full
+  packet now. (2) Under current: a transfer stays armed (DIEPTSIZ 1 packet,
+  0 bytes left, FIFO empty) and the host stops polling it; an abort, FIFO
+  flush and resend don't revive it, a re-enumeration does. Interference on
+  the USB link suspected (the Pi 4's xHCI and the bench's grounding).
+- Fix:     The drive heals a lost DataIn, and aborts and resends a transfer
+  the host polls (NAKs) but never gets. The wizard reopens its device when
+  it goes away (by-id path, 15 s). A re-enumeration after "DTR set, no
+  progress for 200 ms" was tried and removed: it also fired on plain flow
+  control (a reader that paused 8 s, the host's tty full), looped (a bus
+  reset left the CDC state busy, 45 in 10 min; usbd_cdc_Init clears it now)
+  and left the console one packet behind (every soak answer one command
+  late). From the drive's side a host that stopped polling looks like flow
+  control. usbmon (/dev/usbmon1) saw EPIPE on the bulk IN during a soak.
+  Tests: hwtest/suite `usb: 1000 port closes...`, servoterm-cli "reconnect:
+  ..." (fails without). Tuning over USB came out lower (pos_bw 11.3 vs 35.4
+  over smart-serial); the smart-serial config stays on the drive.
+  `usbdiag` puts the state in `errlog`. `tools/ssflash.sh` finds the drive
+  by its by-id link (it came back as ttyACM1, ssburn failed on ttyACM0).
+
+## 2026-10-29  Wizard: a lost deleteconf doubled the config; messages broke acks
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`)
+- Status:  Fixed
+- Symptom: The flash config held its 21 lines twice (two hv comps, see
+  below); later "no ack for line 18 (appendconf ...)" with the drive's fault
+  messages in the answers.
+- Cause:   Any output counted as the answer to `deleteconf` (which prints
+  nothing), so a lost one appended to the old RAM text; the ack had to be
+  the first line of the answer; "Fault 9: HV timeout error" in the
+  flashsaveconf answer read as a failure; read-back kept message lines.
+- Fix:     RAM size 0 checked after deleteconf (`confcrc`), acks searched
+  in the answer, the RAM size checked before flashsaveconf, drive messages
+  dropped from the read-back. Test: servoterm-cli `make check`, "conf write:
+  ..." on a fake drive (fails 3 of 4 without the fix). Over smart-serial the
+  read-back starts with a blank line ("verify failed: flash differs"):
+  blank lines are ignored in the compare (same test, fails without).
+
+## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`
+- Status:  Open (drive repaired; how the text got doubled is not known)
+- Symptom: SEW commissioning, wizard step 12 onward: endless "Fault 9: HV
+  timeout", the F3 sends nothing (hv0.crc_error 0, fw_version -1, dc_volt 0)
+  across LV and 24 V power cycles. HV board LED: 1 blink per 1.2 s (F3 app
+  running, fault 1 = no valid packet from the F4). The wizard's own
+  `--dump`/`--load` fail in the fault flood.
+- Cause:   The flash config held its 21 lines twice. Every `link pid` loads
+  a full set of comps, so the drive ran `hv0` and `hv1` (and pid1, fault1, ...)
+  on the one F3 UART; the F3 never sees a valid packet, and it only starts
+  sending after one. Which write doubled it is open: `su_conf_write` takes
+  any output as the answer to `deleteconf`, so a lost `deleteconf` appends to
+  the old RAM text. Note `showconf` prints the flash text, not RAM
+  (`confcrc` prints the RAM size).
+- Fix:     Rewrote one copy (deleteconf, confcrc size 0, appendconf, size
+  check, flashsaveconf, showconf compare), reset: link up, 202 V, no fault.
+  Ideas: confirm `deleteconf` (RAM size 0) before appending; refuse a second
+  instance of the hardware comps (hv, adc, io) in `load_comp`. No test yet.
+
 ## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
 - Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
 - Status:  Fixed
@@ -3608,3 +3707,150 @@ Entry format:
   `a` on the stack. Where it landed decided whether anything broke.
 - Fix:     bounded fields (%63, %127; `a` is 128 bytes). Test:
   tests/vib/node.test (fails on ARM without it).
+
+## 2026-10-28  The console showed no motion while homing, then a jump
+- Area:    webui/mill/server/machine.py (status: pos, mach)
+- Status:  Fixed
+- Symptom: Homing on the bench GUI: the positions stood still (0) while
+  the axes homed, and jumped to the home positions at the end.
+- Cause:   millweb showed LinuxCNC's axis positions (stat.actual_position),
+  which LinuxCNC's motion updates only once every joint is homed; homing
+  runs in joint mode, so they stood still until the last joint was done.
+- Fix:     until every joint is homed each axis shows its joint's position
+  (stat.joint_actual_position; a gantry's first joint). Each axis still
+  steps once when it is homed: from where it started (0) to machine
+  coordinates. Test: test_millweb.Protocol.test_positions_follow_the_joints_until_homed.
+
+## 2026-10-28  Bench: the tool setter never tripped; the 3D view drew it elsewhere
+- Area:    webui/mill/server/machineconf.py (simulated probe), bench/mill.hal, test/sim/mill.hal; machine.py (hello), js/app.js, js/live.js
+- Status:  Fixed
+- Symptom: Measure on the Tools page went down to Z -215 over the setter at
+  X 250 Y 20 and stopped "without making contact"; the 3D view showed the
+  setter at X 980.
+- Cause:   (1) the simulated probe compared joint.N.motor-pos-cmd (the motor's
+  count from where it started) with its trip height, not the machine
+  position: Z's start sat 20 mm below the switch, so at the bottom of travel
+  the motor read -195 and the tip never got below it; with random starts
+  (sim_at random) anything. (2) The console only learnt *whether* there is
+  a setter; the 3D models put it at fixed places (X 980 Y 20, or the bridge
+  table's corner).
+- Fix:     the probe takes joint.N.pos-fb (machine coordinates); hello's
+  machine.toolsetter is {x, y, z_above, z_ref, travel} and both models and the
+  demo place the setter there. On the bench: trips at Z -195.0 over X 250 Y
+  20 (T1 50 mm). Tests: test_hello_and_static (the setter's position),
+  backend_suite's hello check; the probe wiring by hand (no simulated-probe
+  test with an offset start yet).
+- Then:    2026-10-28, the simulated probe touches only the stock and the
+  setter: the stock's box from the 3D setup's workpieces (millweb sets
+  probe-sx/sy/sz at 2 Hz), the setter within 10 mm of its X Y at z_ref, and
+  the tool tip from each tool's true length (SIM_TOOLS / the table's when
+  first used), not the active offset (Measure cancels it). Bench: T1 62.408
+  (true 62.415), T3 48.123 (48.13), over the stock Z -195.03, beside it no
+  contact. Tests: backend_suite "the simulated probe touches the setup's
+  stock and the tool setter, nothing else", "the tool setter measures"
+  (T3 51.25, its table 48.13), test_sim_probe, test_sim_probe_stock_box_and_tool_lengths.
+
+## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
+- Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js
+- Status:  Fixed
+- Symptom: in see-through mode (fixtures / workpiece "glass") the view
+  flickered where two surfaces lie at the same level (the stock on the
+  vise, the vise's jaws on its base), changing as the view turned.
+- Cause:   see-through materials don't write depth, so three.js sorts them
+  by their objects' distance every frame; two at the same level swap places
+  as the camera moves, and the blend changes with the order.
+- Fix:     every see-through mesh gets its own fixed renderOrder (per object,
+  per mesh inside it), and a polygon offset pushing it back (never forward,
+  so the toolpath on the stock top stays in front). Machine model parts
+  with opacity < 1 get a fixed order behind the setup's.
+
+## 2026-10-28  millweb 3D: "orange sparks" at some view angles only
+- Area:    webui/mill/js/app.js (scene setup: trail, chips)
+- Status:  Fixed
+- Symptom: the tool threw orange sparks at some view angles, none at others.
+- Cause:   the chip particles (and the tool trail) are buffers rewritten
+  every frame, but their bounding spheres were computed once (the chips' at
+  Z -5000, all parked there). three.js culled them by that stale sphere: they
+  showed only when it happened to be in view.
+- Fix:     frustumCulled = false on both; the chips are aluminium-grey now.
+  Any geometry whose positions change per frame needs this (or
+  computeBoundingSphere after each change).
+
+## 2026-10-28  LinuxCNC 2.9: an NGC-only M6 remap for a rack changer
+- Area:    webui/mill/server/machineconf.py (toolchange_ngc, atc)
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     `REMAP=M6 modalgroup=6 ngc=toolchange` without a Python prolog
+  works: the sub reads #<_current_tool> / #<_selected_tool>, ends with
+  `M61 Q#<_selected_tool>`, and M70 / M72 keep the modal state (G43 stays as
+  it was). M66 L3 sets #5399 to -1 on a timeout (abort then). M0 inside the
+  remap pauses for a manual change (resume continues). motion's digital I/O
+  needs `num_dio` on motmod. Checked in LinuxCNC 2.9 (sim joints, 4 pockets,
+  slide-in): T2, T3 swapped through the rack, T7 by hand.
+
+## 2026-10-28  backend_suite: "X moves through the drive" fails now and then
+- Area:    webui/mill/test/backend_suite.py (supervisor: an stmbl drive on X)
+- Status:  Open
+- Symptom: once in a full `make test-backend` run: joint.0.motor-pos-fb
+  599.990417 vs stmbl-sim.0.pos_fb 599.990173; the case alone passes.
+- Cause:   it reads both pins in one hal_values call and wants them equal,
+  but the drive may still be settling and the two are read a servo cycle
+  apart.
+- Fix:     idea: wait for inpos, or compare within 1 µm.
+
+## 2026-10-29  A new drive's erased config flash: servoterm-cli --load aborted
+- Area:    src/config.c (showconf, flashloadconf, conf_flash_text), host/drive.c, shared/confident.h (conf_text)
+- Status:  Fixed
+- Symptom: The first config load into a new drive (blank F4, flashed over
+  DFU): "no ack for line 1 (appendconf #stmbl_conf_version 1), got:
+  stmbl_conf_version 1", load aborted.
+- Cause:   The config sector had never been written: erased flash, all 0xFF
+  with no terminating 0. showconf printed it as a string (on past the
+  sector until some 0 byte), flashloadconf copied 15 KB of it into the
+  unterminated RAM config. servoterm-cli's backup read it with showconf, took
+  a 0xFF for a scope frame's marker and swallowed the next 8 bytes: the
+  first ack's "adding #".
+- Fix:     conf_text(): erased flash (first byte 0xFF) is an empty config, for
+  the firmware and the simulator; showconf prints at most the config's size,
+  flashloadconf terminates. Test: host/tests/test_servoterm_ident.py
+  test_load_into_erased_flash (fails without it, as on the drive).
+
+## 2026-10-29  After make btburn the drive came back in DFU at every start
+- Area:    bootloader/src/main.c (the DFU request word in CCM), src (the app's `bootloader` command, SystemInit)
+- Status:  Open
+- Symptom: The new drive (USB 207D35A45631): make btburn (bootloader.py's
+  `bootloader`, then DFU, download, leave to 0x08010000): back in ROM DFU
+  0.45 s later; a leave to 0x08000000: DFU again at once; the next leave to
+  0x08000000 booted the application. Flash read back exactly the build.
+- Cause:   Not found. Fits the request word (0xD0F0B007 at 0x1000FE00)
+  surviving into the application, whose SystemInit takes a request an
+  older bootloader passed on, until a start through the bootloader cleared
+  it.
+- Fix:     Recovery: dfu-util -a 0 -s 0x08000000:4:leave -U <file> (a 4-byte
+  read, then leave) until it starts. Next: reproduce on a drive with the
+  debugger, check whether the bootloader's clear reaches CCM before the ROM
+  jump.
+
+## 2026-10-29  Bench: a new drive dropped off USB for good
+- Area:    hardware (drive with USB serial 207D35A45631)
+- Status:  Known
+- Symptom: After its first flash it ran, answered `about`, then disconnected
+  46 s after a start and never enumerated again (neither as STMBL nor DFU).
+- Fix:     None: the user found the board faulty and replaced it.
+
+## 2026-10-29  hv_update fails at CRC_CHECK with an old F3 bootloader (v0.9.18-184)
+- Area:    f3_boot (on the HV board), src/comps/hv.c (hv_update)
+- Status:  Workaround
+- Symptom: A drive from v0.9.18-207 updated to master: hv_update went
+  through ERASE_FLASH and SEND_APP, then FLASH_FAILED at CRC_CHECK, twice;
+  afterwards the F3 stayed in its bootloader (fault 9, HV values frozen).
+- Cause:   The image was written exactly (the F3's flash read back equals
+  obj_hvf3/hvf3.bin, whose STM32 CRC is 0), but that board's F3 bootloader,
+  v0.9.18-184, rejected it, at the update and at boot. Its source reads the
+  same as today's; the binary on the board computes the CRC differently.
+- Fix:     Replace the F3 bootloader: DC bus off, USB on the HV board's own
+  micro-USB (P11; its GND is the HV side's, VBUS not connected), JP1 (bottom
+  side beside P11, BOOT0 to 3.3 V) shorted while an isolated 24..48 V powers
+  the HV input, then make f3_all_btburn. Afterwards the F3 ran master (hv=1).
+  Drives with an F3 bootloader older than ~v0.9.18-207 may need this.

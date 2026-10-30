@@ -185,7 +185,8 @@ async def _(t):
     t.check(h["coords"] == "XYYZ", "coordinates XYYZ")
     t.check(h["limits"]["Z"]["min"] == -215 and h["limits"]["X"]["max"] == 1000, "limits")
     t.check(h["units"] == "mm" and h["version"] and h["token_required"] is False, "units, version, no token")
-    t.check(h["toolsetter"] is True and h["pcomp"] is False, "toolsetter configured, no pcomp")
+    t.check(isinstance(h["toolsetter"], dict) and set(h["toolsetter"]) >= {"x", "y", "z_above", "z_ref"} and h["pcomp"] is False,
+            "toolsetter configured (where: the 3D view draws it there), no pcomp")
     t.check(h["wcs"][:2] == ["G54", "G55"] and len(h["wcs"]) == 9, "work offsets G54..G59.3")
     t.check(c.hello["control"] == t.a.hello["you"], "who has control")
     t.check(isinstance(c.hello["events"], list) and c.hello["events"], "recent events")
@@ -908,12 +909,13 @@ async def _(t):
     await a.until(lambda c: c.st["tool"] == 3, 5)
     mk = a.mark()
     r = await a.call("tool_measure")
-    t.check(r["ok"] and r["tool"] == 3 and near(r["length"], 50, 0.01), "T3: 50.000 (%s)" % r.get("length", r.get("err")))
-    t.check(await a.until(lambda c: near(c.st["tlo"], 50, 0.01), 3), "G43 with the new length (%s)" % a.st["tlo"])
-    t.check(near(a.st["mach"][:2], [980, 20]) and near(a.st["mach"][2], -50, 0.01), "back up over the setter (%r)" % a.st["mach"])
-    t.check(await a.until(lambda c: c.since(mk, lambda m: m["t"] == "tools" and near(next(x for x in m["tools"] if x["t"] == 3)["z"], 50, 0.01)), 3),
+    # the simulated T3 is 51.25 long (test/sim SIM_TOOLS), its table says 48.13: measuring finds the tool
+    t.check(r["ok"] and r["tool"] == 3 and near(r["length"], 51.25, 0.01), "T3: 51.25, the simulated tool's (%s)" % r.get("length", r.get("err")))
+    t.check(await a.until(lambda c: near(c.st["tlo"], 51.25, 0.01), 3), "G43 with the new length (%s)" % a.st["tlo"])
+    t.check(near(a.st["mach"][:2], [980, 20]) and near(a.st["mach"][2], -51.25, 0.01), "back up over the setter (%r)" % a.st["mach"])
+    t.check(await a.until(lambda c: c.since(mk, lambda m: m["t"] == "tools" and near(next(x for x in m["tools"] if x["t"] == 3)["z"], 51.25, 0.01)), 3),
             "the table has it")
-    t.check(a.ev(mk, "T3 length 4") is not None or a.ev(mk, "T3 length 50") is not None, "event")
+    t.check(await a.until(lambda c: c.ev(mk, "T3 length 51.2") is not None, 3), "event (T3 length 51.2xxx mm)")
     tools = a.last("tools")["tools"]
     for x in tools:
         if x["t"] == 3:
@@ -922,6 +924,31 @@ async def _(t):
 
 
 # ======================================================================= probing
+
+@case("probe: the simulated probe touches the setup's stock and the tool setter, nothing else")
+async def _(t):
+    a = t.a
+    await a.call("tool_load", t=0)
+    await a.until(lambda c: c.st["tool"] == 0, 5)
+    await t.mdi("G53 G0 Z0")
+    await t.mdi("G53 G0 X100 Y100")  # beside the stock (machine X 440..560, Y 460..540) and the setter (X 980 Y 20)
+    await t.mdi("G53 G0 Z-150")
+    r = await a.call("probe", kind="z", travel=60)
+    t.refused(r, "a probe beside the stock and the setter", "didn't trip")
+    t.check(near(a.st["mach"][2], -210, 0.01), "it went the full 60 mm, past the stock's height (%.3f)" % a.st["mach"][2])
+    await t.mdi("G53 G0 Z0")
+    objs = a.last("setup")["objects"] if a.last("setup") else None
+    t.ok(await a.call("setup_save", objects=[o for o in (objs or []) if o.get("role") != "workpiece"]), "the stock off the table")
+    await asyncio.sleep(1.2)  # millweb sets the probe from the setup (2 Hz)
+    await t.mdi("G0 X60 Y40 Z5")
+    r = await a.call("probe", kind="z", travel=20)
+    t.refused(r, "over where the stock was", "didn't trip")
+    t.ok(await a.call("setup_save", objects=objs), "the stock back")
+    await asyncio.sleep(1.2)
+    await t.mdi("G0 X60 Y40 Z5")
+    r = await a.call("probe", kind="z", travel=20, feed=300)
+    t.check(r["ok"] and near(r["mach"][2], -195, 0.01), "on the stock again: machine Z -195 (%s)" % r.get("mach", r.get("err")))
+
 
 @case("probe: Z surface on the tool tip")
 async def _(t):

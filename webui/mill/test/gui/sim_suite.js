@@ -862,6 +862,116 @@ test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("messages: a warning as a large card that goes by itself; a fault stays until a tap; the footer opens the last again", async (t) => {
+  await t.ev(() => msg("Just so you know", "info"));
+  t.check(await t.ev(() => document.getElementById("popmsg").hidden), "info: only the footer");
+  await t.ev(() => msg("Soft limit: X can't go further", "warn"));
+  t.check(await t.ev(() => !document.getElementById("popmsg").hidden && document.getElementById("popmsg").className.includes("warn")), "a warning: the card");
+  t.check(/Soft limit/.test(await t.text("#pm-t")) && (await t.text("#pm-k")) === "WARNING", "its text, WARNING");
+  t.check(await t.ev(() => parseFloat(getComputedStyle(document.getElementById("pm-t")).fontSize) >= 20), "large text");
+  await t.ev(() => msg("Soft limit: X can't go further", "warn"));
+  t.check((await t.text("#pm-k")) === "WARNING ×2", "the same again: counted, not stacked");
+  await t.click("#b-hold");  // the card takes no clicks: what is under it works, and a tap closes it
+  t.check(await t.ev(() => document.getElementById("popmsg").hidden), "a tap anywhere closes it");
+  await t.ev(() => msg("Drive Y1 fault: overcurrent", "bad"));
+  t.check((await t.text("#pm-k")) === "FAULT", "a fault: FAULT");
+  await t.sleep(10500);
+  t.check(await t.ev(() => !document.getElementById("popmsg").hidden), "a fault stays (a warning goes after 10 s)");
+  await t.page.keyboard.press("Shift");
+  t.check(await t.ev(() => document.getElementById("popmsg").hidden), "a key closes it");
+  await t.click("#msg");
+  t.check(await t.ev(() => !document.getElementById("popmsg").hidden) && /overcurrent/.test(await t.text("#pm-t")), "the footer's line opens the last again");
+  await t.page.mouse.click(5, 5);
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("run statistics: STATS takes the MDI/JOG place while a cycle runs: run time, pace, line rate, velocity, following errors; back after", async (t) => {
+  await stop(t);
+  await t.click("#st-jog");
+  await t.click("#b-start");
+  t.check(await t.until(() => st.run === "run"), "running");
+  t.check(await t.until(() => !document.getElementById("sp-stats").hidden && document.getElementById("sp-jog").hidden), "STATS in place of JOG");
+  await ffwd(t, await t.ev(() => prog.total * 0.3));  // past the tool change and the spindle's start: cutting
+  await t.sleep(2500);
+  const cells = () => t.ev(() => Object.fromEntries([...document.querySelectorAll("#rstats > div")].map((d) => [d.querySelector("span").textContent, d.querySelector("b").textContent])));
+  const c = await cells();
+  t.check(/^Running: /.test(await t.text("#rs-head")), "the head: running, the program");
+  t.check(["RUN TIME", "PACE", "G-CODE", "MAX VELOCITY", "MEAN FEED", "CONTOUR ERR", "FERROR X", "FERROR Y1", "FERROR Y2", "FERROR Z", "Y1−Y2 SKEW", "SPINDLE LOAD"].every((k) => k in c), "every number: " + Object.keys(c).join(", "));
+  const m = await t.ev(() => ({ v: rs.velMax, fe: rs.feMax, n: rs.lines.size }));
+  t.check(m.v > 0 && m.fe.some((v) => v > 0) && m.n > 0, "measured: velocity, following error, lines " + JSON.stringify(m));
+  t.check(/l\/s$/.test(c["G-CODE"]) && /µm$/.test(c["FERROR X"]), "units: l/s, µm");
+  await stop(t);
+  t.check(await t.until(() => !document.getElementById("sp-jog").hidden), "stopped: JOG back");
+  await t.click("#st-stats");
+  t.check(/^Last run, stopped/.test(await t.text("#rs-head")), "STATS keeps the last run");
+  await t.click("#rs-reset");
+  t.check(/No run yet/.test(await t.text("#rs-head")), "Reset");
+  await t.click("#st-mdi");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Configure (simulation): Spindle and Tools & probe tabs, a rack changer, HAL pins from the pin browser, a screw's lead and ratio", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  await t.click('#cf-tabs button[data-t="spindle"]');
+  await t.page.selectOption('[data-path="spindle.type"]', "hal");
+  t.check(await t.until(() => !!document.querySelector('[data-path="spindle.on"]')), "Spindle: its pins with type hal");
+  await t.click('[data-pinpick="spindle.on"]');
+  t.check(await t.until(() => !document.getElementById("pinpick").hidden && document.querySelectorAll("#pp-list [data-pin]").length > 10), "the pin browser opens, with pins");
+  t.check(/isn't running/.test(await t.text("#pp-n")), "the simulation: the names guessed, said so");
+  t.check(await t.ev(() => [...document.querySelectorAll("#pp-list [data-pin]")].every((b) => /IN|IO/.test(b.children[2].textContent))), "an output to the machine: pins that take a value (IN)");
+  await t.page.fill("#pp-q", "outm 03");
+  t.check(await t.until(() => document.querySelectorAll("#pp-list [data-pin]").length === 1), "the filter: one pin");
+  await t.page.press("#pp-q", "Enter");
+  t.check(await t.until(() => document.getElementById("pinpick").hidden && cfg.m.spindle.on === "hm2_7i96s.0.outm.00.out-03"), "Enter picks it: spindle.on set");
+  t.check((await t.ev(() => document.querySelector('[data-path="spindle.on"]').value)) === "hm2_7i96s.0.outm.00.out-03", "and the field shows it");
+  await t.click('#cf-tabs button[data-t="tools"]');
+  t.check(await t.until(() => !!document.querySelector('[data-path="probe.type"]') && !!document.getElementById("cf-ts")), "Tools & probe: the probe and the tool setter");
+  await t.click('[data-pinpick="probe.input"]');
+  t.check(await t.until(() => document.querySelectorAll("#pp-list [data-pin]").length > 10), "the probe's pin: the browser");
+  t.check(await t.ev(() => [...document.querySelectorAll("#pp-list [data-pin]")].every((b) => /OUT|IO/.test(b.children[2].textContent))), "an input from the machine: pins that give a value (OUT)");
+  t.check(await t.ev(() => document.querySelector('#pp-list [aria-selected="true"]')?.dataset.pin === "hm2_7i96s.0.inm.00.input-01"), "its pin now marked");
+  await t.page.keyboard.press("Escape");
+  t.check(await t.ev(() => document.getElementById("pinpick").hidden), "Escape closes it");
+  await t.page.selectOption('[data-path="atc.type"]', "rack");
+  t.check(await t.until(() => !!document.querySelector('[data-path="atc.pockets"]') && !!document.querySelector('[data-pinpick="atc.unclamp"]')), "a rack: its pockets, positions and pins");
+  await t.click('#cf-tabs button[data-t="axes"]');
+  await t.page.fill('[data-path="joints.0.mech.lead"]', "10");
+  await t.page.press('[data-path="joints.0.mech.lead"]', "Tab");
+  await t.page.fill('[data-path="joints.0.mech.ratio"]', "2");
+  await t.page.press('[data-path="joints.0.mech.ratio"]', "Tab");
+  t.check(await t.until(() => cfg.m.joints[0].mech && cfg.m.joints[0].mech.lead === 10 && cfg.m.joints[0].mech.ratio === 2), "joint 0: lead 10, ratio 2");
+  t.check(/5 mm a motor turn · 6,600 rpm at 550 mm\/s/.test(await t.ev(() => document.querySelector('[data-f="joints.0.mech.ratio"] .h').textContent)), "its help: mm a motor turn, rpm at top speed");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); cfg.loaded = false; });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("Tools page: a tool's 3D model (STL) replaces the drawn cylinder; back to the drawn one", async (t) => {
+  await t.nav("tool");
+  await t.ev(() => { st.toolSel = st.tool; renderTools(); });
+  t.check(/^T\d+$/.test(await t.text("#tm-t")), "the panel: the selected tool");
+  await t.page.setInputFiles("#tm-file", { name: "holder.stl", mimeType: "model/stl", buffer: stlBox(-10, -10, 0, 10, 10, 60) });
+  t.check(await t.until(() => setup.tools[String(st.tool)] && setup.tools[String(st.tool)].src === "model:holder.stl"), "uploaded: the tool's model");
+  t.check(await t.ev(() => R.toolG.children.length === 1 && R.toolG.children[0].geometry === setup.geoms.get("holder.stl")), "the 3D view: the model in place of the cylinder");
+  await t.page.fill("#tm-rx", "90"); await t.page.press("#tm-rx", "Tab");
+  t.check(await t.until(() => Math.abs(R.toolG.children[0].rotation.x - Math.PI / 2) < 1e-6), "turned 90° about X");
+  await t.page.selectOption("#tm-src", "");
+  t.check(await t.until(() => !setup.tools[String(st.tool)] && R.toolG.children.length >= 2), "none: drawn from its Ø and length again");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("3D view: see-through objects draw in a fixed order (no flicker); the chips and the trail are never culled", async (t) => {
+  await t.nav("main");
+  await t.ev(() => { st.show.fix = "glass"; st.show.work = "glass"; applyLooks(); });
+  const o = await t.ev(() => [...setup.nodes.values()].map((n) => { const r = []; n.node.traverse((x) => { if (x.isMesh) r.push(x.renderOrder); }); return { r, off: n.material.polygonOffset, dw: n.material.depthWrite }; }));
+  const all = o.flatMap((x) => x.r);
+  t.check(all.length > 1 && new Set(all).size === all.length && all.every((v) => v > 0), `every see-through mesh its own draw order (${all.length})`);
+  t.check(o.every((x) => x.off && !x.dw), "a depth offset; no depth writes");
+  t.check(await t.ev(() => R.trail.frustumCulled === false && R.workG.children.some((c) => c.isPoints && c.frustumCulled === false)), "the trail and the chips: never culled by a stale bounding sphere");
+  await t.ev(() => { st.show.fix = true; st.show.work = true; applyLooks(); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("Debug page, drives (simulation): firmware versions; a config backed up, patched for this firmware and restored", async (t) => {
   await t.nav("debug");
   await t.click('#dbg-tab button[data-t="drives"]');

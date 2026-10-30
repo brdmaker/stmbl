@@ -136,6 +136,8 @@ class Protocol(Base):
         self.assertEqual(info["name"], "test-mill")
         self.assertEqual(info["coords"], "XYYZ")
         self.assertEqual(info["limits"]["Z"]["min"], -200)
+        # where the tool setter is, so the 3D view draws it where Measure goes
+        self.assertEqual(info["toolsetter"], {"x": 980.0, "y": 20.0, "z_above": -40.0, "z_ref": -130.0, "travel": 100.0})
         st = await self.until(ws, lambda m: m["t"] == "st" and "estop" in m)
         self.assertTrue(st["estop"])
         tools = await self.until(ws, lambda m: m["t"] == "tools")
@@ -305,6 +307,38 @@ class Protocol(Base):
         await self.until(ws, lambda m: m["t"] == "ev" and "re-read (G54)" in m["text"])
         await ws.close()
 
+    def test_positions_follow_the_joints_until_homed(self):
+        """LinuxCNC moves the axes' positions only once every joint is homed:
+        while homing the console showed the axes standing (0), then jumping.
+        Until all are homed each axis shows its joint (a gantry's first)."""
+        lc.M.homed = [0, 0, 0, 1]                      # Z homed, Y homing
+        lc.M.pos[:3] = [0.0, 0.0, -5.0]                # frozen in LinuxCNC
+        lc.M.jpos = [1.5, 600.0, 600.0, -5.0]
+        st = self.m.status()
+        self.assertEqual(st["mach"], [1.5, 600.0, -5.0])
+        self.assertEqual(st["pos"], [1.5 - 440.0, 600.0 - 460.0, -5.0 + 195.0])
+        lc.M.homed = [1, 1, 1, 1]                      # all homed: the axes' own
+        lc.M.pos[:3] = [0.0, 990.0, -5.0]
+        self.assertEqual(self.m.status()["mach"], [0.0, 990.0, -5.0])
+
+    def test_sim_probe_stock_box_and_tool_lengths(self):
+        """The simulated probe follows the 3D setup's workpieces (machine
+        coordinates, as setup3d.js places them) and the tool's true length."""
+        m = self.m
+        stock = {"id": "s", "role": "workpiece", "src": "builtin:stock", "frame": "work", "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1}
+        vise = dict(stock, id="v", role="fixture", src="builtin:vise")
+        g5x, g92 = (440.0, 460.0, -195.0), (0.0, 0.0, 0.0)
+        self.assertEqual(m.stock_box([vise, stock], g5x, g92, 0.0), (440.0, 560.0, 460.0, 540.0, -195.0))   # 120 x 80, top at G54 Z
+        b = m.stock_box([dict(stock, rot=[0, 0, 90])], g5x, g92, 0.0)                                       # turned about its corner
+        self.assertEqual([round(v, 6) for v in b], [360.0, 440.0, 460.0, 580.0, -195.0])
+        b = m.stock_box([dict(stock, frame="machine", pos=[10, 20, -150], scale=0.5)], g5x, (5, 5, 5), 0.0)
+        self.assertEqual(b, (10.0, 70.0, 20.0, 60.0, -150.0))                                              # machine frame: no offsets
+        self.assertIsNone(m.stock_box([vise], g5x, g92, 0.0))
+        m.sim_tools = {3: 51.25}
+        self.assertEqual(m.sim_tool_length(3), 51.25)                       # [MILLWEB] SIM_TOOLS
+        self.assertEqual(m.sim_tool_length(5), 71.9)                        # else the table's, when first asked
+        self.assertEqual(m.sim_tool_length(0), 0.0)
+
     async def test_folders_rename_delete(self):
         ws = await self.client()
         await self.ready(ws)
@@ -398,7 +432,17 @@ class Protocol(Base):
         self.assertIn("extension", (await self.call(ws, "program_rename", name="a.stl", to="a.ngc"))["err"])
         ok(await self.call(ws, "program_rename", name="a.stl", to="fixtures/a2.stl"))
         ok(await self.call(ws, "program_delete", name="b.obj"))
-        ok(await self.call(ws, "setup_save", objects=objs[:2]))
+        # a tool's 3D model: kept with the setup (a setup save without tools keeps them), and its file in use
+        ok(await self.call(ws, "setup_save", objects=objs, tools={"3": {"src": "model:fixtures/a2.stl", "z": -2, "rot": [90, 0, 0], "scale": 1}}))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and m.get("tools"))
+        self.assertEqual(st["tools"]["3"]["rot"], [90, 0, 0])
+        ok(await self.call(ws, "setup_save", objects=objs))
+        self.assertEqual(json.load(open(os.path.join(self.d, "millweb-setup.json")))["tools"]["3"]["z"], -2)
+        self.assertIn("3D setup", (await self.call(ws, "program_delete", name="fixtures/a2.stl"))["err"])
+        for bad, why in (({"x": {"src": "model:fixtures/a2.stl"}}, "tool number"), ({"4": {"src": "model:none.stl"}}, "no such model")):
+            r = await self.call(ws, "setup_save", objects=objs, tools=bad)
+            self.assertIn(why, r["err"])
+        ok(await self.call(ws, "setup_save", objects=objs[:2], tools={}))
         ok(await self.call(ws, "program_delete", name="fixtures/plate.stl"))
         self.assertFalse(os.path.exists(os.path.join(nc, "fixtures", "plate.stl")))
         # a watching browser reads models and the setup, changes nothing

@@ -49,6 +49,7 @@ v0.9.18-274 or later).
 | update over USB (hw) | `servoterm-cli --update obj_app/stmbl.bin`: staged, applied, the bootloader copies it, the app is back with the same config, `servoterm-cli` exits 0; only when the drive runs the repo's build |
 | setsserial recovery (hw) | `hardboot`, then 15 s later hostmot2 at 115200 and `setsserial flash …sibl.0.0 stmbl/STMBL_SS.BIN`: every block written, no SSLBP error, the app starts with the same config; needs `make ssfw_install` of the repo's build |
 | safe mode (hw) | 3 crashes in a row → safe mode (no rt functions, console working); `reset` → normal boot, config unchanged; the record is cleared |
+| watchdog (hw) | `wdtest main`, then `wdtest irq` → the watchdog resets the drive; `crash` says Watchdog with the command, `errlog` has the hang and a watchdog boot; config unchanged |
 
 **lcnc**: LinuxCNC headless with this script as its DISPLAY, on a copy of
 `hwtest/burnin` (hm2 + `hw_console.hal`) or `hwtest/burnin-sim`

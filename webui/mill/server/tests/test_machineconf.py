@@ -122,13 +122,61 @@ class Machine(unittest.TestCase):
         self.assertEqual(got["HAL"]["POSTGUI_HALFILE"], [os.path.join(self.d, "run", "postgui.hal")])
         hal, post = f["machine.hal"], f["postgui.hal"]
         self.assertIn("loadrt hm2_spix config=\" sserial_port_0=00000000\" spiclk_rate=25000 spiclk_rate_rd=25000", hal)
-        self.assertIn("setp j3-homesw.home-pos 20", hal)
+        z = [float(l.split()[2]) for l in hal.splitlines() if l.startswith("setp j3-homesw.home-pos ")]
+        self.assertTrue(len(z) == 1 and 0 < z[0] < 216, z)  # sim_at random: somewhere below the switch at Z 0
         self.assertIn("net j1-home-sw j1-homesw.home-sw => joint.1.home-sw-in", hal)
         self.assertIn("net j0-phasing-ferror j0-phasing-ferror.out => ini.0.ferror", post)
         self.assertIn("setp j0-phasing-ferror.in3 [JOINT_0]FERROR", post)
         # uspace loads a module once: none loaded in both files (and2 is the probe's)
         mods = [l.split()[1] for t in (hal, post) for l in t.splitlines() if l.startswith("loadrt ")]
         self.assertEqual(len(mods), len(set(mods)), mods)
+
+    def test_sim_switch_random_start(self):
+        """sim_at "random": a new start at every start, inside the travel and
+        short of the switch; a gantry's two sides start together."""
+        import random
+        m = json.load(open(os.path.join(BENCH, "machine.json")))
+        for j in m["joints"][1:]:
+            j["home"]["sim_at"] = "random"
+        v = mc.validate(m, self.d)
+        seen = set()
+        for seed in range(20):
+            hal = mc.generate(v, self.d, "/mill", rng=random.Random(seed))["machine.hal"]
+            pos = {l.split()[1]: float(l.split()[2]) for l in hal.splitlines() if ".home-pos " in l}
+            self.assertEqual(pos["j1-homesw.home-pos"], pos["j2-homesw.home-pos"])  # Y1 and Y2 together
+            self.assertTrue(0 < pos["j1-homesw.home-pos"] <= 1000 - (-1) - 1, pos)    # Y: switch at 1000, travel from -1
+            self.assertTrue(0 < pos["j3-homesw.home-pos"] <= 0 - (-216) - 1, pos)       # Z: switch at 0, travel from -216
+            seen.add(pos["j1-homesw.home-pos"])
+        self.assertGreater(len(seen), 15)  # not the same start every time
+        m["joints"][1]["home"]["sim_at"] = "sometimes"
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertIn("joints.1.home.sim_at", {w for w, _ in cm.exception.errors})
+
+    def test_sim_probe(self):
+        """The simulated probe: the stock and the tool setter in machine
+        coordinates (the joints' positions), millweb told to keep it set."""
+        m = json.load(open(os.path.join(BENCH, "machine.json")))
+        m["probe"]["sim_tools"] = {"3": 48.13, "1": 62.4}
+        f = self.gen(m)
+        hal, ini = f["machine.hal"], ini_sections(f["mill.ini"])
+        self.assertIn("net probe-z joint.3.pos-fb => probe-tip.in0", hal)       # not motor-pos-cmd
+        self.assertIn("net probe-x joint.0.pos-fb => probe-sx.in probe-tx.in", hal)
+        self.assertIn("setp probe-tx.min 240", hal)                               # the setter at X 250 +- 10
+        self.assertIn("setp probe-tz.max -245", hal)                              # its top: z_ref
+        self.assertIn("net probe probe-any.or => motion.probe-input", hal)
+        self.assertEqual(ini["MILLWEB"]["SIM_PROBE"], ["yes"])
+        self.assertEqual(ini["MILLWEB"]["SIM_TOOLS"], ["1:62.4 3:48.13"])
+        m["probe"]["sim_tools"] = {"x": 1}
+        with self.assertRaises(mc.Invalid):
+            mc.validate(m, self.d)
+
+    def test_inverted_estop_and_probe_load_not_once(self):
+        m = copy.deepcopy(mc.DEFAULT)
+        m["estop"] = {"input": "a.b", "invert": True}
+        m["probe"] = {"type": "input", "input": "c.d", "invert": True}
+        hal = self.gen(m)["machine.hal"]
+        self.assertEqual([l for l in hal.splitlines() if l.startswith("loadrt not")], ["loadrt not names=estop-not,probe-not"])
 
     def test_phasing_and_sim_switch_errors(self):
         m = copy.deepcopy(mc.DEFAULT)
@@ -166,6 +214,61 @@ class Machine(unittest.TestCase):
         with self.assertRaises(mc.Invalid) as e:
             mc.validate(bad)
         self.assertEqual([w for w, _ in e.exception.errors], ["type"])
+
+    def test_screw_lead_and_ratio(self):
+        """A stmbl joint with a lead: scale comps between LinuxCNC's mm and the drive's motor radians."""
+        m = json.load(open(TEST_MACHINE))
+        m["board"] = {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10"}
+        for k, j in enumerate(m["joints"]):
+            j["drive"] = {"type": "stmbl_sserial", "port": 0, "channel": k}
+        m["joints"][0]["mech"] = {"lead": 10, "ratio": 2}
+        m["joints"][3]["mech"] = {"lead": 5, "reverse": True}
+        m["joints"][1]["mech"] = {"ratio": 3}  # no lead: none (the drive works in mm)
+        hal = self.gen(m)["machine.hal"]
+        self.assertIn("loadrt scale names=j0-cmd,j0-vel,j0-fb,j3-cmd,j3-vel,j3-fb", hal)
+        k0 = 2 * 3.141592653589793 * 2 / 10
+        self.assertIn("setp j0-cmd.gain %r" % k0, hal)
+        self.assertIn("setp j0-fb.gain %r" % (1 / k0), hal)
+        self.assertIn("setp j3-cmd.gain %r" % (-2 * 3.141592653589793 / 5), hal)
+        self.assertIn("net j0-pos-cmd-rad j0-cmd.out => hm2_7i96s.0.stbl.0.0.pos_cmd", hal)
+        self.assertIn("net j0-pos-fb j0-fb.out => joint.0.motor-pos-fb", hal)
+        self.assertIn("net j1-pos-cmd joint.1.motor-pos-cmd => hm2_7i96s.0.stbl.0.1.pos_cmd", hal)
+        lines = hal.splitlines()
+        self.assertLess(lines.index("addf j0-fb servo-thread"), lines.index("addf motion-command-handler servo-thread"))
+        self.assertGreater(lines.index("addf j0-cmd servo-thread"), lines.index("addf motion-controller servo-thread"))
+        self.assertLess(lines.index("addf j0-cmd servo-thread"), lines.index("addf hm2_7i96s.0.write servo-thread"))
+        m["joints"][0]["mech"] = {"lead": 0, "ratio": -1}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"joints.0.mech.lead", "joints.0.mech.ratio"})
+
+    def test_spindle_pins_and_rack_changer(self):
+        m = json.load(open(TEST_MACHINE))
+        m["spindle"] = {"type": "hal", "max_rpm": 24000, "on": "hm2_7i96s.0.ssr.00.out-00", "speed": "pwmgen.0.value", "at_speed": "vfd.at-speed"}
+        m["atc"] = {"type": "rack", "pockets": 6, "x": 600, "y": 400, "dx": 25, "dy": 0, "z_clear": -10, "z_pocket": -150, "slide": 20,
+                    "unclamp": "hm2_7i96s.0.ssr.00.out-01", "released": "hm2_7i96s.0.inm.00.input-05"}
+        f = self.gen(m)
+        hal, ini, ngc = f["machine.hal"], ini_sections(f["mill.ini"]), f["toolchange.ngc"]
+        self.assertIn("net spindle-on spindle.0.on => hm2_7i96s.0.ssr.00.out-00", hal)
+        self.assertIn("net spindle-rpm spindle.0.speed-out-abs => pwmgen.0.value", hal)
+        self.assertIn("net spindle-at-speed vfd.at-speed => spindle.0.at-speed", hal)
+        self.assertNotIn("setp spindle.0.at-speed 1", hal)
+        self.assertIn("num_dio=4", hal)
+        self.assertIn("net atc-unclamp motion.digital-out-00 => hm2_7i96s.0.ssr.00.out-01", hal)
+        self.assertIn("net atc-released hm2_7i96s.0.inm.00.input-05 => motion.digital-in-01", hal)
+        self.assertEqual(ini["RS274NGC"]["REMAP"], ["M6 modalgroup=6 ngc=toolchange"])
+        self.assertEqual(ini["RS274NGC"]["SUBROUTINE_PATH"], [os.path.join(self.d, "run")])
+        # released has a sensor: waited for; clamped hasn't: the dwell
+        self.assertIn("M66 P1 L3 Q3", ngc)
+        self.assertNotIn("M66 P0", ngc)
+        self.assertIn("G53 G0 X[600 + [#<_pk> - 1] * 25] Y[[400 + [#<_pk> - 1] * 0] - 20]", ngc)
+        self.assertIn("[#<_current_tool> LE 6]", ngc)
+        self.assertTrue(ngc.rstrip().endswith("M2"))
+        m["atc"].update(unclamp="", z_pocket=0)
+        m["spindle"] = {"type": "hal"}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
 
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static char *drop_messages(const char *in);
+
 char *su_conf_normalize(const char *in) {
   size_t n  = strlen(in);
   char *out = malloc(n + 2);
@@ -193,15 +195,38 @@ int su_conf_has_link(const char *conf, const char *name) {
   return 0;
 }
 
+static char *insert_after_links(char *conf, const char *line);
+
 char *su_conf_link(char *conf, const char *name) {
   if(su_conf_has_link(conf, name)) {
     return conf;
   }
-  // after the last link line: templates first, settings after them
+  char line[128];
+  snprintf(line, sizeof(line), "link %s\n", name);
+  return insert_after_links(conf, line);
+}
+
+// "load COMP" after the templates, once
+char *su_conf_load(char *conf, const char *comp) {
+  char line[128];
+  snprintf(line, sizeof(line), "load %s\n", comp);
+  size_t ll = strlen(line);
+  for(const char *p = conf; *p;) {
+    if(strncmp(p, line, ll) == 0 || (strncmp(p, line, ll - 1) == 0 && p[ll - 1] == '\0')) {
+      return conf;
+    }
+    p = strchr(p, '\n');
+    p = p ? p + 1 : "";
+  }
+  return insert_after_links(conf, line);
+}
+
+// after the last link and load line: templates first, settings after them
+static char *insert_after_links(char *conf, const char *line) {
   const char *after = NULL;
   for(const char *p = conf; *p;) {
     const char *e = strchr(p, '\n');
-    if(strncmp(p, "link ", 5) == 0) {
+    if(strncmp(p, "link ", 5) == 0 || strncmp(p, "load ", 5) == 0) {
       after = e ? e + 1 : p + strlen(p);
     }
     if(!e) {
@@ -210,8 +235,6 @@ char *su_conf_link(char *conf, const char *name) {
     p = e + 1;
   }
   size_t at = after ? (size_t)(after - conf) : 0;
-  char line[128];
-  snprintf(line, sizeof(line), "link %s\n", name);
   size_t n  = strlen(conf), ll = strlen(line);
   char *out = malloc(n + ll + 1);
   memcpy(out, conf, at);
@@ -223,7 +246,73 @@ char *su_conf_link(char *conf, const char *name) {
 
 char *su_conf_read(su_link_t *l) {
   const char *t = su_link_query(l, "showconf", 0.5, NULL, 10.0);
-  return t ? su_conf_normalize(t) : NULL;
+  if(!t) {
+    return NULL;
+  }
+  char *text = drop_messages(t);
+  char *conf = su_conf_normalize(text);
+  free(text);
+  return conf;
+}
+
+// The drive's own messages (faults, warnings) come whenever they happen, in
+// the middle of an answer too: no config line looks like them.
+static int is_message(const char *line, size_t len) {
+  static const char *const starts[] = {"ERROR:", "INFO:", "WARNING:", "<font"};
+  for(size_t i = 0; i < sizeof(starts) / sizeof(starts[0]); i++) {
+    size_t n = strlen(starts[i]);
+    if(len >= n && strncmp(line, starts[i], n) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// ... and blank lines: the smart-serial console starts its answer with one
+static int is_blank(const char *line, size_t len) {
+  for(size_t i = 0; i < len; i++) {
+    if(line[i] != ' ' && line[i] != '\t' && line[i] != '\r' && line[i] != '\n') {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static char *drop_messages(const char *in) {
+  char *out = malloc(strlen(in) + 1);
+  size_t o  = 0;
+  for(const char *p = in; *p;) {
+    const char *e = strchr(p, '\n');
+    size_t len    = e ? (size_t)(e - p) + 1 : strlen(p);
+    if(!is_message(p, len) && !is_blank(p, len)) {
+      memcpy(out + o, p, len);
+      o += len;
+    }
+    p += len;
+  }
+  out[o] = '\0';
+  return out;
+}
+
+// a line of the answer starts with "error" (the firmware's own failures,
+// "error!", "error: drive enabled"); "Fault 9: HV timeout error" isn't one
+static int has_error_line(const char *t) {
+  for(const char *p = t; p && *p;) {
+    if(strncmp(p, "error", 5) == 0) {
+      return 1;
+    }
+    p = strchr(p, '\n');
+    p = p ? p + 1 : NULL;
+  }
+  return 0;
+}
+
+// The drive's RAM config size (`confcrc` ends "size: N words: ..."), -1 no answer.
+static long ram_conf_size(su_link_t *l) {
+  const char *t = su_link_query(l, "confcrc", 0.1, "crc:", 3.0);
+  const char *s = t ? strstr(t, "size: ") : NULL;
+  long n;
+  return s && sscanf(s + 6, "%ld", &n) == 1 ? n : -1;
 }
 
 int su_conf_write(su_link_t *l, const char *text, char *err, size_t errlen) {
@@ -232,14 +321,19 @@ int su_conf_write(su_link_t *l, const char *text, char *err, size_t errlen) {
     free(conf);
     return -1;
   }
-  if(!su_link_query(l, "deleteconf", 0.1, NULL, 1.0)) {
-    snprintf(err, errlen, "no answer to deleteconf");
+  // deleteconf prints nothing, so check the RAM config is empty: a lost
+  // deleteconf appended to the old text, and the drive booted the doubled
+  // config with two hv comps (SEW bench, 2026-10-29)
+  if(!su_link_query(l, "deleteconf", 0.1, NULL, 1.0) || ram_conf_size(l) != 0) {
+    snprintf(err, errlen, "deleteconf did not clear the drive's config: flash not written");
     free(conf);
     return -1;
   }
   // a line at a time, each acknowledged ("adding <line>"), so the drive's
-  // 64-byte line buffer never overflows
-  int lineno = 0;
+  // 64-byte line buffer never overflows. Other output (a warning, a fault)
+  // may come first: look for the acknowledgement, not the first line.
+  int lineno  = 0;
+  long expect = 0;
   for(const char *p = conf; *p;) {
     const char *e = strchr(p, '\n');
     size_t len    = e ? (size_t)(e - p) : strlen(p);
@@ -247,25 +341,36 @@ int su_conf_write(su_link_t *l, const char *text, char *err, size_t errlen) {
     snprintf(cmd, sizeof(cmd), "appendconf %.*s", (int)len, p);
     snprintf(want, sizeof(want), "adding %.*s\n", (int)len, p);
     lineno++;
-    const char *t = su_link_query(l, cmd, 0.1, "\n", 2.0);
-    if(!t || strcmp(t, want) != 0) {
+    const char *t = su_link_query(l, cmd, 0.1, want, 2.0);
+    if(!t || !strstr(t, want)) {
       snprintf(err, errlen, "no ack for line %d (%s): flash not written", lineno, cmd);
       free(conf);
       return -1;
     }
+    expect += (long)len + 1;  // appendconf adds the newline
     if(!e) {
       break;
     }
     p = e + 1;
   }
+  long got = ram_conf_size(l);
+  if(got != expect) {
+    snprintf(err, errlen, "the drive's config is %ld bytes, %ld were sent: flash not written", got, expect);
+    free(conf);
+    return -1;
+  }
   const char *t = su_link_query(l, "flashsaveconf", 0.1, "bytes written", 10.0);
-  if(!t || !strstr(t, "bytes written") || strstr(t, "error")) {
+  if(!t || !strstr(t, "bytes written") || has_error_line(t)) {
     snprintf(err, errlen, "flashsaveconf failed: %s", t ? t : "no answer");
     free(conf);
     return -1;
   }
   char *back = su_conf_read(l);
-  int ok     = back && strcmp(back, conf) == 0;
+  char *sent = drop_messages(conf);  // without blank lines, as read back
+  char *want = su_conf_normalize(sent);
+  int ok     = back && strcmp(back, want) == 0;
+  free(sent);
+  free(want);
   free(back);
   free(conf);
   if(!ok) {

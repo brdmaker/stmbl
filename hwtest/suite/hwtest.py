@@ -426,6 +426,75 @@ def t_safe_mode(ctx):
     ctx.cli(ctx.a.usb, "-c", "crash clear")
 
 
+def errlog_entries(ctx):
+    rc, out = ctx.cli(ctx.a.usb, "-c", "errlog all")
+    return [l for l in out.splitlines() if re.match(r"\s*\d+\s+boot ", l)]
+
+
+@test("drive", "watchdog: a hung main loop or interrupts reset the drive, `crash` and `errlog` name it", targets=("hw",))
+def t_watchdog(ctx):
+    took = []
+    for how in ("main", "irq"):
+        ctx.cli(ctx.a.usb, "-c", "crash clear")
+        before = len(errlog_entries(ctx))
+        t0 = time.monotonic()
+        ctx.cli(ctx.a.usb, "-c", "wdtest " + how, quiet=0.3, timeout=20)
+        need(ctx.wait_port(ctx.a.usb, gone_first=True), "wdtest %s: the drive didn't reset" % how)
+        took.append(time.monotonic() - t0)
+        rc, out = ctx.cli(ctx.a.usb, "-c", "crash")
+        need("last reset: watchdog" in out and "last: Watchdog" in out and "console command: wdtest" in out,
+             "wdtest %s: record: %s" % (how, out[-300:]))
+        new = errlog_entries(ctx)[before:]
+        need(any("HANG: watchdog reset cmd wdtest" in l for l in new), "wdtest %s: errlog: %s" % (how, new))
+        need(any("boot: watchdog" in l for l in new), "wdtest %s: no watchdog boot entry: %s" % (how, new))
+        h = hal_info(ctx, ctx.a.usb)
+        need(h["state"] == "HAL_OK2" and h["rt_funcs"], "wdtest %s: HAL after the reset: %s" % (how, h["state"]))
+    ctx.cli(ctx.a.usb, "-c", "crash clear")
+    got = dump(ctx, ctx.a.usb, "after-watchdog.conf")
+    need(got == baseline(ctx), "config differs after the watchdog resets")
+    return "back after %.1f / %.1f s" % tuple(took)
+
+
+def usb_answers(port):
+    import serial
+    s = serial.Serial(port, 115200, timeout=0.2)
+    try:
+        s.reset_input_buffer()
+        for _ in range(3):
+            s.write(b"hv0.dc_volt\n")
+            t, b = time.monotonic(), b""
+            while time.monotonic() - t < 1.5:
+                b += s.read(4096)
+                if b"hv0.dc_volt" in b and b"=" in b:
+                    return True
+        return False
+    finally:
+        s.close()
+
+
+@test("drive", "usb: 1000 port closes in the middle of output leave the console sending", targets=("hw",))
+def t_usb_stall(ctx):
+    # ST's CDC went idle right after a ZLP; the next transfer went over it and
+    # the console never sent again, input still worked (DEBUGNOTES 2026-10-29,
+    # stuck after 350 rounds before the fix).
+    import random
+    import serial
+    rng = random.Random(1)
+    for i in range(1000):
+        s = serial.Serial(ctx.a.usb, 115200, timeout=0.01)
+        s.write(rng.choice([b"list\n", b"help\n", b"show hv0\n", b"about\n"]))
+        time.sleep(rng.uniform(0.002, 0.08))
+        s.read(rng.randint(0, 3000))
+        s.close()
+        if i % 50 == 49:
+            need(usb_answers(ctx.a.usb), "console stopped sending after %d rounds" % (i + 1))
+    rc, out = ctx.cli(ctx.a.usb, "-c", "about")
+    m = re.search(r"usb tx stalls healed: (\d+)", out)
+    need(m, "about has no healed count: %s" % out[-300:])
+    ctx.m("usb_tx_healed", int(m.group(1)))
+    return "healed %s" % m.group(1)
+
+
 def dfu_present():
     r = subprocess.run(["dfu-util", "-l"], capture_output=True, text=True)
     return "0483:df11" in r.stdout

@@ -10,7 +10,8 @@ const SETUP_DEFAULT = [
   { id: "vise", name: "Vise", role: "fixture", src: "builtin:vise", frame: "work", pos: [0, 0, -STOCK.h], rot: [0, 0, 0], scale: 1, look: "solid" },
   { id: "stock", name: `Stock ${STOCK.w} x ${STOCK.l} x ${STOCK.h}`, role: "workpiece", src: "builtin:stock", frame: "work", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, look: "solid" },
 ];
-const setup = { objects: SETUP_DEFAULT.map((o) => JSON.parse(JSON.stringify(o))), sel: null, nodes: new Map(), geoms: new Map() };
+// tools: each tool's 3D model {"<T>": {src: "model:<path>", z, rot, scale}} (buildTool draws it)
+const setup = { objects: SETUP_DEFAULT.map((o) => JSON.parse(JSON.stringify(o))), sel: null, nodes: new Map(), geoms: new Map(), tools: {} };
 const ROLE_COLOR = { fixture: 0x56677b, workpiece: 0xd2d9e0 };
 
 // ------------------------------------------------------------ 3D model files
@@ -108,7 +109,7 @@ function requestModel(path) {  // live: the machine's file
     pendingModels.delete(path);
     if (!buf) return;
     try { setup.geoms.set(path, parseModel(path, buf)); } catch (e) { msg(`${path}: ${e.message}`, "warn"); return; }
-    buildObjects();
+    buildObjects(); buildTool();
   });
 }
 // positions: an object in the work frame moves with G5x, G92 and the rotation
@@ -130,8 +131,18 @@ function placeObjects() {
   }
   if (R.selBox) R.selBox.update();
 }
+// a fixed drawing order for an object's meshes, and a depth offset: see-through surfaces don't
+// write depth, so three.js sorts them by distance each frame; two at the same level (the stock's
+// bottom on the vise, the vise's jaws on its base) then swap places as the view turns and flicker.
+// With renderOrder they always draw in the same order, and the offset settles coplanar solid faces.
+function stableOrder(node, mat, k) {
+  let j = 0;
+  node.traverse((o) => { if (o.isMesh) o.renderOrder = k + 0.001 * j++; });
+  mat.polygonOffset = true; mat.polygonOffsetFactor = 0; mat.polygonOffsetUnits = 2 * (k % 64);  // pushed back, never forward: a toolpath on the stock top stays in front
+}
 // solid, see-through, hidden: the role's switch first (fixtures, workpiece), then the object's own
 function applyLooks() {
+  let k = 0;
   for (const ob of setup.objects) {
     const n = setup.nodes.get(ob.id); if (!n) continue;
     const role = ob.role === "fixture" ? st.show.fix : st.show.work;
@@ -139,6 +150,7 @@ function applyLooks() {
     n.node.visible = look !== "hidden";
     const m = n.material, glass = look === "glass";
     m.transparent = glass; m.opacity = glass ? 0.28 : 1; m.depthWrite = !glass;
+    stableOrder(n.node, m, 1 + k++);
     m.color.setHex(ROLE_COLOR[ob.role]);
     m.emissive.setHex(ob.id === setup.sel ? 0x1a5a7a : 0x000000); m.emissiveIntensity = ob.id === setup.sel ? 0.9 : 0;
     m.needsUpdate = true;
@@ -193,10 +205,11 @@ let saveTimer = null;
 function saveSetup() {  // the machine's setup after edits settle; the simulation's stays in the page
   if (!LIVE) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects), 300);
+  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects, setup.tools), 300);
 }
-function setupLoad(objects) {  // from the machine
+function setupLoad(objects, tools) {  // from the machine
   setup.objects = JSON.parse(JSON.stringify(objects));
+  if (tools) { setup.tools = JSON.parse(JSON.stringify(tools)); buildTool(); if (st.page === "tool") renderToolModel(); }
   if (setup.sel && !objOf(setup.sel)) setup.sel = null;
   buildObjects(); selectObject(setup.sel);
 }

@@ -126,6 +126,14 @@ void ident_print(char *ptr) {
 }
 COMMAND("ident", ident_print, "the drive's name and motor type (machine-readable)");
 
+// the command running, an index into cmd[] (-1: none): the watchdog's crumb
+// and the crash record name it (src/wdog.c, src/stm32f4xx_it.c)
+volatile int32_t cmd_active = -1;
+
+const char *cmd_name(int32_t i) {
+  return i >= 0 && i < (int32_t)(sizeof(cmd) / sizeof(cmd_t)) ? cmd[i].name : 0;
+}
+
 uint32_t call_cmd(char *s) {
   char c[64];
   char a[128];
@@ -141,7 +149,10 @@ uint32_t call_cmd(char *s) {
     case 2:
       for(uint32_t i = 0; i < sizeof(cmd) / sizeof(cmd_t); i++) {
         if(!strcmp(cmd[i].name, c)) {
+          int32_t outer = cmd_active;  // name, motor call flashsaveconf
+          cmd_active    = i;
           cmd[i].ptr(a);
+          cmd_active = outer;
           return (1);
         }
       }

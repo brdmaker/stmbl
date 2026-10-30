@@ -66,6 +66,37 @@ class Ident(unittest.TestCase):
         with open(self.conf) as f:  # --pty writes flash back
             self.assertIn("#stmbl_name y-axis", f.read())
 
+    def test_load_into_erased_flash(self):
+        """A new drive's config flash was never written: erased, all 0xFF (the
+        bench, 2026-10-29). showconf printed the 0xFF bytes, servoterm-cli took
+        0xFF for a scope frame's marker and swallowed the next 8 bytes
+        ("adding #"), and --load aborted at its first line."""
+        with open(self.conf, "wb") as f:
+            f.write(b"\xff" * 15000)
+        self.tearDown()
+        self.setUp_erased()
+        rc, out = self.cli("-c", "version")
+        self.assertIn("conf=0", out)                       # an empty config, not garbage
+        new = os.path.join(self.dir, "new.conf")
+        with open(new, "w") as f:
+            f.write(CONF)
+        rc, out = self.cli("--load", new, "--no-backup")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("written to flash and verified", out)
+
+    def setUp_erased(self):
+        self.dir = tempfile.mkdtemp()
+        self.conf = os.path.join(self.dir, "drive.conf")
+        with open(self.conf, "wb") as f:
+            f.write(b"\xff" * 15000)
+        self.tty = os.path.join(self.dir, "tty")
+        self.drive = subprocess.Popen([os.path.join(HOST, "stmbl_host"), "--drive", self.conf, "--pty", self.tty],
+                                      cwd=HOST, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end = time.time() + 10
+        while not os.path.exists(self.tty) and time.time() < end:
+            time.sleep(0.05)
+        time.sleep(0.3)
+
     def test_prompt(self):
         pid, fd = pty.fork()
         if pid == 0:

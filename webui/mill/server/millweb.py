@@ -940,7 +940,7 @@ class Hub:
 
     async def op_setup_save(self, c, m):
         """The objects on the table for the 3D view: every browser gets them."""
-        err = await self.run(self.m.cmd_setup_save, m["objects"])
+        err = await self.run(self.m.cmd_setup_save, m["objects"], m.get("tools"))
         if not err:
             self.broadcast(self.setup_msg())
         return err
@@ -973,7 +973,7 @@ class Hub:
 
     # ------------------------------------------------------------ data
     def setup_msg(self):
-        return {"t": "setup", "objects": self.m.setup()}
+        return {"t": "setup", "objects": self.m.setup(), "tools": self.m.setup_tools()}
 
     def files_msg(self):
         files, dirs = self.m.programs()
@@ -1160,6 +1160,8 @@ class Hub:
                 for lvl, text in self.m.events():
                     self.event(lvl, text)
                 sl = self.m.slow()
+                if self.m.sim_probe:  # the simulated probe follows the setup and the tool (machine.sim_probe_sync)
+                    await asyncio.get_event_loop().run_in_executor(None, self.m.sim_probe_sync)
                 diff = {k: v for k, v in sl.items() if self.slow_state.get(k) != v}
                 self.slow_state = sl
                 if diff:

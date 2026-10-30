@@ -11,6 +11,12 @@
 #include "su_steps.h"
 #include "su_version.h"
 #include "su_wiring.h"
+#include "su_link.h"
+
+#include <pthread.h>
+#include <poll.h>
+#include <pty.h>
+#include <unistd.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -262,7 +268,257 @@ static void test_build(void) {
   ok(su_conf_get(c, "conf0.max_force", v, sizeof(v)) == 0, "build: torque limit once psi is known");
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: the final config fits the drive");
   free(c);
+
+  // the temperature sensor on a feedback port's pin 7 (docs/motor_temp_lv.md)
+  su_state_parse(s, "motor.temp_sensor = kty84\ntemp.input = fb0\n");
+  c = su_build_config(s, 0);
+  ok(su_conf_has_link(c, "mtemp_fb0") && !su_conf_has_link(c, "mtemp_fb1") &&
+         su_conf_get(c, "conf0.mot_temp_type", v, sizeof(v)) == 0 && strcmp(v, "1") == 0,
+     "build: sensor on FB0 pin 7: mtemp_fb0 linked, the type kept");
+  free(c);
+  su_state_parse(s, "temp.input = fb1\n");
+  c = su_build_config(s, 1);
+  ok(su_conf_has_link(c, "mtemp_fb1") && !su_conf_has_link(c, "mtemp_fb0"), "build: sensor on FB1 pin 7: mtemp_fb1");
+  free(c);
+  su_state_parse(s, "temp.input = hv\n");
+  c = su_build_config(s, 0);
+  ok(!su_conf_has_link(c, "mtemp_fb0") && !su_conf_has_link(c, "mtemp_fb1"), "build: sensor on the HV board: no template");
+  free(c);
+  su_state_parse(s, "motor.temp_sensor = none\ntemp.input = fb0\n");
+  c = su_build_config(s, 0);
+  ok(!su_conf_has_link(c, "mtemp_fb0"), "build: no sensor: no mtemp_fb0 either");
+  free(c);
+  char *wt = su_wiring_temp_fb(1, 0);
+  ok(strstr(wt, "JP2") && strstr(wt, "pin 7") && strstr(wt, "pin 8") && strstr(wt, "FB0"),
+     "wiring: the sensor on FB0: pins 7 / 8 and the jumper JP2");
+  free(wt);
+  wt = su_wiring_temp_fb(2, 1);
+  ok(strstr(wt, "JP5") && strstr(wt, "FB1") && strstr(wt, "PT1000"), "wiring: on FB1: JP5");
+  free(wt);
+
+  // the wizard on the smart-serial console: sserial stays loaded, once
+  su_state_parse(s, "console.sserial = 1\n");
+  c = su_build_config(s, 0);
+  const char *ld = strstr(c, "load sserial\n");
+  ok(ld && !strstr(ld + 1, "load sserial") && !su_conf_has_link(c, "sserial"),
+     "build: console over smart-serial: sserial loaded once, no command link");
+  ok(su_conf_get(c, "sserial0.rt_prio", v, sizeof(v)) == 0 && su_conf_get(c, "fault0.en", v, sizeof(v)) < 0,
+     "build: console only: its priorities, the enable not wired");
+  ok(ld && strstr(c, "link enc_fb0") < ld && ld < strstr(c, "sserial0.rt_prio"),
+     "build: loaded after the templates, before its settings");
+  free(c);
+  c = su_build_config(s, 1);
+  ok(su_conf_has_link(c, "sserial") && !strstr(c, "load sserial"), "build: the final link sserial loads it itself");
+  free(c);
   su_state_free(s);
+}
+
+
+// A fake drive on a pty for su_conf_write: answers deleteconf, appendconf,
+// confcrc, flashsaveconf and showconf like src/config.c, and mixes the
+// drive's own messages into the answers, as a faulted drive does.
+static struct {
+  int fd;
+  char ram[4096], flash[4096];
+  int noise;       // a message before every answer
+  int drop_delete; // deleteconf lost (as on the SEW bench)
+  int stop;
+} fd_drive;
+
+static void say(const char *s) {
+  if(write(fd_drive.fd, s, strlen(s)) < 0) {
+  }
+}
+
+static void *fake_drive(void *arg) {
+  (void)arg;
+  char line[256];
+  size_t n = 0;
+  while(!fd_drive.stop) {
+    char c;
+    if(read(fd_drive.fd, &c, 1) != 1) {
+      break;
+    }
+    if(c != '\n') {
+      if(n < sizeof(line) - 1) {
+        line[n++] = c;
+      }
+      continue;
+    }
+    line[n] = 0;
+    n       = 0;
+    if(!line[0]) {
+      continue;
+    }
+    if(fd_drive.noise) {
+      say("ERROR: Fault 9: HV timeout error\nWARNING: over temperature (motor) current clamping active\n");
+    }
+    char out[512];
+    if(!strcmp(line, "deleteconf")) {
+      if(!fd_drive.drop_delete) {
+        fd_drive.ram[0] = 0;
+      }
+    } else if(!strncmp(line, "appendconf ", 11)) {
+      snprintf(out, sizeof(out), "adding %s\n", line + 11);
+      say(out);
+      strncat(fd_drive.ram, line + 11, sizeof(fd_drive.ram) - strlen(fd_drive.ram) - 2);
+      strcat(fd_drive.ram, "\n");
+    } else if(!strcmp(line, "confcrc")) {
+      snprintf(out, sizeof(out), "\nsize: %zu words: %zu crc:1234\n", strlen(fd_drive.ram), strlen(fd_drive.ram) / 4);
+      say(out);
+    } else if(!strcmp(line, "flashsaveconf")) {
+      strcpy(fd_drive.flash, fd_drive.ram);
+      snprintf(out, sizeof(out), "erasing flash page...\nsaving conf\nOK %zu bytes written\n", strlen(fd_drive.ram) + 1);
+      say(out);
+    } else if(!strncmp(line, "getf ", 5)) {
+      // smart-serial (~1 kB/s): the last answer's tail and the start of this
+      // one come first, the rest after more than a read's 50 ms
+      snprintf(out, sizeof(out), "%s%s = -", fd_drive.noise ? "0.000000\n" : "", line + 5);
+      say(out);
+      usleep(120000);
+      say("1.5\n");
+    } else if(!strcmp(line, "showconf")) {
+      if(fd_drive.noise) {
+        say("\n");  // the smart-serial console's answer starts so
+      }
+      say(fd_drive.flash);
+      if(fd_drive.noise) {
+        say("INFO: Disabled \n");
+      }
+    }
+  }
+  return NULL;
+}
+
+static void test_conf_write(void) {
+  int master, slave;
+  char name[64], err[256];
+  if(openpty(&master, &slave, name, NULL, NULL) < 0) {
+    ok(0, "conf write: openpty");
+    return;
+  }
+  struct termios tio;
+  tcgetattr(slave, &tio);
+  cfmakeraw(&tio);
+  tcsetattr(slave, TCSANOW, &tio);
+  fd_drive.fd = master;
+  strcpy(fd_drive.flash, "link pid\nold.pin = 1\n");
+  strcpy(fd_drive.ram, fd_drive.flash);  // the boot loads flash into RAM
+  pthread_t th;
+  pthread_create(&th, NULL, fake_drive, NULL);
+  su_link_t *l = su_link_open(name, err, sizeof(err));
+  ok(l != NULL, "conf write: fake drive opened");
+  if(!l) {
+    return;
+  }
+  const char *conf = "link pid\nlink pmsm\nconf0.r = 22.5 # id_pmsm\n";
+
+  fd_drive.noise = 1;
+  int r = su_conf_write(l, conf, err, sizeof(err));
+  ok(r == 0 && !strcmp(fd_drive.flash, conf), "conf write: fault messages in the answers don't break it");
+  if(r) {
+    printf("#   %s\n", err);
+  }
+
+  double gv = 0.0;
+  ok(su_link_get(l, "fb_switch0.pos_fb", &gv) == 0 && gv == -1.5,
+     "get: the last answer's tail first (slow console) doesn't hide the value");
+
+  strcpy(fd_drive.ram, fd_drive.flash);
+  fd_drive.noise       = 0;
+  fd_drive.drop_delete = 1;
+  r = su_conf_write(l, "link pid\nconf0.r = 1\n", err, sizeof(err));
+  ok(r < 0 && !strcmp(fd_drive.flash, conf), "conf write: a lost deleteconf stops it, the flash isn't doubled");
+  ok(strstr(err, "deleteconf") != NULL, "conf write: and says so");
+  fd_drive.drop_delete = 0;
+
+  fd_drive.stop = 1;
+  su_link_close(l);
+  close(slave);
+  close(master);
+  pthread_join(th, NULL);
+}
+
+// The drive's USB re-enumerates (its console was stuck): the tty goes away,
+// a new one comes behind the same by-id link. su_link reopens it.
+static int re_master = -1;
+static volatile int re_stop;
+static void *re_drive(void *arg) {
+  (void)arg;
+  char line[128];
+  size_t n = 0;
+  char c;
+  while(!re_stop) {
+    struct pollfd pfd = {re_master, POLLIN, 0};
+    if(poll(&pfd, 1, 50) <= 0 || read(re_master, &c, 1) != 1) {
+      continue;
+    }
+    if(c != '\n') {
+      if(n < sizeof(line) - 1) {
+        line[n++] = c;
+      }
+      continue;
+    }
+    line[n] = 0;
+    n       = 0;
+    if(!strncmp(line, "getf ", 5)) {
+      char out[160];
+      snprintf(out, sizeof(out), "%s = 2.5\n", line + 5);
+      if(write(re_master, out, strlen(out)) < 0) {
+      }
+    }
+  }
+  return NULL;
+}
+
+static int re_pty(char *name, int *slave) {
+  int m;
+  if(openpty(&m, slave, name, NULL, NULL) < 0) {
+    return -1;
+  }
+  struct termios tio;
+  tcgetattr(*slave, &tio);
+  cfmakeraw(&tio);
+  tcsetattr(*slave, TCSANOW, &tio);
+  return m;
+}
+
+static void test_reconnect(void) {
+  char name[64], err[128], link[] = "/tmp/su-test-reconnect-XXXXXX";
+  int fd = mkstemp(link);
+  close(fd);
+  unlink(link);
+  int slave;
+  re_master = re_pty(name, &slave);
+  if(re_master < 0 || symlink(name, link) < 0) {
+    ok(0, "reconnect: pty");
+    return;
+  }
+  pthread_t th;
+  pthread_create(&th, NULL, re_drive, NULL);
+  su_link_t *l = su_link_open(link, err, sizeof(err));
+  double v = 0.0;
+  ok(l && su_link_get(l, "hv0.dc_volt", &v) == 0 && v == 2.5, "reconnect: answers before");
+  // gone: the old tty hangs up; a new one behind the link
+  re_stop = 1;
+  pthread_join(th, NULL);
+  re_stop = 0;
+  close(slave);
+  close(re_master);
+  unlink(link);
+  re_master = re_pty(name, &slave);
+  if(symlink(name, link) < 0) {
+  }
+  pthread_create(&th, NULL, re_drive, NULL);
+  v = 0.0;
+  ok(l && su_link_get(l, "hv0.dc_volt", &v) == 0 && v == 2.5 && su_link_reconnects(l) == 1,
+     "reconnect: the link reopens the drive's path after it went away");
+  su_link_close(l);
+  re_stop = 1;
+  pthread_join(th, NULL);
+  close(slave);
+  close(re_master);
+  unlink(link);
 }
 
 int main(void) {
@@ -274,6 +530,8 @@ int main(void) {
   test_wiring();
   test_temp();
   test_build();
+  test_conf_write();
+  test_reconnect();
   printf("1..%d\n# %d/%d passed\n", n, n - failed, n);
   return failed != 0;
 }

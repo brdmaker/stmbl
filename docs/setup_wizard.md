@@ -36,6 +36,15 @@ servoterm-cli/servoterm-cli -d /dev/ttyACM0 --wizard           # USB
 servoterm-cli/servoterm-cli -d /tmp/drive-x --wizard           # smart-serial console (sserialterm)
 ```
 
+On real hardware the smart-serial console needs no LinuxCNC:
+`tools/sscon/sscon.sh` runs the Mesa driver and sserialterm in a HAL
+session and gives `/tmp/stmbl-con`. Put `console.sserial = 1` in the
+session: every step's config then keeps `load sserial` (its console only),
+so the resets after a config write don't take the console away. The script
+raises the port's fault limit (the flash erase stops the drive's rt for up
+to 0.5 s) and restarts the port when it stops. Use it when USB's console
+is unreliable under motion (the SEW bench, DEBUGNOTES 2026-10-29).
+
 | Option | Default | What |
 |---|---|---|
 | `--session FILE` | `stmbl-setup-session.txt` | everything asked and measured; run again to resume |
@@ -59,14 +68,14 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 4 | `supply` | 230 V / 120 V mains or DC; a brake chopper and its threshold; the braking power the drive may feed back (`conf0.max_hv_power`) |
 | 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed; every one may be "unknown". A holding brake: its voltage, current, which output (DIO0–2), its engage time. The temperature sensor (none, KTY84-130, PT1000, PTC, NTC, thermal switch) with warning and trip temperatures. A vertical axis (gravity pulls) |
 | 6 | `feedback` | incremental encoder, sin/cos, resolver (pole count), Tamagawa smartabs, Mitsubishi, Sanyo Denki |
-| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay. The temperature sensor to the HV board's motor temperature connector |
+| 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay. The temperature sensor to the HV board's motor temperature connector. Where the temperature sensor is measured (`temp.input`): the HV board's input, or a feedback port's pin 7 (`fb1`; `fb0` with a resolver) after opening its solder jumper, see [motor_temp_lv.md](motor_temp_lv.md) |
 | 8 | `base` | a first config (no command link), drive reset; checks the HV bus voltage, that the temperature sensor reads the room's temperature (a PTC or switch: not tripped), and that there is no fault |
 | 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below). A brake is released for it (`fault0.brake_release`); on a vertical axis only once the load is off or supported |
 | 10 | `gate` | before anything moves: motor uncoupled or the axis clear; how far it may turn |
 | 11 | `electrical` | `id_pmsm`: resistance, inductance, pole pairs, phase order, commutation offset, flux; cross-checked against the nameplate |
 | 12 | `mechanical` | `id_mot` twice: inertia, friction, damping |
 | 13 | `tuning` | `id_pid`: position and velocity loop gains |
-| 14 | `brake` | the holding brake (below): released by the drive, holds with the drive off, no sag at disable |
+| 14 | `brake` | the holding brake (below): released by the drive, holds, no sag at disable. Horizontal axes: automatic (the drive pushes against it, below); vertical: by hand |
 | 15 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
 | 16 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
 | 17 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
@@ -151,6 +160,21 @@ drop while the brake closes (docs/emergency_stop.md).
 Positions are read from the feedback's own pin (`enc_fb0.pos`, ...):
 `fb_switch0.pos_fb` stands still while the drive is disabled.
 
+
+**Automatic test (horizontal axes).** No hand at the shaft: the drive holds
+its position, the command steps 0.3 rad (released) or 0.5 rad (closed) away
+and the torque limit (`pid0.max_torque`, `neg_min_torque`) rises in 40
+steps, 0.1 s each, until the shaft moves 0.02 rad. Released, it must turn
+below half the rated torque (friction); closed (the brake output forced off
+while enabled), the torque it slips at, both ways, up to 2.5x the rated
+torque (not the peak: a stalled motor at peak current heats fast). It must
+hold at least the rated torque. The position loop stops the shaft at the
+command, so a slipping brake can't let it run. The session gets
+`brake.release_torque`, `brake.slip_pos`, `brake.slip_neg` (-1: no slip up
+to `brake.test_torque`). `brake.manual = 1` asks for the hand checks
+instead; a vertical axis always gets them (a slipping brake would drop the
+load). On the SEW CMP40M (BP brake, 0.95 Nm): turns at 0.05 Nm released,
+slips at 1.15..1.20 Nm closed.
 ## Motor temperature sensor
 
 **In the drive.** The HV board measures the sensor's resistance

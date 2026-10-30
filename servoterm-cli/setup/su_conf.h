@@ -34,6 +34,8 @@ char *su_conf_set_num(char *conf, const char *pin, double v, const char *comment
 int su_conf_get(const char *conf, const char *pin, char *out, size_t outlen);
 // "link name" once, after the other link lines
 char *su_conf_link(char *conf, const char *name);
+// "load COMP" after the templates, unless there already
+char *su_conf_load(char *conf, const char *comp);
 int su_conf_has_link(const char *conf, const char *name);
 // drop every line for pin
 char *su_conf_unset(char *conf, const char *pin);

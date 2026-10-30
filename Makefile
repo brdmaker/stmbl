@@ -25,6 +25,9 @@ SOURCES += src/system_stm32f4xx.c #TODO: update this, system file from cmsis
 SOURCES += src/setup.c
 SOURCES += src/usb_cdc.c
 SOURCES += src/config.c
+SOURCES += src/wdog.c
+SOURCES += src/errlog_f4.c
+SOURCES += shared/errlog.c
 # SOURCES += src/hal_conf.c
 SOURCES += src/hal_tbl.c
 
@@ -91,6 +94,7 @@ SHARED_COMPS += shared/comps/fb_switch.c
 SHARED_COMPS += shared/comps/reslimit.c
 SHARED_COMPS += shared/comps/iit.c
 SHARED_COMPS += shared/comps/mtemp.c
+SHARED_COMPS += shared/comps/rpull.c
 SHARED_COMPS += shared/comps/vel_int.c
 SHARED_COMPS += shared/comps/gantry.c
 SHARED_COMPS += shared/comps/linrev.c

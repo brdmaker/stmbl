@@ -118,6 +118,11 @@ static const char* fault_string[] = {
   "HV firmware version: the HV board runs another firmware than this one carries (hv_update, or hv0.fw_check = 0)",
 };
 
+// the error log prints them (src/errlog_f4.c)
+const char *fault_name(uint32_t f) {
+  return f < sizeof(fault_string) / sizeof(fault_string[0]) ? fault_string[f] : "?";
+}
+
 struct fault_ctx_t {
   state_t state;
   fault_t fault;

@@ -12,7 +12,7 @@ try { drv.hist = JSON.parse(localStorage.getItem("pmc.dchist") || "[]").slice(-5
 
 // ------------------------------------------------------------ the cards
 const dfmt = (v, d = 1, u = "") => (v === null || v === undefined ? "—" : (+v).toFixed(d) + (u ? " " + u : ""));
-const kb = (n) => (n > 9999 ? (n / 1024).toFixed(0) + " kB" : (n || 0) + " B");
+const kb = fmtSize;
 const DRV_LINK = { ok: ["ok", "LINK OK"], silent: ["warn", "NO ANSWER"], missing: ["bad", "NO CONSOLE"], detached: ["warn", "DETACHED"], closed: ["off", "CLOSED"] };
 function drvStateCls(d) {
   if (d.link !== "ok") return "off";
