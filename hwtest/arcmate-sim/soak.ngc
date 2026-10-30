@@ -1,0 +1,48 @@
+( hwtest/arcmate-sim soak program: Cartesian moves through genserkins on )
+( the simulated ARC Mate. Home orientation A0 B0 C0 [deg]. Units mm.    )
+G21 G90 G17 G64 P0.1
+F3000
+G1 X850 Y0 Z1150 A0 B0 C0
+( cube edges and diagonals, 240 mm )
+G1 X730 Y-120 Z1030
+G1 X970
+G1 Y120
+G1 X730
+G1 Y-120
+G1 Z1270
+G1 X970
+G1 Y120
+G1 X730
+G1 Y-120
+G1 X970 Y120 Z1030
+G1 X730 Y120 Z1270
+G1 X850 Y0 Z1150
+( tool reorientation about the tool point )
+G1 A20 F2000
+G1 A-20
+G1 A0 B20
+G1 B-20
+G1 B0 C20
+G1 C-20
+G1 A15 B-15 C10
+G1 A0 B0 C0
+( full circles: XY [G17] r 60, XZ [G18] r 60 )
+F3000
+G1 X910 Y0 Z1150
+G17 G2 X910 Y0 I-60 J0
+G3 X910 Y0 I-60 J0
+G18 G2 X910 Z1150 I-60 K0
+G17
+( welding weave: zigzag 4 mm across, 4 mm pitch, 10 mm/s, along X )
+G1 X780 Y-150 Z1100 F3000
+F600
+O100 repeat [25]
+  G91 G1 X1 Y4
+  G1 X2 Y-8
+  G1 X1 Y4
+  G90
+O100 endrepeat
+( rapids back )
+G0 X850 Y0 Z1150
+G0 X799.3 Y0.16 Z1270.9
+M2

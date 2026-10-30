@@ -1,0 +1,62 @@
+# The pneumatic tool changer (with host/arm/arcmate/arcmate_changer.arm,
+# cell_changer.txt, armkins as [KINS]KINEMATICS; after grip.hal, the
+# gripper being tool 2). armtool watches the changer and knows the mounted
+# tool; armkins puts the Cartesian position on its TCP (switchkins type =
+# tool); M6 is toolchange.ngc.
+#
+# G-code I/O (also used by toolchange.ngc):
+#   M64 / M65 P1     lock / unlock request (armtool never unlocks a tool
+#                    away from its dock)
+#   M68 E3 Q<tool>   the kinematics' TCP (then M66 E0 L0 to resync)
+#   M68 E4 Q<tool>   the tool the next lock should take
+#   M68 E5 Q<tool>   its dock -> analog-in 0..11 (M66 E<n> L0, #5399)
+#   digital-in 2 / 3 lock sensors locked / unlocked
+# A changer fault (1 sensors timeout, 2 wrong tool, 3 tool lost, 4 unlock
+# away from the dock, 5 kinematics on another tool's TCP) drops the estop
+# chain (armtool.0.reason).
+loadrt armtool model=[ARMCOLLIDE]MODEL tools=[STMBL_ARM]TOOLS
+addf armtool.0 servo-thread
+
+net tool-valve     armtool.0.valve => stmbl-arm.0.changer.valve
+net tool-locked    stmbl-arm.0.changer.locked => armtool.0.locked motion.digital-in-02
+net tool-unlocked  stmbl-arm.0.changer.unlocked => armtool.0.unlocked motion.digital-in-03
+net tool-present   stmbl-arm.0.changer.present => armtool.0.present
+net tool-id        stmbl-arm.0.changer.id => armtool.0.id
+net machine-enabled => armtool.0.enable
+net j0-drv-fb => armtool.0.0.pos
+net j1-drv-fb => armtool.0.1.pos
+net j2-drv-fb => armtool.0.2.pos
+net j3-drv-fb => armtool.0.3.pos
+net j4-drv-fb => armtool.0.4.pos
+net j5-drv-fb => armtool.0.5.pos
+
+net tool-lock      motion.digital-out-01 => armtool.0.lock
+net tool-kins      motion.analog-out-03 => motion.switchkins-type
+net tool-kins-now  armkins.tool => armtool.0.kins-tool
+net tool-expect    motion.analog-out-04 => armtool.0.expect
+net tool-dock-sel  motion.analog-out-05 => armtool.0.dock-select
+net tool-dock-0    armtool.0.dock-0  => motion.analog-in-00
+net tool-dock-1    armtool.0.dock-1  => motion.analog-in-01
+net tool-dock-2    armtool.0.dock-2  => motion.analog-in-02
+net tool-dock-3    armtool.0.dock-3  => motion.analog-in-03
+net tool-dock-4    armtool.0.dock-4  => motion.analog-in-04
+net tool-dock-5    armtool.0.dock-5  => motion.analog-in-05
+net tool-dock-6    armtool.0.dock-6  => motion.analog-in-06
+net tool-dock-7    armtool.0.dock-7  => motion.analog-in-07
+net tool-dock-8    armtool.0.dock-8  => motion.analog-in-08
+net tool-dock-9    armtool.0.dock-9  => motion.analog-in-09
+net tool-dock-10   armtool.0.dock-10 => motion.analog-in-10
+net tool-dock-11   armtool.0.dock-11 => motion.analog-in-11
+
+# the mounted tool: its mass into the detector's model, its bodies to the guard
+net tool-mass      armtool.0.tool-mass => armcollide.0.tool-mass
+net tool-cx        armtool.0.tool-cx => armcollide.0.tool-cx
+net tool-cy        armtool.0.tool-cy => armcollide.0.tool-cy
+net tool-cz        armtool.0.tool-cz => armcollide.0.tool-cz
+net tool-mounted   armtool.0.mounted => armguard.0.tool
+
+# a changer fault into the estop chain (after the gripper's)
+net estop-reset => armtool.0.reset
+unlinkp iocontrol.0.emc-enable-in
+net grip-chain => armtool.0.chain-in
+net tool-chain     armtool.0.chain-out => iocontrol.0.emc-enable-in

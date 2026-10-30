@@ -1,0 +1,23 @@
+# A gripped part slips out while carried: the fingers (pressing at the
+# current limit, commanded 1.2 mm inside the part) close on past it by more
+# than lost_tol: LOST, LinuxCNC turns the machine off (off_reason 7).
+@program arm/arm_sim
+@args arm/arcmate/arcmate_gripper.arm
+@include arm/tests/inc_grip_pick.txt
+grip expect 30 2.0 0 0 0.15
+grip close
+run 1.5
+tlmove 1.0 799.3 0 1370.9 0 0 0
+run 1.2
+tmove 2.0 30 10 10 0 -80 0
+run 0.8
+print grip off
+gripdrop
+run 0.5
+print grip off
+@expect arm.grip_state[1] == 2
+@expect arm.off_reason[1] == 0
+@expect arm.grip_state[2] == 6
+@expect arm.grip_held[2] == -1
+@expect arm.off_reason[2] == 7
+@reject ^ERROR

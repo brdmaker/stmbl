@@ -26,6 +26,7 @@ sim/sim
 sim/plot
 stmblx
 *.ngc
+!hwtest/arcmate-sim/soak.ngc
 
 # host simulation build
 host/gen
@@ -42,6 +43,7 @@ host/test_vibproto
 brdstepper/obj
 vibsensor/obj
 host/servoterm
+host/test_robot
 host/servoterm.dSYM/
 host/stmbl_host.dSYM/
 host/lcnc/gen

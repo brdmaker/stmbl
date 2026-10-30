@@ -1,0 +1,72 @@
+# Tool changer faults (arcmate_changer.arm), each a machine off:
+# 1. tool 2 comes off the plate mid-move (presence lost): the monitor's
+#    CH_LOST, off_reason 9 / 3; the tool is gone (dropped).
+# 2. (after the reset the monitor takes what its sensors show: no tool;
+#    the empty changer unlocked) locking in tool 1's dock while tool 2 was
+#    expected: CH_WRONG, 9 / 2.
+# 3. tool 1 on, a Cartesian move on tool 2's TCP: off_reason 10.
+# 4. unlock requested away from the dock: the valve stays locked (the tool
+#    would fall), CH_UNDOCKED, 9 / 4; the tool is still on.
+@program arm/arm_sim
+@args arm/arcmate/arcmate_changer.arm
+detector arm/arcmate/model_perturbed.arm
+lcnc 0
+run 0.5
+lcnc 1
+run 1.5
+@include arm/tests/inc_tool_pick2.txt
+lmove 2 1150 0 1100 0 45 0
+run 1.0
+toolslip
+run 1.2
+print tool off
+lcnc 0
+run 0.5
+lcnc 1
+run 0.5
+ktool 0
+lock 0
+run 0.3
+lmove 2 929.29 400 929.29 0 45 0
+run 2.2
+lmove 1 1000 400 1000 0 45 0
+run 1.2
+toolexpect 2
+lock 1
+run 0.3
+print tool off
+lcnc 0
+run 0.5
+lcnc 1
+run 0.5
+ktool 2
+lmove 2 1000 400 1150 0 45 0
+run 0.5
+print tool off
+lcnc 0
+run 0.5
+lcnc 1
+run 0.5
+ktool 0
+lmove 1 1000 400 1150 0 45 0
+run 1.2
+lock 0
+run 0.3
+print tool off
+@expect arm.tool_fault[1] == 3
+@expect arm.off_reason[1] == 9
+@expect arm.off_joint[1] == 3
+@expect arm.tool_state2[1] == 2
+@expect arm.tool_plant[1] == 0
+@expect arm.tool_fault[2] == 2
+@expect arm.off_reason[2] == 9
+@expect arm.off_joint[2] == 2
+@expect arm.tool_mounted[2] == 1
+@expect arm.off_reason[3] == 10
+@expect arm.tool_fault[4] == 4
+@expect arm.off_reason[4] == 9
+@expect arm.off_joint[4] == 4
+@expect arm.tool_valve[4] == 1
+@expect arm.tool_plant[4] == 1
+@expect arm.tool_state1[4] == 1
+@reject ^ERROR

@@ -138,6 +138,12 @@ HAL_PIN(sim_sense_gain);    // IPROPI gain error, share: + on A, - on B (DRV8876
 HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods] (0: off)
 HAL_PIN(sense_off_a);       // the offsets it found [A]
 HAL_PIN(sense_off_b);
+// sim_ext = 1: the mechanics are simulated outside (host/arm). Before every
+// rt cycle the host sets sim_pos and sim_vel; within the cycle the rotor
+// advances at sim_vel, and sim_te_int accumulates te * dt for the host to
+// read and clear. sim_j/d/f/load/brake are then unused.
+HAL_PIN(sim_ext);
+HAL_PIN(sim_te_int);
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -564,7 +570,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_iq) = 0.0;
       }
 
-      mech_step(ctx, pins, 1.5 * pp * mpsi * PIN(sim_iq), mj, mot_dt);
+      float te = 1.5 * pp * mpsi * PIN(sim_iq);
+      if(PIN(sim_ext) > 0.0) {  // host/arm: the mechanics outside
+        PIN(sim_pos) = mod(PIN(sim_pos) + PIN(sim_vel) * mot_dt);
+        PIN(sim_te_int) += te * mot_dt;
+        PIN(sim_torque) = te;
+      } else {
+        mech_step(ctx, pins, te, mj, mot_dt);
+      }
 
       // the bus: the bridge's power (< 0 regenerates), the rectifier
       if(mains) {

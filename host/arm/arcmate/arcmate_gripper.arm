@@ -1,0 +1,3 @@
+# FANUC ARC Mate (A05B-1203-B255) with the electric gripper, for arm_sim
+include arcmate_base.arm
+include gripper.tool

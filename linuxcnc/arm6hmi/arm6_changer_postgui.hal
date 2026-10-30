@@ -1,0 +1,5 @@
+# ARM-6 screen with the tool changer (changer.hal, armtool): the tool on the
+# flange into the 3D view (the others are drawn in their docks). changer.hal
+# has armtool.0.mounted on the signal tool-mounted already: a pin sits on
+# one signal, so join that one.
+net tool-mounted => arm6.vis3d.tool

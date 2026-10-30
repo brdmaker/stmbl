@@ -11,6 +11,7 @@
 #include "pty.h"
 #include "sim_io.h"
 #include "stmbl_sim_api.h"
+#include "hal.h"
 
 static long carry_ns = 0;
 static int can_on    = 0;
@@ -105,3 +106,51 @@ void stmbl_sim_update(stmbl_sim_pd_t *pd, long period_ns) {
     tick();
   }
 }
+
+int stmbl_sim_boot(const char *conf_text, const char *sim_text) {
+  if(!conf_text) {
+    return -1;
+  }
+  drive_set_flash(conf_text);
+  if(sim_text && sim_text[0]) {
+    drive_set_sim_extra(sim_text);
+  }
+  drive_set_nrt(1);
+  drive_boot();
+  return 0;
+}
+
+void stmbl_sim_tick(void) {
+  drive_tick();
+}
+
+float *stmbl_sim_pin(const char *name) {
+  NAME comp = {0}, pin = {0};
+  const char *dot = strchr(name, '.');
+  if(!dot) {
+    return NULL;
+  }
+  size_t n = dot - name, k = n;
+  while(k > 0 && name[k - 1] >= '0' && name[k - 1] <= '9') {
+    k--;
+  }
+  if(k == 0 || k == n || k >= sizeof(NAME) || strlen(dot + 1) >= sizeof(NAME)) {
+    return NULL;
+  }
+  memcpy(comp, name, k);
+  strcpy(pin, dot + 1);
+  hal_pin_inst_t *p = pin_inst_by_name(comp, (uint32_t)atoi(name + k), pin);
+  return p ? &p->source->value : NULL;
+}
+
+void stmbl_sim_cmd(const char *line) {
+  char buf[256];
+  snprintf(buf, sizeof(buf), "%s", line);
+  hal_parse(buf);
+  fflush(stdout);
+}
+
+double stmbl_sim_time(void) {
+  return drive_time();
+}
+

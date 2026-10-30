@@ -1,0 +1,133 @@
+/* ARM-6 operator screen: the look of docs/hmi/operator.dc.html.
+   Near-black ground, one cyan accent for the machine's own state and
+   controls, amber for warnings and the gripper, red only for E-STOP and
+   stops. Widgets carry a "role" property (arm6.ui); [role~="x"] matches a
+   word of it. Fonts: Space Grotesk and JetBrains Mono when installed
+   (fonts-jetbrains-mono on Debian), else DejaVu. */
+
+QMainWindow, QWidget#centralwidget {
+  background: #070A0E;
+}
+QWidget {
+  color: #DCE6EF;
+  font-family: "Space Grotesk", "DejaVu Sans", sans-serif;
+  font-size: 13px;
+}
+
+/* panels */
+QFrame[role="panel"], QFrame#header, QFrame#footer {
+  background: #0E141B;
+  border: 1px solid #1C2733;
+  border-radius: 6px;
+}
+QWidget[role="view"] {
+  background: #070A0E;
+  border: 1px solid #1C2733;
+  border-radius: 4px;
+}
+
+/* text */
+QLabel { background: transparent; border: none; }
+QLabel[role="title"] { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+QLabel[role~="caption"] {
+  font-size: 11px; font-weight: 600; letter-spacing: 2px; color: #7D8C9B;
+}
+QLabel[role~="dim"] { color: #6B7B8B; }
+QLabel[role="muted"] { color: #8FA0B0; }
+QLabel[role~="mono"], QLabel[role="pose"], QListWidget, QLineEdit, QTableWidget {
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+}
+QLabel[role~="big"] { font-size: 16px; font-weight: 600; }
+QLabel[role="pose"] { font-size: 18px; font-weight: 600; }
+QLabel[role="pill"] {
+  font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  border: 1px solid #1C2733; border-radius: 4px; padding: 8px 12px;
+}
+QLabel[role="pill"][state="on"] { color: #8BEB5A; border-color: #3E6B2A; }
+QLabel[role="pill"][state="estop"] { color: #FF6B6B; border-color: #7A1B15; }
+QLabel[role="pill"][state="off"] { color: #F2B34B; border-color: #6B5226; }
+QLabel[role="guard"] { font-weight: 600; letter-spacing: 1px; }
+QLabel[role="guard"][state="ok"] { color: #8BEB5A; }
+QLabel[role="guard"][state="slow"] { color: #F2B34B; }
+QLabel[role="guard"][state="stop"] { color: #FF6B6B; }
+
+/* the joint rows (built by the handler) */
+QLabel[role="jname"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; color: #7FE6DE; font-size: 13px; }
+QLabel[role="jpos"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 16px; font-weight: 600; }
+QLabel[role="jsmall"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 12px; color: #8FA0B0; }
+QLabel[role="jsmall"][warn="true"] { color: #F2B34B; }
+QProgressBar[role="jbar"] { background: #16202A; border: none; border-radius: 3px; max-height: 6px; min-height: 6px; }
+QProgressBar[role="jbar"]::chunk { background: #2BD4C9; border-radius: 3px; }
+
+/* buttons */
+QPushButton {
+  font-weight: 600; letter-spacing: 1px; color: #DCE6EF;
+  background: #141C25; border: 1px solid #2A3845; border-radius: 4px;
+  min-height: 40px; padding: 0 14px;
+}
+QPushButton:hover { border-color: #4A6174; }
+QPushButton:pressed { background: #0F161E; }
+QPushButton:checked { background: #13302F; border-color: #2BD4C9; color: #7FE6DE; }
+QPushButton:disabled { color: #4A5B6B; border-color: #1C2733; }
+QPushButton:focus { border-color: #2BD4C9; }
+QPushButton[role~="small"] { min-height: 32px; padding: 0 10px; }
+QPushButton[role="jog"] {
+  min-width: 44px; min-height: 44px; padding: 0;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 18px;
+}
+QPushButton[role="jog"]:pressed { background: #13302F; border-color: #2BD4C9; color: #7FE6DE; }
+QPushButton[role="estop"] {
+  background: #7A1B15; border-color: #B3261E; color: #FFFFFF;
+  min-width: 120px; font-size: 14px;
+}
+QPushButton[role="estop"][state="estop"] { background: #B3261E; border-color: #FF6B6B; }
+QPushButton[role="power"]:checked { background: #1E3A15; border-color: #8BEB5A; color: #C8F5B0; }
+
+/* the view tabs in the header (OVERVIEW / JOG PAD / TOOLS) */
+QPushButton[role="view"] {
+  background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  color: #7D8C9B; min-height: 36px; padding: 0 10px; font-size: 12px; letter-spacing: 2px;
+}
+QPushButton[role="view"]:hover { color: #DCE6EF; }
+QPushButton[role="view"]:checked { background: transparent; color: #7FE6DE; border-bottom-color: #2BD4C9; }
+
+/* the jog pad: keys for a gloved finger */
+QPushButton[role="padkey"] {
+  min-width: 72px; min-height: 64px; padding: 0; border-radius: 8px;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 26px;
+}
+QPushButton[role="padkey"]:pressed { background: #13302F; border-color: #2BD4C9; color: #7FE6DE; }
+QLabel[role="padname"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; color: #7FE6DE; font-size: 18px; font-weight: 600; min-width: 34px; }
+QLabel[role="padpos"] { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 20px; font-weight: 600; }
+
+/* the tool changer */
+QLabel[role="toolstate"] {
+  font-size: 11px; font-weight: 600; letter-spacing: 1px; padding: 4px 8px;
+  border: 1px solid #1C2733; border-radius: 4px; color: #8FA0B0;
+}
+QLabel[role="toolstate"][state="on"] { color: #7FE6DE; border-color: #2BD4C9; }
+
+/* program, MDI, tables */
+QListWidget, QLineEdit, QTableWidget {
+  background: #0A1016; border: 1px solid #16202A; border-radius: 4px;
+  color: #8FA0B0; font-size: 12px;
+}
+QListWidget::item:selected { background: #13302F; color: #B8F3EE; border-left: 2px solid #2BD4C9; }
+QListWidget#list_gcode { max-height: 220px; }  /* the 3D view takes the rest */
+QLineEdit { min-height: 32px; padding: 0 8px; color: #DCE6EF; }
+QLineEdit:focus { border-color: #2BD4C9; }
+QTableWidget { gridline-color: #16202A; }
+QHeaderView::section {
+  background: #0E141B; color: #7D8C9B; border: none; border-bottom: 1px solid #1C2733;
+  font-size: 10px; font-weight: 600; letter-spacing: 1px; padding: 4px;
+}
+
+/* sliders and bars */
+QSlider::groove:horizontal { height: 4px; background: #16202A; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #2BD4C9; border-radius: 2px; }
+QSlider::handle:horizontal { background: #DCE6EF; width: 14px; margin: -6px 0; border-radius: 7px; }
+QProgressBar#bar_quota { background: #16202A; border: none; border-radius: 5px; max-height: 10px; min-height: 10px; }
+QProgressBar#bar_quota::chunk { background: #2BD4C9; border-radius: 5px; }
+QProgressBar#bar_quota[state="limiting"]::chunk { background: #F2B34B; }
+QScrollBar:vertical { background: #0A1016; width: 10px; }
+QScrollBar::handle:vertical { background: #2A3845; border-radius: 4px; min-height: 20px; }

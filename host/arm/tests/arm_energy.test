@@ -1,0 +1,16 @@
+# Plant check: drives off, no friction, brakes or gear damping; the arm
+# falls from a raised pose for 0.5 s (J2 swings ~55 deg, the gears run
+# through their backlash). Links + rotors + gear springs + gravity keep
+# their energy: drift < 0.05 J of ~540 J (arbitrary zero), while the
+# kinetic energy reached is tens of J.
+@program arm/arm_sim
+@args arm/arcmate/arcmate.arm
+@include arm/tests/inc_frictionless.txt
+home 0 20 10 30 -60 0
+print energy
+run 0.5
+print energy q
+@expect arm.energy[1] ~ 539.3836 0.01
+@expect arm.energy[2] ~ 539.3836 0.05
+@expect arm.q2 > 60
+@reject ^ERROR

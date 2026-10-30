@@ -1,0 +1,12 @@
+# The cell with the electric gripper (host/arm/arcmate/arcmate_gripper.arm,
+# grip.hal): cell_base.txt plus the gripper's housing (as gripper.tool) and
+# the parts the simulated plant knows (stmbl_arm; host/arm/gripsim.h):
+# 30 x 40 x 40 mm, 2 kg. Flange up (A0 B0 C0): a part is gripped with the
+# flange 150 mm below its centre.
+include cell_base.txt
+body 6 capsule 0 0 0.02   0 0 0.09     0.045  # gripper housing
+# box1 at the pick place (flange at 850 -50 1150 mm), box2 at a second one
+# (flange at 850 100 1200 mm; lower, at 1050, the forearm tilts and the
+# housing comes within the 10 mm prevention margin of it)
+part box1 0.85 -0.05 1.30   0.015 0.02 0.02   2.0
+part box2 0.85  0.10 1.35   0.015 0.02 0.02   2.0

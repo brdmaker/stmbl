@@ -1,0 +1,13 @@
+# make test-quota: the simulated arm draws little (guessed motors: ~15 W
+# idle per drive, J1 + J2 up to ~100 W in the test's sweeps), so the quotas
+# are scaled to it. Two drives per phase; L1 (J1 + J2) a C breaker at
+# 0.17 A on 230 V (35 W: the sweeps' peaks are ~3 x that), L2 and L3 roomy.
+quota L1 C 0.17 230 0.9
+quota L2 C 2 230 0.9
+quota L3 C 2 230 0.9
+load L1 0 1
+load L1 1 1
+load L2 2 1
+load L2 3 1
+load L3 4 1
+load L3 5 1

@@ -249,6 +249,14 @@ runs the monitor on every motor as its false-trip test.
 `tests/drive_highspeed.test` runs a motor to 288 rad/s at 3000 rad/s^2 and
 back (regression test for `vel2.g` in `conf/template/pid.txt`).
 
+### Arm dynamics (`shared/robot`, `tests/robot/`)
+
+`test_robot` (built and run by `make check`) tests the serial-arm dynamics
+library used by the robot work (`hwtest/arcmate/DYNAMICS.md`): against
+Robotics Toolbox for Python (`tests/robot/rtb_ref.txt`, regenerate with
+`python3 tests/robot/gen_robot_ref.py`, needs `roboticstoolbox-python`),
+energy, a two-link arm by hand, external forces, and the momentum observer.
+
 ## Soak suite (`make soak`)
 
 `make soak` runs every motor in `tests/motors.py` in closed loop on the

@@ -1,0 +1,23 @@
+# Power quotas (linuxcnc/powerquota): the six drives' input power over
+# smart-serial (stmbl-arm.0.J.power, as hm2_*.stbl.*.power) into the
+# supply's fuses ([POWERQUOTA]CONFIG), the feed scale into adaptive feed
+# (M52 P1), an alarm into the estop chain. A HALFILE right after
+# arcmate.hal: it goes into the chain after the collision guard and drives
+# estop-chain itself, which grip.hal / changer.hal then take on from.
+loadrt powerquota config=[POWERQUOTA]CONFIG
+addf powerquota.0 servo-thread
+
+net j0-power stmbl-arm.0.0.power => powerquota.0.power-0
+net j1-power stmbl-arm.0.1.power => powerquota.0.power-1
+net j2-power stmbl-arm.0.2.power => powerquota.0.power-2
+net j3-power stmbl-arm.0.3.power => powerquota.0.power-3
+net j4-power stmbl-arm.0.4.power => powerquota.0.power-4
+net j5-power stmbl-arm.0.5.power => powerquota.0.power-5
+net feed-scale powerquota.0.feed-scale => motion.adaptive-feed
+
+# into the estop chain: estop-and (the GUI's enable, no collision) ->
+# powerquota -> estop-chain (-> iocontrol, or the gripper's / changer's)
+unlinkp estop-and.out
+net estop-guard estop-and.out => powerquota.0.chain-in
+net estop-chain powerquota.0.chain-out
+net estop-reset => powerquota.0.reset
