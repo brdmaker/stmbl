@@ -15,9 +15,9 @@ import math
 
 import pcbnew
 
-VIA, DRILL = 0.6, 0.3         # mm
-STUB = 0.25                   # stub width
-CLEARANCE = 0.15
+VIA, DRILL = 0.5, 0.25        # mm
+STUB = 0.2                    # stub width
+CLEARANCE = 0.127
 EDGE = 0.2                    # copper to board edge
 HOLE_PITCH = 0.75             # via to via, centres
 RINGS = [0.35 + 0.1 * i for i in range(40)]

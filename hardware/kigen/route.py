@@ -8,7 +8,9 @@ the BrdRoute checkout next to this repository), imports its .ses, fills the zone
 the board. Needs the router built (cmake --build build --target brdrouter_cli).
 Routing is deterministic: the same board gives the same copper.
 """
+import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -84,21 +86,36 @@ def inset_boundary(dsn, edge):
     open(dsn, "w").write(text[:m.start(1)] + new + text[m.end(1):])
 
 
+def first_via_only(dsn):
+    """KiCad lists the board's default via after the net classes' (here 0.6 mm
+    after 0.5 mm): the router picks the larger. Keep the net classes' one."""
+    import re
+    text = open(dsn).read()
+    text = re.sub(r'(\n\s*\(via ("[^"]+"|\S+)) (?:"[^"]+"|[^\s()]+)+\)', r"\1)", text, count=1)
+    open(dsn, "w").write(text)
+
+
 def load_bare(path):
     """The board without its copper (tracks, vias, fills). pcbnew 7's Python
     crashes when tracks are removed from a loaded board, so they are cut out
     of the file text."""
     import tempfile
+    import re
     text = open(path).read()
-    for head in ("\n\t(segment", "\n\t(via", "\n\t(arc", "\n\t\t(filled_polygon"):
-        while True:
-            i = text.find(head)
-            if i < 0:
-                break
-            text = text[:i] + text[plane._balanced(text, i + 1):]
+    # top-level segments, vias, arcs and the zones' filled polygons, whatever the indentation
+    pat = re.compile(r"\n[ \t]*\((?:segment|via|arc|filled_polygon)[\s(]")
+    while True:
+        m = pat.search(text)
+        if not m:
+            break
+        i = m.start() + 1 + len(text[m.start() + 1:]) - len(text[m.start() + 1:].lstrip(" \t"))
+        text = text[:m.start()] + text[plane._balanced(text, i):]
     with tempfile.TemporaryDirectory() as d:
         tmp = os.path.join(d, os.path.basename(path))
         open(tmp, "w").write(text)
+        pro = path[:-len(".kicad_pcb")] + ".kicad_pro"   # the design rules and net classes live in the project
+        if os.path.exists(pro):
+            shutil.copy(pro, tmp[:-len(".kicad_pcb")] + ".kicad_pro")
         return pcbnew.LoadBoard(tmp)
 
 
@@ -111,6 +128,10 @@ def run(proj_dir, parts, bmod, args):
     dsn = os.path.join(proj_dir, parts.PROJECT + ".dsn")
     ses = os.path.join(proj_dir, parts.PROJECT + ".ses")
     board = load_bare(pcb)  # a fresh route: no old copper
+    ds = board.GetDesignSettings()
+    for k, v in getattr(bmod, "RULES", {}).items():   # the board's design rules (kigen sch does not write them)
+        if hasattr(ds, k):
+            setattr(ds, k, pcbnew.FromMM(v))
     planes = getattr(bmod, "PLANES", [])
     half = bmod.OUTLINE[1]
     for net, layer in planes:  # the plane's net is connected by a via per pad, before the router starts
@@ -119,6 +140,7 @@ def run(proj_dir, parts, bmod, args):
     if not pcbnew.ExportSpecctraDSN(board, dsn):
         raise SystemExit("DSN export failed")
     inset_boundary(dsn, board.GetDesignSettings().m_CopperEdgeClearance / 1000.0)
+    first_via_only(dsn)
     plane.prepare_dsn(dsn, planes)
     if os.path.exists(ses):
         os.remove(ses)
@@ -136,6 +158,23 @@ def run(proj_dir, parts, bmod, args):
         board = load_bare(pcb)
     print("imported %d track segments, %d vias" % import_ses(board, ses))
     fill(board)
+    pro = pcb[:-len(".kicad_pcb")] + ".kicad_pro"
+    mine = json.load(open(pro))
     pcbnew.SaveBoard(pcb, board)
+    # saving rewrites the project file: keep the schematic's net classes and sheets
+    saved = json.load(open(pro))
+    for k in ("net_settings", "sheets", "schematic"):
+        saved[k] = mine[k]
+    # the design rules of gen/board.py (the project file kigen sch writes has none; a headless save does not add them)
+    names = {"m_MinClearance": "min_clearance", "m_TrackMinWidth": "min_track_width", "m_ViasMinSize": "min_via_diameter",
+             "m_MinThroughDrill": "min_through_hole_diameter", "m_CopperEdgeClearance": "min_copper_edge_clearance",
+             "m_HoleToHoleMin": "min_hole_to_hole", "m_HoleClearance": "min_hole_clearance"}
+    rules = saved.setdefault("board", {}).setdefault("design_settings", {}).setdefault("rules", {})
+    for k, v in getattr(bmod, "RULES", {}).items():
+        if k in names:
+            rules[names[k]] = v
+    with open(pro, "w") as f:
+        json.dump(saved, f, indent=2)
+        f.write("\n")
     print("routed:", pcb)
     return 0

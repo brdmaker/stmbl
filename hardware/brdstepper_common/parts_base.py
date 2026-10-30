@@ -16,8 +16,11 @@ DOC = "docs/brdstepper_hw.md"
 DATE = "2026-10-30"
 REV = "0.2"
 NETCLASS_POWER = ("VM", "GND", "COIL_*", "5V*", "BUCK_SW")
-# the 28 mm board has no room for the 0.5 mm / 0.8 mm power class of the default: 0.3 mm carries 0.67 A
-POWER_CLASS = {"clearance": 0.15, "track_width": 0.3, "via_diameter": 0.6, "via_drill": 0.3}
+# the 28 mm board has no room for the 0.5 mm / 0.8 mm power class of the default:
+# 0.3 mm carries 0.67 A. 0.127 mm space and 0.15 mm tracks, 0.5 / 0.25 mm vias are
+# routine for a four-layer fab (JLC: 0.09 mm, 0.45 / 0.2 mm via)
+DEFAULT_CLASS = {"clearance": 0.127, "track_width": 0.15, "via_diameter": 0.5, "via_drill": 0.25}
+POWER_CLASS = {"clearance": 0.127, "track_width": 0.3, "via_diameter": 0.5, "via_drill": 0.25}
 NOT_FITTED = {"H1", "H2", "H3", "H4", "JP1"} | {"TP%d" % i for i in range(1, 13)}
 
 # passives are 0603; the power capacitors stay bigger (no 0603 holds 10 µF at 50 V)
@@ -220,7 +223,7 @@ def variant(v):
                  "Connections are by net name (net labels): docs/brdstepper_hw.md is the reference.\n"
                  "Variant %s: %s." % ("A" if a else "B", "A" if a else "B",
                                       "U8/J4, smart-serial to a Mesa card" if a else "U9/J5/J6/JP1, CAN")),
-        "NETCLASS_POWER": NETCLASS_POWER, "POWER_CLASS": POWER_CLASS,
+        "NETCLASS_POWER": NETCLASS_POWER, "DEFAULT_CLASS": DEFAULT_CLASS, "POWER_CLASS": POWER_CLASS,
         "NOT_FITTED": NOT_FITTED,
         "SHEETS": sheets(v),
         "TITLES": dict(TITLES, interfaces="USB pads, smart-serial, mounting" if a else "USB pads, CAN, mounting"),

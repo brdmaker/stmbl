@@ -1,52 +1,40 @@
 References,Qty,Value,Footprint,Variant,Notes
 C1 C2,2,22u 50V,C_1210_3225Metric,,"bulk, near the drivers; bulk"
 C3,1,2.2u 50V,C_1206_3216Metric,,buck input
-C4 C23 C27,3,100n 50V,C_0402_1005Metric,,"buck input, at the pin; U2 VM, at the pin; U3 VM, at the pin"
-C5 C17 C18 C19 C20 C33 C34,7,100n,C_0402_1005Metric,,bootstrap; VDD (23); VDD (35); VDD (48); ✱ per the 3.3 V application circuit
+C4 C23 C27,3,100n 50V,C_0603_1608Metric,,"buck input, at the pin; U2 VM, at the pin; U3 VM, at the pin"
+C5 C17 C18 C19 C20 C33 C34 C39 C40,9,100n,C_0603_1608Metric,,bootstrap; VDD (23); VDD (35); VDD (48); ✱ per the 3.3 V application circuit; U9 VCC; U9 VIO
 C6 C7,2,22u 10V,C_0805_2012Metric,,buck output
-C8 C9 C10 C12,4,1u,C_0402_1005Metric,,LDO input; LDO output; VDDA (21); VREF+ (20)
-C11 C13 C14 C22 C36,5,10n,C_0402_1005Metric,,VDDA (21); VREF+ (20)
-C15 C16,2,10p C0G,C_0402_1005Metric,,✱ per the crystal's CL
+C8 C9 C10 C12,4,1u,C_0603_1608Metric,,LDO input; LDO output; VDDA (21); VREF+ (20)
+C11 C13 C14 C22 C36,5,10n,C_0603_1608Metric,,VDDA (21); VREF+ (20)
+C15 C16,2,10p C0G,C_0603_1608Metric,,✱ per the crystal's CL
 C21,1,4.7u,C_0603_1608Metric,,
 C24 C28,2,10u 50V,C_1206_3216Metric,,U2 VM; U3 VM
-C25 C29,2,100n 16V,C_0402_1005Metric,,U2 VCP; U3 VCP
-C26 C30,2,22n 50V,C_0402_1005Metric,,U2 flying; U3 flying
-C31 C32,2,100p C0G,C_0402_1005Metric,,≤ 100 pF (or not fitted)
+C25 C29,2,100n 16V,C_0603_1608Metric,,U2 VCP; U3 VCP
+C26 C30,2,22n 50V,C_0603_1608Metric,,U2 flying; U3 flying
+C31 C32,2,100p C0G,C_0603_1608Metric,,≤ 100 pF (or not fitted)
 C35,1,10u,C_0603_1608Metric,,
-C37,1,4.7n,C_0402_1005Metric,,
-C38,1,100n,C_0402_1005Metric,A,U8
-C39 C40,2,100n,C_0402_1005Metric,B,U9 VCC; U9 VIO
 D1,1,BAT54C,SOT-23,,"5 V OR: buck, USB"
 D2,1,SMAJ24A,D_SMA,,TVS ✱ (for 24 V; lower for less)
-D3 D5,2,BAT54WS,D_SOD-323,,5 V OR: the Mesa port (variant A); clamp to 3V3 ✱
 D4,1,green,LED_0603_1608Metric,,
+D5,1,BAT54WS,D_SOD-323,,clamp to 3V3 ✱
 FB1,1,600R@100MHz,L_0603_1608Metric,,VDDA / VREF+
-J1,1,USB-C,USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal,,USB4105 ✱
-J2,1,VM / GND / EN,JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical,,motor supply 12-36 V; EN: enable / estop input ✱ current rating
-J3,1,MOTOR,PinHeader_1x04_P2.00mm_Vertical,,A+ A- B+ B-: solder pads for the motor leads (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)
-J4,1,SMART-SERIAL,JST_GH_SM06B-GHS-TB_1x06-1MP_P1.25mm_Horizontal,A,variant A; to the Mesa card's RJ45 ✱
-J5 J6,2,CAN,JST_GH_SM04B-GHS-TB_1x04-1MP_P1.25mm_Horizontal,B,"variant B; variant B, daisy chain"
-J7,1,SWD,PinHeader_1x05_P1.27mm_Vertical_SMD_Pin1Left,,§4.7's 1.27 mm 5-pin (VCC SWDIO NRST SWCLK GND): pads for pogo pins or a header; a TC2030's guide holes find no room
+J3,1,MOTOR,PinHeader_1x04_P2.00mm_Vertical,,"A+ A- B+ B-: solder pads for the motor leads, on the board edge (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)"
+J5 J6,2,CAN,JST_GH_SM05B-GHS-TB_1x05-1MP_P1.25mm_Horizontal,,"variant B; VM is also the motor supply, EN the enable / estop: no separate supply connector. ✱ GH is 1 A per contact, the daisy chain carries the sum; variant B, daisy chain; VM is also the motor supply, EN the enable / estop: no separate supply connector. ✱ GH is 1 A per contact, the daisy chain carries the sum"
 L1,1,10u,L_Taiyo-Yuden_NR-40xx,,"✱ NR4018, ≥ 0.6 A"
-R1,1,88.7k 1%,R_0402_1005Metric,,5.02 V with 22.1k (VREF 1.00 V)
-R2,1,22.1k 1%,R_0402_1005Metric,,
-R3,1,100k 1%,R_0402_1005Metric,,§4.8: 3.0 V at 33 V
-R4 R10,2,10k 1%,R_0402_1005Metric,,NTC pull-up
-R5 R7 R8 R14 R15,5,10k,R_0402_1005Metric,,"PB8-BOOT0 low until the option bytes are set; §6 HWID: A not fitted, B 10k; §6 HWID: A 0 Ω, B 10k; EN_IN 3.3-24 V ✱"
-R6 R9,2,1k,R_0402_1005Metric,,spare analog input
-R11 R12,2,2.0k 1%,R_0402_1005Metric,,§5: 3.3 V = 1.65 A
-R13 R16,2,100k,R_0402_1005Metric,,
-R17 R18,2,5.1k,R_0402_1005Metric,,
-R19,1,1M,R_0402_1005Metric,,
-R20,1,120,R_0402_1005Metric,A,RX termination (variant A)
-R21,1,120,R_0402_1005Metric,B,
+R1,1,88.7k 1%,R_0603_1608Metric,,5.02 V with 22.1k (VREF 1.00 V)
+R2,1,22.1k 1%,R_0603_1608Metric,,
+R3,1,100k 1%,R_0603_1608Metric,,§4.8: 3.0 V at 33 V
+R4 R10,2,10k 1%,R_0603_1608Metric,,NTC pull-up
+R5 R7 R8 R14 R15,5,10k,R_0603_1608Metric,,"PB8-BOOT0 low until the option bytes are set; §6 HWID: A not fitted, B 10k; §6 HWID: variant B, with R7 10k: 1.65 V; EN_IN 3.3-24 V ✱"
+R6 R9,2,1k,R_0603_1608Metric,,spare analog input
+R11 R12,2,2.0k 1%,R_0603_1608Metric,,§5: 3.3 V = 1.65 A
+R13 R16,2,100k,R_0603_1608Metric,,
+R21,1,120,R_0603_1608Metric,,
 TH1,1,10k B3380,R_0603_1608Metric,,close to the drivers
 U1,1,STM32G473CEU6,QFN-48-1EP_7x7mm_P0.5mm_EP5.6x5.6mm,,"exposed pad: the only VSS / VSSA; solder it, with vias to the In1 GND plane (add them in layout). Spare: PB2, PB14, PB15, PC4, PC10, PC11, PC13"
 U2 U3,2,DRV8876RGTR,VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias,,"IMODE (5) open: fixed off-time, overcurrent latched; PMODE high: IN1/IN2 PWM"
 U4,1,AS5047P-ATSM,TSSOP-14_4.4x5mm_P0.65mm,,"on the bottom, centred on the shaft ✱; 3.3 V mode: VDD and VDD3V3 together"
 U5,1,TLV75533PDBVR,SOT-23-5,,"3.3 V, ≥ 150 mA ✱"
 U6,1,TPS560430XDBVR,SOT-23-6,,buck to 5 V ✱ (values per its datasheet)
-U7,1,USBLC6-2SC6,SOT-23-6,,USB ESD; D+ has the MCU's own pull-up
-U8,1,SN65HVD30DR,SOIC-8_3.9x4.9mm_P1.27mm,A,"variant A ✱ (the MAX3490's pinout, as the SN65HVD30's)"
-U9,1,TCAN1044VDR,SOIC-8_3.9x4.9mm_P1.27mm,B,"variant B ✱ (the TJA1042T-3's pinout, as the TCAN1044V's)"
+U9,1,TCAN1044VDR,SOIC-8_3.9x4.9mm_P1.27mm,,"variant B ✱ (the TJA1042T-3's pinout, as the TCAN1044V's)"
 Y1,1,8MHz,Crystal_SMD_2016-4Pin_2.0x1.6mm,,✱ CL
