@@ -11,7 +11,12 @@
 HAL_COMP(rpull);
 
 HAL_PIN(v);      // in: the pin's voltage [V] (io0.fb0 / io0.fb1)
-HAL_PIN(vsup);   // the pull-up's supply [V] (+5 V)
+HAL_PIN(vsup);   // the pull-up's supply [V] when vsup_meas isn't plausible (+5 V)
+// The supply as the same ADC sees it through the same divider: the other
+// port's pin 7, still jumpered to +5 V (io0.fb1 for FB0). Then the ADC's
+// reference and the supply's tolerance cancel (the bench: 5.12 V, not 5.00,
+// 667 vs 649 ohm). Used while it reads 4.5..5.5 V.
+HAL_PIN(vsup_meas);
 HAL_PIN(rpull);  // the pull-up [ohm] (R137 on FB0, R140 on FB1: 10 k)
 HAL_PIN(rload);  // the ADC divider to GND [ohm] (10 k + 1 k)
 HAL_PIN(r);      // out: the sensor [ohm], -1 open (mtemp's convention)
@@ -28,7 +33,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct rpull_pin_ctx_t *pins = (struct rpull_pin_ctx_t *)pin_ptr;
   (void)period;
   (void)ctx_ptr;
-  PIN(r) = rpull_r(PIN(v), PIN(vsup), PIN(rpull), PIN(rload));
+  float m  = PIN(vsup_meas);
+  float vs = m >= 4.5 && m <= 5.5 ? m : PIN(vsup);
+  PIN(r)   = rpull_r(PIN(v), vs, PIN(rpull), PIN(rload));
 }
 
 hal_comp_t rpull_comp_struct = {

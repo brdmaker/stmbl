@@ -78,15 +78,26 @@ conf0.mot_temp_type = 1   # 1 KTY84-130, 2 PT1000, 3 PTC, 4 NTC, 5 switch
 
 `rpull0` (`shared/comps/rpull.c`, `shared/rpull.h`) turns the pin's voltage
 into ohms. It takes the pull-up's current minus the divider's: `r = v / ((vsup − v) / rpull −
-v / rload)`, with `vsup` 5 V, `rpull` 10 k and `rload` 11 k. With nothing
+v / rload)`, with `rpull` 10 k and `rload` 11 k. `vsup` is the other port's pin
+7 (`rpull0.vsup_meas`: `io0.fb1` for FB0, `io0.fb0` for FB1), still jumpered to
++5 V and read through an identical divider by the same ADC. So the supply's
+tolerance and the ADC's reference cancel (on the bench it read 5.12 V: 649 Ω
+instead of 667 Ω). With that port's jumper opened as well, its reading isn't
+plausible (outside 4.5–5.5 V) and 5.0 V is used. With nothing
 connected (or the jumper still closed) no current flows into a sensor:
 `r = -1`, which `mtemp` reports as an open wire. `mtemp` filters the
 reading, detects open and shorted wires, and converts it to °C as before.
 
 **Resolution.** A KTY84 near 600 Ω gives about 0.26 V on pin 7, about 2.6 mV
 per K, or 0.24 mV per K at the ADC: about a third of an ADC step. `mtemp`
-filters 5000 readings a second, so the noise averages it out. Trim `rpull0.vsup` if
-the +5 V is off. A 2.2 kΩ pull-up in place of the 10 kΩ (R137 / R140) gives
+filters 5000 readings a second, so the noise averages it out. Single readings on
+the bench scattered by ±5 % (about 4 ADC steps).
+
+**First bench reading** (2026-10-30, drive 208535A65631, SEW CMP40M cold):
+642 Ω, 36 °C, where the HV board's input had read 576 Ω at about 20 °C.
+About 10 kΩ ∥ 115 kΩ would explain it: a leak beside the cut jumper (flux,
+a partly cut trace) or another pull-up value on v4.3. Check pin 7 to the
++5 V pad (10.0 kΩ) with the drive off. A 2.2 kΩ pull-up in place of the 10 kΩ (R137 / R140) gives
 about 4× the signal, and `rpull0.rpull` must then follow it.
 
 ## Setup wizard

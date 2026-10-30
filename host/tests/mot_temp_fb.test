@@ -32,12 +32,31 @@ hv0.sim_temp = 80
 run 1.5
 mtemp0.sensor
 @expect mtemp0.sensor[3] ~ 80 0.3
+# the +5 V at 5.12 (as on the bench): FB1's jumpered pin 7 measures it
+# through the same divider (rpull0.vsup_meas), so the reading stays right;
+# with 5.00 assumed it would be 2-3 % off
+hv0.sim_temp_sensor = 1
+conf0.mot_temp_type = 1
+hv0.sim_temp = 20
+io0.sim_vsup = 5.12
+run 1.5
+io0.fb1
+rpull0.r
+@expect io0.fb1[1] ~ 5.12 0.001
+@expect rpull0.r[2] ~ 581 1
+rpull0.vsup_meas = 0
+run 0.5
+rpull0.r
+@expect rpull0.r[3] ~ 581 30
+@expect rpull0.r[3] > 590
+io0.sim_vsup = 5
+rpull0.vsup_meas = io0.fb1
 # the wire breaks: open (the input reads 2.62 V, no current into a sensor)
 hv0.sim_temp_wire = 1
 run 0.5
 rpull0.r
 mtemp0.err
-@expect rpull0.r[2] == -1
+@expect rpull0.r[4] == -1
 @expect mtemp0.err[1] == 1
 # the jumper never opened: pin 7 at +5 V reads open too
 hv0.sim_temp_wire = 0
@@ -46,5 +65,5 @@ run 0.5
 io0.fb0
 rpull0.r
 @expect io0.fb0[2] == 5
-@expect rpull0.r[3] == -1
+@expect rpull0.r[5] == -1
 @reject ^ERROR: (?!Fault 7)

@@ -4,4 +4,5 @@
 load rpull
 rpull0.rt_prio = 13.4
 rpull0.v = io0.fb1
+rpull0.vsup_meas = io0.fb0
 mtemp0.r = rpull0.r
