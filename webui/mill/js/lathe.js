@@ -259,7 +259,7 @@ function latheRemCard(p) {
     `<dl class="kv"><dt>Removed</dt><dd>${cm3(r.stat.vol)} of ${cm3(S.vol0)}</dd><dt>Cut · air</dt><dd>${mmss(r.stat.cutT)} · ${mmss(r.stat.air)}</dd>${tools}
       ${threads.join("")}${part ? `<dt>Part off</dt><dd>Ø${(Math.max(...part.rout) * 2).toFixed(2)} × ${(part.rout.length * S.dz).toFixed(1)}</dd>` : ""}
       <dt>In the chuck</dt><dd>${last >= 0 ? `Ø${dmax.toFixed(2)} × ${((last + 1) * S.dz).toFixed(1)}` : "nothing"}</dd></dl>` +
-    (r.find.length ? `<ul class="rem-find">${r.find.slice(0, 14).map((f) => `<li class="${f.level}" data-line="${f.line}"><b>${nline(f.line)}</b> ${esc(f.text)}</li>`).join("")}${r.find.length > 14 ? `<li class="muted">… ${r.find.length - 14} more</li>` : ""}</ul>` : `<p class="note">No rapid into the stock, the tools and holders clear of the part and the chuck, every cut within its insert.</p>`) +
+    (r.find.length ? remFindList(r.find) : `<p class="note">No rapid into the stock, the tools and holders clear of the part and the chuck, every cut within its insert.</p>`) +
     `<div class="row"><button class="btn sm" id="ls-final" aria-pressed="${LATHE.final}">${LATHE.final ? "Showing the finished part" : "Show the finished part"}</button></div>`;
   return el;
 }

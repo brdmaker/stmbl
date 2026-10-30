@@ -2438,3 +2438,36 @@ Entry format:
 - Cause:   not found yet; the simulation's program reaches its M1 while
   the case waits.
 - Fix:     idea: stop the program at the case's start (stop(t)).
+
+## 2026-10-30  Mill material removal: a fixture as its bounding box
+- Area:    webui/mill/js/mstock.js, millrem.js (fixtures)
+- Status:  Fixed
+- Symptom: every drilled hole in the demo bracket hit "the vise".
+- Cause:   the vise's bounding box spans the gap between its jaws, where
+  the stock sits.
+- Fix:     fixtures as a height map (a built-in's boxes one by one, a model
+  from its triangles); a move's tool (from its tip) and holder (from the
+  stick-out) checked against the cells under them, at the lowest the tool
+  is over each (a plunge: its bottom, not its start).
+
+## 2026-10-30  Mill material removal: the holder's ring made short moves slow
+- Area:    webui/mill/js/mstock.js (cut)
+- Status:  Fixed
+- Symptom: 60 000 0.1 mm moves took 7.5 s to check.
+- Cause:   every move scanned the holder's radius (Ø6 tool, Ø26 holder: 19x
+  the cells) for the holder's check.
+- Fix:     the holder's ring only when its bottom can be below the stock's
+  top: 0.8 s.
+
+## 2026-10-30  Mill material removal: the cut stock slowed the view to 4 fps
+- Area:    webui/mill/js/millrem.js (millRemMesh)
+- Status:  Fixed
+- Symptom: with the cut stock shown, the headless browser (software
+  rendering) drew 4.5 frames a second; the simulation's clock (dt capped
+  at 0.1 s a frame) fell behind and timing tests failed (single block).
+- Cause:   the surface drawn at the check's 0.25 mm cells: 150 000 points,
+  300 000 triangles, re-uploaded and its normals recomputed whole.
+- Fix:     drawn coarser than cut (a point the lowest of the cells under
+  it, at most 40 000), halved while frames take over 50 ms; only the rows a
+  cut changed are updated, normals from the heights. 20 fps there, 40
+  without it.

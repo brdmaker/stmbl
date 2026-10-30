@@ -747,6 +747,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       <div class="panel">
         <h2>Tool table <small>tool.tbl · loaded tool highlighted, click a row to select</small></h2>
         <div class="wrapx"><table class="t" id="tool-t"></table></div>
+        <div class="form" id="tl-geo" hidden></div>
         <div class="row"><button class="btn accent" id="tl-load">Load selected (M6)</button><button class="btn" id="tl-meas">Measure on the tool setter</button><button class="btn" id="tl-add">Add tool</button><button class="btn" id="tl-del">Delete selected</button></div>
         <p class="note" id="tl-note">Tool setter at machine X 980 Y 20. Lengths are from the spindle's gauge line.</p>
       </div>
@@ -1087,6 +1088,8 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
 <script src="js/app.js"></script>
 <script src="js/setup3d.js"></script>
 <script src="js/machmodel.js"></script>
+<script src="js/mstock.js"></script>
+<script src="js/millrem.js"></script>
 <script src="js/stock.js"></script>
 <script src="js/lathe.js"></script>
 <script src="js/hal.js"></script>

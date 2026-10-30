@@ -329,6 +329,7 @@ the event log.
 - **`ins`:** a lathe insert's shape: `80`, `55`, `35` (rhombus), `60` (a thread), `groove`, `round`, `drill`.
 - **`w`:** a grooving insert's width.
 - **`cl`:** the cutting edge's length (a mill's: the flute length).
+- **A mill's:** `ty` its type (`flat`, `ball`, `bull`, `drill`, `vee` (a chamfer or engraving cutter), `probe`; blank: guessed from the comment), `cr` a bull nose's corner radius, `ang` a drill's or a vee's point angle (118°, 90° when blank), `so` its stick-out (the tip to the holder), `hd` the holder's Ø. Blank: flutes 2–4 × Ø long, the stick-out the flutes and a Ø more, a holder 20 mm wider than the tool.
 
 **Material removal** (`js/stock.js`, the browser's; no load on the board):
 - **The stock:** Ø, a tube's bore, the length out of the chuck, its face's Z in the work's coordinates, the chuck's Ø. Set on the File page's Preflight card and kept with the 3D setup (`lathe` in millweb-setup.json).
@@ -369,6 +370,24 @@ M-code subroutines on both sides:
 - **Warnings and faults** come up as a large card over the page (warnings go after 10 s, faults stay until a tap or a key; the card takes no clicks, so what is under it still works). The footer's line, now larger, opens the last message again; the Status page has them all.
 - **Uploading and loading a program** show a bar: reading the file, sending it (from the socket's buffer), LinuxCNC loading it and making the preview, then drawing it. A long path is turned into the 3D view in slices, the page staying alive between them.
 - **STATS** takes the MDI / JOG place while a cycle runs and gives it back after: run time (and on hold), pace against the estimate, G-code lines a second and lines run, maximum and mean velocity, contour error, the largest following error of each joint (and the gantry's Y1−Y2 skew), spindle load. The last run's numbers stay under STATS until the next run or Reset.
+
+## Material removal (a mill)
+
+`js/mstock.js`, in the browser (no load on the board), the lathe's (`js/stock.js`) counterpart:
+- **The stock:** the 3D setup's workpiece: the built-in block, or a model's triangles (between their highest and lowest point at each place). A height map over it, 0.25 mm cells (coarser past 250 000 cells). The fixtures (the vise's base and jaws, models) as a height map of their own.
+- **The cut:** each move lowers the cells under the tool to its lowest point over them. It is exact for a flat end mill on any straight move, ramps included, and sampled for ball, bull nose, drill and vee profiles. Arcs come as short moves.
+- **The view:** the stock cut as the program runs (the simulation's and LinuxCNC's), coloured by the tool that cut each place. It replaces the block while there is something cut (a click on it selects the workpiece). It is drawn coarser than it is cut (at most 40 000 points, fewer on a device that draws slowly); "Show the finished part" runs it all.
+- **The check:** on the File page's Preflight (Material removal), for every program shown, and with a warning when a loaded program has a crash risk:
+  - G0 into the stock;
+  - a cut deeper than the flutes (the shank in the material);
+  - the holder in the stock (the stick-out too short);
+  - the cutter or holder into a fixture;
+  - a probe into the stock off a probing move;
+  - cutting after M5 (the simulation's programs; LinuxCNC's preview doesn't say);
+  - through the stock's bottom (a note).
+
+  Repeats are one finding with their count; a tap shows the line, and marks sit in the view. Also shown: the volume, cutting against air time, each tool's removal rate, deepest cut and chip load (from its flutes and the spindle's speed, when the program gives it).
+- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path.
 
 ## The 3D setup
 

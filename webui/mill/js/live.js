@@ -228,7 +228,7 @@ const Live = (() => {
     else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
   function tools(list) {
-    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, fl: t.fl, ins: t.ins, w: t.w, cl: t.cl, wear: 0, life: 100, c: t.c }));
+    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, fl: t.fl, ins: t.ins, w: t.w, cl: t.cl, ty: t.ty, cr: t.cr, ang: t.ang, so: t.so, hd: t.hd, wear: 0, life: 100, c: t.c }));
     if (typeof latheVer !== "undefined") latheVer++;  // the lathe's checks with these tools
     if (st.page === "tool") renderTools();
     fillToolSelects(); buildTool();
@@ -357,7 +357,7 @@ const Live = (() => {
   L.toolLoad = (t) => act("tool_load", { t }, `T${t} M6`);
   L.toolsSave = () => {  // after edits settle
     clearTimeout(toolsTimer);
-    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j", "fl", "ins", "w", "cl"].filter((k) => t[k] != null && t[k] !== "").map((k) => [k, t[k]]));  // a lathe's; the tag's
+    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j", "fl", "ins", "w", "cl", "ty", "cr", "ang", "so", "hd"].filter((k) => t[k] != null && t[k] !== "").map((k) => [k, t[k]]));  // a lathe's; the tag's
     toolsTimer = setTimeout(() => act("tools_save", { tools: st.tools.map((t) => ({ t: t.t, p: t.p, d: t.d, z: t.l, c: t.c, ...lathe(t) })) }, "Tool table"), 400);
   };
   L.toolAdd = () => {

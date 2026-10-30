@@ -63,9 +63,12 @@ class Config:
 
 # millweb's own tool data, a tag at the end of tool.tbl's comment (LinuxCNC keeps comments when it writes the
 # table): fl flutes; a lathe's ins (the insert: 80, 55, 35, 60 a thread, groove, round, drill), w its width
-# (a grooving insert's), cl its cutting edge length (a mill's: the flute length)
-TOOL_TAG = {"fl": int, "ins": str, "w": float, "cl": float}
+# (a grooving insert's), cl its cutting edge length (a mill's: the flute length); a mill's ty (its type: flat, ball,
+# bull, drill, vee, probe), cr (a bull nose's corner radius), ang (a drill's or a vee's point angle), so (its
+# stick-out: the tip to the holder), hd (the holder's Ø)
+TOOL_TAG = {"fl": int, "ins": str, "w": float, "cl": float, "ty": str, "cr": float, "ang": float, "so": float, "hd": float}
 INSERTS = ("80", "55", "35", "60", "groove", "round", "drill")
+MILL_TYPES = ("flat", "ball", "bull", "drill", "vee", "probe")
 
 
 def split_comment(comment):
@@ -750,11 +753,20 @@ class Machine:
                 if str(t["ins"]) not in INSERTS:
                     return "a tool's insert: " + ", ".join(INSERTS)
                 c["ins"] = str(t["ins"])
-            for k in ("w", "cl"):
+            if t.get("ty"):
+                if str(t["ty"]) not in MILL_TYPES:
+                    return "a tool's type: " + ", ".join(MILL_TYPES)
+                c["ty"] = str(t["ty"])
+            for k in ("w", "cl", "cr", "so", "hd"):
                 if t.get(k) not in (None, "", 0):
                     if not 0 < float(t[k]) <= 500:
-                        return "a tool's %s: above 0, at most 500 mm" % {"w": "width", "cl": "cutting length"}[k]
+                        return "a tool's %s: above 0, at most 500 mm" % {"w": "width", "cl": "cutting length", "cr": "corner radius",
+                                                                        "so": "stick-out", "hd": "holder diameter"}[k]
                     c[k] = float(t[k])
+            if t.get("ang") not in (None, "", 0):
+                if not 1 <= float(t["ang"]) <= 179:
+                    return "a tool's point angle: 1 to 179°"
+                c["ang"] = float(t["ang"])
             for k in ("x", "i", "j"):  # a lathe's
                 if t.get(k) is not None:
                     c[k] = float(t[k])

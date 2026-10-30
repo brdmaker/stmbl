@@ -260,7 +260,8 @@ $("ob-del").addEventListener("click", () => {
     down = null;
     const r = cv.getBoundingClientRect(), ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), R.cam);
-    const hit = ray.intersectObjects(R.objGroup.children, true).find((h) => h.object.isMesh && visibleUp(h.object));
+    const pick = R.objGroup.children.concat(typeof MREM !== "undefined" && MREM.mesh ? [MREM.mesh] : []);  // the cut stock stands for its workpiece
+    const hit = ray.intersectObjects(pick, true).find((h) => h.object.isMesh && visibleUp(h.object));
     let n = hit && hit.object; while (n && n.userData.objId === undefined) n = n.parent;
     selectObject(n ? n.userData.objId : null);
   });

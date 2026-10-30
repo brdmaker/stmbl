@@ -297,7 +297,10 @@ class Protocol(Base):
         txt = open(os.path.join(self.d, "tool.tbl")).read()
         self.assertIn(";endmill {fl=3 cl=18}", txt)
         self.assertIn(";a (brace) {ins=groove w=2.5}", txt)
-        for bad in ({"fl": 99}, {"ins": "hex"}, {"w": -1}):
+        tools[0].update(ty="bull", cr=0.5, so=25, hd=32)
+        self.assertTrue((await self.call(ws, "tools_save", tools=tools))["ok"])
+        self.assertIn(";endmill {fl=3 cl=18 ty=bull cr=0.5 so=25 hd=32}", open(os.path.join(self.d, "tool.tbl")).read())
+        for bad in ({"fl": 99}, {"ins": "hex"}, {"w": -1}, {"ty": "saw"}, {"ang": 200}, {"so": 0.0001 - 1}):
             r = await self.call(ws, "tools_save", tools=[dict(tools[0], **bad)])
             self.assertFalse(r["ok"], bad)
         # programs

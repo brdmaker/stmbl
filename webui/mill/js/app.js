@@ -35,11 +35,11 @@ const st = {
     { n: "G59.1", x: 0, y: 0, z: 0 }, { n: "G59.2", x: 0, y: 0, z: 0 }, { n: "G59.3", x: 0, y: 0, z: 0 },
   ],
   tools: [
-    { t: 1, p: 1, d: 12.0, l: 62.415, wear: 0.004, life: 72, fl: 3, c: "12 mm 3-flute roughing endmill" },
-    { t: 3, p: 3, d: 6.0, l: 48.130, wear: 0.002, life: 82, fl: 3, c: "6 mm 3-flute carbide endmill" },
-    { t: 5, p: 5, d: 5.0, l: 71.902, wear: 0.000, life: 95, fl: 2, c: "5 mm carbide drill" },
-    { t: 7, p: 7, d: 10.0, l: 55.660, wear: 0.000, life: 100, fl: 2, c: "10 mm 90° chamfer mill" },
-    { t: 12, p: 12, d: 50.0, l: 40.220, wear: 0.010, life: 64, fl: 4, c: "50 mm face mill, 4 inserts" },
+    { t: 1, p: 1, d: 12.0, l: 62.415, wear: 0.004, life: 72, fl: 3, ty: "flat", cl: 30, so: 40, c: "12 mm 3-flute roughing endmill" },
+    { t: 3, p: 3, d: 6.0, l: 48.130, wear: 0.002, life: 82, fl: 3, ty: "flat", cl: 18, so: 25, c: "6 mm 3-flute carbide endmill" },
+    { t: 5, p: 5, d: 5.0, l: 71.902, wear: 0.000, life: 95, fl: 2, ty: "drill", ang: 118, cl: 40, so: 55, c: "5 mm carbide drill" },
+    { t: 7, p: 7, d: 10.0, l: 55.660, wear: 0.000, life: 100, fl: 2, ty: "vee", ang: 90, cl: 5, so: 25, c: "10 mm 90° chamfer mill" },
+    { t: 12, p: 12, d: 50.0, l: 40.220, wear: 0.010, life: 64, fl: 4, ty: "flat", cl: 6, so: 40, hd: 40, c: "50 mm face mill, 4 inserts" },
     { t: 99, p: 99, d: 2.0, l: 110.000, wear: 0, life: 100, c: "3D touch probe" },
   ],
   tool: 3, toolSel: 3,
@@ -68,7 +68,7 @@ function Prog(name) {
     p.pos = { x, y, z };
   };
   p.tc = (t) => { if (p.pos.z < 30) p.mv(p.pos.x, p.pos.y, 30, 0); const ln = p.emit(`T${t} M6`); p.segs.push({ k: "tc", tool: t, line: ln, ...here() }); p.curTool = t; p.tools.add(t); p.emit("G43 H" + t); };
-  p.m = (code, kind) => { const ln = p.emit(code); p.segs.push({ k: kind, line: ln, ...here() }); };
+  p.m = (code, kind) => { const ln = p.emit(code), S = code.match(/S(\d+)/); p.segs.push({ k: kind, line: ln, ...here(), ...(S ? { rpm: +S[1] } : {}) }); };
   return p;
 }
 function head(p, title) { p.emit("%"); p.emit("(" + title + ")"); p.emit("G21 G90 G54 G17 G94 G40 G49"); p.emit("G64 P0.02"); }
@@ -563,6 +563,7 @@ function renderPreflight(p) {
     <div class="card"><h3>Tools <span class="pill ${missing.length ? "bad" : "ok"}">${missing.length ? "MISSING" : "ALL IN THE TABLE"}</span></h3><dl class="kv">${[...p.tools].map((t) => { const tl = toolOf(t); return `<dt>T${t}</dt><dd>${tl ? "Ø" + tl.d.toFixed(1) + " · L " + tl.l.toFixed(2) + " · life " + tl.life + " %" : "not in the table"}</dd>`; }).join("")}</dl></div>
     <div class="card"><h3>Time and dynamics <span class="pill ${deep ? "warn" : "info"}">${deep ? "THROUGH THE STOCK" : "ESTIMATE"}</span></h3><dl class="kv"><dt>Cycle (planner, 0.5 g)</dt><dd>${mmss(p.total)}</dd><dt>Cutting length</dt><dd>${Math.round(p.cutLen)} mm</dd><dt>Predicted path error p99</dt><dd>${Math.round(pct(p.segs.filter((s) => s.cut).map((s) => s.errMean), 0.99))} µm</dd><dt>Tool changes</dt><dd>${p.segs.filter((s) => s.k === "tc").length}</dd>${ps ? `<dt>Moves</dt><dd>${ps.moves.toLocaleString("en-US")}${ps.stride > 1 ? ` · drawn: every ${ps.stride}th point` : ""}</dd>` : ""}</dl>${part ? `<p class="note">${esc(p.truncated)}: travel, time and tools cover the lines read.</p>` : ""}</div>`;
   if (typeof LATHE !== "undefined" && LATHE && p.segs) $("fl-cards").appendChild(latheRemCard(p));  // the stock through the run
+  else if (p.segs && typeof millRemCard === "function") $("fl-cards").appendChild(millRemCard(p));
   const nl = p.nlines || p.lines.length, shown = Math.min(400, p.lines.length);
   $("fl-code").textContent = p.lines.slice(0, shown).join("\n") + (nl > shown ? `\n… ${(nl - shown).toLocaleString("en-US")} more lines` : "");
 }
@@ -603,9 +604,11 @@ $("off-g92").addEventListener("click", () => { if (LIVE) return LIVE.g92clear();
 $("tp-go").addEventListener("click", () => probeCycle("plate"));
 
 // ============================================================ TOOLS page
+// a mill tool's type (the tool database's ty): "" guesses it from the comment (mstock.js)
+const MILL_TYPES = [["", "auto"], ["flat", "flat end mill"], ["ball", "ball nose"], ["bull", "bull nose"], ["drill", "drill"], ["vee", "chamfer / vee"], ["probe", "probe"]];
 function renderTools() {
-  if (typeof LATHE !== "undefined" && LATHE) { renderToolModel(); return latheRenderTools(); }
-  renderToolModel();
+  if (typeof LATHE !== "undefined" && LATHE) { renderToolModel(); renderToolGeo(); return latheRenderTools(); }
+  renderToolModel(); renderToolGeo();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Flutes</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
       <td class="n">${t.p}</td><td class="n"><input data-k="d" data-i="${i}" type="number" step="0.001" value="${t.d.toFixed(3)}" aria-label="T${t.t} diameter"></td>
@@ -615,6 +618,16 @@ function renderTools() {
       <td class="n"><span class="pill ${t.life < 70 ? "warn" : "ok"}">${t.life} %</span></td>
       <td><input class="txt" data-k="c" data-i="${i}" value="${esc(t.c)}" aria-label="T${t.t} comment"></td></tr>`).join("") + "</tbody>";
 }
+// the selected tool's shape (the tool database; the material removal's check cuts with it)
+function renderToolGeo() {
+  const el = $("tl-geo"), i = st.tools.findIndex((x) => x.t === (st.toolSel ?? st.tool)), t = st.tools[i];
+  el.hidden = !t || (typeof LATHE !== "undefined" && !!LATHE);
+  if (el.hidden) return;
+  const sh = MSTOCK.toolShape(t), num = (k, l, step, def) => `<label>T${t.t} ${l}<input data-k="${k}" data-i="${i}" type="number" step="${step}" min="0" value="${t[k] || ""}" placeholder="${def}"></label>`;
+  el.innerHTML = `<label>T${t.t} type<select data-k="ty" data-i="${i}">${MILL_TYPES.map(([v, l]) => `<option value="${v}"${(t.ty || "") === v ? " selected" : ""}>${v ? l : `auto (${sh.ty})`}</option>`).join("")}</select></label>` +
+    num("cr", "corner R", 0.1, sh.cr.toFixed(1)) + num("ang", "point angle", 1, sh.ang) + num("cl", "flute length", 0.5, sh.cl.toFixed(0)) + num("so", "stick-out", 0.5, sh.so.toFixed(0)) + num("hd", "holder Ø", 1, (sh.rh * 2).toFixed(0));
+}
+$("tl-geo").addEventListener("change", (e) => toolEdit(e));
 $("tool-t").addEventListener("click", (e) => { const r = e.target.closest("tr[data-t]"); if (!r || e.target.tagName === "INPUT") return; st.toolSel = +r.dataset.t; renderTools(); });
 // the selected tool's 3D model: a file from the machine's program folder (or uploaded here), placed tip at the origin
 const simToolFiles = new Set();  // the simulation: models uploaded on this page
@@ -645,7 +658,8 @@ $("tm-file").addEventListener("change", async (e) => {
   renderToolModel(); $("tm-src").value = name; toolModelChanged();
   msg(`T${st.toolSel ?? st.tool}: ${name}`, "ok");
 });
-$("tool-t").addEventListener("change", (e) => { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" || k === "ins" ? e.target.value : k === "fl" ? (Math.round(+e.target.value) || undefined) : +e.target.value * (+e.target.dataset.scale || 1); if (typeof latheVer !== "undefined") latheVer++; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: e.target.dataset.scale ? "nose radius" : "diameter", l: LATHE ? "Z offset" : "length", x: "X offset", q: "orientation", fl: "flutes", ins: "insert", w: "insert width", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); });
+$("tool-t").addEventListener("change", (e) => toolEdit(e));
+function toolEdit(e) { const i = e.target.dataset.i; if (i === undefined) return; const t = st.tools[+i], k = e.target.dataset.k; t[k] = k === "c" || k === "ins" || k === "ty" ? e.target.value : k === "fl" ? (Math.round(+e.target.value) || undefined) : +e.target.value * (+e.target.dataset.scale || 1); if (typeof latheVer !== "undefined") latheVer++; if (LIVE) return LIVE.toolsSave(); msg(`Tool table: T${t.t} ${{ d: e.target.dataset.scale ? "nose radius" : "diameter", l: LATHE ? "Z offset" : "length", x: "X offset", q: "orientation", fl: "flutes", ins: "insert", w: "insert width", ty: "type", cr: "corner radius", ang: "point angle", cl: "flute length", so: "stick-out", hd: "holder Ø", wear: "wear", c: "comment" }[k]} updated`, "ok"); if (t.t === st.tool) buildTool(); }
 $("tl-load").addEventListener("click", () => toolChange(st.toolSel));
 $("tl-add").addEventListener("click", () => { if (LIVE) return LIVE.toolAdd(); const n = Math.max(...st.tools.filter((t) => t.t < 99).map((t) => t.t)) + 1; st.tools.splice(st.tools.length - 1, 0, { t: n, p: n, d: 8, l: 50, wear: 0, life: 100, c: "new tool" }); st.toolSel = n; renderTools(); fillToolSelects(); msg(`T${n} added`, "info"); });
 $("tl-del").addEventListener("click", () => { if (LIVE) return LIVE.toolDelete(st.toolSel); if (st.toolSel === st.tool) { msg("Unload the tool before deleting it.", "warn"); return; } st.tools = st.tools.filter((t) => t.t !== st.toolSel); renderTools(); fillToolSelects(); msg(`T${st.toolSel} deleted`, "info"); });
@@ -1041,9 +1055,19 @@ function buildTool() {
     }
     requestModel(path);  // drawn when it comes (live); meanwhile the plain one
   }
-  // between the tip (local z 0) and the spindle nose (z 45): the holder, then the cutter
-  const holder = new THREE.Mesh(new THREE.CylinderGeometry(20, 27, 20, 32), R.mat.dark); holder.rotation.x = Math.PI / 2; holder.position.set(0, 0, 35); R.toolG.add(holder);
-  if (st.tool === 99) {
+  // the tool database's shape (mstock.js, the one the checks cut with): the cutter, its shank to the stick-out,
+  // the holder above
+  const sh = MSTOCK.toolShape({ ...t, t: st.tool });
+  const holder = new THREE.Mesh(new THREE.CylinderGeometry(sh.rh, sh.rh * 1.25, 24, 32), R.mat.dark); holder.rotation.x = Math.PI / 2; holder.position.set(0, 0, sh.so + 12); R.toolG.add(holder);
+  if (!sh.probe) {
+    const pts = [new THREE.Vector2(0, 0)];
+    for (let k = 1; k <= 12; k++) { const rho = sh.R * k / 12; pts.push(new THREE.Vector2(rho, MSTOCK.prof(sh, rho))); }
+    pts.push(new THREE.Vector2(sh.R, Math.max(sh.cl, MSTOCK.prof(sh, sh.R) + 0.5)), new THREE.Vector2(sh.R * 0.92, Math.max(sh.cl, MSTOCK.prof(sh, sh.R) + 0.5) + 0.5), new THREE.Vector2(sh.R * 0.92, sh.so), new THREE.Vector2(0, sh.so));
+    const g = new THREE.LatheGeometry(pts, sh.R > 10 ? 8 : 24); g.rotateX(Math.PI / 2);
+    R.toolG.add(new THREE.Mesh(g, R.mat.tool));
+    return;
+  }
+  if (st.tool === 99 || sh.probe) {
     R.toolG.add(R.cyl(2.2, 24, R.mat.tool, 0, 0, 13.5, 12));
     const ball = new THREE.Mesh(new THREE.SphereGeometry(t.d / 2 + 1, 16, 12), R.mat.accent); ball.position.set(0, 0, 1.5); R.toolG.add(ball);
   } else {
@@ -1176,6 +1200,7 @@ function update3d(dt, tip, moving, cutting) {
     }
   }
   R.sparkGeo.attributes.position.needsUpdate = true;
+  millRemFollow(performance.now());  // millrem.js: the stock as the program cuts it
   view3d(dt, [wx, wy + R.workG.position.y, wz], R.type === "bridge" ? [(TRAVEL.x[0] + TRAVEL.x[1]) / 2, 0, 100] : [500, 500, 100]);
 }
 // the camera (its move to a preset, or following the tool at tgt), the path's colours, the frame; look: where

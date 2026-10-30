@@ -498,6 +498,9 @@ test("tools page: select, load, add, delete, edit, measure", async (t) => {
   t.check(await t.ev(() => /Flutes/.test($("tool-t").querySelector("thead").textContent) && $("tool-t").querySelector('[data-k="fl"][data-i="0"]').value === "3"), "the flutes column (the tool database)");
   await t.page.fill('#tool-t [data-k="fl"][data-i="1"]', "4"); await t.page.press('#tool-t [data-k="fl"][data-i="1"]', "Tab");
   t.check(await t.until(() => st.tools[1].fl === 4), "flutes edited: T3 4");
+  t.check(await t.ev(() => !$("tl-geo").hidden && $("tl-geo").querySelector('[data-k="ty"]').value === "flat"), "the selected tool's shape: T3 a flat end mill");
+  await t.page.fill('#tl-geo [data-k="so"]', "30"); await t.page.press('#tl-geo [data-k="so"]', "Tab");
+  t.check(await t.until(() => st.tools[1].so === 30), "its stick-out edited");
   await t.click('#tool-t tr[data-t="5"] td:first-child');
   t.check((await t.attr('#tool-t tr[data-t="5"]', "class")) === "sel", "select T5");
   await t.click("#tl-load");
@@ -972,6 +975,35 @@ test("3D view: see-through objects draw in a fixed order (no flicker); the chips
   t.check(o.every((x) => x.off && !x.dw), "a depth offset; no depth writes");
   t.check(await t.ev(() => R.trail.frustumCulled === false && R.workG.children.some((c) => c.isPoints && c.frustumCulled === false)), "the trail and the chips: never culled by a stale bounding sphere");
   await t.ev(() => { st.show.fix = true; st.show.work = true; applyLooks(); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("material removal (mill): the stock cut as it runs, the Preflight check, a crash caught before the run", async (t) => {
+  await stop(t);
+  await t.ev(() => { loadProgram(library[0]); });
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /CLEAN/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the bracket: CLEAN");
+  t.check(/T3[\s\S]*fz 0\.0\d\d/.test(await t.text("#fl-rem")), "T3's removal rate and chip load (its flutes)");
+  // T3's flutes 5 mm: the 10 mm deep pocket puts its shank in the stock
+  await t.ev(() => { toolOf(3).cl = 5; latheVer++; renderPreflight(prog); });
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent) && /its flutes 5\.00 long/.test($("fl-rem").textContent), null, 15000), "flutes 5 mm on a 10 mm pocket: a crash risk");
+  await t.ev(() => { toolOf(3).cl = 18; latheVer++; });
+  // a bolt circle 30 deep: through the 25 mm stock into the vise's base
+  await t.ev(() => { loadProgram(plan(genBolt({ x: 60, y: 40, r: 28, n: 8, a: 0, d: -30, p: 3, t: 5 }))); fileSel = library.length - 1; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /cutter into Vise/.test($("fl-rem").textContent) && /through the stock/.test($("fl-rem").textContent), null, 15000), "30 deep: through the stock, into the vise");
+  await t.nav("main");
+  t.check(await t.until(() => R.mfindG && R.mfindG.children.length > 0), "its findings marked in the view");
+  t.check(await t.until(() => /crash risk/.test($("pm-t").textContent) || /crash risk/.test($("msg").textContent)), "a warning on loading it");
+  // the bracket run to its end: the stock cut, coloured, the block hidden
+  await t.ev(() => { loadProgram(library[0]); st.m1 = false; });
+  await t.nav("main");
+  await t.click("#b-start");
+  await t.until(() => st.run === "run");
+  await ffwd(t, await t.ev(() => prog.total - 0.2));
+  t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  t.check(await t.until(() => MREM.R && MREM.R.i === prog.segs.length && MREM.mesh && MREM.mesh.visible && !setup.nodes.get("stock").node.visible), "the cut stock shown in place of the block");
+  t.check(await t.ev(() => { const S = MREM.R.S; let cut = 0; for (let k = 0; k < S.top.length; k++) if (S.top[k] < S.top0[k] - 1) cut++; return cut > 10000; }), "cells cut down");
+  await t.ev(() => { st.m1 = true; });
   t.check(t.errors.length === 0, "no script errors");
 });
 
