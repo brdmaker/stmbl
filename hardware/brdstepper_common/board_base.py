@@ -20,8 +20,7 @@ HALF = OUTLINE[1]
 FIXED = {
     "H1": ("F", 0, -HOLE, -HOLE), "H2": ("F", 0, HOLE, -HOLE),
     "H3": ("F", 0, -HOLE, HOLE), "H4": ("F", 0, HOLE, HOLE),
-    "U4": ("B", 90, 0.0, 0.0),                                 # on the shaft axis (turned: J2's pins pass beside it)
-    "J2": ("F", 90, -4.3, 3.0),                                # supply, beside the shaft: DC only (see README)
+    "U4": ("B", 90, 0.0, 0.0),                                 # on the shaft axis
     "J3": ("F", 90, -3.0, -HALF + 1.4),                        # motor pads along the north edge (the same edge on both boards)
 }
 FIXED_A = {"J4": ("F", 90, HALF - 3.2, 0.0)}                   # smart-serial, east edge
@@ -30,7 +29,7 @@ FIXED_B = {"J5": ("F", 270, -HALF + 3.2, 0.0),                 # CAN, west edge
 OVERHANG = {"J4": 0.05, "J5": 0.05, "J6": 0.05, "H1": 0.5, "H2": 0.5, "H3": 0.5, "H4": 0.5}  # mm a courtyard may stand past the edge
 
 # parts that stay on top: the bottom faces the motor, a few mm away
-TOP_ONLY = {"L1", "C1", "C2", "D2", "J2"}
+TOP_ONLY = {"L1", "C1", "C2", "D2"}
 BOTTOM_FIRST = {"U1", "U8", "U9"}  # thin, leaving the top to what must be there
 EARLY = {"U2", "U3"}             # the bridges: kept off the centre, and their thermal pads reach both sides
 # parts carrying the switched coil current stay out of a square around the
