@@ -97,7 +97,16 @@ the bench scattered by ±5 % (about 4 ADC steps).
 642 Ω, 36 °C, where the HV board's input had read 576 Ω at about 20 °C.
 About 10 kΩ ∥ 115 kΩ would explain it: a leak beside the cut jumper (flux,
 a partly cut trace) or another pull-up value on v4.3. Check pin 7 to the
-+5 V pad (10.0 kΩ) with the drive off. A 2.2 kΩ pull-up in place of the 10 kΩ (R137 / R140) gives
++5 V pad (10.0 kΩ) with the drive off.
+
+**Calibration.** With the motor at a known temperature, set the effective
+pull-up so the reading matches. Average `io0.fb0` and `io0.fb1` (100 or more readings), take
+the sensor's resistance at that temperature from `mtemp_r_of()`
+(`shared/mtemp.h`; a KTY84-130 at 25 °C: 603.5 Ω), and solve
+`rpull = (vsup − v) / (v / r + v / rload)`. Put it in the drive's config after
+the template: `rpull0.rpull = 9064 # cal: 25 C`. It belongs to the board (the leak), not to
+the motor. On the bench drive 9064 Ω, a 97 kΩ leak beside the 10 kΩ, gave
+25.0 °C steady to ±0.1 K (`mtemp0.tau` 0.2 s). A 2.2 kΩ pull-up in place of the 10 kΩ (R137 / R140) gives
 about 4× the signal, and `rpull0.rpull` must then follow it.
 
 ## Setup wizard
