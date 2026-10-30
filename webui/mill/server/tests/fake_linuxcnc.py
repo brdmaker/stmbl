@@ -23,7 +23,9 @@ class _M:
         self.task_mode = MODE_MANUAL
         self.interp_state = INTERP_IDLE
         self.motion_mode = TRAJ_MODE_FREE
+        self.njoints = 4
         self.homed = [0, 0, 0, 0]
+        self.jpos = [0.0] * 9          # the joints' positions (an arm's: not the axes)
         self.pos = [0.0] * 9
         self.g5x = [0.0] * 9
         self.g5x_index = 1
@@ -56,9 +58,9 @@ class stat:
         self.task_mode = m.task_mode
         self.interp_state = m.interp_state
         self.motion_mode = m.motion_mode
-        self.homed = tuple(m.homed) + (0,) * 5
-        self.joints = 4
-        self.joint = [{"ferror_current": 0.0}] * 4
+        self.homed = tuple(m.homed) + (0,) * (9 - len(m.homed))
+        self.joints = m.njoints
+        self.joint = [{"ferror_current": 0.001 * j, "input": m.jpos[j], "homed": m.homed[j]} for j in range(m.njoints)]
         self.actual_position = tuple(m.pos)
         self.position = tuple(m.pos)
         self.g5x_offset = tuple(m.g5x)
@@ -111,7 +113,7 @@ class command:
 
     def home(self, j):
         if j < 0:
-            M.homed = [1, 1, 1, 1]
+            M.homed = [1] * M.njoints
         else:
             M.homed[j] = 1
 
@@ -119,12 +121,17 @@ class command:
         M.homed[j] = 0
 
     def jog(self, kind, joint_flag, axis, vel=0.0, inc=0.0):
+        # a joint jog (joint_flag) moves the joint (key "j<n>" while continuous), else the axis (key: its index)
+        if joint_flag and M.motion_mode == TRAJ_MODE_TELEOP or not joint_flag and M.motion_mode != TRAJ_MODE_TELEOP:
+            M.errors.append((NML_ERROR, "jog in the wrong mode"))
+            return
+        key = "j%d" % axis if joint_flag else axis
         if kind == JOG_INCREMENT:
-            M.pos[axis] += inc * (1 if vel > 0 else -1)
+            (M.jpos if joint_flag else M.pos)[axis] += inc * (1 if vel > 0 else -1)
         elif kind == JOG_CONTINUOUS:
-            M.jogging[axis] = vel
+            M.jogging[key] = vel
         else:
-            M.jogging.pop(axis, None)
+            M.jogging.pop(key, None)
 
     def mdi(self, text):
         M.mdi_log.append(text)

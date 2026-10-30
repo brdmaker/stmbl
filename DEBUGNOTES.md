@@ -2841,3 +2841,22 @@ Entry format:
   rather than widening the window. The subtitle shows only the kinematics
   module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
   stretch.) Now 1448 px.
+
+## 2026-10-30  LinuxCNC 2.9's joint status has no actual_position
+- Area:    webui/mill/server/machine.py (an arm's status)
+- Status:  Fixed
+- Symptom: with an arm, millweb sent no status at all (the poll raised).
+- Cause:   stat.joint[n] has `input` (the joint's feedback) and `output`,
+  not `actual_position` (that is stat's, the axes').
+- Fix:     `input`; the test stand-in (fake_linuxcnc) has the real keys.
+
+## 2026-10-30  Merging the robot branch: two copies of the drive's build
+- Area:    host/arm/Makefile, host/lcnc/Makefile
+- Status:  Note
+- Symptom: after the merge host/arm (the arm's drive library) didn't build:
+  stmblcan_bus.h not found.
+- Cause:   the arm builds the drive from its own source list, a copy of
+  host/lcnc's; this branch had added the CAN bus, firmware staging and the
+  console to host/lcnc's (sim_api.c needs them).
+- Fix:     host/arm/Makefile has host/lcnc's sources and flags again. A
+  change to one wants the other (or one shared list).

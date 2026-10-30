@@ -5,6 +5,7 @@ module (`linuxcnc`, and `hal` for pins); tests pass a stand-in.
 Machines in mm (linear units 1). Axes X Y Z; a gantry's second Y joint is
 shown as Y2 (from [TRAJ] COORDINATES / [KINS]).
 """
+import base64
 import json
 import math
 import os
@@ -15,6 +16,16 @@ import threading
 import time
 
 AXES = "XYZABCUVW"
+# kinematics of an arm: its joints are not axes (millweb: machine type "arm")
+ARM_KINS = ("genserkins", "armkins", "pumakins", "scarakins", "genhexkins", "pentakins", "rosekins", "5axiskins")
+ARM_PINS = {  # what the console shows of an arm, if loaded (linuxcnc/armguard, armcollide, armgrip, armtool, powerquota)
+    "guard": ("armguard.0.", ("state", "reason", "clearance")),
+    "collide": ("armcollide.0.", ("collision",)),
+    "grip": ("armgrip.0.", ("state", "gap-fb", "payload-mass", "close")),
+    "tool": ("armtool.0.", ("mounted", "fault", "reason", "valve")),
+    "changer": ("stmbl-arm.0.changer.", ("locked", "unlocked", "present", "id")),
+    "quota": ("powerquota.0.", ("total-power", "feed-scale", "limiting")),
+}
 
 
 def read_ini(path):
@@ -306,6 +317,14 @@ class Machine:
         self.joints = {}
         for j, a in enumerate(coords):
             self.joints.setdefault(a, []).append(j)
+        # an arm (genserkins, armkins, ...): joints that are not axes; the axes it has (X Y Z A B C), in AXES order
+        kins = ((cfg.get("KINS", "KINEMATICS", "") or "").split() or [""])[0]
+        self.arm = (cfg.get("MILLWEB", "MACHINE_TYPE", "") or "").lower() == "arm" or kins in ARM_KINS
+        self.axes = "".join(a for a in AXES if a in coords)
+        self.njoints = int(cfg.num("KINS", "JOINTS", len(coords)))
+        if self.arm:
+            self.joints = {}  # no joint is an axis
+        self.teach_file = cfg.file("MILLWEB", "TEACH_FILE") or cfg.file("ARM6HMI", "TEACH_FILE") or os.path.join(self.nc_dir_guess(cfg), "teach.ngc")
         self.nc_dir = cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
         self.setup_file = cfg.file("MILLWEB", "SETUP") or os.path.join(cfg.dir, "millweb-setup.json")
         self.views_file = cfg.file("MILLWEB", "DEBUG_VIEWS") or os.path.join(cfg.dir, "debug-views.json")
@@ -330,6 +349,104 @@ class Machine:
         self.done_flag = False
         self.jog_active = {}
 
+    @staticmethod
+    def nc_dir_guess(cfg):
+        return cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
+
+    # -------------------------------------------------------------- an arm
+    def arm_info(self):
+        """An arm's joints and axes (their limits from the INI), the files the console draws it from."""
+        cfg = self.cfg
+        jl = []
+        for j in range(self.njoints):
+            sec = "JOINT_%d" % j
+            jl.append({"min": cfg.num(sec, "MIN_LIMIT", -180.0), "max": cfg.num(sec, "MAX_LIMIT", 180.0),
+                       "vel": cfg.num(sec, "MAX_VELOCITY", 0.0) * 60, "acc": cfg.num(sec, "MAX_ACCELERATION", 0.0),
+                       "type": (cfg.get(sec, "TYPE", "ANGULAR") or "ANGULAR").upper()})
+        al = {a: {"min": cfg.num("AXIS_" + a, "MIN_LIMIT", 0.0), "max": cfg.num("AXIS_" + a, "MAX_LIMIT", 0.0),
+                  "vel": cfg.num("AXIS_" + a, "MAX_VELOCITY", 0.0) * 60} for a in self.axes}
+        return {"joints": self.njoints, "axes": self.axes, "jlim": jl, "alim": al, "teach": os.path.basename(self.teach_file),
+                "grip": {"open": cfg.get("ARM6HMI", "GRIP_OPEN", "M65 P0"), "close": cfg.get("ARM6HMI", "GRIP_CLOSE", "M64 P0")},
+                "tool_ready": cfg.get("ARM6HMI", "TOOL_READY", "") or "",
+                "angular_vel": cfg.num("DISPLAY", "DEFAULT_ANGULAR_VELOCITY", 20.0) * 60}
+
+    def arm_model_paths(self):
+        """(the 3D model, armguard's cell, the tool table): [MILLWEB] ARM_MODEL (else [ARM6HMI] MODEL, else
+        linuxcnc/vis3d's arm6_changer.vis with a tool changer, arm6_lcnc.vis without), [ARMGUARD] CELL,
+        [STMBL_ARM] TOOLS."""
+        cfg = self.cfg
+        model = cfg.file("MILLWEB", "ARM_MODEL") or cfg.file("ARM6HMI", "MODEL")
+        tools = cfg.file("STMBL_ARM", "TOOLS")
+        if not model:
+            repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            vis = cfg.file("ARM6HMI", "VIS3D") or os.path.join(repo, "linuxcnc", "vis3d")
+            model = os.path.join(vis, "models", "arm6_changer.vis" if self._pin_exists("armtool.0.mounted") or tools else "arm6_lcnc.vis")
+        return model, cfg.file("ARMGUARD", "CELL"), tools
+
+    def arm_model(self):
+        """The arm's model files for the browser: {"files": {name: text, or {"b64": STL}}, "model", "cell", "tools"},
+        each name its path relative to the model's folder (includes resolve as vis3d's: from the including file's
+        folder). Only what the INI names and what those files include or load."""
+        model, cell, tools = self.arm_model_paths()
+        if not model or not os.path.isfile(model):
+            raise ValueError("no arm model: %s ([MILLWEB] ARM_MODEL)" % model)
+        root = os.path.dirname(os.path.realpath(model))
+        files, total = {}, [0]
+        rel = lambda p: os.path.relpath(os.path.realpath(p), root).replace(os.sep, "/")  # noqa: E731
+
+        def add(path, depth=0):
+            name = rel(path)
+            if name in files or depth > 8:
+                return
+            if path.lower().endswith(".stl"):
+                data = open(path, "rb").read()
+                total[0] += len(data)
+                if total[0] > 40 * 1024 * 1024:
+                    raise ValueError("the arm's model files: over 40 MB")
+                files[name] = {"b64": base64.b64encode(data).decode()}
+                return
+            text = open(path, errors="replace").read()
+            if len(text) > 2 * 1024 * 1024:
+                raise ValueError("%s: over 2 MB" % name)
+            files[name] = text
+            for line in text.splitlines():
+                w = line.split("#", 1)[0].split()
+                ref = w[1] if len(w) >= 2 and w[0] == "include" else w[3] if len(w) >= 4 and w[0] == "part" and w[2] == "mesh" else None
+                if ref:
+                    p = ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref)
+                    if os.path.isfile(p):
+                        add(p, depth + 1)
+        add(model)
+        for p in (cell, tools):
+            if p and os.path.isfile(p):
+                add(p)
+        return {"files": files, "model": rel(model), "cell": rel(cell) if cell and os.path.isfile(cell) else None,
+                "tools": rel(tools) if tools and os.path.isfile(tools) else None}
+
+    def arm_slow(self):
+        """The arm's components' pins (those loaded)."""
+        out = {}
+        for k, (pre, pins) in ARM_PINS.items():
+            if self._pin_exists(pre + pins[0]):
+                out[k] = {p.replace("-", "_"): self._pin(pre + p) for p in pins}
+        kt = self._pin("armkins.tool")
+        if kt is not None:
+            out["kins_tool"] = kt
+        return out
+
+    def cmd_teach_record(self, rate=None):
+        """Record point: the arm's position (X Y Z A B C, machine) as a G1 line at the end of the teach file."""
+        self.ws.poll()
+        p = self.ws.actual_position
+        f = int(rate or self.cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 50.0) * 60)
+        line = "G1 " + " ".join("%s%.3f" % (a, p[AXES.index(a)]) for a in self.axes) + " F%d" % f
+        os.makedirs(os.path.dirname(self.teach_file) or ".", exist_ok=True)
+        with open(self.teach_file, "a") as fh:
+            fh.write(line + "\n")
+        with open(self.teach_file) as fh:
+            n = sum(1 for x in fh if x.startswith("G1 "))
+        return {"line": line, "points": n, "file": os.path.basename(self.teach_file)}
+
     # -------------------------------------------------------------- info
     def info(self):
         cfg = self.cfg
@@ -341,8 +458,11 @@ class Machine:
         mtype = (cfg.get("MILLWEB", "MACHINE_TYPE", "gantry") or "gantry").lower()
         if (cfg.get("DISPLAY", "LATHE", "0") or "0").strip().lower() in ("1", "yes", "true"):
             mtype = "lathe"
+        if self.arm:
+            mtype = "arm"
         return {"name": cfg.get("EMC", "MACHINE", "LinuxCNC"), "coords": self.coords, "limits": lim,
-                "type": mtype if mtype in ("gantry", "bridge", "lathe") else "gantry",
+                "type": mtype if mtype in ("gantry", "bridge", "lathe", "arm") else "gantry",
+                "arm": self.arm_info() if self.arm else None,
                 "lathe": {"post": "back" if (cfg.get("DISPLAY", "BACK_TOOL_LATHE", "0") or "0").strip().lower() in ("1", "yes", "true") else "front"}
                 if mtype == "lathe" else None,
                 "maxv": self.maxv * 60, "units": "mm", "nc_dir": self.nc_dir,
@@ -376,7 +496,10 @@ class Machine:
         s.poll()
         on = s.task_state == lc.STATE_ON
         estop = s.task_state == lc.STATE_ESTOP
-        homed = [bool(all(s.homed[j] for j in self.joints.get(a, [0]))) for a in "XYZ"]
+        if self.arm:  # its joints aren't axes: homed when all are
+            homed = [bool(all(s.homed[j] for j in range(self.njoints)))] * 3
+        else:
+            homed = [bool(all(s.homed[j] for j in self.joints.get(a, [0]))) for a in "XYZ"]
         g5x, g92, tlo = s.g5x_offset, s.g92_offset, s.tool_offset
         act = s.actual_position
         # the tool tip in the active work coordinates (as AXIS's relative DRO)
@@ -428,7 +551,19 @@ class Machine:
             "mcodes": " ".join("M%d" % m for m in s.mcodes[1:] if m >= 0),
             "probe": {"tripped": bool(s.probe_tripped), "pos": [round(v, 4) for v in s.probed_position[:3]]},
             "queue": s.queue,
+            **(self.arm_status(s) if self.arm else {}),
         }
+
+    def arm_status(self, s):
+        """An arm's: every axis (work and machine), every joint (position, homed, following error), the jog mode."""
+        g5x, g92 = s.g5x_offset, s.g92_offset
+        ix = [AXES.index(a) for a in self.axes]
+        js = s.joint[:self.njoints]
+        return {"ax": [round(s.actual_position[i] - g5x[i] - g92[i], 4) for i in ix],
+                "axm": [round(s.actual_position[i], 4) for i in ix],
+                "j": [round(j["input"], 4) for j in js], "jh": [bool(j["homed"]) for j in js],
+                "jfe": [round(j["ferror_current"], 5) for j in js],
+                "jmode": "world" if s.motion_mode == self.lc.TRAJ_MODE_TELEOP else "joint"}
 
     def slow(self):
         out = {"pins": {p: self._pin(p) for p in self.pins}}
@@ -440,6 +575,8 @@ class Machine:
             del out["pins"]
         if self._pin_exists("lathe.turret.station"):  # a lathe's turret (linuxcnc/lathe): where it is, its fault
             out["turret"] = {k: self._pin("lathe.turret." + k) for k in ("station", "stations", "homed", "busy", "fault", "error")}
+        if self.arm:
+            out["arm"] = self.arm_slow()
         if self.info_pcomp():
             out["pcomp"] = {k: self._pin("%s.%s" % (self.pcomp, k)) for k in ("shaper", "defl", "shrink", "servo", "jerk-ms", "fx", "fy-end", "fy-mid", "delay")}
         return out
@@ -495,6 +632,17 @@ class Machine:
         if self.ws.task_mode != m:
             self.c.mode(m)
             self.c.wait_complete(2.0)
+
+    def _wait(self, pred, timeout):
+        """the worker's status until pred(it) holds (True), or timeout [s] (False)"""
+        t = time.time() + timeout
+        while True:
+            self.ws.poll()
+            if pred(self.ws):
+                return True
+            if time.time() > t:
+                return False
+            time.sleep(0.02)
 
     def _ready(self, need_homed=True, need_idle=True):
         lc = self.lc
@@ -598,6 +746,11 @@ class Machine:
         self.c.wait_complete(1.0)
         if axis in (None, "all"):
             self.c.home(-1)
+        elif re.match(r"^[Jj]\d+$", str(axis)):  # a joint (an arm's)
+            j = int(str(axis)[1:])
+            if not 0 <= j < self.njoints:
+                return "no joint %s" % axis
+            self.c.home(j)
         else:
             for j in self.joints.get(axis.upper(), []):
                 self.c.home(j)
@@ -614,31 +767,68 @@ class Machine:
             self.c.unhome(j)
         return None
 
+    def _jog_target(self, axis):
+        """(joint jog, index): "J3" a joint (joint mode: an arm's, or any machine's before homing); "X".."W" an
+        axis the machine has (world mode)."""
+        a = str(axis).upper()
+        if re.match(r"^J\d+$", a):
+            j = int(a[1:])
+            if not 0 <= j < self.njoints:
+                raise ValueError("no joint %s" % axis)
+            return True, j
+        if a not in self.axes or len(a) != 1:
+            raise ValueError("no axis %s" % axis)
+        return False, AXES.index(a)
+
+    def _motion_mode(self, joint):
+        """joint mode (free) or world (teleop), and wait for motion to take it (up to 1 s; teleop needs the joints homed)"""
+        lc = self.lc
+        want = lc.TRAJ_MODE_FREE if joint else lc.TRAJ_MODE_TELEOP
+        self.ws.poll()
+        if self.ws.motion_mode == want:
+            return None
+        self.c.teleop_enable(0 if joint else 1)
+        self.c.wait_complete(1.0)
+        if not self._wait(lambda s: s.motion_mode == want, 1.0):
+            return "no %s mode%s" % ("joint" if joint else "world", "" if joint else " (home first)")
+        return None
+
     def cmd_jog(self, axis, direction, inc, rate):
         """inc > 0: one increment; inc == 0: continuous (stopped by jog_stop
-        or by millweb's deadman)."""
+        or by millweb's deadman). axis: X..W (world), J0.. (a joint: joint mode)."""
         lc = self.lc
-        err = self._ready()
+        try:
+            joint, a = self._jog_target(axis)
+        except ValueError as e:
+            return str(e)
+        err = self._ready(need_homed=not joint)
         if err:
             return err
-        a = "XYZ".index(axis.upper())
         self._mode(lc.MODE_MANUAL)
-        self.ws.poll()
-        if self.ws.motion_mode != lc.TRAJ_MODE_TELEOP:
-            self.c.teleop_enable(1)
-            self.c.wait_complete(1.0)
+        err = self._motion_mode(joint) if (joint or self.arm) else None
+        if err:
+            return err
+        if not joint and not self.arm:
+            self.ws.poll()
+            if self.ws.motion_mode != lc.TRAJ_MODE_TELEOP:
+                self.c.teleop_enable(1)
+                self.c.wait_complete(1.0)
         vel = abs(rate) / 60.0
         if inc > 0:
-            self.c.jog(lc.JOG_INCREMENT, False, a, vel * (1 if direction > 0 else -1), inc)
+            self.c.jog(lc.JOG_INCREMENT, joint, a, vel * (1 if direction > 0 else -1), inc)
         else:
-            self.c.jog(lc.JOG_CONTINUOUS, False, a, vel * (1 if direction > 0 else -1))
-            self.jog_active[a] = True
+            self.c.jog(lc.JOG_CONTINUOUS, joint, a, vel * (1 if direction > 0 else -1))
+            self.jog_active[(joint, a)] = True
         return None
 
     def cmd_jog_stop(self, axis=None):
-        for a in ([("XYZ".index(axis.upper()))] if axis else list(self.jog_active)):
-            self.cu.jog(self.lc.JOG_STOP, False, a)
-            self.jog_active.pop(a, None)
+        try:
+            keys = [self._jog_target(axis)] if axis else list(self.jog_active)
+        except ValueError as e:
+            return str(e)
+        for joint, a in keys:
+            self.cu.jog(self.lc.JOG_STOP, joint, a)
+            self.jog_active.pop((joint, a), None)
         return None
 
     def cmd_cycle(self, action, line=0):

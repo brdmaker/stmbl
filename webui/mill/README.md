@@ -200,7 +200,7 @@ JSON over the WebSocket at `/ws`.
 |---|---|---|
 | `hello` | on connect | `you` (this browser's id), `machine` (name, coordinates, limits, units, program folder, drives, pins, token required), `control` (the holder), recent `events` |
 | `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
-| `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
+| `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key; an arm's `arm`: its components' pins (see *Arms*) |
 | `program` | when a program is loaded | name; `nlines` and the first 2000 `lines` (from `line0`); `path`: `[kind, x, y, z, feed, line, tool]` per segment, each from where the one before ended (`start`), from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates; `stats` over every move: `moves`, `shown`, `stride` (past `PREVIEW_SEGS` the drawn path merges neighbouring moves), `ext` (travel), `cut` and `rapid` lengths, `time`, `tools`; `error`, `truncated` |
 | `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder (`files` with their paths and `kind`: program or model, `dirs`) |
 | `setup` | on connect, on change | the 3D setup's `objects` |
@@ -211,8 +211,10 @@ JSON over the WebSocket at `/ws`.
 **From the browser:** `{"op": ..., "id": n, ...}`:
 - `control` {take, force, token};
 - `estop` {on} (any browser), `power` {on};
-- `home` / `unhome` {axis | all};
-- `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop`;
+- `home` / `unhome` {axis | all | J<n> (a joint)};
+- `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop` {axis}: an axis (X..W the machine has: world mode) or a joint `J<n>` (joint mode, before homing too), rate in units (mm or °) a minute;
+- `teach_record` {rate}: an arm's Record point (see *Arms*);
+- `arm_model`: an arm's 3D model files (see *Arms*; any browser);
 - `mdi` {cmd, wait} (wait: the reply when the line is done);
 - `cycle` {action: start | pause | resume | step | stop, line};
 - `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
@@ -230,6 +232,32 @@ JSON over the WebSocket at `/ws`.
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
+
+## Arms
+
+A LinuxCNC config whose kinematics are an arm's (`genserkins`, `armkins`, `pumakins`, ...; or `[MILLWEB] MACHINE_TYPE = arm`)
+is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper and tool changer). Its joints are not axes:
+- **`hello`:** `machine.type` `arm`, and `machine.arm`:
+  - `joints`, `axes` (`XYZABC`);
+  - `jlim`: each joint's min, max, vel (per minute), acc, type, from `[JOINT_n]`; `alim`: the axes';
+  - `teach`: the teach file's name; `grip` {open, close}: the gripper's MDI (`[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`, default `M65 P0` / `M64 P0`); `tool_ready` (`[ARM6HMI] TOOL_READY`).
+- **`st`:** `homed` (all three: all joints homed), and:
+  - `ax`, `axm`: every axis in the work offset and in machine coordinates;
+  - `j`, `jh`, `jfe`: each joint's position (LinuxCNC's joint `input`, °), homed, following error;
+  - `jmode`: `joint` or `world` (teleop).
+- **Jog:** `J<n>` jogs a joint in joint mode (before homing too), X..C the axes in world mode (homed); millweb switches LinuxCNC's mode first and waits for motion to take it (up to 1 s). Home a joint with `home` `J<n>`.
+- **`teach_record` {rate}:** the arm's position as `G1 X.. Y.. Z.. A.. B.. C.. F<rate>` at the end of the teach file (`[MILLWEB] TEACH_FILE`, else `[ARM6HMI] TEACH_FILE`, else `teach.ngc` in the program folder); the reply has the line and the number of points, and the file list is sent again.
+- **`arm_model`:** `{files: {name: text | {b64: STL}}, model, cell, tools}`: the 3D model (`[MILLWEB] ARM_MODEL`, else `[ARM6HMI] MODEL`, else linuxcnc/vis3d's `arm6_changer.vis` with a tool changer, `arm6_lcnc.vis` without), every file it `include`s or loads (`part … mesh FILE.stl`), armguard's cell (`[ARMGUARD] CELL`) and the tool table (`[STMBL_ARM] TOOLS`) with theirs. Names are paths from the model's folder, as vis3d resolves them.
+- **`slow`'s `arm`:** each loaded component's pins, `-` as `_`:
+  - `guard` (armguard.0: state, reason, clearance);
+  - `collide` (armcollide.0: collision);
+  - `grip` (armgrip.0: state, gap_fb, payload_mass, close);
+  - `tool` (armtool.0: mounted, fault, reason, valve);
+  - `changer` (stmbl-arm.0.changer: locked, unlocked, present, id);
+  - `quota` (powerquota.0: total_power, feed_scale, limiting);
+  - `kins_tool` (armkins.tool).
+
+The console's arm page (the 3D arm from these files, the joints, the jog pad, the panels) is to come; linuxcnc/arm6hmi is the QtVCP screen.
 
 ## Programs
 

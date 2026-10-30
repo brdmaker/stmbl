@@ -227,7 +227,7 @@ class Hub:
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
                       "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
-                      "vib_spectrum", "vib_trend", "vib_console_read"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "vib_spectrum", "vib_trend", "vib_console_read", "arm_model"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -439,6 +439,22 @@ class Hub:
             self.event("ok", "Saved %s (%.1f MB)" % (m["name"], len(data) / 1e6))
             self.broadcast(self.files_msg())
         return err
+
+    async def op_arm_model(self, c, m):
+        """An arm's 3D model files (machine.arm_model): the browser draws the arm from them."""
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(self.ppool, self.m.arm_model)
+        except (OSError, ValueError) as e:
+            return str(e)
+
+    async def op_teach_record(self, c, m):
+        """Record point: the arm's pose as a G1 line in the teach file."""
+        res = await self.run(self.m.cmd_teach_record, m.get("rate"))
+        if isinstance(res, dict):
+            self.event("ok", "Recorded %s (%d points in %s)" % (res["line"], res["points"], res["file"]))
+            self.broadcast(self.files_msg())
+        return res
 
     async def op_model_get(self, c, m):
         loop = asyncio.get_event_loop()

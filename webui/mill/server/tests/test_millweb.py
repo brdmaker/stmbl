@@ -2,6 +2,7 @@
 control lease, the jog deadman, offsets, tools and programs.
 python3 -m unittest discover -s webui/mill/server/tests"""
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -121,14 +122,19 @@ class LatheFeed(unittest.TestCase):
 
 
 class Base(unittest.IsolatedAsyncioTestCase):
+    INI_TEXT = INI   # the machine
     INI_EXTRA = ""   # more [MILLWEB] keys
     HAL = None
+
+    def files(self):
+        """more files in the config folder, before millweb starts"""
 
     async def asyncSetUp(self):
         lc.M.reset()
         lc.M.g5x[:3] = [440.0, 460.0, -195.0]  # what LinuxCNC read from sim.var
         self.d = tempfile.mkdtemp(prefix="millweb-test.")
-        open(os.path.join(self.d, "m.ini"), "w").write(INI + self.INI_EXTRA)
+        open(os.path.join(self.d, "m.ini"), "w").write(self.INI_TEXT + self.INI_EXTRA)
+        self.files()
         open(os.path.join(self.d, "tool.tbl"), "w").write("T3 P3 D6.0 Z+48.13 ;6 mm endmill\nT5 P5 D5 Z71.9 ;drill\n")
         open(os.path.join(self.d, "sim.var"), "w").write("5221 440.0\n5222 460.0\n5223 -195.0\n")
         os.makedirs(os.path.join(self.d, "nc"))
@@ -625,6 +631,122 @@ class TurretStatus(Base):
         self.assertEqual(self.m.slow()["turret"]["error"], 2)
         del self.HAL.pins["lathe.turret.station"]
         self.assertNotIn("turret", self.m.slow())
+
+
+ARM_INI = """[EMC]
+MACHINE = test-arm
+[DISPLAY]
+DEFAULT_LINEAR_VELOCITY = 50
+DEFAULT_ANGULAR_VELOCITY = 20
+[TRAJ]
+COORDINATES = X Y Z A B C
+MAX_LINEAR_VELOCITY = 250
+[KINS]
+KINEMATICS = genserkins
+JOINTS = 6
+[JOINT_1]
+TYPE = ANGULAR
+MIN_LIMIT = -100
+MAX_LIMIT = 80
+MAX_VELOCITY = 90
+[AXIS_X]
+MIN_LIMIT = -2000
+MAX_LIMIT = 2000
+[EMCIO]
+TOOL_TABLE = tool.tbl
+[RS274NGC]
+PARAMETER_FILE = sim.var
+[ARMGUARD]
+CELL = cell/cell.txt
+[STMBL_ARM]
+TOOLS = arm/tools.txt
+[MILLWEB]
+NC_DIR = nc
+ARM_MODEL = vis/arm.vis
+"""
+
+
+class Arm(Base):
+    """An arm (genserkins, six joints): its joints and axes, joint and world jog, Record point, its model files,
+    its components' pins."""
+    INI_TEXT = ARM_INI
+    HAL = FakeHal({"armguard.0.state": 0, "armguard.0.reason": 0, "armguard.0.clearance": 123.4, "powerquota.0.total-power": 850.0,
+                   "powerquota.0.feed-scale": 1.0, "powerquota.0.limiting": False, "armkins.tool": 2})
+
+    def files(self):
+        for d in ("vis", "arm", "cell"):
+            os.makedirs(os.path.join(self.d, d), exist_ok=True)
+        open(os.path.join(self.d, "vis", "arm.vis"), "w").write("include ../arm/base.arm\nunits m\npart 6 mesh flange.stl material dark\n# include nope.vis\n")
+        open(os.path.join(self.d, "vis", "flange.stl"), "wb").write(b"\0" * 84)
+        open(os.path.join(self.d, "arm", "base.arm"), "w").write("dh 1 0 0 0.45 0\ndh 2 0.15 -90 0 -90\n")
+        open(os.path.join(self.d, "arm", "tools.txt"), "w").write("tool 1 torch\n")
+        open(os.path.join(self.d, "cell", "cell.txt"), "w").write("include base_cell.txt\nobstacle plate box 0.8 -0.4 1 0.3 0.05 0.3\n")
+        open(os.path.join(self.d, "cell", "base_cell.txt"), "w").write("prevent 10\n")
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        lc.M.njoints = 6
+        lc.M.homed = [0] * 6
+        lc.M.g5x[:3] = [0.0, 0.0, 0.0]
+
+    async def test_arm(self):
+        ws = await self.client()
+        info = ws.hello["machine"]
+        self.assertEqual((info["type"], info["arm"]["joints"], info["arm"]["axes"]), ("arm", 6, "XYZABC"))
+        self.assertEqual((info["arm"]["jlim"][1]["min"], info["arm"]["jlim"][1]["max"], info["arm"]["jlim"][1]["vel"]), (-100.0, 80.0, 5400.0))
+        await self.call(ws, "control", take=True)
+        for op, kw in (("estop", {"on": False}), ("power", {"on": True})):
+            self.assertTrue((await self.call(ws, op, **kw))["ok"], op)
+        # before homing: a joint jogs (joint mode), an axis doesn't
+        r = await self.call(ws, "jog", axis="j2", dir=1, inc=5, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((lc.M.jpos[2], lc.M.motion_mode), (5.0, lc.TRAJ_MODE_FREE))
+        r = await self.call(ws, "jog", axis="x", dir=1, inc=1, rate=600)
+        self.assertIn("not homed", r["err"])
+        self.assertIn("no joint", (await self.call(ws, "jog", axis="j6", dir=1, inc=1, rate=600))["err"])
+        self.assertIn("no axis", (await self.call(ws, "jog", axis="u", dir=1, inc=1, rate=600))["err"])
+        # a joint homed on its own, then all
+        self.assertTrue((await self.call(ws, "home", axis="J3"))["ok"])
+        self.assertEqual(lc.M.homed, [0, 0, 0, 1, 0, 0])
+        self.assertTrue((await self.call(ws, "home", axis="all"))["ok"])
+        st = await self.until(ws, lambda m: m["t"] == "st" and m.get("jh") == [True] * 6)
+        # world: the axes in teleop; A..C too
+        r = await self.call(ws, "jog", axis="a", dir=-1, inc=2, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((lc.M.pos[3], lc.M.motion_mode), (-2.0, lc.TRAJ_MODE_TELEOP))
+        # continuous joint jog, stopped (back to joint mode for it)
+        self.assertTrue((await self.call(ws, "jog", axis="j1", dir=1, inc=0, rate=600))["ok"])
+        self.assertIn("j1", lc.M.jogging)
+        self.assertTrue((await self.call(ws, "jog_stop", axis="j1"))["ok"])
+        self.assertNotIn("j1", lc.M.jogging)
+        # the status: every axis and joint
+        lc.M.pos[:6] = [900.0, 300.0, 1150.0, 0.0, 45.0, 0.0]
+        st = await self.until(ws, lambda m: m["t"] == "st" and m.get("ax", [0])[0] == 900.0)
+        self.assertEqual(len(st.get("ax")), 6)
+        st = await self.until(ws, lambda m: m["t"] == "st" and "j" in m and "jmode" in m)
+        self.assertEqual(len(st["j"]), 6)
+        # Record point: a G1 line in nc/teach.ngc, the file list again
+        r = await self.call(ws, "teach_record", rate=3000)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((r["line"], r["points"]), ("G1 X900.000 Y300.000 Z1150.000 A0.000 B45.000 C0.000 F3000", 1))
+        r = await self.call(ws, "teach_record")
+        self.assertEqual(r["points"], 2)
+        self.assertEqual(open(os.path.join(self.d, "nc", "teach.ngc")).read().count("G1 "), 2)
+        await self.until(ws, lambda m: m["t"] == "files")
+        # its model: the .vis, what it includes and loads, the cell and the tool table; a watching browser may read it
+        ws2 = await self.client()
+        r = await self.call(ws2, "arm_model")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["model"], "arm.vis")
+        self.assertEqual(sorted(r["files"]), ["../arm/base.arm", "../arm/tools.txt", "../cell/base_cell.txt", "../cell/cell.txt", "arm.vis", "flange.stl"])
+        self.assertEqual((r["cell"], r["tools"]), ("../cell/cell.txt", "../arm/tools.txt"))
+        self.assertEqual(r["files"]["flange.stl"], {"b64": base64.b64encode(b"\0" * 84).decode()})
+        # its components (those loaded)
+        sl = await self.until(ws, lambda m: m["t"] == "slow" and "arm" in m)
+        self.assertEqual(sl["arm"]["guard"], {"state": 0, "reason": 0, "clearance": 123.4})
+        self.assertEqual((sl["arm"]["quota"]["total_power"], sl["arm"]["kins_tool"]), (850.0, 2))
+        self.assertNotIn("grip", sl["arm"])
+        await ws.close(); await ws2.close()
 
 
 class HalPage(Base):
