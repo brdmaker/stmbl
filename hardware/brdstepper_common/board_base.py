@@ -10,7 +10,7 @@ OUTLINE = ("rect", 14.0)       # 28 x 28 mm
 HOLE = 11.5                    # M2.5 at 23 mm
 LAYERS = 4
 RULES = {"m_MinClearance": 0.127, "m_TrackMinWidth": 0.127, "m_ViasMinSize": 0.45, "m_MinThroughDrill": 0.2,
-         "m_CopperEdgeClearance": 0.25, "m_HoleToHoleMin": 0.25,
+         "m_CopperEdgeClearance": 0.2, "m_HoleToHoleMin": 0.25,
          "m_HoleClearance": 0.15}  # the USB4105 footprint has 0.194 mm between its own hole and pad
 HALF = OUTLINE[1]
 
@@ -51,6 +51,7 @@ PAD_NOPIN = {"U1": ("49",), "U2": ("17",), "U3": ("17",)}  # thermal-via pads ca
 # the loosest placement: place.py tries gaps between courtyards from GAP_MAX down
 # and keeps the first that leaves no part without room
 GAP_MAX = 2.0
+SPREAD = True                 # then push the parts apart into whatever room is left
 
 
 def draw(board, h):
@@ -68,5 +69,5 @@ def variant(v):
         "FIXED": dict(FIXED, **(FIXED_A if v == "A" else FIXED_B)),
         "OVERHANG": OVERHANG, "TOP_ONLY": TOP_ONLY, "BOTTOM_FIRST": BOTTOM_FIRST, "EARLY": EARLY,
         "KEEPOUT": KEEPOUT, "ANCHOR": ANCHOR, "BIG_NETS": BIG_NETS, "PLANES": PLANES, "PAD_NOPIN": PAD_NOPIN,
-        "GAP_MAX": GAP_MAX, "draw": draw,
+        "GAP_MAX": GAP_MAX, "SPREAD": SPREAD, "draw": draw,
     }

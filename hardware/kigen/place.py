@@ -172,6 +172,108 @@ def outline_points():
     return [(-HALF, -HALF), (HALF, -HALF), (HALF, HALF), (-HALF, HALF)]
 
 
+def sep(a, b):
+    """Distance between two rectangles (negative: they overlap, by how much)."""
+    dx = max(a[0] - b[2], b[0] - a[2])
+    dy = max(a[1] - b[3], b[1] - a[3])
+    return math.hypot(dx, dy) if dx > 0 and dy > 0 else max(dx, dy)
+
+
+def spread(fps, placed, pins, sweeps=6, reach=1.5, step=0.1):
+    """Push the placed parts apart where there is room: each part, in turn,
+    moves to the spot within `reach` mm that has the most space around it
+    (courtyards on its side, the room parts reserve on it from the other
+    side, the board edge), with a light pull toward the parts it shares nets
+    with so the wiring does not grow. Nothing may overlap or leave the board."""
+    side_of = {r: p[2] for r, p in placed.items()}
+    rel, far = {}, {}
+    for ref in placed:
+        orient_cur = fps[ref]
+        rel[ref] = courtyard(orient_cur)
+        far[ref] = other_side(orient_cur)
+    pos = {r: [p[0], p[1]] for r, p in placed.items()}
+    net_of = {}
+    for (ref, num), n in pins.items():
+        if n not in BIG_NETS:
+            net_of.setdefault(ref, set()).add(n)
+
+    def rect(ref, x, y):
+        r = rel[ref]
+        return (x + r[0], y + r[1], x + r[2], y + r[3])
+
+    def rects_on(side, skip):
+        """Everything standing on `side` except part `skip`: own courtyards, and far-side reservations."""
+        out = []
+        for o in placed:
+            if o == skip:
+                continue
+            x, y = pos[o]
+            if side_of[o] == side:
+                out.append(rect(o, x, y))
+            else:
+                out.extend((x + q[0], y + q[1], x + q[2], y + q[3]) for q in far[o])
+        return out
+
+    moved = 0
+    for _ in range(sweeps):
+        changed = 0
+        for ref in sorted(placed):
+            if ref in FIXED:
+                continue
+            side = side_of[ref]
+            other = "B" if side == "F" else "F"
+            here, there = rects_on(side, ref), rects_on(other, ref)
+            mates = [o for o in placed if o != ref and net_of.get(o, set()) & net_of.get(ref, set())]
+            lim = HALF + OVERHANG.get(ref, -0.05)
+            k = KEEPOUT.get(ref)
+
+            def cost(x, y):
+                r = rect(ref, x, y)
+                if r[0] < -lim or r[1] < -lim or r[2] > lim or r[3] > lim:
+                    return None
+                if k and r[0] < k and r[2] > -k and r[1] < k and r[3] > -k:
+                    return None
+                c = 0.0
+                for o in here:
+                    d = sep(r, o)
+                    if d < GAP - 1e-9:
+                        return None
+                    if d < 2.0:
+                        c += 1.0 / (0.15 + d)
+                for q in far[ref]:
+                    fr = (x + q[0], y + q[1], x + q[2], y + q[3])
+                    for o in there:
+                        if sep(fr, o) < GAP - 1e-9:
+                            return None
+                c += 0.5 / (0.15 + lim - max(abs(r[0]), abs(r[1]), abs(r[2]), abs(r[3])))
+                for o in mates:
+                    c += 0.03 * math.hypot(x - pos[o][0], y - pos[o][1])
+                return c
+
+            x0, y0 = pos[ref]
+            best, bx, by = cost(x0, y0), x0, y0
+            n = int(reach / step)
+            for i in range(-n, n + 1):
+                for j in range(-n, n + 1):
+                    x, y = round(x0 + i * step, 3), round(y0 + j * step, 3)
+                    c = cost(x, y)
+                    if c is not None and (best is None or c < best - 1e-9):
+                        best, bx, by = c, x, y
+            if (bx, by) != (x0, y0):
+                pos[ref] = [bx, by]
+                fp = fps[ref]
+                fp.SetPosition(pcbnew.VECTOR2I(mm(OX + bx), mm(OY + by)))
+                placed[ref] = (bx, by, side)
+                changed += 1
+        moved += changed
+        if not changed:
+            break
+    # the smallest space between two courtyards on a side, for the report
+    tight = min((sep(rect(a, *pos[a]), rect(b, *pos[b])) for a in placed for b in placed
+                 if a < b and side_of[a] == side_of[b]), default=0.0)
+    print("spread: %d moves, courtyards at least %.2f mm apart" % (moved, tight))
+
+
 def run(proj_dir, parts, board_mod):
     global OUT, PROJECT, B, HALF, FIXED, OVERHANG, KEEPOUT, ANCHOR, TOP_ONLY, BOTTOM_FIRST, EARLY, BIG_NETS
     OUT, PROJECT, B = proj_dir, parts.PROJECT, board_mod
@@ -278,7 +380,7 @@ def run(proj_dir, parts, board_mod):
             r = orient(fp, side, rot)
             fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
             rr = (x + r[0], y + r[1], x + r[2], y + r[3])
-            if not b.free(side, rr, ref):
+            if not b.free(side, rr, ref) and gap == 0.0:  # a gap only separates what is free to move
                 print("warning: %s overlaps where it is fixed" % ref)
             b.take((side,), rr)
             for o in other_side(fp):
@@ -362,6 +464,8 @@ def run(proj_dir, parts, board_mod):
         gap = lo
         placed, unplaced = attempt(gap)
     print("courtyard gap %.2f mm" % gap)
+    if getattr(B, "SPREAD", False):
+        spread(fps, placed, pins)
     # what found no room waits beside the board
     px, py = HALF + 6.0, -HALF
     for ref in unplaced:
