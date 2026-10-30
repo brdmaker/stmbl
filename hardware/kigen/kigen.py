@@ -4,6 +4,7 @@
   kigen.py sch    <board dir>   symbols, project, schematic (gen/parts.py)
   kigen.py check  <board dir>   the schematic's netlist against parts.py
   kigen.py pcb    <board dir>   the board, placed (gen/board.py)
+  kigen.py route  <board dir>   autoroute with BrdRoute (route.py), import the result
   kigen.py drc    <board dir>   KiCad's DRC: only unrouted connections allowed
   kigen.py bom    <board dir>   <name>-bom.csv
   kigen.py doc    <board dir>   doc/<name>-schematic.pdf, doc/<name>-placement.png
@@ -31,7 +32,7 @@ def load(board_dir, name):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3 or (len(sys.argv) > 3 and sys.argv[1] != "route"):
         raise SystemExit(__doc__)
     cmd, d = sys.argv[1], os.path.abspath(sys.argv[2])
     parts = load(d, "parts")
@@ -44,6 +45,9 @@ def main():
     elif cmd == "pcb":
         import place
         return place.run(d, parts, load(d, "board"))
+    elif cmd == "route":
+        import route
+        return route.run(d, parts, sys.argv[3:])
     elif cmd == "drc":
         import drc
         return drc.run(os.path.join(d, parts.PROJECT + ".kicad_pcb"), "/tmp/%s-drc.rpt" % parts.PROJECT)

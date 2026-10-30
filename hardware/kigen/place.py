@@ -17,6 +17,9 @@ the schematic first), placed by the board's rules in gen/board.py:
   ANCHOR         {ref: (x, y)}: start the search there instead of at the
                  centre of the parts it shares nets with
   BIG_NETS       nets that don't pull parts together (GND, supplies)
+  GAP_MAX        optional: place as loosely as possible, the largest gap
+                 between courtyards up to this many mm that leaves no part
+                 without room (a bisection; default 0: touching)
   PLANES         [(net, layer name)]: unfilled zones over the whole board
   draw(board, h) optional: extra drawings (h: helpers mm, OX, OY, pcbnew)
 
@@ -43,7 +46,7 @@ from sexp import parse, find, findall
 FPDIR = os.environ.get("KICAD7_FOOTPRINT_DIR", "/usr/share/kicad/footprints")
 OX, OY = 100.0, 100.0          # board centre in KiCad coordinates (mm)
 STEP = 0.25
-GAP = 0.0                      # extra space between courtyards
+GAP = 0.0                      # extra space between courtyards (set by run(): see GAP_MAX)
 # set by run() from the board's rules (gen/board.py)
 OUT = PROJECT = B = None
 HALF = 0.0
@@ -264,76 +267,101 @@ def run(proj_dir, parts, board_mod):
         if lost:
             raise SystemExit("%s: symbol pins with no pad: %s" % (ref, sorted(lost)))
 
-    b = Board()
-    placed = {}
-    for ref, (side, rot, x, y) in FIXED.items():
-        fp = fps[ref]
-        r = orient(fp, side, rot)
-        fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
-        rr = (x + r[0], y + r[1], x + r[2], y + r[3])
-        if not b.free(side, rr, ref):
-            print("warning: %s overlaps where it is fixed" % ref)
-        b.take((side,), rr)
-        for o in other_side(fp):
-            b.take(("B" if side == "F" else "F",), (x + o[0], y + o[1], x + o[2], y + o[3]))
-        placed[ref] = (x, y, side)
-
-    def area(ref):
-        r = orient(fps[ref], "F", 0)
-        return (r[2] - r[0]) * (r[3] - r[1])
-
-    rest = sorted((r for r in fps if r not in placed), key=lambda r: (0 if r in TOP_ONLY else 1 if r in EARLY else 2, -area(r), r))
-    net_of = {}
-    for (ref, num), n in pins.items():
-        net_of.setdefault(ref, set()).add(n)
-    grid = [i * STEP - HALF for i in range(int(2 * HALF / STEP) + 1)]
-    unplaced = []
-    for ref in rest:
-        fp = fps[ref]
-        if ref in ANCHOR:
-            ax, ay = ANCHOR[ref]
-        else:
-            mates = [placed[o] for o in placed if not o.startswith("H") and (net_of.get(o, set()) & net_of.get(ref, set())) - BIG_NETS]
-            if not mates:
-                mates = [placed[o] for o in placed if not o.startswith("H") and net_of.get(o, set()) & net_of.get(ref, set())]
-            ax = sum(m[0] for m in mates) / len(mates) if mates else 0.0
-            ay = sum(m[1] for m in mates) / len(mates) if mates else 0.0
-        sides = ["F"] if ref in TOP_ONLY else ["B", "F"] if ref in BOTTOM_FIRST else ["F", "B"]
-        shapes = []
-        for si, side in enumerate(sides):
-            for rot in (0, 90):
-                r = orient(fp, side, rot)
-                shapes.append((side, rot, r, other_side(fp), si * 2.0))
-        cands = []
-        for side, rot, r, o, pen in shapes:
-            # the grid, and every spot flush against a part or an edge already there
-            xs, ys = set(grid), set(grid)
-            for a in b.occ[side] + [(-HALF, -HALF, -HALF, -HALF), (HALF, HALF, HALF, HALF)]:
-                xs.update((round(a[2] - r[0], 3), round(a[0] - r[2], 3)))
-                ys.update((round(a[3] - r[1], 3), round(a[1] - r[3], 3)))
-            for k in (KEEPOUT.get(ref),):
-                if k:
-                    xs.update((round(k - r[0], 3), round(-k - r[2], 3)))
-                    ys.update((round(k - r[1], 3), round(-k - r[3], 3)))
-            for x in xs:
-                for y in ys:
-                    if abs(x) <= HALF and abs(y) <= HALF:
-                        cands.append((math.hypot(x - ax, y - ay) + pen, x, y, side, rot, r, o))
-        cands.sort(key=lambda c: c[0])
-        for _, x, y, side, rot, r, o in cands:
+    def attempt(gap):
+        """Place everything with `gap` mm between courtyards: (placed, unplaced)."""
+        global GAP
+        GAP = gap
+        b = Board()
+        placed = {}
+        for ref, (side, rot, x, y) in FIXED.items():
+            fp = fps[ref]
+            r = orient(fp, side, rot)
+            fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
             rr = (x + r[0], y + r[1], x + r[2], y + r[3])
-            far = "B" if side == "F" else "F"
-            oo = [(x + q[0], y + q[1], x + q[2], y + q[3]) for q in o]
-            if b.free(side, rr, ref) and all(b.free(far, q, None) for q in oo):
-                orient(fp, side, rot)
-                fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
-                b.take((side,), rr)
-                for q in oo:
-                    b.take((far,), q)
-                placed[ref] = (x, y, side)
+            if not b.free(side, rr, ref):
+                print("warning: %s overlaps where it is fixed" % ref)
+            b.take((side,), rr)
+            for o in other_side(fp):
+                b.take(("B" if side == "F" else "F",), (x + o[0], y + o[1], x + o[2], y + o[3]))
+            placed[ref] = (x, y, side)
+
+        def area(ref):
+            r = orient(fps[ref], "F", 0)
+            return (r[2] - r[0]) * (r[3] - r[1])
+
+        rest = sorted((r for r in fps if r not in placed), key=lambda r: (0 if r in TOP_ONLY else 1 if r in EARLY else 2, -area(r), r))
+        net_of = {}
+        for (ref, num), n in pins.items():
+            net_of.setdefault(ref, set()).add(n)
+        grid = [i * STEP - HALF for i in range(int(2 * HALF / STEP) + 1)]
+        unplaced = []
+        for ref in rest:
+            fp = fps[ref]
+            if ref in ANCHOR:
+                ax, ay = ANCHOR[ref]
+            else:
+                mates = [placed[o] for o in placed if not o.startswith("H") and (net_of.get(o, set()) & net_of.get(ref, set())) - BIG_NETS]
+                if not mates:
+                    mates = [placed[o] for o in placed if not o.startswith("H") and net_of.get(o, set()) & net_of.get(ref, set())]
+                ax = sum(m[0] for m in mates) / len(mates) if mates else 0.0
+                ay = sum(m[1] for m in mates) / len(mates) if mates else 0.0
+            sides = ["F"] if ref in TOP_ONLY else ["B", "F"] if ref in BOTTOM_FIRST else ["F", "B"]
+            shapes = []
+            for si, side in enumerate(sides):
+                for rot in (0, 90):
+                    r = orient(fp, side, rot)
+                    shapes.append((side, rot, r, other_side(fp), si * 2.0))
+            cands = []
+            for side, rot, r, o, pen in shapes:
+                # the grid, and every spot flush against a part or an edge already there
+                xs, ys = set(grid), set(grid)
+                for a in b.occ[side] + [(-HALF, -HALF, -HALF, -HALF), (HALF, HALF, HALF, HALF)]:
+                    xs.update((round(a[2] - r[0], 3), round(a[0] - r[2], 3)))
+                    ys.update((round(a[3] - r[1], 3), round(a[1] - r[3], 3)))
+                for k in (KEEPOUT.get(ref),):
+                    if k:
+                        xs.update((round(k - r[0], 3), round(-k - r[2], 3)))
+                        ys.update((round(k - r[1], 3), round(-k - r[3], 3)))
+                for x in xs:
+                    for y in ys:
+                        if abs(x) <= HALF and abs(y) <= HALF:
+                            cands.append((math.hypot(x - ax, y - ay) + pen, x, y, side, rot, r, o))
+            cands.sort(key=lambda c: c[0])
+            for _, x, y, side, rot, r, o in cands:
+                rr = (x + r[0], y + r[1], x + r[2], y + r[3])
+                far = "B" if side == "F" else "F"
+                oo = [(x + q[0], y + q[1], x + q[2], y + q[3]) for q in o]
+                if b.free(side, rr, ref) and all(b.free(far, q, None) for q in oo):
+                    orient(fp, side, rot)
+                    fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
+                    b.take((side,), rr)
+                    for q in oo:
+                        b.take((far,), q)
+                    placed[ref] = (x, y, side)
+                    break
+            else:
+                unplaced.append(ref)
+        return placed, unplaced
+
+    # GAP_MAX (gen/board.py): the loosest placement, the largest gap that leaves no part without room
+    gap, step = 0.0, 0.05
+    placed, unplaced = attempt(0.0)
+    top = getattr(B, "GAP_MAX", 0.0)
+    if not unplaced and top > 0:
+        lo, hi = 0.0, top
+        while hi - lo > step:
+            mid = round((lo + hi) / 2 / step) * step
+            if mid <= lo:
                 break
-        else:
-            unplaced.append(ref)
+            p2, u2 = attempt(mid)
+            print("  gap %.2f mm: %d without room" % (mid, len(u2)))
+            if u2:
+                hi = mid
+            else:
+                lo = mid
+        gap = lo
+        placed, unplaced = attempt(gap)
+    print("courtyard gap %.2f mm" % gap)
     # what found no room waits beside the board
     px, py = HALF + 6.0, -HALF
     for ref in unplaced:
