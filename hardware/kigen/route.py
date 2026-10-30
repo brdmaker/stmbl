@@ -4,7 +4,7 @@ back into the .kicad_pcb:
   kigen.py route <board dir> [router args...]
 
 Exports <name>.dsn with pcbnew, runs `brdrouter_cli` (BRDROUTER env var, or
-~/BrdRoute/build/brdrouter_cli), imports its .ses, fills the zones and saves
+the BrdRoute checkout next to this repository), imports its .ses, fills the zones and saves
 the board. Needs the router built (cmake --build build --target brdrouter_cli).
 Routing is deterministic: the same board gives the same copper.
 """
@@ -14,9 +14,12 @@ import sys
 
 import pcbnew
 
+import plane
 from sexp import parse, find, findall
 
-CLI = os.environ.get("BRDROUTER", os.path.expanduser("~/BrdRoute/build/brdrouter_cli"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+# BRDROUTER, or a BrdRoute checkout next to this repository
+CLI = os.environ.get("BRDROUTER", os.path.join(HERE, "..", "..", "..", "BrdRoute", "build", "brdrouter_cli"))
 
 
 def import_ses(board, path):
@@ -81,25 +84,56 @@ def inset_boundary(dsn, edge):
     open(dsn, "w").write(text[:m.start(1)] + new + text[m.end(1):])
 
 
+def load_bare(path):
+    """The board without its copper (tracks, vias, fills). pcbnew 7's Python
+    crashes when tracks are removed from a loaded board, so they are cut out
+    of the file text."""
+    import tempfile
+    text = open(path).read()
+    for head in ("\n\t(segment", "\n\t(via", "\n\t(arc", "\n\t\t(filled_polygon"):
+        while True:
+            i = text.find(head)
+            if i < 0:
+                break
+            text = text[:i] + text[plane._balanced(text, i + 1):]
+    with tempfile.TemporaryDirectory() as d:
+        tmp = os.path.join(d, os.path.basename(path))
+        open(tmp, "w").write(text)
+        return pcbnew.LoadBoard(tmp)
+
+
 def fill(board):
     pcbnew.ZONE_FILLER(board).Fill(board.Zones())
 
 
-def run(proj_dir, parts, args):
+def run(proj_dir, parts, bmod, args):
     pcb = os.path.join(proj_dir, parts.PROJECT + ".kicad_pcb")
     dsn = os.path.join(proj_dir, parts.PROJECT + ".dsn")
     ses = os.path.join(proj_dir, parts.PROJECT + ".ses")
-    board = pcbnew.LoadBoard(pcb)
-    for t in list(board.GetTracks()):  # a fresh route: drop the old copper
-        board.Remove(t)
+    board = load_bare(pcb)  # a fresh route: no old copper
+    planes = getattr(bmod, "PLANES", [])
+    half = bmod.OUTLINE[1]
+    for net, layer in planes:  # the plane's net is connected by a via per pad, before the router starts
+        placed, failed = plane.fanout(board, net, half)
+        print("%s plane on %s: %d vias%s" % (net, layer, placed, ", no room for " + " ".join(failed) if failed else ""))
     if not pcbnew.ExportSpecctraDSN(board, dsn):
         raise SystemExit("DSN export failed")
     inset_boundary(dsn, board.GetDesignSettings().m_CopperEdgeClearance / 1000.0)
+    plane.prepare_dsn(dsn, planes)
+    if os.path.exists(ses):
+        os.remove(ses)
     r = subprocess.run([CLI, dsn, ses] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("Routing", "Done:", "Routed", "Redundancy", "Orphans", "[drc:"))))
-    if r.returncode or not os.path.exists(ses):
+    lines = r.stdout.replace("\r", "\n").splitlines()
+    keys = ("Done:", "Routed ", "Redundancy:", "Orphans ", "[drc:post")
+    sys.stdout.write("".join(l.replace("[batch_autorouter] ", "") + "\n" for l in lines if any(k in l for k in keys)))
+    # the router exits non-zero when connections stay unrouted: what matters is that it wrote a session
+    if not os.path.exists(ses):
         sys.stdout.write(r.stdout[-2000:])
-        raise SystemExit("router failed")
+        raise SystemExit("router failed (exit %d)" % r.returncode)
+    # a session that repeats the wiring the router was given (the plane fanout) replaces it
+    sesnets = {str(n[1]) for n in findall(find(find(parse(open(ses).read()), "routes"), "network_out"), "net")}
+    if any(net in sesnets for net, _ in planes):
+        board = load_bare(pcb)
     print("imported %d track segments, %d vias" % import_ses(board, ses))
     fill(board)
     pcbnew.SaveBoard(pcb, board)

@@ -1685,89 +1685,6 @@
           (name "1" (effects (font (size 1.27 1.27))))
           (number "1" (effects (font (size 1.27 1.27)))))))
     (symbol
-      "Connector_Generic:Conn_01x05"
-      (pin_names (offset 1.016) hide)
-      (in_bom yes)
-      (on_board yes)
-      (property "Reference" "J" (at 0 7.62 0) (effects (font (size 1.27 1.27))))
-      (property "Value" "Conn_01x05" (at 0 -7.62 0) (effects (font (size 1.27 1.27))))
-      (property "Footprint" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (property "Datasheet" "~" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (property "ki_keywords" "connector" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (property
-        "ki_description"
-        "Generic connector, single row, 01x05, script generated (kicad-library-utils/schlib/autogen/connector/)"
-        (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide))
-      (property "ki_fp_filters" "Connector*:*_1x??_*" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (symbol
-        "Conn_01x05_1_1"
-        (rectangle
-          (start -1.27 -4.953)
-          (end 0 -5.207)
-          (stroke (width 0.1524) (type default))
-          (fill (type none)))
-        (rectangle
-          (start -1.27 -2.413)
-          (end 0 -2.667)
-          (stroke (width 0.1524) (type default))
-          (fill (type none)))
-        (rectangle
-          (start -1.27 0.127)
-          (end 0 -0.127)
-          (stroke (width 0.1524) (type default))
-          (fill (type none)))
-        (rectangle
-          (start -1.27 2.667)
-          (end 0 2.413)
-          (stroke (width 0.1524) (type default))
-          (fill (type none)))
-        (rectangle
-          (start -1.27 5.207)
-          (end 0 4.953)
-          (stroke (width 0.1524) (type default))
-          (fill (type none)))
-        (rectangle
-          (start -1.27 6.35)
-          (end 1.27 -6.35)
-          (stroke (width 0.254) (type default))
-          (fill (type background)))
-        (pin
-          passive
-          line
-          (at -5.08 5.08 0)
-          (length 3.81)
-          (name "Pin_1" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -5.08 2.54 0)
-          (length 3.81)
-          (name "Pin_2" (effects (font (size 1.27 1.27))))
-          (number "2" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -5.08 0 0)
-          (length 3.81)
-          (name "Pin_3" (effects (font (size 1.27 1.27))))
-          (number "3" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -5.08 -2.54 0)
-          (length 3.81)
-          (name "Pin_4" (effects (font (size 1.27 1.27))))
-          (number "4" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -5.08 -5.08 0)
-          (length 3.81)
-          (name "Pin_5" (effects (font (size 1.27 1.27))))
-          (number "5" (effects (font (size 1.27 1.27)))))))
-    (symbol
       "Device:Thermistor_NTC"
       (pin_numbers hide)
       (pin_names (offset 0))
@@ -2275,460 +2192,6 @@
           (length 2.54)
           (name "V" (effects (font (size 1.27 1.27))))
           (number "9" (effects (font (size 1.27 1.27)))))))
-    (symbol
-      "Connector:USB_C_Receptacle_USB2.0_16P"
-      (pin_names (offset 1.016))
-      (in_bom yes)
-      (on_board yes)
-      (property "Reference" "J" (at 0 22.225 0) (effects (font (size 1.27 1.27))))
-      (property "Value" "USB_C_Receptacle_USB2.0_16P" (at 0 19.685 0) (effects (font (size 1.27 1.27))))
-      (property "Footprint" "" (at 3.81 0 0) (effects (font (size 1.27 1.27)) hide))
-      (property
-        "Datasheet"
-        "https://www.usb.org/sites/default/files/documents/usb_type-c.zip"
-        (at 3.81 0 0)
-        (effects (font (size 1.27 1.27)) hide))
-      (property
-        "ki_keywords"
-        "usb universal serial bus type-C USB2.0"
-        (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide))
-      (property
-        "ki_description"
-        "USB 2.0-only 16P Type-C Receptacle connector"
-        (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide))
-      (property "ki_fp_filters" "USB*C*Receptacle*" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (symbol
-        "USB_C_Receptacle_USB2.0_16P_0_0"
-        (rectangle
-          (start -0.254 -17.78)
-          (end 0.254 -16.764)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 -14.986)
-          (end 9.144 -15.494)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 -12.446)
-          (end 9.144 -12.954)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 -4.826)
-          (end 9.144 -5.334)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 -2.286)
-          (end 9.144 -2.794)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 0.254)
-          (end 9.144 -0.254)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 2.794)
-          (end 9.144 2.286)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 7.874)
-          (end 9.144 7.366)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 10.414)
-          (end 9.144 9.906)
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (rectangle
-          (start 10.16 15.494)
-          (end 9.144 14.986)
-          (stroke (width 0) (type default))
-          (fill (type none))))
-      (symbol
-        "USB_C_Receptacle_USB2.0_16P_0_1"
-        (rectangle
-          (start -10.16 17.78)
-          (end 10.16 -17.78)
-          (stroke (width 0.254) (type default))
-          (fill (type background)))
-        (arc
-          (start -8.89 -3.81)
-          (mid -6.985 -5.7067)
-          (end -5.08 -3.81)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (arc
-          (start -7.62 -3.81)
-          (mid -6.985 -4.4423)
-          (end -6.35 -3.81)
-          (stroke (width 0.254) (type default))
-          (fill (type none)))
-        (arc
-          (start -7.62 -3.81)
-          (mid -6.985 -4.4423)
-          (end -6.35 -3.81)
-          (stroke (width 0.254) (type default))
-          (fill (type outline)))
-        (rectangle
-          (start -7.62 -3.81)
-          (end -6.35 3.81)
-          (stroke (width 0.254) (type default))
-          (fill (type outline)))
-        (arc
-          (start -6.35 3.81)
-          (mid -6.985 4.4423)
-          (end -7.62 3.81)
-          (stroke (width 0.254) (type default))
-          (fill (type none)))
-        (arc
-          (start -6.35 3.81)
-          (mid -6.985 4.4423)
-          (end -7.62 3.81)
-          (stroke (width 0.254) (type default))
-          (fill (type outline)))
-        (arc
-          (start -5.08 3.81)
-          (mid -6.985 5.7067)
-          (end -8.89 3.81)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (circle
-          (center -2.54 1.143)
-          (radius 0.635)
-          (stroke (width 0.254) (type default))
-          (fill (type outline)))
-        (circle (center 0 -5.842) (radius 1.27) (stroke (width 0) (type default)) (fill (type outline)))
-        (polyline
-          (pts (xy -8.89 -3.81) (xy -8.89 3.81))
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -5.08 3.81) (xy -5.08 -3.81))
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 0 -5.842) (xy 0 4.318))
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 0 -3.302) (xy -2.54 -0.762) (xy -2.54 0.508))
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 0 -2.032) (xy 2.54 0.508) (xy 2.54 1.778))
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -1.27 4.318) (xy 0 6.858) (xy 1.27 4.318) (xy -1.27 4.318))
-          (stroke (width 0.254) (type default))
-          (fill (type outline)))
-        (rectangle
-          (start 1.905 1.778)
-          (end 3.175 3.048)
-          (stroke (width 0.254) (type default))
-          (fill (type outline))))
-      (symbol
-        "USB_C_Receptacle_USB2.0_16P_1_1"
-        (pin
-          passive
-          line
-          (at 0 -22.86 90)
-          (length 5.08)
-          (name "GND" (effects (font (size 1.27 1.27))))
-          (number "A1" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 0 -22.86 90)
-          (length 5.08)
-          hide
-          (name "GND" (effects (font (size 1.27 1.27))))
-          (number "A12" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 15.24 15.24 180)
-          (length 5.08)
-          (name "VBUS" (effects (font (size 1.27 1.27))))
-          (number "A4" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 10.16 180)
-          (length 5.08)
-          (name "CC1" (effects (font (size 1.27 1.27))))
-          (number "A5" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 -2.54 180)
-          (length 5.08)
-          (name "D+" (effects (font (size 1.27 1.27))))
-          (number "A6" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 2.54 180)
-          (length 5.08)
-          (name "D-" (effects (font (size 1.27 1.27))))
-          (number "A7" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 -12.7 180)
-          (length 5.08)
-          (name "SBU1" (effects (font (size 1.27 1.27))))
-          (number "A8" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 15.24 15.24 180)
-          (length 5.08)
-          hide
-          (name "VBUS" (effects (font (size 1.27 1.27))))
-          (number "A9" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 0 -22.86 90)
-          (length 5.08)
-          hide
-          (name "GND" (effects (font (size 1.27 1.27))))
-          (number "B1" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 0 -22.86 90)
-          (length 5.08)
-          hide
-          (name "GND" (effects (font (size 1.27 1.27))))
-          (number "B12" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 15.24 15.24 180)
-          (length 5.08)
-          hide
-          (name "VBUS" (effects (font (size 1.27 1.27))))
-          (number "B4" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 7.62 180)
-          (length 5.08)
-          (name "CC2" (effects (font (size 1.27 1.27))))
-          (number "B5" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 -5.08 180)
-          (length 5.08)
-          (name "D+" (effects (font (size 1.27 1.27))))
-          (number "B6" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 0 180)
-          (length 5.08)
-          (name "D-" (effects (font (size 1.27 1.27))))
-          (number "B7" (effects (font (size 1.27 1.27)))))
-        (pin
-          bidirectional
-          line
-          (at 15.24 -15.24 180)
-          (length 5.08)
-          (name "SBU2" (effects (font (size 1.27 1.27))))
-          (number "B8" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 15.24 15.24 180)
-          (length 5.08)
-          hide
-          (name "VBUS" (effects (font (size 1.27 1.27))))
-          (number "B9" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -7.62 -22.86 90)
-          (length 5.08)
-          (name "SHIELD" (effects (font (size 1.27 1.27))))
-          (number "S1" (effects (font (size 1.27 1.27)))))))
-    (symbol
-      "Power_Protection:USBLC6-2SC6"
-      (pin_names hide)
-      (in_bom yes)
-      (on_board yes)
-      (property "Reference" "U" (at 0.635 5.715 0) (effects (font (size 1.27 1.27)) (justify left)))
-      (property "Value" "USBLC6-2SC6" (at 0.635 3.81 0) (effects (font (size 1.27 1.27)) (justify left)))
-      (property
-        "Footprint"
-        "Package_TO_SOT_SMD:SOT-23-6"
-        (at 1.27 -6.35 0)
-        (effects (font (size 1.27 1.27) italic) (justify left) hide))
-      (property
-        "Datasheet"
-        "https://www.st.com/resource/en/datasheet/usblc6-2.pdf"
-        (at 1.27 -8.255 0)
-        (effects (font (size 1.27 1.27)) (justify left) hide))
-      (property "ki_keywords" "usb ethernet video" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (property
-        "ki_description"
-        "Very low capacitance ESD protection diode, 2 data-line, SOT-23-6"
-        (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide))
-      (property "ki_fp_filters" "SOT?23*" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
-      (symbol
-        "USBLC6-2SC6_0_0"
-        (circle (center -1.524 0) (radius 0.0001) (stroke (width 0.508) (type default)) (fill (type none)))
-        (circle
-          (center -0.508 -4.572)
-          (radius 0.0001)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (circle
-          (center -0.508 2.032)
-          (radius 0.0001)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (circle
-          (center 0.508 -4.572)
-          (radius 0.0001)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (circle
-          (center 0.508 2.032)
-          (radius 0.0001)
-          (stroke (width 0.508) (type default))
-          (fill (type none)))
-        (circle
-          (center 1.524 -2.54)
-          (radius 0.0001)
-          (stroke (width 0.508) (type default))
-          (fill (type none))))
-      (symbol
-        "USBLC6-2SC6_0_1"
-        (polyline
-          (pts (xy -2.54 -2.54) (xy 2.54 -2.54))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline (pts (xy -2.54 0) (xy 2.54 0)) (stroke (width 0) (type default)) (fill (type none)))
-        (polyline
-          (pts (xy -2.032 -3.048) (xy -1.016 -3.048))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -1.016 1.524) (xy -2.032 1.524))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 1.016 -3.048) (xy 2.032 -3.048))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 1.016 1.524) (xy 2.032 1.524))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -0.508 -1.143) (xy -0.508 -0.762) (xy 0.508 -0.762))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -2.032 0.508) (xy -1.016 0.508) (xy -1.524 1.524) (xy -2.032 0.508))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy -1.016 -4.064) (xy -2.032 -4.064) (xy -1.524 -3.048) (xy -1.016 -4.064))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 0.508 -1.778) (xy -0.508 -1.778) (xy 0 -0.762) (xy 0.508 -1.778))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 2.032 -4.064) (xy 1.016 -4.064) (xy 1.524 -3.048) (xy 2.032 -4.064))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 2.032 0.508) (xy 1.016 0.508) (xy 1.524 1.524) (xy 2.032 0.508))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts
-            (xy 0 2.54)
-            (xy -0.508 2.032)
-            (xy 0.508 2.032)
-            (xy 0 1.524)
-            (xy 0 -4.064)
-            (xy -0.508 -4.572)
-            (xy 0.508 -4.572)
-            (xy 0 -5.08))
-          (stroke (width 0) (type default))
-          (fill (type none))))
-      (symbol
-        "USBLC6-2SC6_1_1"
-        (rectangle
-          (start -2.54 2.794)
-          (end 2.54 -5.334)
-          (stroke (width 0.254) (type default))
-          (fill (type background)))
-        (polyline
-          (pts (xy -0.508 2.032) (xy -1.524 2.032) (xy -1.524 -4.572) (xy -0.508 -4.572))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (polyline
-          (pts (xy 0.508 -4.572) (xy 1.524 -4.572) (xy 1.524 2.032) (xy 0.508 2.032))
-          (stroke (width 0) (type default))
-          (fill (type none)))
-        (pin
-          passive
-          line
-          (at -5.08 0 0)
-          (length 2.54)
-          (name "I/O1" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 0 -7.62 90)
-          (length 2.54)
-          (name "GND" (effects (font (size 1.27 1.27))))
-          (number "2" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at -5.08 -2.54 0)
-          (length 2.54)
-          (name "I/O2" (effects (font (size 1.27 1.27))))
-          (number "3" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 5.08 -2.54 180)
-          (length 2.54)
-          (name "I/O2" (effects (font (size 1.27 1.27))))
-          (number "4" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 0 5.08 270)
-          (length 2.54)
-          (name "VBUS" (effects (font (size 1.27 1.27))))
-          (number "5" (effects (font (size 1.27 1.27)))))
-        (pin
-          passive
-          line
-          (at 5.08 0 180)
-          (length 2.54)
-          (name "I/O1" (effects (font (size 1.27 1.27))))
-          (number "6" (effects (font (size 1.27 1.27)))))))
     (symbol
       "Interface_UART:MAX3490xSA"
       (in_bom yes)
@@ -5499,166 +4962,234 @@
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "d1e0bed7-80cf-57d1-8966-c8080aba20e6"))
   (symbol
-    (lib_id "Connector_Generic:Conn_01x05")
-    (at 374.65 156.21 0)
+    (lib_id "Connector:TestPoint")
+    (at 361.95 154.94 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
-    (uuid "2d6f15bb-0502-551e-9e7a-c21abde2e68c")
-    (property "Reference" "J7" (at 374.65 148.59 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "SWD" (at 374.65 163.83 0) (effects (font (size 1.27 1.27))))
+    (uuid "6f146a5e-c21a-5230-a28a-0d7eaef83ec9")
+    (property "Reference" "TP4" (at 361.95 148.082 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "SWD 3V3" (at 361.95 149.86 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
-      "Connector_PinHeader_1.27mm:PinHeader_1x05_P1.27mm_Vertical_SMD_Pin1Left"
-      (at 374.65 156.21 0)
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 367.03 154.94 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 374.65 156.21 0) (effects (font (size 1.27 1.27)) hide))
-    (property
-      "Note"
-      "§4.7's 1.27 mm 5-pin (VCC SWDIO NRST SWCLK GND): pads for pogo pins or a header; a TC2030's guide holes find no room"
-      (at 374.65 156.21 0)
-      (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "83a43206-0fe2-5916-9786-b5138ca3123a"))
-    (pin "2" (uuid "798840b5-492a-5bf6-af80-85b4ae84285b"))
-    (pin "3" (uuid "842e1701-a07c-55f1-b527-43188b651ff2"))
-    (pin "4" (uuid "a974b7b8-13c1-5fd3-be6a-7cdfead6c4c1"))
-    (pin "5" (uuid "18094443-65b1-54e6-84a6-26cfdabf3591"))
+    (property "Datasheet" "~" (at 367.03 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Note" "SWD: target VCC" (at 361.95 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "f1f47471-ca81-53c2-89eb-01bcb742bc4e"))
     (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "J7") (unit 1)))))
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP4") (unit 1)))))
   (wire
-    (pts (xy 369.57 151.13) (xy 367.03 151.13))
+    (pts (xy 361.95 154.94) (xy 361.95 157.48))
     (stroke (width 0) (type default))
-    (uuid "70b3c61c-1207-5f43-8489-7f4e7cb1eff2"))
+    (uuid "73fab95c-1b46-5f3a-b854-10ad5acc4856"))
   (label
     "3V3"
-    (at 367.03 151.13 180)
+    (at 361.95 157.48 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "2186907a-c1fa-5fc6-beee-707a59692b18"))
+    (uuid "73121151-6ab4-59e9-8057-0de3c5e8b7cf"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 373.38 154.94 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "5be23f42-734b-50b1-90c0-e1aa161120fc")
+    (property "Reference" "TP5" (at 373.38 148.082 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "SWDIO" (at 373.38 149.86 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 378.46 154.94 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 378.46 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "8871aa44-b7f3-5898-8066-6240078c8c0d"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP5") (unit 1)))))
   (wire
-    (pts (xy 369.57 153.67) (xy 367.03 153.67))
+    (pts (xy 373.38 154.94) (xy 373.38 157.48))
     (stroke (width 0) (type default))
-    (uuid "78234596-e715-5191-b2b3-c3e8b1a20607"))
+    (uuid "b2d25db8-cd3e-5ccb-9ab8-75102d776458"))
   (label
     "SWDIO"
-    (at 367.03 153.67 180)
+    (at 373.38 157.48 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "f1444df8-a0ea-55ef-b846-826deb9e8d39"))
+    (uuid "f30c6a75-6ced-59c0-8af9-1a7ebece666a"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 383.54 154.94 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "9703e799-29da-5ca0-b0c6-8dbe40b9606a")
+    (property "Reference" "TP6" (at 383.54 148.082 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "NRST" (at 383.54 149.86 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 388.62 154.94 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 388.62 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "489a76ed-8e7f-52af-8b56-7c6b203b0f3c"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP6") (unit 1)))))
   (wire
-    (pts (xy 369.57 156.21) (xy 367.03 156.21))
+    (pts (xy 383.54 154.94) (xy 383.54 157.48))
     (stroke (width 0) (type default))
-    (uuid "69b92bf9-9583-5332-b47d-e07d796fd76b"))
+    (uuid "bb3e3151-f1c6-5cf5-8df2-45aa495800d9"))
   (label
     "NRST"
-    (at 367.03 156.21 180)
+    (at 383.54 157.48 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "267f7fc7-93b5-5780-9419-f86793ae0bad"))
+    (uuid "2fa12b54-a818-5e65-ba1b-dcbe2e43c269"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 394.97 154.94 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "72ae0c26-a725-5a4c-926d-6f621f88dc0c")
+    (property "Reference" "TP7" (at 394.97 148.082 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "SWCLK" (at 394.97 149.86 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 400.05 154.94 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 400.05 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "e7638ddf-7ec2-5f9f-84f2-0733d58ab486"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP7") (unit 1)))))
   (wire
-    (pts (xy 369.57 158.75) (xy 367.03 158.75))
+    (pts (xy 394.97 154.94) (xy 394.97 157.48))
     (stroke (width 0) (type default))
-    (uuid "2b79f17b-7ac8-5a8c-bdbf-ead6fb31aa3d"))
+    (uuid "0784c9c3-9b6e-5911-a2dd-b245539ef62d"))
   (label
     "SWCLK"
-    (at 367.03 158.75 180)
+    (at 394.97 157.48 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "fdbf2af6-90c7-578b-af72-12984ce73464"))
+    (uuid "68bf5448-aa14-55e2-a295-2963701f0c81"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 406.4 154.94 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "af860ba4-f132-5579-8103-147aeb5661fe")
+    (property "Reference" "TP8" (at 406.4 148.082 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "SWD GND" (at 406.4 149.86 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 411.48 154.94 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 411.48 154.94 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "2daac8a8-7a6b-56fa-a0c3-ff1ecfb3b51a"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP8") (unit 1)))))
   (wire
-    (pts (xy 369.57 161.29) (xy 367.03 161.29))
+    (pts (xy 406.4 154.94) (xy 406.4 157.48))
     (stroke (width 0) (type default))
-    (uuid "1dbb16c6-09e6-55ef-9e0b-3cad066f8a9b"))
+    (uuid "b9e67aab-6c7c-5348-b5c1-65d8abcf521e"))
   (label
     "GND"
-    (at 367.03 161.29 180)
+    (at 406.4 157.48 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "a517bdeb-633c-5e42-acc6-a1fed2e0c65d"))
+    (uuid "031135af-eeea-5f8c-a365-a3fc1096f923"))
   (symbol
     (lib_id "Device:R")
-    (at 386.08 163.83 0)
+    (at 417.83 163.83 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "79e6e2ea-6d71-5829-8368-fa29c75cdb85")
-    (property "Reference" "R10" (at 388.112 163.83 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "10k 1%" (at 386.08 163.83 90) (effects (font (size 1.27 1.27))))
+    (property "Reference" "R10" (at 419.862 163.83 90) (effects (font (size 1.27 1.27))))
+    (property "Value" "10k 1%" (at 417.83 163.83 90) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "Resistor_SMD:R_0603_1608Metric"
-      (at 384.302 163.83 90)
+      (at 416.052 163.83 90)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 386.08 163.83 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Note" "NTC pull-up" (at 386.08 163.83 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 417.83 163.83 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Note" "NTC pull-up" (at 417.83 163.83 0) (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "b97230de-a655-5877-9b47-cbee520b738f"))
     (pin "2" (uuid "92862518-3301-576d-8805-58868ceb57b5"))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "R10") (unit 1)))))
   (wire
-    (pts (xy 386.08 160.02) (xy 386.08 157.48))
+    (pts (xy 417.83 160.02) (xy 417.83 157.48))
     (stroke (width 0) (type default))
     (uuid "c1022adf-8de7-5493-a09b-2e40f21d35d4"))
   (label
     "3V3"
-    (at 386.08 157.48 90)
+    (at 417.83 157.48 90)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "7d637940-2acb-5045-a4ab-3ea2c770b71b"))
   (wire
-    (pts (xy 386.08 167.64) (xy 386.08 170.18))
+    (pts (xy 417.83 167.64) (xy 417.83 170.18))
     (stroke (width 0) (type default))
     (uuid "f5d972b2-fa62-58a0-9158-e107aa167d9c"))
   (label
     "NTC"
-    (at 386.08 170.18 270)
+    (at 417.83 170.18 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "b650ea5a-d17c-5256-b4ed-1012421b0ce4"))
   (symbol
     (lib_id "Device:Thermistor_NTC")
-    (at 396.24 163.83 0)
+    (at 427.99 163.83 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "84873dfb-1f54-59f7-b01a-67b1b2bc5c32")
-    (property "Reference" "TH1" (at 391.795 163.83 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "10k B3380" (at 399.415 163.83 90) (effects (font (size 1.27 1.27))))
+    (property "Reference" "TH1" (at 423.545 163.83 90) (effects (font (size 1.27 1.27))))
+    (property "Value" "10k B3380" (at 431.165 163.83 90) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "Resistor_SMD:R_0603_1608Metric"
-      (at 396.24 162.56 0)
+      (at 427.99 162.56 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 396.24 162.56 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 427.99 162.56 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "close to the drivers"
-      (at 396.24 163.83 0)
+      (at 427.99 163.83 0)
       (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "efb1eeb6-72df-5771-a3ca-3a6cc72f6b68"))
     (pin "2" (uuid "39c6af72-384e-57a3-8965-fa9f8c539e5d"))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TH1") (unit 1)))))
   (wire
-    (pts (xy 396.24 160.02) (xy 396.24 157.48))
+    (pts (xy 427.99 160.02) (xy 427.99 157.48))
     (stroke (width 0) (type default))
     (uuid "a3170874-0c91-5570-9bb8-5126231b4264"))
   (label
     "NTC"
-    (at 396.24 157.48 90)
+    (at 427.99 157.48 90)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "15290532-d98b-563e-8891-ee949d23740c"))
   (wire
-    (pts (xy 396.24 167.64) (xy 396.24 170.18))
+    (pts (xy 427.99 167.64) (xy 427.99 170.18))
     (stroke (width 0) (type default))
     (uuid "e3c356ee-2247-5288-a107-bc980eab36ee"))
   (label
     "GND"
-    (at 396.24 170.18 270)
+    (at 427.99 170.18 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "1317ecfd-0c31-52d9-9ae3-27108cbf3bf3"))
@@ -6739,7 +6270,7 @@
     (property "Datasheet" "~" (at 71.12 194.31 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
-      "A+ A- B+ B-: solder pads for the motor leads (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)"
+      "A+ A- B+ B-: solder pads for the motor leads, on the board edge (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)"
       (at 71.12 194.31 0)
       (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "6e4d88ee-b539-5bf4-9501-65ccf7ba90f4"))
@@ -7175,492 +6706,169 @@
     (uuid "c32e1569-e120-5c4f-b852-10035d9f08f5"))
   (rectangle
     (start 25.4 233.68)
-    (end 286.21 316.18)
+    (end 217.63 299.02)
     (stroke (width 0.3) (type dash))
     (fill (type none))
     (uuid "524ffdc2-19c9-5d91-a229-6479fbaa6efd"))
   (text
-    "USB-C, smart-serial, mounting"
+    "USB pads, smart-serial, mounting"
     (at 31.75 240.03 0)
     (effects (font (size 3 3) (thickness 0.6) bold) (justify left bottom))
     (uuid "f7164f8e-6c65-569b-b752-270f716d8fd8"))
   (symbol
-    (lib_id "Connector:USB_C_Receptacle_USB2.0_16P")
-    (at 41.91 262.89 0)
+    (lib_id "Connector:TestPoint")
+    (at 34.29 250.19 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
-    (uuid "624262c0-8d28-5aa6-aafd-8b02b3c5cb44")
-    (property "Reference" "J1" (at 41.91 240.665 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "USB-C" (at 41.91 243.205 0) (effects (font (size 1.27 1.27))))
+    (uuid "7fc9f754-b137-5704-933f-1b213a652f47")
+    (property "Reference" "TP9" (at 34.29 243.332 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "USB 5V" (at 34.29 245.11 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
-      "Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal"
-      (at 45.72 262.89 0)
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 39.37 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property
-      "Datasheet"
-      "https://www.usb.org/sites/default/files/documents/usb_type-c.zip"
-      (at 45.72 262.89 0)
-      (effects (font (size 1.27 1.27)) hide))
-    (property "Note" "USB4105 *" (at 41.91 262.89 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "A1" (uuid "1d7ca96f-efe8-5966-9c54-c48cee8ad5bd"))
-    (pin "A12" (uuid "5ba9f305-a65e-5c76-bb99-9a2070b39e6c"))
-    (pin "A4" (uuid "5bd8377f-f2d0-59db-bb32-c8ea8a000479"))
-    (pin "A5" (uuid "f7e7e05d-2162-5101-95e3-4ce26677a63d"))
-    (pin "A6" (uuid "bdf0fd94-c290-5e1e-af97-f9753a0a11f1"))
-    (pin "A7" (uuid "5613183a-df39-5f17-af02-2f1a4fb1c39e"))
-    (pin "A8" (uuid "b4f7ac9f-35de-5524-a076-4187258b76b4"))
-    (pin "A9" (uuid "8439aa88-3c9d-5dd4-976e-2bc510554af7"))
-    (pin "B1" (uuid "b6586796-a13e-55f9-a684-ad99d60264f6"))
-    (pin "B12" (uuid "99f063cc-b8b3-51bd-a044-bed05a7aed55"))
-    (pin "B4" (uuid "5bc65508-4067-5106-bd73-df402d24af27"))
-    (pin "B5" (uuid "22100c81-774d-59cc-8613-6a404b48e069"))
-    (pin "B6" (uuid "84a70b4c-dab0-599b-bf89-1861152d4ff0"))
-    (pin "B7" (uuid "1490409e-b732-5eef-9bf4-3dc7769e3797"))
-    (pin "B8" (uuid "c1b312ab-79dc-5d67-bda0-a658915954a2"))
-    (pin "B9" (uuid "bfe8f24e-36db-5eb7-8d9c-ba704b20b28a"))
-    (pin "S1" (uuid "f203eedd-4389-5fe9-9e60-24b2603c73b1"))
-    (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "J1") (unit 1)))))
-  (wire
-    (pts (xy 41.91 285.75) (xy 41.91 288.29))
-    (stroke (width 0) (type default))
-    (uuid "2eeae2ea-7c8a-5ce8-b4e0-557bcaa09791"))
-  (label
-    "GND"
-    (at 41.91 288.29 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "d8879499-3f4f-5619-b830-533975b1bad5"))
-  (wire
-    (pts (xy 41.91 285.75) (xy 41.91 288.29))
-    (stroke (width 0) (type default))
-    (uuid "15b838cc-d4ac-5fa0-ae80-43c47b4e8443"))
-  (label
-    "GND"
-    (at 41.91 288.29 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "0287e9c8-3cd1-5d70-a514-60b484407aa3"))
-  (wire
-    (pts (xy 57.15 247.65) (xy 59.69 247.65))
-    (stroke (width 0) (type default))
-    (uuid "c695080b-6ac7-5246-901f-e5c8e41d6eb2"))
-  (label
-    "5V_USB"
-    (at 59.69 247.65 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "5f0fa544-f337-53cf-9de4-db3dab4f280f"))
-  (wire
-    (pts (xy 57.15 252.73) (xy 59.69 252.73))
-    (stroke (width 0) (type default))
-    (uuid "e580770d-6bfa-55cd-8d27-dc233bb0ee5b"))
-  (label
-    "USB_CC1"
-    (at 59.69 252.73 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "598b6097-09f6-5e4b-8d93-18015a44de97"))
-  (wire
-    (pts (xy 57.15 265.43) (xy 59.69 265.43))
-    (stroke (width 0) (type default))
-    (uuid "d3676f57-f9df-5148-8fdc-1ed1d90bdae2"))
-  (label
-    "USB_DP"
-    (at 59.69 265.43 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "b1fe434d-610e-593d-b77d-41ffeb066b02"))
-  (wire
-    (pts (xy 57.15 260.35) (xy 59.69 260.35))
-    (stroke (width 0) (type default))
-    (uuid "72c4eef6-e43e-5aa8-aa87-162827827da3"))
-  (label
-    "USB_DM"
-    (at 59.69 260.35 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "f4369c6e-a2a2-57ae-9060-cdab6666db74"))
-  (no_connect (at 57.15 275.59) (uuid "ccad9fe6-a11a-5a3e-93a8-477ee403f43b"))
-  (wire
-    (pts (xy 57.15 247.65) (xy 59.69 247.65))
-    (stroke (width 0) (type default))
-    (uuid "64fb7220-c898-503d-adab-661bcf388947"))
-  (label
-    "5V_USB"
-    (at 59.69 247.65 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "f2a03731-3614-562f-ab30-31df448bbabf"))
-  (wire
-    (pts (xy 41.91 285.75) (xy 41.91 288.29))
-    (stroke (width 0) (type default))
-    (uuid "0f38b400-47a8-5a73-bb8e-fb4ddd4b553c"))
-  (label
-    "GND"
-    (at 41.91 288.29 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "b0327e1e-9a9d-541f-ae4d-f7ca92f9ef69"))
-  (wire
-    (pts (xy 41.91 285.75) (xy 41.91 288.29))
-    (stroke (width 0) (type default))
-    (uuid "1dac1d04-3f21-529e-9a16-f28807f7ab0f"))
-  (label
-    "GND"
-    (at 41.91 288.29 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "cf233480-940b-5b53-afde-3ffef414b294"))
-  (wire
-    (pts (xy 57.15 247.65) (xy 59.69 247.65))
-    (stroke (width 0) (type default))
-    (uuid "7108eedb-40a3-53fb-99e9-f9629891e1af"))
-  (label
-    "5V_USB"
-    (at 59.69 247.65 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "d7dc2a2b-3694-54f3-9fe5-84d86926f855"))
-  (wire
-    (pts (xy 57.15 255.27) (xy 59.69 255.27))
-    (stroke (width 0) (type default))
-    (uuid "515b8851-c05f-5d83-879a-f7b3c0881f72"))
-  (label
-    "USB_CC2"
-    (at 59.69 255.27 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "f0e44bb2-fe34-5a81-8791-4558de8567ad"))
-  (wire
-    (pts (xy 57.15 267.97) (xy 59.69 267.97))
-    (stroke (width 0) (type default))
-    (uuid "34ee97e5-8ec0-50ba-89c1-11a943db3e8d"))
-  (label
-    "USB_DP"
-    (at 59.69 267.97 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "a6e80782-8b9a-5a87-9a64-2941baad3fbf"))
-  (wire
-    (pts (xy 57.15 262.89) (xy 59.69 262.89))
-    (stroke (width 0) (type default))
-    (uuid "b2e294bd-3f41-5e06-91f0-4d03db8a06a8"))
-  (label
-    "USB_DM"
-    (at 59.69 262.89 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "82d14c5f-ed36-5aae-8b77-e14d43a570c2"))
-  (no_connect (at 57.15 278.13) (uuid "883b007b-3b02-5a52-9b13-5ac88195272b"))
-  (wire
-    (pts (xy 57.15 247.65) (xy 59.69 247.65))
-    (stroke (width 0) (type default))
-    (uuid "035973ad-3e10-558a-b933-f9aac191d4a8"))
-  (label
-    "5V_USB"
-    (at 59.69 247.65 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "bc0cfdce-ea21-5fd2-9eb7-f8818a87c419"))
-  (wire
-    (pts (xy 34.29 285.75) (xy 34.29 288.29))
-    (stroke (width 0) (type default))
-    (uuid "e4ca3d14-f4f3-582e-80a9-ca1719077ba0"))
-  (label
-    "USB_SHIELD"
-    (at 34.29 288.29 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "4df22494-ead2-5261-a327-5df0c1dc138b"))
-  (symbol
-    (lib_id "Device:R")
-    (at 77.47 264.16 0)
-    (unit 1)
-    (in_bom yes)
-    (on_board yes)
-    (dnp no)
-    (uuid "f51ddc6c-eb59-5c71-824d-d0d2f6c2fb52")
-    (property "Reference" "R17" (at 79.502 264.16 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "5.1k" (at 77.47 264.16 90) (effects (font (size 1.27 1.27))))
-    (property
-      "Footprint"
-      "Resistor_SMD:R_0603_1608Metric"
-      (at 75.692 264.16 90)
-      (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 77.47 264.16 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "7893a49b-1321-554f-b59f-4e424cfee59c"))
-    (pin "2" (uuid "702576d9-a83e-51a2-a247-32bff96ae4e7"))
-    (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "R17") (unit 1)))))
-  (wire
-    (pts (xy 77.47 260.35) (xy 77.47 257.81))
-    (stroke (width 0) (type default))
-    (uuid "3f33eabb-9ecb-5a83-b43f-839fc790533e"))
-  (label
-    "USB_CC1"
-    (at 77.47 257.81 90)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "0a4a06a5-a293-557f-a3c9-1cc0ab3f4dcd"))
-  (wire
-    (pts (xy 77.47 267.97) (xy 77.47 270.51))
-    (stroke (width 0) (type default))
-    (uuid "f88fb0e9-3ef8-5af5-8cac-3f65df7a7267"))
-  (label
-    "GND"
-    (at 77.47 270.51 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "4aa81f14-f69d-5be4-977b-fcb8e58d2b28"))
-  (symbol
-    (lib_id "Device:R")
-    (at 88.9 264.16 0)
-    (unit 1)
-    (in_bom yes)
-    (on_board yes)
-    (dnp no)
-    (uuid "e826d98c-65a0-5eb0-a2b9-a677a7022272")
-    (property "Reference" "R18" (at 90.932 264.16 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "5.1k" (at 88.9 264.16 90) (effects (font (size 1.27 1.27))))
-    (property
-      "Footprint"
-      "Resistor_SMD:R_0603_1608Metric"
-      (at 87.122 264.16 90)
-      (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 88.9 264.16 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "52314c17-9f96-5bc8-9b24-0e21fdadcd49"))
-    (pin "2" (uuid "b2961fca-f87e-58d1-8fcc-b6e0a462885a"))
-    (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "R18") (unit 1)))))
-  (wire
-    (pts (xy 88.9 260.35) (xy 88.9 257.81))
-    (stroke (width 0) (type default))
-    (uuid "fec5d2a6-d935-592d-a4e6-ad7381c66747"))
-  (label
-    "USB_CC2"
-    (at 88.9 257.81 90)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "a3f006e7-582e-546e-bb99-aa803a191d48"))
-  (wire
-    (pts (xy 88.9 267.97) (xy 88.9 270.51))
-    (stroke (width 0) (type default))
-    (uuid "240b9cad-6468-5afe-bd21-1bf1b434a2ec"))
-  (label
-    "GND"
-    (at 88.9 270.51 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "cea2a53c-9e84-5134-8e8a-f55aacd547c2"))
-  (symbol
-    (lib_id "Device:R")
-    (at 99.06 266.7 0)
-    (unit 1)
-    (in_bom yes)
-    (on_board yes)
-    (dnp no)
-    (uuid "02f2a3a3-8822-5edc-b268-0cf342ea9b61")
-    (property "Reference" "R19" (at 101.092 266.7 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "1M" (at 99.06 266.7 90) (effects (font (size 1.27 1.27))))
-    (property
-      "Footprint"
-      "Resistor_SMD:R_0603_1608Metric"
-      (at 97.282 266.7 90)
-      (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 99.06 266.7 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "2c8e2ac1-4462-5137-b67b-a823c9fa2c99"))
-    (pin "2" (uuid "b1e21eb4-eb08-5c78-8c12-50bafc27ef1d"))
-    (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "R19") (unit 1)))))
-  (wire
-    (pts (xy 99.06 262.89) (xy 99.06 260.35))
-    (stroke (width 0) (type default))
-    (uuid "468e2e3e-ae55-5e74-ae15-b7852a4bfbbc"))
-  (label
-    "USB_SHIELD"
-    (at 99.06 260.35 90)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "34279279-329a-554c-9b90-6a5e63d5aa4c"))
-  (wire
-    (pts (xy 99.06 270.51) (xy 99.06 273.05))
-    (stroke (width 0) (type default))
-    (uuid "0a28e4fa-bfcb-5b4a-bd21-caac7cc666b5"))
-  (label
-    "GND"
-    (at 99.06 273.05 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "bc7b58fc-eb31-5ec5-858d-48fdec69341c"))
-  (symbol
-    (lib_id "Device:C")
-    (at 110.49 266.7 0)
-    (unit 1)
-    (in_bom yes)
-    (on_board yes)
-    (dnp no)
-    (uuid "2170525f-97da-5f99-aede-228fb635a0b4")
-    (property "Reference" "C37" (at 111.125 264.16 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "4.7n" (at 111.125 269.24 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property
-      "Footprint"
-      "Capacitor_SMD:C_0603_1608Metric"
-      (at 111.4552 270.51 0)
-      (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 110.49 266.7 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "0b6c0de5-55df-54ef-8fb1-2ff880ed5380"))
-    (pin "2" (uuid "a9ea8114-32df-596c-be5d-3f38698d88c8"))
-    (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "C37") (unit 1)))))
-  (wire
-    (pts (xy 110.49 262.89) (xy 110.49 260.35))
-    (stroke (width 0) (type default))
-    (uuid "3405c695-6807-518b-ab7c-8931f0ebb401"))
-  (label
-    "USB_SHIELD"
-    (at 110.49 260.35 90)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "3af4019e-45c4-515f-a2fe-67a570f9ef60"))
-  (wire
-    (pts (xy 110.49 270.51) (xy 110.49 273.05))
-    (stroke (width 0) (type default))
-    (uuid "68ac5ae0-104e-5981-b9b5-38ffad172748"))
-  (label
-    "GND"
-    (at 110.49 273.05 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "e5b2988d-80da-50ed-8479-9529a7793e42"))
-  (symbol
-    (lib_id "Power_Protection:USBLC6-2SC6")
-    (at 134.62 264.16 0)
-    (unit 1)
-    (in_bom yes)
-    (on_board yes)
-    (dnp no)
-    (uuid "35b94a7f-aae5-5294-a851-ddfb0bee71d0")
-    (property "Reference" "U7" (at 135.255 258.445 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property
-      "Value"
-      "USBLC6-2SC6"
-      (at 135.255 260.35 0)
-      (effects (font (size 1.27 1.27)) (justify left)))
-    (property
-      "Footprint"
-      "Package_TO_SOT_SMD:SOT-23-6"
-      (at 135.89 270.51 0)
-      (effects (font (size 1.27 1.27) italic) (justify left) hide))
-    (property
-      "Datasheet"
-      "https://www.st.com/resource/en/datasheet/usblc6-2.pdf"
-      (at 135.89 272.415 0)
-      (effects (font (size 1.27 1.27)) (justify left) hide))
+    (property "Datasheet" "~" (at 39.37 250.19 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
-      "USB ESD; D+ has the MCU's own pull-up"
-      (at 134.62 264.16 0)
+      "5 V in, to the 5 V OR"
+      (at 34.29 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "c5f16e5c-dbc2-5ee0-856b-019978f849b2"))
-    (pin "2" (uuid "e812793a-8f57-5e23-b06f-e2c5f7cf1a23"))
-    (pin "3" (uuid "d43eefbd-dc29-52b6-9943-3257e9b9ee33"))
-    (pin "4" (uuid "e2ebf62d-840f-5751-9a9a-2203d438c652"))
-    (pin "5" (uuid "e5a55934-9a41-561b-8ef5-17021a6560bf"))
-    (pin "6" (uuid "db14eb8f-207a-5901-95c2-c8b1b016c987"))
+    (pin "1" (uuid "80d1cd55-2928-5de5-8e13-8c2678ae1bf0"))
     (instances
-      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "U7") (unit 1)))))
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP9") (unit 1)))))
   (wire
-    (pts (xy 129.54 264.16) (xy 127 264.16))
+    (pts (xy 34.29 250.19) (xy 34.29 252.73))
     (stroke (width 0) (type default))
-    (uuid "4bea591f-6b6d-59ae-bddb-c847b9db5f25"))
-  (label
-    "USB_DM"
-    (at 127 264.16 180)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "417ea841-e31e-5e9f-a8c4-652f942cf722"))
-  (wire
-    (pts (xy 134.62 271.78) (xy 134.62 274.32))
-    (stroke (width 0) (type default))
-    (uuid "8916b8bb-1daf-5394-8692-489fbb4936ce"))
-  (label
-    "GND"
-    (at 134.62 274.32 270)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "2d129493-56f9-5bf4-b978-d4d5f28fcf0f"))
-  (wire
-    (pts (xy 129.54 266.7) (xy 127 266.7))
-    (stroke (width 0) (type default))
-    (uuid "c8164a2f-d8a4-5ed0-b478-02faf2105bb5"))
-  (label
-    "USB_DP"
-    (at 127 266.7 180)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "792f3f7e-6375-596e-9651-0406cefe747b"))
-  (wire
-    (pts (xy 139.7 266.7) (xy 142.24 266.7))
-    (stroke (width 0) (type default))
-    (uuid "ca66723f-77c1-550f-8aaf-6b7d611e1048"))
-  (label
-    "USB_DP"
-    (at 142.24 266.7 0)
-    (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "f2479d34-1d0d-5aff-8ab7-a38a6d7c0143"))
-  (wire
-    (pts (xy 134.62 259.08) (xy 134.62 256.54))
-    (stroke (width 0) (type default))
-    (uuid "8e928754-e58b-5429-8169-0b471f01cec4"))
+    (uuid "7e39c208-8af2-531b-824a-3504d69a64ad"))
   (label
     "5V_USB"
-    (at 134.62 256.54 90)
+    (at 34.29 252.73 270)
     (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "ef493114-9dc8-5563-823b-92fb99b9a605"))
+    (effects (font (size 1.27 1.27)) (justify right bottom))
+    (uuid "4185c75b-a4ee-5f2e-bc48-c916311fb798"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 45.72 250.19 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "7375b5b1-1eda-5580-8d3f-78a1b55900c7")
+    (property "Reference" "TP10" (at 45.72 243.332 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "USB D+" (at 45.72 245.11 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 50.8 250.19 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 50.8 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Note"
+      "the MCU has its own D+ pull-up"
+      (at 45.72 250.19 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "481427cd-cd47-5bd2-95d8-5925e59f4b57"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP10") (unit 1)))))
   (wire
-    (pts (xy 139.7 264.16) (xy 142.24 264.16))
+    (pts (xy 45.72 250.19) (xy 45.72 252.73))
     (stroke (width 0) (type default))
-    (uuid "0b71a2cf-fa02-590c-92a0-10fd7b0647a5"))
+    (uuid "5eed7786-4eb3-5e3c-a5eb-d74159108d13"))
+  (label
+    "USB_DP"
+    (at 45.72 252.73 270)
+    (fields_autoplaced)
+    (effects (font (size 1.27 1.27)) (justify right bottom))
+    (uuid "ee271b2f-4c00-5c18-bcfa-4266388ba748"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 57.15 250.19 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "d7fe19fd-c24d-5d46-9a1f-cec61315d69a")
+    (property "Reference" "TP11" (at 57.15 243.332 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "USB D-" (at 57.15 245.11 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 62.23 250.19 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 62.23 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "83ad79f8-33ab-592b-b102-056737e4b6c2"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP11") (unit 1)))))
+  (wire
+    (pts (xy 57.15 250.19) (xy 57.15 252.73))
+    (stroke (width 0) (type default))
+    (uuid "6ec99305-c595-566c-afd6-1ea62a0b41c4"))
   (label
     "USB_DM"
-    (at 142.24 264.16 0)
+    (at 57.15 252.73 270)
     (fields_autoplaced)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "5ece1b61-88a9-58f0-ae3d-5970c5884b13"))
+    (effects (font (size 1.27 1.27)) (justify right bottom))
+    (uuid "4260d657-2605-528b-9a0e-f198d29f936f"))
+  (symbol
+    (lib_id "Connector:TestPoint")
+    (at 68.58 250.19 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "80ba69f2-3ccd-5e4f-ace2-f744e96b1d3c")
+    (property "Reference" "TP12" (at 68.58 243.332 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "USB GND" (at 68.58 245.11 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "TestPoint:TestPoint_Pad_D1.0mm"
+      (at 73.66 250.19 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 73.66 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "7edb65d1-9564-5a7a-a737-c15cc1d85e66"))
+    (instances
+      (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "TP12") (unit 1)))))
+  (wire
+    (pts (xy 68.58 250.19) (xy 68.58 252.73))
+    (stroke (width 0) (type default))
+    (uuid "cc16392e-f37f-5872-a50e-ee07b36b1388"))
+  (label
+    "GND"
+    (at 68.58 252.73 270)
+    (fields_autoplaced)
+    (effects (font (size 1.27 1.27)) (justify right bottom))
+    (uuid "30ac272b-7edd-50bb-845e-02ae62f7f0b8"))
   (symbol
     (lib_id "Interface_UART:MAX3490xSA")
-    (at 177.8 271.78 0)
+    (at 96.52 271.78 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "da4e0d76-4572-59e1-96cb-1f2b261a491e")
-    (property "Reference" "U8" (at 170.18 257.81 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "U8" (at 88.9 257.81 0) (effects (font (size 1.27 1.27))))
     (property
       "Value"
       "SN65HVD30DR"
-      (at 178.562 257.81 0)
+      (at 97.282 257.81 0)
       (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
-      (at 177.8 287.02 0)
+      (at 96.52 287.02 0)
       (effects (font (size 1.27 1.27)) hide))
     (property
       "Datasheet"
       "https://www.analog.com/media/en/technical-documentation/data-sheets/MAX3483-MAX3491.pdf"
-      (at 171.704 260.35 0)
+      (at 90.424 260.35 0)
       (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "variant A * (the MAX3490's pinout, as the SN65HVD30's)"
-      (at 177.8 271.78 0)
+      (at 96.52 271.78 0)
       (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "d028ba20-4a86-531d-aa42-a7b4fb55e559"))
     (pin "2" (uuid "b3ae6d6c-11c3-5dd4-9548-ab5c0f0e9c76"))
@@ -7673,195 +6881,195 @@
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "U8") (unit 1)))))
   (wire
-    (pts (xy 177.8 256.54) (xy 177.8 254))
+    (pts (xy 96.52 256.54) (xy 96.52 254))
     (stroke (width 0) (type default))
     (uuid "881ac1cd-e31b-5f6e-bf71-13c7be8da9b3"))
   (label
     "3V3"
-    (at 177.8 254 90)
+    (at 96.52 254 90)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "0a333ea5-4ffe-524a-8c16-d1f7dcaf4efb"))
   (wire
-    (pts (xy 167.64 266.7) (xy 165.1 266.7))
+    (pts (xy 86.36 266.7) (xy 83.82 266.7))
     (stroke (width 0) (type default))
     (uuid "fec952c0-85fa-59d5-a152-422260a8ba77"))
   (label
     "SS_RX"
-    (at 165.1 266.7 180)
+    (at 83.82 266.7 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "fa8431bc-eceb-50b5-a55e-a6fb6aa95335"))
   (wire
-    (pts (xy 167.64 276.86) (xy 165.1 276.86))
+    (pts (xy 86.36 276.86) (xy 83.82 276.86))
     (stroke (width 0) (type default))
     (uuid "27016309-1e83-584f-8e89-62807d4c5ccd"))
   (label
     "SS_TX"
-    (at 165.1 276.86 180)
+    (at 83.82 276.86 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "2d45e035-53b1-5d2d-b301-e9c0ea92f1cb"))
   (wire
-    (pts (xy 177.8 287.02) (xy 177.8 289.56))
+    (pts (xy 96.52 287.02) (xy 96.52 289.56))
     (stroke (width 0) (type default))
     (uuid "167a47d2-c84f-567e-b768-3ec1f3141e5b"))
   (label
     "GND"
-    (at 177.8 289.56 270)
+    (at 96.52 289.56 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "b7cfbcb9-4575-5299-8a20-16f44766b0dd"))
   (wire
-    (pts (xy 187.96 279.4) (xy 190.5 279.4))
+    (pts (xy 106.68 279.4) (xy 109.22 279.4))
     (stroke (width 0) (type default))
     (uuid "a8aa1fdf-7864-5f7d-b4d0-c672bd92c279"))
   (label
     "SS_TX+"
-    (at 190.5 279.4 0)
+    (at 109.22 279.4 0)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "de9921c2-814b-56e9-92c6-2a3c8c300b87"))
   (wire
-    (pts (xy 187.96 274.32) (xy 190.5 274.32))
+    (pts (xy 106.68 274.32) (xy 109.22 274.32))
     (stroke (width 0) (type default))
     (uuid "0b33eaee-1845-510d-97ee-04d50b50a817"))
   (label
     "SS_TX-"
-    (at 190.5 274.32 0)
+    (at 109.22 274.32 0)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "7a64351e-8167-5b32-ae08-557b089bc80d"))
   (wire
-    (pts (xy 187.96 269.24) (xy 190.5 269.24))
+    (pts (xy 106.68 269.24) (xy 109.22 269.24))
     (stroke (width 0) (type default))
     (uuid "98f73d3e-1c2f-5caf-b927-bcbfe03cbb8e"))
   (label
     "SS_RX-"
-    (at 190.5 269.24 0)
+    (at 109.22 269.24 0)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "62ec4469-5d14-5de1-bf59-bb941a40ca90"))
   (wire
-    (pts (xy 187.96 264.16) (xy 190.5 264.16))
+    (pts (xy 106.68 264.16) (xy 109.22 264.16))
     (stroke (width 0) (type default))
     (uuid "b3f00a57-4d04-5097-a455-e82cdafbab59"))
   (label
     "SS_RX+"
-    (at 190.5 264.16 0)
+    (at 109.22 264.16 0)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "c80ad636-64c0-5d1a-9294-138a861d14f0"))
   (symbol
     (lib_id "Device:C")
-    (at 207.01 260.35 0)
+    (at 127 260.35 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "b4773327-827e-5afc-a826-be4a5460f2ae")
-    (property "Reference" "C38" (at 207.645 257.81 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "100n" (at 207.645 262.89 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Reference" "C38" (at 127.635 257.81 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "100n" (at 127.635 262.89 0) (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "Capacitor_SMD:C_0603_1608Metric"
-      (at 207.9752 264.16 0)
+      (at 127.9652 264.16 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 207.01 260.35 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Note" "U8" (at 207.01 260.35 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 127 260.35 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Note" "U8" (at 127 260.35 0) (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "0d477d5e-2a1f-56c7-b79a-59ea929127b1"))
     (pin "2" (uuid "2d725eee-0d92-538b-9620-fc375404b6e9"))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "C38") (unit 1)))))
   (wire
-    (pts (xy 207.01 256.54) (xy 207.01 254))
+    (pts (xy 127 256.54) (xy 127 254))
     (stroke (width 0) (type default))
     (uuid "ef794279-1a47-5c14-bf8f-1521df263e90"))
   (label
     "3V3"
-    (at 207.01 254 90)
+    (at 127 254 90)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "daf2d85d-9291-5286-8c77-eca74cc04dc9"))
   (wire
-    (pts (xy 207.01 264.16) (xy 207.01 266.7))
+    (pts (xy 127 264.16) (xy 127 266.7))
     (stroke (width 0) (type default))
     (uuid "929edc85-5f91-54c7-a9bf-ccef895228b0"))
   (label
     "GND"
-    (at 207.01 266.7 270)
+    (at 127 266.7 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "3b7248ad-718c-59e8-9fba-eacc32941525"))
   (symbol
     (lib_id "Device:R")
-    (at 218.44 262.89 0)
+    (at 137.16 262.89 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "02d96ee8-3216-5493-b881-cc786c43de46")
-    (property "Reference" "R20" (at 220.472 262.89 90) (effects (font (size 1.27 1.27))))
-    (property "Value" "120" (at 218.44 262.89 90) (effects (font (size 1.27 1.27))))
+    (property "Reference" "R20" (at 139.192 262.89 90) (effects (font (size 1.27 1.27))))
+    (property "Value" "120" (at 137.16 262.89 90) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "Resistor_SMD:R_0603_1608Metric"
-      (at 216.662 262.89 90)
+      (at 135.382 262.89 90)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 218.44 262.89 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 137.16 262.89 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "RX termination (variant A)"
-      (at 218.44 262.89 0)
+      (at 137.16 262.89 0)
       (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "cfccd9a5-3876-56d0-8cfd-abbec7a0dab9"))
     (pin "2" (uuid "e4a58d0b-a0cd-5665-9874-6ca3dee8752b"))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "R20") (unit 1)))))
   (wire
-    (pts (xy 218.44 259.08) (xy 218.44 256.54))
+    (pts (xy 137.16 259.08) (xy 137.16 256.54))
     (stroke (width 0) (type default))
     (uuid "5c94a475-dcdf-5ac2-b06a-09009c4e2a03"))
   (label
     "SS_RX+"
-    (at 218.44 256.54 90)
+    (at 137.16 256.54 90)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid "1e6a0f44-4b62-50d7-84d3-8f56988d8cc7"))
   (wire
-    (pts (xy 218.44 266.7) (xy 218.44 269.24))
+    (pts (xy 137.16 266.7) (xy 137.16 269.24))
     (stroke (width 0) (type default))
     (uuid "3f1395ab-2b99-5000-91aa-98624cb9ffa9"))
   (label
     "SS_RX-"
-    (at 218.44 269.24 270)
+    (at 137.16 269.24 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "ecdab4e5-69a5-56bb-8f02-4bf09eecc23a"))
   (symbol
     (lib_id "Connector_Generic_MountingPin:Conn_01x06_MountingPin")
-    (at 243.84 252.73 0)
+    (at 163.83 252.73 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "a07a3450-1d76-58ae-afe7-30b01eaead0f")
-    (property "Reference" "J4" (at 243.84 245.11 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "J4" (at 163.83 245.11 0) (effects (font (size 1.27 1.27))))
     (property
       "Value"
       "SMART-SERIAL"
-      (at 245.11 262.89 0)
+      (at 165.1 262.89 0)
       (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "Connector_JST:JST_GH_SM06B-GHS-TB_1x06-1MP_P1.25mm_Horizontal"
-      (at 243.84 252.73 0)
+      (at 163.83 252.73 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 243.84 252.73 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 163.83 252.73 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "variant A; to the Mesa card's RJ45 *"
-      (at 243.84 252.73 0)
+      (at 163.83 252.73 0)
       (effects (font (size 1.27 1.27)) hide))
     (pin "1" (uuid "8db0ae6c-2d89-55a2-8e90-ee1fa0560582"))
     (pin "2" (uuid "a3158904-0a06-5046-bc11-ac5135624279"))
@@ -7873,155 +7081,155 @@
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "J4") (unit 1)))))
   (wire
-    (pts (xy 238.76 247.65) (xy 236.22 247.65))
+    (pts (xy 158.75 247.65) (xy 156.21 247.65))
     (stroke (width 0) (type default))
     (uuid "c4aea989-9e2e-5159-b09e-85e0fcd20027"))
   (label
     "SS_TX+"
-    (at 236.22 247.65 180)
+    (at 156.21 247.65 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "62768820-ac6d-50cc-99ed-d5399566a366"))
   (wire
-    (pts (xy 238.76 250.19) (xy 236.22 250.19))
+    (pts (xy 158.75 250.19) (xy 156.21 250.19))
     (stroke (width 0) (type default))
     (uuid "9be6de50-e511-5d1c-8575-8493acf24d2a"))
   (label
     "SS_TX-"
-    (at 236.22 250.19 180)
+    (at 156.21 250.19 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "e8529a9c-ef86-5d2b-af81-3ce6a7473c3c"))
   (wire
-    (pts (xy 238.76 252.73) (xy 236.22 252.73))
+    (pts (xy 158.75 252.73) (xy 156.21 252.73))
     (stroke (width 0) (type default))
     (uuid "6542897a-4f2d-5cf3-863a-49f52166c78f"))
   (label
     "SS_RX+"
-    (at 236.22 252.73 180)
+    (at 156.21 252.73 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "e76c008d-835f-50a7-8d04-016ddd91d18a"))
   (wire
-    (pts (xy 238.76 255.27) (xy 236.22 255.27))
+    (pts (xy 158.75 255.27) (xy 156.21 255.27))
     (stroke (width 0) (type default))
     (uuid "67b95e21-be37-5406-8ed0-7e0afa6c284b"))
   (label
     "SS_RX-"
-    (at 236.22 255.27 180)
+    (at 156.21 255.27 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "4d764aa5-756c-5f44-babf-d53a2c1e7c02"))
   (wire
-    (pts (xy 238.76 257.81) (xy 236.22 257.81))
+    (pts (xy 158.75 257.81) (xy 156.21 257.81))
     (stroke (width 0) (type default))
     (uuid "6fb2d61e-5c62-5d8e-ba83-2a29ca8b26ce"))
   (label
     "5V_MESA"
-    (at 236.22 257.81 180)
+    (at 156.21 257.81 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "f5ee68c8-a2d9-509c-9ff0-45493b0070e5"))
   (wire
-    (pts (xy 238.76 260.35) (xy 236.22 260.35))
+    (pts (xy 158.75 260.35) (xy 156.21 260.35))
     (stroke (width 0) (type default))
     (uuid "ec5c92c1-c775-5e64-889a-87f0787ed5b2"))
   (label
     "GND"
-    (at 236.22 260.35 180)
+    (at 156.21 260.35 180)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "6fbf2cb3-dddd-5a7f-b4a0-19dbd01ee89f"))
   (wire
-    (pts (xy 243.84 265.43) (xy 243.84 267.97))
+    (pts (xy 163.83 265.43) (xy 163.83 267.97))
     (stroke (width 0) (type default))
     (uuid "00e4cb82-498d-5cc2-807f-1ce1b2f1ff17"))
   (label
     "GND"
-    (at 243.84 267.97 270)
+    (at 163.83 267.97 270)
     (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid "a5bdca00-5b07-5bcc-8fac-ee5083f759bb"))
   (symbol
     (lib_id "Mechanical:MountingHole")
-    (at 255.27 250.19 0)
+    (at 173.99 250.19 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "a23e61ab-7ae9-50d8-9b54-0ea1c4c44c7a")
-    (property "Reference" "H1" (at 255.27 245.11 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "M2.5" (at 255.27 247.015 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "H1" (at 173.99 245.11 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "M2.5" (at 173.99 247.015 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "MountingHole:MountingHole_2.7mm_M2.5"
-      (at 255.27 250.19 0)
+      (at 173.99 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 255.27 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 173.99 250.19 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "NEMA11: 23 mm square"
-      (at 255.27 250.19 0)
+      (at 173.99 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "H1") (unit 1)))))
   (symbol
     (lib_id "Mechanical:MountingHole")
-    (at 266.7 250.19 0)
+    (at 185.42 250.19 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "708946c7-3102-5d29-8908-682873fb27b9")
-    (property "Reference" "H2" (at 266.7 245.11 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "M2.5" (at 266.7 247.015 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "H2" (at 185.42 245.11 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "M2.5" (at 185.42 247.015 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "MountingHole:MountingHole_2.7mm_M2.5"
-      (at 266.7 250.19 0)
+      (at 185.42 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 266.7 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 185.42 250.19 0) (effects (font (size 1.27 1.27)) hide))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "H2") (unit 1)))))
   (symbol
     (lib_id "Mechanical:MountingHole")
-    (at 276.86 250.19 0)
+    (at 196.85 250.19 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "26c31ef7-851a-5b7d-a584-5a5be17ea82a")
-    (property "Reference" "H3" (at 276.86 245.11 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "M2.5" (at 276.86 247.015 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "H3" (at 196.85 245.11 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "M2.5" (at 196.85 247.015 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "MountingHole:MountingHole_2.7mm_M2.5"
-      (at 276.86 250.19 0)
+      (at 196.85 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 276.86 250.19 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 196.85 250.19 0) (effects (font (size 1.27 1.27)) hide))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "H3") (unit 1)))))
   (symbol
     (lib_id "Mechanical:MountingHole")
-    (at 34.29 309.88 0)
+    (at 208.28 250.19 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
     (uuid "ea508324-5a08-519b-b151-96d9e088e461")
-    (property "Reference" "H4" (at 34.29 304.8 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "M2.5" (at 34.29 306.705 0) (effects (font (size 1.27 1.27))))
+    (property "Reference" "H4" (at 208.28 245.11 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "M2.5" (at 208.28 247.015 0) (effects (font (size 1.27 1.27))))
     (property
       "Footprint"
       "MountingHole:MountingHole_2.7mm_M2.5"
-      (at 34.29 309.88 0)
+      (at 208.28 250.19 0)
       (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "~" (at 34.29 309.88 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 208.28 250.19 0) (effects (font (size 1.27 1.27)) hide))
     (instances
       (project "brdstepper" (path "/c0ad17d6-811b-5f9d-bce1-57a3539607cf" (reference "H4") (unit 1)))))
   (text
     "brdstepper A: STM32G473 + AS5047P + 2x DRV8876, 28 x 28 mm on the back of a NEMA11 motor.\nConnections are by net name (net labels): docs/brdstepper_hw.md is the reference.\nVariant A: U8/J4, smart-serial to a Mesa card."
-    (at 25.4 331.6 0)
+    (at 25.4 314.44 0)
     (effects (font (size 1.27 1.27)) (justify left top))
     (uuid "87a4dcda-beb1-5812-a399-b89f9daf5f80"))
   (sheet_instances (path "/" (page "1"))))

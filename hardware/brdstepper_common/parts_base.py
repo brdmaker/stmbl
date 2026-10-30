@@ -18,7 +18,7 @@ REV = "0.2"
 NETCLASS_POWER = ("VM", "GND", "COIL_*", "5V*", "BUCK_SW")
 # the 28 mm board has no room for the 0.5 mm / 0.8 mm power class of the default: 0.3 mm carries 0.67 A
 POWER_CLASS = {"clearance": 0.15, "track_width": 0.3, "via_diameter": 0.6, "via_drill": 0.3}
-NOT_FITTED = {"H1", "H2", "H3", "H4", "TP1", "TP2", "TP3", "JP1"}
+NOT_FITTED = {"H1", "H2", "H3", "H4", "JP1"} | {"TP%d" % i for i in range(1, 13)}
 
 # passives are 0603; the power capacitors stay bigger (no 0603 holds 10 µF at 50 V)
 FP_R = "Resistor_SMD:R_0603_1608Metric"
@@ -35,6 +35,10 @@ def R(ref, value, a, b, fp=FP_R, note=""):
 
 def C(ref, value, a, b, fp=FP_C, note=""):
     return (ref, "Device:C", value, fp, {"1": a, "2": b}, note)
+
+
+def TP(ref, value, net, note=""):
+    return (ref, "Connector:TestPoint", value, "TestPoint:TestPoint_Pad_D1.0mm", {"1": net}, note)
 
 
 def DRV(ref, coil, in1, in2, ipropi, vcp, cph, cpl):
@@ -108,9 +112,12 @@ def sheets(v):
             ("TP1", "Connector:TestPoint", "AIN", "TestPoint:TestPoint_Pad_D1.0mm", {"1": "AIN_IN"}, ""),
             ("TP2", "Connector:TestPoint", "PB10", "TestPoint:TestPoint_Pad_D1.0mm", {"1": "TP_PB10"}, "spare I/O"),
             ("TP3", "Connector:TestPoint", "PB11", "TestPoint:TestPoint_Pad_D1.0mm", {"1": "TP_PB11"}, "spare I/O"),
-            ("J7", "Connector_Generic:Conn_01x05", "SWD", "Connector_PinHeader_1.27mm:PinHeader_1x05_P1.27mm_Vertical_SMD_Pin1Left",
-             {"1": "3V3", "2": "SWDIO", "3": "NRST", "4": "SWCLK", "5": "GND"},
-             "§4.7's 1.27 mm 5-pin (VCC SWDIO NRST SWCLK GND): pads for pogo pins or a header; a TC2030's guide holes find no room"),
+            # §4.7's SWD (VCC SWDIO NRST SWCLK GND) as test pads: pogo pins or a probe on the pads
+            TP("TP4", "SWD 3V3", "3V3", "SWD: target VCC"),
+            TP("TP5", "SWDIO", "SWDIO"),
+            TP("TP6", "NRST", "NRST"),
+            TP("TP7", "SWCLK", "SWCLK"),
+            TP("TP8", "SWD GND", "GND"),
             R("R10", "10k 1%", "3V3", "NTC", note="NTC pull-up"),
             ("TH1", "Device:Thermistor_NTC", "10k B3380", "Resistor_SMD:R_0603_1608Metric", {"1": "NTC", "2": "GND"}, "close to the drivers"),
         ],
@@ -135,7 +142,7 @@ def sheets(v):
             C("C33", "100n", "VREF_DRV", "GND"),
             ("J3", "Connector_Generic:Conn_01x04", "MOTOR", "Connector_PinHeader_2.00mm:PinHeader_1x04_P2.00mm_Vertical",
              {"1": "COIL_A+", "2": "COIL_A-", "3": "COIL_B+", "4": "COIL_B-"},
-             "A+ A- B+ B-: solder pads for the motor leads (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)"),
+             "A+ A- B+ B-: solder pads for the motor leads, on the board edge (§4.7 allows pads; a JST-PH 4 doesn't fit the 28 mm board)"),
         ],
         # ------------------------------------------------------------ §4.3 encoder, §4.7 EN_IN
         "encoder": [
@@ -151,15 +158,11 @@ def sheets(v):
         ],
         # ------------------------------------------------------------ §4.4-4.6 USB, smart-serial, CAN
         "interfaces": [
-            ("J1", "Connector:USB_C_Receptacle_USB2.0_16P", "USB-C", "Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal",
-             {"A4": "5V_USB", "A9": "5V_USB", "B4": "5V_USB", "B9": "5V_USB", "A6": "USB_DP", "B6": "USB_DP", "A7": "USB_DM", "B7": "USB_DM",
-              "A5": "USB_CC1", "B5": "USB_CC2", "A1": "GND", "B1": "GND", "A12": "GND", "B12": "GND", "S1": "USB_SHIELD"}, "USB4105 ✱"),
-            R("R17", "5.1k", "USB_CC1", "GND"),
-            R("R18", "5.1k", "USB_CC2", "GND"),
-            R("R19", "1M", "USB_SHIELD", "GND"),
-            C("C37", "4.7n", "USB_SHIELD", "GND"),
-            ("U7", "Power_Protection:USBLC6-2SC6", "USBLC6-2SC6", "Package_TO_SOT_SMD:SOT-23-6",
-             {"1": "USB_DM", "6": "USB_DM", "3": "USB_DP", "4": "USB_DP", "5": "5V_USB", "2": "GND"}, "USB ESD; D+ has the MCU's own pull-up"),
+            # no USB connector: the MCU's USB (DFU, console) comes out on pads, 5 V for a setup with no motor supply
+            TP("TP9", "USB 5V", "5V_USB", "5 V in, to the 5 V OR"),
+            TP("TP10", "USB D+", "USB_DP", "the MCU has its own D+ pull-up"),
+            TP("TP11", "USB D-", "USB_DM"),
+            TP("TP12", "USB GND", "GND"),
             ("U8", "Interface_UART:MAX3490xSA", "SN65HVD30DR", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
              {"1": "3V3", "2": "SS_RX", "3": "SS_TX", "4": "GND", "5": "SS_TX+", "6": "SS_TX-", "7": "SS_RX-", "8": "SS_RX+"},
              "variant A ✱ (the MAX3490's pinout, as the SN65HVD30's)"),
@@ -219,7 +222,7 @@ def variant(v):
         "NETCLASS_POWER": NETCLASS_POWER, "POWER_CLASS": POWER_CLASS,
         "NOT_FITTED": NOT_FITTED,
         "SHEETS": sheets(v),
-        "TITLES": dict(TITLES, interfaces="USB-C, smart-serial, mounting" if a else "USB-C, CAN, mounting"),
+        "TITLES": dict(TITLES, interfaces="USB pads, smart-serial, mounting" if a else "USB pads, CAN, mounting"),
         "PWR_FLAGS": PWR_FLAGS,
         "own_symbols": own_symbols,
     }
@@ -228,7 +231,7 @@ TITLES = {"power": "Power: motor supply, buck 5 V, 5 V OR, LDO 3.3 V, VDDA, VM s
           "mcu": "MCU STM32G473CEU6: clock, reset, SWD, LED, HWID, NTC, spare",
           "bridges": "H-bridges: DRV8876 per coil, current sense, motor connector",
           "encoder": "Encoder AS5047P, enable input",
-          "interfaces": "USB-C, smart-serial (variant A), CAN (variant B), mounting"}
+          "interfaces": "USB pads, smart-serial (variant A), CAN (variant B), mounting"}
 
 # nets with no power output on them: ERC needs a PWR_FLAG (the supply comes from a connector or a passive part)
 PWR_FLAGS = ["VM", "GND", "5V", "VDDA", "5V_USB"]

@@ -3854,3 +3854,13 @@ Entry format:
   side beside P11, BOOT0 to 3.3 V) shorted while an isolated 24..48 V powers
   the HV input, then make f3_all_btburn. Afterwards the F3 ran master (hv=1).
   Drives with an F3 bootloader older than ~v0.9.18-207 may need this.
+
+## 2026-10-30  hardware/kigen: headless pcbnew 7 gotchas (route step)
+- Area:    hardware/kigen (route.py, place.py)
+- Status:  Workaround
+- Symptom: `board.Remove(track)` on a loaded board segfaults later; `pcbnew.ImportSpecctraSES`
+  returns False (needs the editor); BOX2I.Merge in a Python loop corrupts the heap.
+- Cause:   pcbnew 7's SWIG ownership; the SES importer is tied to the GUI frame.
+- Fix:     route.py cuts tracks out of the file text before loading (`load_bare`) and imports
+  the SES itself (`import_ses`). No test: needs KiCad; `make -C hardware/brdstepper_mesa pcb route`
+  exercises it and DRC checks the result.

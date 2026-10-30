@@ -6,8 +6,8 @@ the schematic first), placed by the board's rules in gen/board.py:
   LAYERS         copper layers
   RULES          {design setting: mm}, e.g. {"m_MinClearance": 0.127}
   TITLE          the board's title
-  FIXED          {ref: (side, rotation, x, y)}: put there first (edge
-                 connectors, holes, sensors)
+  FIXED          {ref: (side, rotation, x, y)}: put there first and locked
+                 (edge connectors, holes, sensors)
   OVERHANG       {ref: mm} a courtyard may stand past the edge (default
                  -0.05: inside, so copper keeps its edge clearance)
   TOP_ONLY, BOTTOM_FIRST, EARLY   sets of refs: the side they go on first,
@@ -379,6 +379,7 @@ def run(proj_dir, parts, board_mod):
             fp = fps[ref]
             r = orient(fp, side, rot)
             fp.SetPosition(pcbnew.VECTOR2I(mm(OX + x), mm(OY + y)))
+            fp.SetLocked(True)  # fixed parts (the sensor on the shaft axis, holes, edge connectors) stay put in the editor
             rr = (x + r[0], y + r[1], x + r[2], y + r[3])
             if not b.free(side, rr, ref) and gap == 0.0:  # a gap only separates what is free to move
                 print("warning: %s overlaps where it is fixed" % ref)

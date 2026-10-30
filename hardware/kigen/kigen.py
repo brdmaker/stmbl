@@ -47,7 +47,7 @@ def main():
         return place.run(d, parts, load(d, "board"))
     elif cmd == "route":
         import route
-        return route.run(d, parts, sys.argv[3:])
+        return route.run(d, parts, load(d, "board"), sys.argv[3:])
     elif cmd == "drc":
         import drc
         return drc.run(os.path.join(d, parts.PROJECT + ".kicad_pcb"), "/tmp/%s-drc.rpt" % parts.PROJECT)
