@@ -1,0 +1,2 @@
+# simulation only: absolute linear scales (the DC bus: portal.portal)
+enc_fb0.sim_absolute = 1

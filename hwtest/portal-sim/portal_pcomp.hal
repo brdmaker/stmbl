@@ -1,0 +1,86 @@
+# hwtest/portal-sim with pcomp (linuxcnc/pcomp): the planner's commands are
+# conditioned with the machine's model ([PCOMP]) before the drives, and the
+# drives' feedback goes back to motion relative to the conditioned command.
+# Otherwise as portal.hal: three joints on the simulated portal (stmbl_portal runs
+# the drives and the machine in the servo thread); their pins are a drive's
+# smart-serial pins (as hm2_*.stbl.*). A sampler records every servo cycle
+# for the benchmark while sampler.0.enable is set (portal_run.py: halsampler).
+loadrt [KINS]KINEMATICS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+loadrt stmbl_portal portal=[PORTAL]FILE lib=[PORTAL]LIB
+# sampler.1: linuxcnc/dynwiz's recording (its 11 columns; [DYNWIZ] SAMPLER = 1)
+loadrt sampler depth=20000,20000 cfg=ffffffffffffffffffffs,fffffffffff
+loadrt pcomp
+
+addf motion-command-handler servo-thread
+addf motion-controller      servo-thread
+addf pcomp.0                servo-thread
+addf stmbl-portal.0         servo-thread
+addf sampler.0              servo-thread
+addf sampler.1              servo-thread
+setp sampler.0.enable 0     # portal_run.py records while a program runs
+setp sampler.1.enable 0     # dynwiz links its pins and records itself
+
+net x-pos-cmd  joint.0.motor-pos-cmd  => pcomp.0.x-cmd
+net y1-pos-cmd joint.1.motor-pos-cmd  => pcomp.0.y-cmd
+net x-vel-cmd  joint.0.vel-cmd        => pcomp.0.x-vel-cmd
+net y1-vel-cmd joint.1.vel-cmd        => pcomp.0.y-vel-cmd
+net x-drv-cmd  pcomp.0.x-out          => stmbl-portal.0.0.pos-cmd
+net x-drv-vel  pcomp.0.x-vel          => stmbl-portal.0.0.vel-cmd
+net y-drv-cmd  pcomp.0.y-out          => stmbl-portal.0.1.pos-cmd stmbl-portal.0.2.pos-cmd
+net y-drv-vel  pcomp.0.y-vel          => stmbl-portal.0.1.vel-cmd stmbl-portal.0.2.vel-cmd
+net x-pos-fb   stmbl-portal.0.0.pos-fb => pcomp.0.x-fb
+net y1-drv-fb  stmbl-portal.0.1.pos-fb => pcomp.0.y1-fb
+net y2-drv-fb  stmbl-portal.0.2.pos-fb => pcomp.0.y2-fb
+net x-mot-fb   pcomp.0.x-fb-out        => joint.0.motor-pos-fb
+net y1-pos-fb  pcomp.0.y1-fb-out       => joint.1.motor-pos-fb
+net y2-pos-fb  pcomp.0.y2-fb-out       => joint.2.motor-pos-fb
+net x-enable   joint.0.amp-enable-out => stmbl-portal.0.0.enable pcomp.0.enable
+net x-fault    stmbl-portal.0.0.fault  => joint.0.amp-fault-in
+net y1-enable  joint.1.amp-enable-out => stmbl-portal.0.1.enable
+net y1-fault   stmbl-portal.0.1.fault  => joint.1.amp-fault-in
+net y2-enable  joint.2.amp-enable-out => stmbl-portal.0.2.enable
+net y2-fault   stmbl-portal.0.2.fault  => joint.2.amp-fault-in
+
+# the model and the parts of the conditioning
+setp pcomp.0.shaper     [PCOMP]SHAPER
+setp pcomp.0.defl       [PCOMP]DEFL
+setp pcomp.0.shrink     [PCOMP]SHRINK
+setp pcomp.0.servo      [PCOMP]SERVO
+setp pcomp.0.jerk-ms    [PCOMP]JERK_MS
+setp pcomp.0.fx         [PCOMP]FX
+setp pcomp.0.fy-end     [PCOMP]FY_END
+setp pcomp.0.fy-mid     [PCOMP]FY_MID
+setp pcomp.0.zeta       [PCOMP]ZETA
+setp pcomp.0.rails      [PCOMP]RAILS
+setp pcomp.0.x-center   [PCOMP]X_CENTER
+setp pcomp.0.servo-tau2 [PCOMP]SERVO_TAU2
+
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
+
+# the benchmark's recording, one row per servo cycle (bench.py's COLS); X and Y
+# commands are joints 0 and 1 (trivkins, absolute scales: the axes' values),
+# the planner's (before the conditioning); the motion type delayed by pcomp
+# as a laser would be
+net x-pos-cmd                          => sampler.0.pin.0
+net y1-pos-cmd                         => sampler.0.pin.1
+net s-tx    stmbl-portal.0.tool-x      => sampler.0.pin.2
+net s-ty    stmbl-portal.0.tool-y      => sampler.0.pin.3
+net s-fe0   joint.0.f-error            => sampler.0.pin.4
+net s-fe1   joint.1.f-error            => sampler.0.pin.5
+net s-fe2   joint.2.f-error            => sampler.0.pin.6
+net s-i0    stmbl-portal.0.0.current   => sampler.0.pin.7
+net s-i1    stmbl-portal.0.1.current   => sampler.0.pin.8
+net s-i2    stmbl-portal.0.2.current   => sampler.0.pin.9
+net s-rack  stmbl-portal.0.rack        => sampler.0.pin.10
+net s-frx   stmbl-portal.0.frame-x     => sampler.0.pin.11
+net s-fry   stmbl-portal.0.frame-y     => sampler.0.pin.12
+net s-ftx   stmbl-portal.0.feet-x      => sampler.0.pin.13
+net s-fty   stmbl-portal.0.feet-y      => sampler.0.pin.14
+net s-hx    stmbl-portal.0.head-x      => sampler.0.pin.15
+net s-hy    stmbl-portal.0.head-y      => sampler.0.pin.16
+net s-bus   stmbl-portal.0.bus         => sampler.0.pin.17
+net s-vel   motion.current-vel         => sampler.0.pin.18
+net x-pos-fb                           => sampler.0.pin.19
+net s-mt-in motion.motion-type         => pcomp.0.s32-in-0
+net s-mt    pcomp.0.s32-out-0          => sampler.0.pin.20

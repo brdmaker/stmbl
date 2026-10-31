@@ -1,0 +1,21 @@
+# The retrofit machines (machine/retrofit) load and run. laser3015: a slow
+# Y pass on the iron-core motors: friction (60 N, 0.58 A) and cogging
+# (28 N) in the current, but no fight between Y1 and Y2: with the default
+# current loop (cur_bw 1000) the bridge's yaw made them oscillate at
+# 200 Hz, +-4 A; laser3015_y.conf sets cur_bw 2000.
+@program portal/portal_sim
+@args portal/machine/retrofit/laser3015.portal
+run 0.05
+lcnc 1
+run 0.3
+move 0.5 750 1460
+run 0.3
+mark
+move 4 750 1540
+print max_cur_y1 max_cur_y2 fault_code
+@expect portal.max_cur_y1 > 0.75
+@expect portal.max_cur_y1 < 1.6
+@expect portal.max_cur_y2 < 1.6
+@expect portal.fault_code == 0
+@reject ^ERROR
+@reject bad line

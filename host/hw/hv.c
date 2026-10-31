@@ -28,6 +28,11 @@
  * sim_chop_on until it is back below sim_chop_off. sim_supply = 0: a stiff
  * sim_udc. Not modelled: the bridge's freewheel diodes charging the
  * bus from back-EMF above it while the bridge is off.
+ *
+ * Linear motors are simulated as rotary with one revolution = one electrical
+ * period (e.g. 60 mm): j = mass * (period / 2pi)^2. sim_min_pos / sim_max_pos
+ * (on sim_abs_pos, rad) are end stops: the carriage stops dead there, and
+ * sim_stop_hits counts the contacts. Both 0: no stops.
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -147,6 +152,10 @@ HAL_PIN(sim_te_int);
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
+HAL_PIN(sim_abs_pos);    // mechanical position [rad], not wrapped (double inside)
+HAL_PIN(sim_min_pos);    // end stops on sim_abs_pos [rad] (both 0: none)
+HAL_PIN(sim_max_pos);
+HAL_PIN(sim_stop_hits);  // end stop contacts
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
 HAL_PIN(sim_acc);
@@ -194,6 +203,8 @@ struct hv_ctx_t {
   float ov_err;    // io.c's err_filter state
   int hv_fault;    // the F3's own fault (over-voltage), until the F4 disables it
   int chop;        // the chopper is on
+  double abs_pos;  // sim_abs_pos, from 0 at the start (the scales' reference marks sit on it)
+  int at_stop;     // against sim_min_pos / sim_max_pos
 };
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
@@ -249,19 +260,40 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_acc) = acc;
     PIN(sim_vel) = nv;
     double was   = ctx->upos;
-    ctx->upos += (v + nv) * 0.5 * dt;
+    double step  = (v + nv) * 0.5 * dt;
+    ctx->upos += step;
+    ctx->abs_pos += step;
     // a stiff, dead hard stop: the rotor stops there
     float lo = PIN(sim_stop_min), hi = PIN(sim_stop_max);
     if((lo != 0.0 || hi != 0.0) && (ctx->upos < lo || ctx->upos > hi)) {
-      ctx->upos    = ctx->upos < lo ? lo : hi;
+      double to = ctx->upos < lo ? lo : hi;
+      ctx->abs_pos += to - ctx->upos;
+      ctx->upos    = to;
       PIN(sim_vel) = 0.0;
       PIN(sim_acc) = 0.0;
+    }
+    // end stops on sim_abs_pos (a linear motor's carriage, host/portal): stops dead, the contacts counted
+    if(PIN(sim_min_pos) != 0.0 || PIN(sim_max_pos) != 0.0) {
+      double lim = ctx->abs_pos < PIN(sim_min_pos) ? PIN(sim_min_pos) : ctx->abs_pos > PIN(sim_max_pos) ? PIN(sim_max_pos) : ctx->abs_pos;
+      if(lim != ctx->abs_pos) {
+        ctx->upos += lim - ctx->abs_pos;
+        ctx->abs_pos = lim;
+        PIN(sim_vel) = 0.0;
+        PIN(sim_acc) = 0.0;
+        if(!ctx->at_stop) {
+          PIN(sim_stop_hits) += 1.0;
+        }
+        ctx->at_stop = 1;
+      } else {
+        ctx->at_stop = 0;
+      }
     }
     PIN(sim_dist) += (float)(ctx->upos - was);
     PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
   }
-  PIN(sim_pos)    = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
-  PIN(sim_torque) = te;
+  PIN(sim_pos)     = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
+  PIN(sim_abs_pos) = ctx->abs_pos;
+  PIN(sim_torque)  = te;
 }
 
 // sim_motor = 1: brdstepper's loop (shared/bip_loop.c) and a two-phase

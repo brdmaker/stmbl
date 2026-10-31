@@ -1,0 +1,21 @@
+# The gantry link on the PCB driller (machine/retrofit/pcbdrill_glink.portal,
+# the default current loop): a 2 g move, then a slow pass back (where the Y
+# drives fell into a 227 Hz fight without the link).
+@program portal/portal_sim
+@args portal/machine/retrofit/pcbdrill_glink.portal
+run 0.05
+lcnc 1
+run 0.3
+move 0.5 200 150
+run 0.3
+trapfrac 0.5
+tmove 0.3 200 450
+run 0.3
+mark
+move 7.5 200 150
+print max_cur_y1 max_cur_y2 max_rack fault_code
+@expect portal.max_cur_y1 < 1.2
+@expect portal.max_cur_y2 < 1.2
+@expect portal.max_rack < 15
+@expect portal.fault_code == 0
+@reject ^ERROR

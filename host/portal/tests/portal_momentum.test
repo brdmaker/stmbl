@@ -1,0 +1,25 @@
+# The multibody model: with the frame free (no feet) and frictionless
+# guides, the motors' forces are internal, so the machine's total momentum
+# stays zero while the moving parts go one way and the frame the other.
+@program portal/portal_sim
+@args portal/machine/portal.portal
+frame 600 200 0 0 0 0
+guidey 0 0
+guidex 0 0
+run 0.05
+lcnc 1
+run 0.2
+mark
+# 0.6 s a move: at 0.5 s the second one tripped a drive's position error (on
+# the portal branch too, unseen: the carriage coasted on; DEBUGNOTES)
+move 0.6 800 800
+print mom_x mom_y frame_x frame_y
+move 0.6 200 200
+print mom_x mom_y frame_x frame_y fault
+@expect max|portal.mom_x| < 1e-3
+@expect max|portal.mom_y| < 1e-3
+@expect portal.frame_y[1] < -10000
+@expect portal.frame_x[1] < -2000
+@expect portal.frame_y[2] > 10000
+@expect portal.fault == 0
+@reject ^ERROR

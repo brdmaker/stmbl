@@ -1,0 +1,30 @@
+# vel_int0.mode 1 after a jump in the command while standing (here while
+# disabled: as a simulator or a re-referenced LinuxCNC can send it): the
+# stop starts the packet history again, so the next move's first
+# acceleration estimate doesn't include the jump. Before, the history kept
+# the position from before the jump, and the first packet of the next move
+# read it as an acceleration of ~(jump / 1 ms^2): the axis was kicked and
+# tripped POS_ERROR (DEBUGNOTES 2026-10-21).
+@args --drive examples/linear_axis.conf --sim examples/linear_axis_sim.txt
+debug_level 0
+conf0.pos_bw = 60
+conf0.vel_bw = 400
+vel_int0.mode = 1
+vel1.bc = 1
+lcnc 0 0
+run 0.5
+lcnc 0 0 25
+run 0.005
+lcnc 0 0 0
+run 0.3
+lcnc 1 0
+run 0.5
+lcnc 1 0 0 2000
+run 0.15
+@sample pid0.pos_error 0.01 0.1
+lcnc 1 0
+run 0.3
+fault0.fault
+@expect max|pid0.pos_error| < 0.0012
+@expect fault0.fault == 0
+@reject ^ERROR

@@ -1,0 +1,17 @@
+# The gantry link's limit: its latency. The partner's velocity feeds the
+# fast loop, where the fight is (200 Hz): 1 ms still holds, 3 ms (15 rt
+# cycles, sampled at 1 kHz: a relay through LinuxCNC and smart-serial)
+# brings the fight back. Hence a drive-to-drive link (CAN), not LinuxCNC.
+@program portal/portal_sim
+@args portal/machine/retrofit/laser3015_glink.portal
+glink 15 5
+run 0.05
+lcnc 1
+run 0.3
+move 0.5 300 1400
+run 0.3
+mark
+move 4 300 1480
+print max_cur_y1
+@expect portal.max_cur_y1 > 5
+@reject ^ERROR

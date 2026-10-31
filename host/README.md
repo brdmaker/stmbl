@@ -43,7 +43,8 @@ host/
   examples/         test assets (*.hal = deterministic console; *.servoterm = protocol + scope;
                     drive_*.txt = scripts for a simulated drive, run with --drive)
   tests/            self-checking suite: *.test scripts with @expect checks, run_tests.py;
-                    motors.py + gen_motor_tests.py (autotune), gen_soak_tests.py (soak)
+                    motors.py + gen_motor_tests.py (autotune), gen_soak_tests.py and
+                    gen_linear_soak.py (soak)
   gen/              generated tables/headers (git-ignored)
 ```
 
@@ -321,8 +322,8 @@ use the same component and pin names as `src/comps/`:
 
 | Stand-in | Simulates |
 |---|---|
-| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply (below, "DC bus"). `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). |
-| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3; `sim_fail = 1` breaks it (position frozen, error) |
+| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply (below, "DC bus"). `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). `sim_abs_pos` is the unwrapped position from 0 at the start; `sim_min_pos`/`sim_max_pos` (both 0 = off) are hard end stops for a linear axis on it, counted in `sim_stop_hits`. |
+| `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3; `sim_fail = 1` breaks it (position frozen, error). `sim_ref_mode` 1 puts a single reference mark at `sim_ref_pos` on `sim_abs_pos` (a linear scale), 2 repeats it every `sim_ref_period` |
 | `hw/sserial.c` | smart-serial link to LinuxCNC; process data in `sim_io.h`, with timeout to `CMD error` as on the drive |
 | `hw/adc.c`, `hw/io.c` | pins only |
 | `src/comps/conf.c` | unchanged |
@@ -335,8 +336,10 @@ motor is then exactly what the config says; the encoder index sits where
 to test an autotune), override those pins with `--sim FILE`.
 
 - **Without `--pty`:** the script drives the clock with `step` and `run`.
-  `lcnc <enable> [vel_cmd [pos_cmd]]` plays LinuxCNC: every 1 ms it sends the
-  held command and advances `pos_cmd` by `vel_cmd`. `lcnc` on its own prints
+  `lcnc <enable> [vel_cmd [pos_cmd [acc]]]` plays LinuxCNC: every 1 ms it
+  sends the held command and advances `pos_cmd` by `vel_cmd`; with `acc` it
+  moves with constant acceleration like LinuxCNC's planner, `vel_cmd` being
+  the average over each period (as joint.N.vel-cmd). `lcnc` on its own prints
   the feedback.
 - **With `--pty`:** the drive runs in real time, 1 ms per ms, and its USB
   console is the pty. `reset` reboots the simulated drive, and
@@ -367,6 +370,48 @@ output voltage. Above `ABS_MAX_VOLT` (410 V) it switches its bridge off with
 `sim_udc`; the stepper (`sim_motor = 1`) always uses `sim_udc`. Not
 modelled: the freewheel diodes charging the bus from back-EMF above it while
 the bridge is off. Tests: `tests/bus/`.
+
+### Linear motors
+
+The drive has no linear mode; a linear motor runs as a rotary one where one
+revolution is one electrical period (magnet pitch N-N). For a 60 mm period:
+`conf0.polecount = 1`, `conf0.mot_fb_res` = encoder counts per 60 mm (12000
+for a 5 um quadrature scale), `linrev0.scale = 60` so LinuxCNC works in mm.
+Motor constants convert with p/2pi (p = period in m): mass m gives
+`j = m (p/2pi)^2`, force constant Kf (N/A) gives `psi = Kf p / (3 pi)`
+(Kt = 1.5 psi per pole pair), friction F (N) gives `f = F p/2pi`, and
+`max_force` is the peak force times p/2pi.
+
+Baldor LMCF / LMBL motors (periods 60.96 / 45.72 mm, wiring, Halls, motor
+data): [docs/baldor_linear.md](../docs/baldor_linear.md).
+
+`examples/linear_axis.conf` with `--sim examples/linear_axis_sim.txt` is an
+ironless motor on a 1 m stroke with end stops and one reference mark at
+-477 mm (tests `linear_*.test`). It autophases at enable and switches to
+absolute commutation on the reference mark (`conf0.mot_fb_offset` = the
+encoder angle of the mark). `enc_fb` re-latches on every index pulse, so a
+scale with periodic marks whose pitch is not a multiple of the electrical
+period commutates wrong after the next mark (`linear_periodic_marks.test`).
+
+Autotune on a limited stroke, from the middle of it:
+
+- `rlpsij` (`servoterm-cli --autotune`): set `rlpsij0.max_travel` (rad; 10.47
+  = 100 mm here). Drive segments turn back and brake at half of it, state 5
+  runs towards the start, and past it the run aborts. State 3 alone moves one
+  to two electrical periods, so allow at least 2 (`rlpsij_linear.test`: 100
+  mm from an end stop, -39..+59 mm used; unlimited it wandered 0..+208 mm).
+  l / r = 0.375 ms is below its l observability limit; use the datasheet l.
+- `id_pid` moves about -155..+35 mm (+-10 rad, plus up to one period to the
+  first absolute angle). With the default `conf0.cur_bw = 1000` it caps
+  `vel_bw` at 500 and the following error is ~0.4 mm at 10 m/s^2; with
+  `cur_bw = 2000` it tunes pos_bw 101 / vel_bw 1000 and stays under 0.17 mm.
+- Over sserial the drive gets no acceleration feedforward
+  (`conf/template/sserial.txt` sets `vel0.en = 0`, which zeroes
+  `pid0.acc_ext_cmd`): the force to accelerate the carriage comes from the
+  feedback loops, which is what the following error in accelerations is.
+
+`make soak` includes the linear axis (`tests/gen_linear_soak.py`): reference
+run, then 1 m/s / 10 m/s^2 moves within +-450 mm, with id_pid gains.
 
 ## LinuxCNC module (`lcnc/`)
 

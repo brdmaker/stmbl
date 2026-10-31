@@ -1,0 +1,26 @@
+# pcbdrill with the gantry link between its Y drives (the default gains)
+# pcbdrill: an imaginary PCB drilling machine, 700 x 600 mm, on a cast
+# iron base, retrofitted with stmbl. A short, stiff gantry on two Baldor
+# LMCF12F; the heavy high-speed spindle with its pressure foot rides on an
+# LMCF12E. Point-to-point at 2 g: what counts is how fast each hole's
+# position settles. Numbers are made up.
+#@dynwiz 20000 20000 1200
+drive y1 pcbdrill_y_glink.conf ../sim.txt 60.96
+drive y2 pcbdrill_y_glink.conf ../sim.txt 60.96
+drive x pcbdrill_x.conf ../sim.txt 60.96
+origin 350 300
+stroke -5 605 -5 705
+frame 1800 500 20 18 22 0.06
+rails 0.85
+bridge 28 1.7
+carriage 6 0.03
+racking 6e5 0.02
+head 9 0.04 70 85 52 0.03
+guidey 20 25
+guidex 12 15
+# the supply's 2200 uF and the drives' 3 x 470 uF, and a brake chopper: at
+# 2 g the drives' own capacitors alone tripped on overvoltage
+bus 3610 230 0.5 360 22
+# the Y drives' gantry link: 600 us latency, a frame every 400 us (2.5 kHz CAN)
+glink 3 2
+home 350 300

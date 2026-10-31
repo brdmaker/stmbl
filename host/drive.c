@@ -168,9 +168,18 @@ void drive_boot(void) {
   // sim only: the simulated motor and encoder follow the config
   hal_parse("link sim_board");
   if(sim_extra[0]) {
+    // line by line: a '#' comment would otherwise swallow the rest of the file
     char buf[sizeof(sim_extra)];
     strcpy(buf, sim_extra);
-    hal_parse(buf);
+    for(char *line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
+      char *hash = strchr(line, '#');
+      if(hash) {
+        *hash = 0;
+      }
+      if(strspn(line, " \t\r") < strlen(line)) {
+        hal_parse(line);
+      }
+    }
   }
   hal_parse("relink");
   hal_parse("start");
