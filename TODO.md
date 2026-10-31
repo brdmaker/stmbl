@@ -26,6 +26,24 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 - [ ] Real dock-stand parts in the cell model (docks are placeholders).
 - [ ] Check the 3D frame rate on a Raspberry Pi and a tablet.
 
+## Mikron HSM 400U retrofit (`host/mill/HSM400U.md`, `hwtest/hsm400u-sim`)
+
+- [x] Rough simulation: five axes (A/C trunnion, xyzac-trt-kins), the
+      Siemens servos on stmbl's bus, glass scales; LinuxCNC runs five-axis
+      programs on it.
+- [ ] Real data: motor nameplates (kE decides the rapids), the iTNC 520's
+      machine parameters (back up before removing anything), scale and EnDat
+      model numbers, masses, tap tests. Confirm A/C (not B/C) and the strokes.
+- [ ] EnDat 2.1 / 2.2 on the stmbl drive: check `src/comps/endat.c` against
+      the encoders' order code.
+- [ ] Glass scales into LinuxCNC / the drive: 1 Vpp (interpolator) or
+      absolute EnDat (LC).
+- [ ] The spindle: is its drive a stand-alone VFD or a module of the
+      Heidenhain inverter rack (then it needs its own)?
+- [ ] Console: a trunnion machine type (Configure: xyzac-trt-kins and its
+      pivots; the 3D view's tilting table; A/C in the DRO).
+- [ ] Material removal for five axes (TODO below: the height map is 3-axis).
+
 ## Lathe (`linuxcnc/lathe`, Emco Compact 5)
 
 - [ ] Material removal: compare against a finished-part model (pick the
