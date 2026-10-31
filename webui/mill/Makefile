@@ -56,6 +56,10 @@ endif
 test-gui-arm:
 	python3 test/harness.py --arm -- node test/gui/arm_suite.js $(SEL)
 
+# the same suite against the config millweb-supervisor makes from machines/arcmate_sim/machine.json
+test-gui-arm-machine:
+	python3 test/harness.py --arm-machine -- node test/gui/arm_suite.js $(SEL)
+
 # the Debug page's drives against LinuxCNC with a simulated stmbl drive on X (harness.py --drive)
 test-drive:
 	python3 test/backend_suite.py -k drive
@@ -89,4 +93,4 @@ sim:
 demo:
 	python3 -m http.server -d . 8000
 
-.PHONY: test test-gui-sim test-backend test-gui-live test-live test-stress serve-test check-all sim demo
+.PHONY: test test-gui-arm test-gui-arm-machine test-gui-sim test-backend test-gui-live test-live test-stress serve-test check-all sim demo

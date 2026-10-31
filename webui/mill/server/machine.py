@@ -374,6 +374,7 @@ class Machine:
         self.drives = [d.split() for d in cfg.all("MILLWEB", "DRIVE")]  # name current [power] [fault]
         self.sig = {k: cfg.get("MILLWEB", k) for k in ("SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN")}
         self.pcomp = cfg.get("MILLWEB", "PCOMP", "pcomp.0")
+        self.enable_pin = cfg.get("MILLWEB", "ENABLE_PIN", "") or ""  # an arm's enabling switch: set while released (motion.jog-inhibit)
         self.last_run = "idle"
         self.wcs_unknown = False
         self.notes = []                 # for the event log, from the worker thread
@@ -398,7 +399,8 @@ class Machine:
                   "vel": cfg.num("AXIS_" + a, "MAX_VELOCITY", 0.0) * 60} for a in self.axes}
         return {"joints": self.njoints, "axes": self.axes, "jlim": jl, "alim": al, "teach": os.path.basename(self.teach_file),
                 "grip": {"open": cfg.get("ARM6HMI", "GRIP_OPEN", "M65 P0"), "close": cfg.get("ARM6HMI", "GRIP_CLOSE", "M64 P0")},
-                "tool_ready": cfg.get("ARM6HMI", "TOOL_READY", "") or "",
+                "tool_ready": cfg.get("ARM6HMI", "TOOL_READY", "") or "", "enable_switch": bool(self.enable_pin),
+                "home": self.home_joints(),
                 "angular_vel": cfg.num("DISPLAY", "DEFAULT_ANGULAR_VELOCITY", 20.0) * 60}
 
     def arm_model_paths(self):
@@ -469,20 +471,97 @@ class Machine:
         kt = self._pin("armkins.tool")
         if kt is not None:
             out["kins_tool"] = kt
+        if self.enable_pin:
+            out["enable"] = {"held": not self.enable_released()}
         return out
 
+    def enable_released(self):
+        """an arm's enabling switch: released (no switch: never)"""
+        return bool(self.enable_pin) and bool(self._pin(self.enable_pin))
+
+    TEACH_HEAD = "(the teach points: the console's Record point adds a G1 line before the M2)\nG21 G90\n"
+
+    def teach_points(self):
+        """the teach file's points (its G0/G1 lines), in order"""
+        try:
+            with open(self.teach_file) as fh:
+                return [x.strip() for x in fh if re.match(r"^G[01] ", x)]
+        except FileNotFoundError:
+            return []
+
+    def _teach_write(self, pts):
+        """the teach file as a program: its header, the points, M2"""
+        os.makedirs(os.path.dirname(self.teach_file) or ".", exist_ok=True)
+        tmp = self.teach_file + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(self.TEACH_HEAD + "".join(p + "\n" for p in pts) + "M2\n")
+        os.replace(tmp, self.teach_file)
+
     def cmd_teach_record(self, rate=None):
-        """Record point: the arm's position (X Y Z A B C, machine) as a G1 line at the end of the teach file."""
+        """Record point: the arm's position (X Y Z A B C in the work coordinates, as a program runs it) as a G1
+        line after the teach file's last point."""
         self.ws.poll()
-        p = self.ws.actual_position
+        s = self.ws
+        p = [s.actual_position[i] - s.g5x_offset[i] - s.g92_offset[i] for i in range(len(AXES))]
         f = int(rate or self.cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 50.0) * 60)
         line = "G1 " + " ".join("%s%.3f" % (a, p[AXES.index(a)]) for a in self.axes) + " F%d" % f
-        os.makedirs(os.path.dirname(self.teach_file) or ".", exist_ok=True)
-        with open(self.teach_file, "a") as fh:
-            fh.write(line + "\n")
-        with open(self.teach_file) as fh:
-            n = sum(1 for x in fh if x.startswith("G1 "))
-        return {"line": line, "points": n, "file": os.path.basename(self.teach_file)}
+        pts = self.teach_points() + [line]
+        self._teach_write(pts)
+        return {"line": line, "points": len(pts), "file": os.path.basename(self.teach_file)}
+
+    def cmd_teach(self, action, index=None):
+        """the teach points: list, delete (index), up / down (index: moved one place), clear"""
+        pts = self.teach_points()
+        if action != "list":
+            if action == "clear":
+                pts = []
+            elif action in ("delete", "up", "down"):
+                if not isinstance(index, int) or not 0 <= index < len(pts):
+                    raise ValueError("no point %r" % (index,))
+                if action == "delete":
+                    del pts[index]
+                else:
+                    k = index + (-1 if action == "up" else 1)
+                    if 0 <= k < len(pts):
+                        pts[index], pts[k] = pts[k], pts[index]
+            else:
+                raise ValueError("teach: list, delete, up, down or clear")
+            self._teach_write(pts)
+        return {"points": pts, "file": os.path.basename(self.teach_file)}
+
+    def home_joints(self):
+        """the arm's home pose (joint values) for Go home: [ARM6HMI] HOME_JOINTS, else none"""
+        v = (self.cfg.get("ARM6HMI", "HOME_JOINTS", "") or "").split()
+        try:
+            q = [float(x) for x in v]
+        except ValueError:
+            return None
+        return q if len(q) == self.njoints else None
+
+    def cmd_arm_home(self, rate=None):
+        """Go home: every joint to its home value at once (joint mode, one increment each, their speeds such that
+        they arrive together, at most the jog rate [°/min] and each joint's MAX_VELOCITY)"""
+        q = self.home_joints()
+        if q is None:
+            return "no home pose ([ARM6HMI] HOME_JOINTS, a value a joint)"
+        if self.enable_released():
+            return "the enabling switch is released: hold it to move"
+        err = self._ready()
+        if err:
+            return err
+        self._mode(self.lc.MODE_MANUAL)
+        err = self._motion_mode(True)
+        if err:
+            return err
+        self.ws.poll()
+        cur = [self.ws.joint[j]["input"] for j in range(self.njoints)]
+        d = [q[j] - cur[j] for j in range(self.njoints)]
+        vmax = [min(abs(rate or 1e9) / 60.0, self.cfg.num("JOINT_%d" % j, "MAX_VELOCITY", 30.0)) for j in range(self.njoints)]
+        t = max([abs(d[j]) / max(vmax[j], 1e-6) for j in range(self.njoints)] + [1e-6])
+        for j in range(self.njoints):
+            if abs(d[j]) > 1e-4:
+                self.c.jog(self.lc.JOG_INCREMENT, True, j, max(abs(d[j]) / t, 1e-3) * (1 if d[j] > 0 else -1), abs(d[j]))
+        return None
 
     # -------------------------------------------------------------- info
     def info(self):
@@ -842,6 +921,8 @@ class Machine:
             joint, a = self._jog_target(axis)
         except ValueError as e:
             return str(e)
+        if self.arm and self.enable_released():
+            return "the enabling switch is released: hold it to jog"
         if joint == "tool":
             return self._jog_tool(a, direction, inc, rate)
         err = self._ready(need_homed=not joint)

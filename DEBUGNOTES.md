@@ -2910,3 +2910,51 @@ Entry format:
   A B C linearly, so between the ends the orientation is the A B C line's,
   not an exact turn about the tool axis. A B C wrap to within 180° of the
   current values.
+
+## 2026-10-31  The arm's M6 went to the docks in work coordinates
+- Area:    hwtest/arcmate-sim/toolchange.ngc (and the generated run/toolchange.ngc)
+- Status:  Fixed
+- Symptom: with a G54 offset active (test/machine's linuxcnc.var: Z -195),
+  T1 M6 moved to the wrong place and never locked the tool.
+- Cause:   the dock and approach moves were `G90 G1 X#<_dk..>`: work
+  coordinates, while armtool's dock positions are machine positions.
+- Fix:     `G53 G1` for every dock move; the example's TOOL_READY too.
+
+## 2026-10-31  Record point wrote machine coordinates as a plain G1
+- Area:    webui/mill/server/machine.py (cmd_teach_record)
+- Status:  Fixed
+- Symptom: a taught point replayed from teach.ngc landed off by the work
+  offset.
+- Cause:   it wrote stat.actual_position (machine) into a G1 line, which a
+  program reads in the work coordinates.
+- Fix:     it records actual - G5x - G92. The file is now a program (header,
+  points, M2): LinuxCNC refuses a file without M2 or %.
+
+## 2026-10-31  Mount with TOOL_READY: "a program or MDI is running"
+- Area:    webui/mill/js/arm.js (armMount)
+- Status:  Fixed
+- Symptom: with [ARM6HMI] TOOL_READY set, Mount moved to the ready pose
+  and never changed the tool.
+- Cause:   the console sent the ready move and T<n> M6 back to back; millweb
+  refuses MDI while one runs.
+- Fix:     the ready move with wait (op mdi {wait: true}), then M6.
+
+## 2026-10-31  machine.json → arm: the first tool.tbl was a mill's
+- Area:    webui/mill/server/machineconf.py (write_run, init)
+- Status:  Fixed
+- Symptom: a new arm machine had `T1 P1 D6.0 ;6 mm endmill` only, so T2 M6
+  failed ("tool not found").
+- Cause:   init() wrote the default tool.tbl before any configuration was
+  made.
+- Fix:     tool.tbl is written with the first generated configuration; an
+  arm's is its changer's tools (generate's `tool.tbl.init`). An existing
+  tool.tbl is kept (switching a mill to an arm keeps the mill's: edit it).
+
+## 2026-10-31  An arm's enabling switch: jog-inhibit, and MDI jogs
+- Area:    webui/mill/server/machineconf.py (generate_arm), millweb.py
+- Status:  Note
+- Symptom: LinuxCNC 2.9's motion.jog-inhibit / jog-stop stop teleop and
+  joint jogs, but not the console's TOOL-frame jog (an MDI move).
+- Cause:   by design: jog pins act on jogs only.
+- Fix:     released, millweb aborts its tool-frame move and refuses new
+  jogs; `arm.enable.hold_all` adds motion.feed-inhibit for every move.

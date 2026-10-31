@@ -60,7 +60,7 @@ test("E-STOP reset, power, home; J1 +10° (joint mode), X −10 (world mode), MD
   t.check(await t.until(() => st.armJmode === "coord" && /coordinated/.test(document.getElementById("arm-jmode").textContent), null, 3000), "the joints panel: coordinated (an MDI move)");
   t.check(await t.until(() => /^ARMED|^NEAR/.test(document.getElementById("arm-guard").textContent) && /limit 10/.test(document.getElementById("arm-clear").textContent), null, 5000), "the guard armed, the cell's 10 mm");
   // the 3D arm follows: its flange where LinuxCNC says
-  t.check(await t.ev(() => { const p = ARMMODEL.pose(ARM.v, st.armJ, armTcp()).xyz; return Math.abs(p[0] - st.armAx[0]) < 0.5 && Math.abs(p[2] - st.armAx[2]) < 0.5; }), "the 3D arm's tool point = LinuxCNC's position");
+  t.check(await t.ev(() => { const p = ARMMODEL.pose(ARM.v, st.armJ, armTcp()).xyz; return Math.abs(p[0] - st.armAxm[0]) < 0.5 && Math.abs(p[2] - st.armAxm[2]) < 0.5; }), "the 3D arm's tool point = LinuxCNC's position (machine)");
   t.check(t.errors.length === 0, "no script errors");
 }, { timeout: 150000 });
 
@@ -71,15 +71,32 @@ test("Record point: a G1 line in nc_files/teach.ngc, the count", async (t) => {
   t.check(await t.until(() => /1 point/.test(document.getElementById("arm-teach").textContent)), "1 point");
   const f = path.join(DIR, "nc_files", "teach.ngc");
   t.check(fs.existsSync(f) && /^G1 X-?\d+\.\d{3} Y-?\d+\.\d{3} Z-?\d+\.\d{3} A-?\d+\.\d{3} B-?\d+\.\d{3} C-?\d+\.\d{3} F\d+$/m.test(fs.readFileSync(f, "utf8")), "the line in the teach file");
+  t.check(/\nM2\n$/.test(fs.readFileSync(f, "utf8")), "the teach file a program: M2 at its end");
+  await t.page.click("#arm-pts summary");
+  t.check(await t.until(() => document.getElementById("arm-ptn").textContent === "1" && document.querySelectorAll("#arm-ptlist [data-pt]").length === 4), "the list: the point, Go ↑ ↓ ×");
+  // Load as program: LinuxCNC opens teach.ngc
+  await t.click("#arm-ptload");
+  t.check(await t.until(() => /teach\.ngc$/.test(st.file || "") || (prog && prog.name === "teach.ngc"), null, 15000), "Load as program: LinuxCNC has teach.ngc");
   t.check(t.errors.length === 0, "no script errors");
 });
+
+test("Go home (a home pose in the config): every joint there at once", async (t) => {
+  const home = await t.ev(() => (LIVE.info().arm || {}).home);
+  if (!home) { t.check(await t.ev(() => document.getElementById("arm-home").disabled), "no home pose: Go home disabled"); return; }
+  await t.click("#b-control");
+  await t.until(() => document.getElementById("b-control").textContent.includes("IN"));
+  await t.click("#arm-home");
+  t.check(await t.until((h) => st.armJ && st.armJ.every((x, j) => Math.abs(x - h[j]) < 0.05) && st.run === "idle", home, 60000), "every joint at its home value");
+  t.check(t.errors.length === 0, "no script errors");
+}, { timeout: 90000 });
 
 test("tools: mount T1 (torch), change to T2 (gripper), close it, put it back; armtool, LinuxCNC, the kinematics agree", async (t) => {
   await t.click("#b-control");
   await t.until(() => document.getElementById("b-control").textContent.includes("IN"));
   await t.nav("tool");
   t.check(await t.until(() => document.querySelectorAll('#tl-arm tr[data-armtool]').length === 2), "the changer's two tools");
-  const agree = (n) => t.until((n) => st.arm && st.arm.tool && Math.round(st.arm.tool.mounted) === n && st.tool === n && Math.round(st.arm.kins_tool) === n && st.run === "idle", n, 90000);
+  const agree = async (n) => (await t.until((n) => st.arm && st.arm.tool && Math.round(st.arm.tool.mounted) === n && st.tool === n && Math.round(st.arm.kins_tool) === n && st.run === "idle", n, 90000)) ||
+    (console.log("    (state: " + await t.ev(() => JSON.stringify({ tool: st.arm && st.arm.tool, kins: st.arm && st.arm.kins_tool, lcnc: st.tool, run: st.run, events: events.slice(0, 6).map((e) => e.text) })) + ")"), false);
   await t.click('#tl-arm [data-mount="1"]');
   t.check(await agree(1), "T1 on the flange: armtool, LinuxCNC, the kinematics");
   t.check(await t.until(() => /ON FLANGE/.test(document.querySelector('#tl-arm tr[data-armtool="1"]').textContent)), "its row: ON FLANGE");

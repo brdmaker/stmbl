@@ -20,7 +20,7 @@ const ARM_GUARD = ["", "collision", "protective stop"];
 // ------------------------------------------------------------ entering and leaving
 function armEnter() {
   const was = !!ARM;
-  ARM = { v: null, q: ARM_HOME.slice(), abc: [0, 0, 0], mounted: 0, frame: "joint", held: null, lastTip: null, reach: false, teach: 0, grip: { state: 0, gap: 75 }, built: false };
+  ARM = { v: null, q: ARM_HOME.slice(), abc: [0, 0, 0], mounted: 0, frame: "joint", held: null, lastTip: null, reach: false, teach: 0, points: [], goal: null, grip: { state: 0, gap: 75 }, built: false };
   document.body.classList.add("arm");
   if (!was && !LIVE) {  // the simulation: an arm's tools, offsets, travel and program
     armSaved = { tools: st.tools, offsets: st.offsets.map((x) => ({ ...x })), travel: JSON.parse(JSON.stringify(TRAVEL)), library: library.slice(), prog, tool: st.tool, pos: { ...st.pos }, g92: { ...st.g92 } };
@@ -64,6 +64,7 @@ async function armLoad() {
   if (!LIVE) armSimPose();
   armBuildScene();
   armRenderPanel();
+  armPoints();
   if (st.page === "tool") renderTools();
 }
 
@@ -82,8 +83,11 @@ function armUi(on) {
     panel = document.createElement("div"); panel.className = "panel"; panel.id = "arm-panel";
     panel.innerHTML = `<h2>Joints <small id="arm-jmode">—</small></h2><div class="armj" id="arm-joints"></div>
       <dl class="kv armkv"><dt>Guard</dt><dd><span class="pill off" id="arm-guard">—</span> <span id="arm-clear">—</span></dd>
-        <dt>Gripper</dt><dd id="arm-grip">—</dd><dt>Power</dt><dd id="arm-quota">—</dd><dt>Teach</dt><dd id="arm-teach">0 points</dd></dl>
-      <div class="row"><button class="btn sm" id="arm-gopen">Open</button><button class="btn sm" id="arm-gclose">Close</button><span class="spacer"></span><button class="btn sm accent" id="arm-rec" title="The pose as a G1 line at the end of the teach file">Record point</button></div>`;
+        <dt>Gripper</dt><dd id="arm-grip">—</dd><dt>Power</dt><dd id="arm-quota">—</dd><dt>Teach</dt><dd id="arm-teach">0 points</dd>
+        <dt id="arm-enable-k">Enabling</dt><dd><span class="pill off" id="arm-enable">—</span></dd></dl>
+      <div class="row"><button class="btn sm" id="arm-gopen">Open</button><button class="btn sm" id="arm-gclose">Close</button><span class="spacer"></span><button class="btn sm" id="arm-home" title="Every joint to the home pose at once (joint mode)">Go home</button><button class="btn sm accent" id="arm-rec" title="The pose as a G1 line after the teach file's last point">Record point</button></div>
+      <details class="armpts" id="arm-pts"><summary>Teach points <small id="arm-ptn">0</small></summary><ol id="arm-ptlist"></ol>
+        <div class="row"><button class="btn sm" id="arm-ptload" title="The teach file as the program (Cycle start runs it)">Load as program</button><span class="spacer"></span><button class="btn sm" id="arm-ptclear">Clear</button></div></details>`;
     const first = document.querySelector("aside.ctl .panel");
     first.after(panel);
   }
@@ -249,6 +253,12 @@ function armSimStep(dt, tip) {
     armSimJog(h.ax, rate);
     return;
   }
+  if (ARM.goal) {  // Go home: every joint at once, arriving together (the jog rate as °/min)
+    const d = ARM.goal.map((g, j) => g - ARM.q[j]), far = Math.max(...d.map(Math.abs)), step = st.jogRate / 60 * dt;
+    if (far <= step) { ARM.q = ARM.goal.slice(); ARM.goal = null; msg("Home", "ok"); } else ARM.q = ARM.q.map((x, j) => x + d[j] * step / far);
+    armSimPose();
+    return;
+  }
   const t = st.pos, L = ARM.lastTip, A = ARM.lastAbc, abc = ARM.abc;
   if (L && A && Math.abs(t.x - L.x) < 1e-6 && Math.abs(t.y - L.y) < 1e-6 && Math.abs(t.z - L.z) < 1e-6 && abc.every((x, k) => Math.abs(x - A[k]) < 1e-6)) return;
   const s = ARMMODEL.ik(v, { xyz: [t.x, t.y, t.z], abc }, ARM.q, armTcp(), 60);
@@ -338,9 +348,21 @@ document.addEventListener("click", (e) => {
   if (!ARM || !e.target.closest) return;
   const id = e.target.id, info = LIVE ? LIVE.info().arm || {} : {}, grip = info.grip || { open: "M65 P0", close: "M64 P0" };
   if (id === "arm-rec") {
-    if (LIVE) { LIVE.teach(st.jogRate).then((r) => { if (r && r.ok) { ARM.teach = r.points; armRenderPanel(); } }); return; }
+    if (LIVE) { LIVE.teach(st.jogRate).then((r) => { if (r && r.ok) { ARM.teach = r.points; armRenderPanel(); armPoints(); } }); return; }
     const p = ARMMODEL.pose(ARM.v, ARM.q, armTcp()), line = "G1 " + [...p.xyz, ...p.abc].map((x, i) => "XYZABC"[i] + x.toFixed(3)).join(" ") + " F" + Math.round(st.jogRate);
-    ARM.teach++; armRenderPanel(); msg(`Recorded ${line} (${ARM.teach} points in teach.ngc)`, "ok");
+    ARM.points.push(line); ARM.teach = ARM.points.length; armRenderPanel(); armRenderPoints(); msg(`Recorded ${line} (${ARM.teach} points in teach.ngc)`, "ok");
+  } else if (id === "arm-home") {
+    if (LIVE) { LIVE.armHome(st.jogRate); return; }
+    if (!ready("jog")) return;
+    if (busy()) { msg("Not while the program runs.", "warn"); return; }
+    ARM.goal = ARM_HOME.slice();
+  } else if (e.target.dataset && e.target.dataset.pt) {
+    armPoint(e.target.dataset.pt, +e.target.dataset.i);
+  } else if (id === "arm-ptload") {
+    armPointsLoad();
+  } else if (id === "arm-ptclear") {
+    if (!ARM.points.length) return;
+    ask("Clear the teach points?", `All ${ARM.points.length} of them, from the teach file.`, "", () => armPoint("clear", 0), "confirm");
   } else if (id === "arm-gopen" || id === "arm-gclose") {
     const close = id === "arm-gclose";
     if (LIVE) { LIVE.mdi(close ? grip.close : grip.open); return; }
@@ -350,8 +372,57 @@ document.addEventListener("click", (e) => {
     if (LIVE) LIVE.home("J" + j); else msg(`J${j + 1} homed (absolute encoder)`, "ok");
   } else if (e.target.dataset && e.target.dataset.mount !== undefined) armMount(+e.target.dataset.mount);
 });
+// ------------------------------------------------------------ the teach points
+// the list: live the server's teach file (op teach), in the simulation this page's
+function armPoints() {
+  if (!ARM) return;
+  if (!LIVE) { armRenderPoints(); return; }
+  LIVE.teachOp("list").then((r) => { if (r && r.ok && ARM) { ARM.points = r.points; ARM.teach = r.points.length; armRenderPoints(); armRenderPanel(); } });
+}
+function armRenderPoints() {
+  const ol = $("arm-ptlist"); if (!ol || !ARM) return;
+  const n = ARM.points.length;
+  $("arm-ptn").textContent = String(n);
+  ol.innerHTML = ARM.points.map((l, i) => `<li><span class="num">${esc(l.replace(/^G1 /, ""))}</span><span class="b">
+    <button class="btn sm" data-pt="go" data-i="${i}" title="Move there (MDI)">Go</button><button class="btn sm" data-pt="up" data-i="${i}"${i ? "" : " disabled"} title="One place earlier">↑</button><button class="btn sm" data-pt="down" data-i="${i}"${i < n - 1 ? "" : " disabled"} title="One place later">↓</button><button class="btn sm" data-pt="delete" data-i="${i}" title="Delete it">×</button></span></li>`).join("") || `<li class="muted">None yet: jog there, Record point.</li>`;
+  $("arm-ptload").disabled = $("arm-ptclear").disabled = !n;
+}
+function armPoint(action, i) {
+  if (action === "go") { const l = ARM.points[i]; if (!l) return; if (LIVE) LIVE.mdi(l); else runMdi(l); return; }
+  if (LIVE) { LIVE.teachOp(action, i).then((r) => { if (r && r.ok && ARM) { ARM.points = r.points; ARM.teach = r.points.length; armRenderPoints(); armRenderPanel(); } }); return; }
+  const P = ARM.points;
+  if (action === "clear") P.length = 0;
+  else if (action === "delete") P.splice(i, 1);
+  else { const k = i + (action === "up" ? -1 : 1); if (k >= 0 && k < P.length) [P[i], P[k]] = [P[k], P[i]]; }
+  ARM.teach = P.length; armRenderPoints(); armRenderPanel();
+}
+// the teach file as the program: live LinuxCNC opens it; the simulation makes its moves
+function armPointsLoad() {
+  if (LIVE) { const f = (LIVE.info().arm || {}).teach || "teach.ngc"; LIVE.loadProgram({ server: true, name: f }); return; }
+  if (busy()) { msg("Stop the program first.", "warn"); return; }
+  const p = Prog("teach.ngc"); p.curTool = ARM.mounted;
+  p.emit("(the teach points)"); p.emit("G21 G90");
+  let at = { ...st.pos }, abc0 = ARM.abc.slice();
+  for (const l of ARM.points) {
+    const w = {}; for (const m of l.toUpperCase().matchAll(/([A-Z])\s*(-?\d*\.?\d+)/g)) w[m[1]] = +m[2];
+    const to = { x: w.X ?? at.x, y: w.Y ?? at.y, z: w.Z ?? at.z }, abc = ["A", "B", "C"].map((k, i) => w[k] ?? abc0[i]), rapid = /^G0\b/.test(l);
+    const ln = p.emit(l);
+    p.segs.push({ k: "mv", x0: at.x, y0: at.y, z0: at.z, ...to, abc0, abc, f: rapid ? 0 : w.F || 1000, rapid, line: ln, tool: ARM.mounted });
+    at = to; abc0 = abc;
+  }
+  p.emit("M2");
+  const pl = plan(p);
+  library.unshift(pl); prog = pl;
+  renderProgram(); rebuildPath();
+  msg(`teach.ngc loaded: ${ARM.points.length} points (Cycle start runs them)`, "ok");
+}
+
 function armMount(t) {
-  if (LIVE) { const ready = (LIVE.info().arm || {}).tool_ready; if (ready && t) LIVE.mdi(ready); LIVE.mdi(`T${t} M6`); return; }
+  if (LIVE) {  // the ready pose first (done before M6: LinuxCNC takes one MDI line at a time)
+    const ready = (LIVE.info().arm || {}).tool_ready;
+    (ready && t ? LIVE.mdi(ready, true) : Promise.resolve({ ok: true })).then((r) => { if (r && r.ok) LIVE.mdi(`T${t} M6`); });
+    return;
+  }
   ARM.mounted = t; st.tool = t; buildTool(); armSimPose(); renderTools();
   msg(t ? `T${t} M6: ${ARM.v.tools[t].name} on the flange` : "T0 M6: the tool back in its dock", "ok");
 }
@@ -389,6 +460,12 @@ function armRenderPanel() {
   const qa = st.arm && st.arm.quota;
   $("arm-quota").textContent = qa ? `${Math.round(qa.total_power)} W · feed ${Math.round(100 * qa.feed_scale)} %${qa.limiting ? " · LIMITING" : ""}` : "—";
   $("arm-teach").textContent = `${ARM.teach} point${ARM.teach === 1 ? "" : "s"} · ${info.teach || "teach.ngc"}`;
+  $("arm-home").disabled = LIVE ? !info.home : false;
+  // the enabling switch (live, when the machine has one): released, LinuxCNC inhibits every jog
+  const en = st.arm && st.arm.enable, sw = !!info.enable_switch, held = !sw || (en && en.held);
+  $("arm-enable-k").hidden = $("arm-enable").parentNode.hidden = !sw;
+  if (sw) { $("arm-enable").textContent = held ? "HELD" : "RELEASED · hold it to jog"; $("arm-enable").className = "pill " + (held ? "ok" : "warn"); }
+  const pad = $("armpad"); if (pad) pad.classList.toggle("inhibit", !held);
   const tl = st.arm && st.arm.tool;
   if (st.page === "tool" && ARM.v && ARM.toolsDrawn !== `${armBusy()}/${armMounted()}/${!!(tl && tl.fault)}`) armRenderTools();
 }

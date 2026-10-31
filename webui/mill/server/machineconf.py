@@ -27,7 +27,9 @@ import shutil
 VERSION = 1
 AXES = "XYZABCUVW"
 BOARDS = ("none", "hm2_eth", "hm2_spix", "hm2_rpspi", "hm2_soc_ol")
-DRIVES = ("sim", "stmbl_sserial", "stmbl_can", "stmbl_sim")
+DRIVES = ("sim", "stmbl_sserial", "stmbl_can", "stmbl_sim", "stmbl_arm")
+GRIPPERS = ("none", "stmbl_arm", "stmbl_sserial", "stmbl_can")
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 SPINDLES = ("none", "sim", "hal", "stmbl_sserial", "stmbl_can")
 TURRETS = ("none", "sim", "stepper")
 LOADERS = ("none", "fpga_manager", "command")
@@ -35,8 +37,8 @@ HOMING = ("absolute", "immediate", "switch", "index")
 # the machine's layout: a gantry (the bridge moves in Y over a fixed table, one or two Y joints) or a fixed
 # bridge over a table that moves in Y (Scripta CN 720 style: one joint an axis); the console draws it
 # or a lathe: X (the cross slide, its DRO a diameter) and Z (along the spindle), the tools on a post in front of
-# or behind the spindle's axis
-TYPES = ("gantry", "bridge", "lathe")
+# or behind the spindle's axis; or an arm: joints that aren't axes (armkins), the tool point as X Y Z A B C
+TYPES = ("gantry", "bridge", "lathe", "arm")
 CONSOLE_KEYS = {  # [MILLWEB] keys the console section may set as extra (the rest have fields of their own)
     "POLL_HZ", "HAL_HZ", "PREVIEW_SEGS", "PREVIEW_TIMEOUT", "PREVIEW_NICE", "DRIVE_POLL_MS", "CERT", "KEY", "PCOMP",
     "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN"}
@@ -95,6 +97,20 @@ DEFAULT = {
     # the stmbl drives' firmware (docs/firmware_versions.md): fw null expects this checkout's STMBL_FW_VERSION;
     # block: a drive with another firmware (or an HV board, or a config needing a patch) keeps the machine off
     "stmbl": {"fw": None, "block": True},
+    # type arm (linuxcnc/armkins and the arm's components). Files: in the machine folder, absolute, or {repo}/... (this
+    # checkout). model: the arm's model (arm_sim's .arm: dh, limits, bodies, masses) for armkins, armtool and,
+    # unless collide_model, armguard, armcollide and armgrip; vis: the console's 3D model (blank: the model's bodies);
+    # cell: armguard's (blank: no guard); collide: armcollide (needs drives that report current); tools: the tool
+    # changer's table (blank: none; armkins puts X Y Z on the mounted tool's TCP, armtool watches the changer, M6
+    # changes tools); quota: powerquota's config (blank: none); gripper: armgrip on a drive (mm of finger gap);
+    # enable: the enabling switch (held: true, or invert); released, no jog runs (hold_all: no motion at all);
+    # sim: stmbl_arm's arm file and drive library (joints whose drive is stmbl_arm: the simulated arm); home: the
+    # console's Go home pose, a value a joint [deg] (empty: none)
+    "arm": {"model": "", "vis": "", "cell": "", "collide": False, "collide_model": "", "tools": "", "quota": "", "home": [],
+            "gripper": {"type": "none", "port": 0, "channel": 0, "bus": 0, "node": 1},
+            "changer": {"valve": "", "locked": "", "unlocked": "", "present": "", "id": "", "ready": ""},
+            "enable": {"input": "", "invert": False, "hold_all": False},
+            "sim": {"arm": "", "lib": "{repo}/host/arm/libstmbl_drive.so"}},
 }
 MOVES = re.compile(r"^(?:-?([XYZ]))?(?:-?([XYZ]))?(?:-?([XYZ]))?S?$")  # S: turns with the spindle (a lathe's chuck)
 
@@ -131,7 +147,9 @@ def _merge(base, over):
 
 
 def joint_names(m):
-    """Each joint's name: its axis, numbered when an axis has more than one (X, Y1, Y2, Z)."""
+    """Each joint's name: its axis, numbered when an axis has more than one (X, Y1, Y2, Z); an arm's J1, J2 …"""
+    if m.get("type") == "arm":
+        return ["J%d" % (i + 1) for i in range(len(m["joints"]))]
     count = {}
     for j in m["joints"]:
         count[j["axis"]] = count.get(j["axis"], 0) + 1
@@ -149,6 +167,13 @@ def validate(raw, mdir=None):
     if not isinstance(raw, dict):
         raise Invalid([("", "machine.json holds an object")])
     m = _merge(DEFAULT, {k: v for k, v in raw.items() if k not in ("axes", "joints")})
+    arm = m.get("type") == "arm"
+    if arm:
+        if "spindle" not in raw:  # an arm has none unless it says so
+            m["spindle"]["type"] = "none"
+        a = m["arm"] = dict(DEFAULT["arm"], **(raw.get("arm") or {}))
+        for k in ("gripper", "changer", "enable", "sim"):
+            a[k] = dict(DEFAULT["arm"][k], **(a.get(k) or {}))
     m["axes"] = copy.deepcopy(raw.get("axes", DEFAULT["axes"]))
     m["joints"] = copy.deepcopy(raw.get("joints", DEFAULT["joints"]))
     if m.get("version") != VERSION:
@@ -207,10 +232,10 @@ def validate(raw, mdir=None):
     sims = 0
     for i, j in enumerate(m["joints"]):
         w = "joints.%d" % i
-        if not isinstance(j, dict) or j.get("axis") not in m["axes"]:
-            errs.append((w + ".axis", "one of the axes (%s)" % "".join(m["axes"])))
+        if not isinstance(j, dict) or (not arm and j.get("axis") not in m["axes"]):
+            errs.append((w + ".axis", "one of the axes (%s)" % "".join(m["axes"])) if isinstance(j, dict) else (w, "a joint"))
             continue
-        ax = m["axes"][j["axis"]]
+        ax = {} if arm else m["axes"][j["axis"]]  # an arm's joints have their own travel [deg]
         d = j.setdefault("drive", {"type": "sim"})
         j.setdefault("ferror", 1)
         j.setdefault("min_ferror", 0.25)
@@ -247,6 +272,9 @@ def validate(raw, mdir=None):
             _num(d.setdefault("node", 1), w + ".drive.node", errs, 1, 127, True)
             if not m["can"]["spi"]:
                 errs.append(("can.spi", "the SPI device of each CAN bus (e.g. /dev/spidev0.0), or sim"))
+        elif d["type"] == "stmbl_arm":
+            if not arm:
+                errs.append((w + ".drive.type", "stmbl_arm (the simulated arm) on an arm only"))
         elif d["type"] == "stmbl_sim":
             sims += 1
             conf = d.setdefault("conf", "drive.conf")
@@ -254,7 +282,7 @@ def validate(raw, mdir=None):
                 errs.append((w + ".drive.conf", "the simulated drive's flash config, a file in the machine folder"))
             elif mdir and not os.path.isfile(os.path.join(mdir, conf)):
                 errs.append((w + ".drive.conf", "%s isn't in the machine folder" % conf))
-        d.setdefault("console", d.get("type") != "sim")
+        d.setdefault("console", d.get("type") not in ("sim", "stmbl_arm"))
         if h["method"] not in HOMING:
             errs.append((w + ".home.method", "one of " + ", ".join(HOMING)))
         _num(h["sequence"], w + ".home.sequence", errs, -9, 9, True)
@@ -268,11 +296,19 @@ def validate(raw, mdir=None):
             errs.append((w + ".home.latch_vel", "the latch speed"))
         if h["method"] == "index" and d.get("type") == "sim":
             errs.append((w + ".home", "a simulated joint has no index"))
+        if arm:
+            _num(j.setdefault("gear", 1), w + ".gear", errs, -100000, 100000)
+            if j["gear"] == 0:
+                errs.append((w + ".gear", "the motor's turns a joint turn (not 0; negative: reversed)"))
+            if h["method"] not in ("absolute", "immediate"):
+                errs.append((w + ".home.method", "absolute or immediate on an arm"))
     if sims > 1:
         errs.append(("joints", "one simulated stmbl drive at most (stmbl_sim is a single drive)"))
     for a in m["axes"]:
-        if not any(j.get("axis") == a for j in m["joints"] if isinstance(j, dict)):
+        if not arm and not any(j.get("axis") == a for j in m["joints"] if isinstance(j, dict)):
             errs.append(("axes." + a, "no joint moves it"))
+    if arm:
+        _validate_arm(m, mdir, errs)
     if m["type"] == "bridge":  # the table and the X carriage each on one screw: no gantry pair
         for a in "XY":
             n = sum(1 for j in m["joints"] if isinstance(j, dict) and j.get("axis") == a)
@@ -450,6 +486,104 @@ def validate(raw, mdir=None):
     return m
 
 
+def arm_path(p, mdir):
+    """an arm's file as LinuxCNC gets it: {repo}/... in this checkout, relative in the machine folder"""
+    p = str(p).replace("{repo}", REPO)
+    return p if os.path.isabs(p) else os.path.join(mdir or "", p)
+
+
+def dh_count(path, depth=0):
+    """the dh lines in an arm_sim model file and what it includes"""
+    n = 0
+    for line in open(path, errors="replace"):
+        w = line.split("#", 1)[0].split()
+        if w[:1] == ["dh"]:
+            n += 1
+        elif w[:1] == ["include"] and len(w) > 1 and depth < 8:
+            inc = w[1] if os.path.isabs(w[1]) else os.path.join(os.path.dirname(path), w[1])
+            if os.path.isfile(inc):
+                n += dh_count(inc, depth + 1)
+    return n
+
+
+def _validate_arm(m, mdir, errs):
+    a = m["arm"]
+    if set(m["axes"]) != set("XYZABC"):
+        errs.append(("axes", "an arm's: X Y Z A B C (the tool point and its orientation)"))
+    for k, want in (("spindle", "none"), ("probe", "none"), ("atc", "none")):
+        if m[k]["type"] != want:
+            errs.append((k + ".type", "none on an arm"))
+    if m["toolsetter"] is not None:
+        errs.append(("toolsetter", "none on an arm"))
+    files = {"model": True, "vis": False, "cell": False, "collide_model": False, "tools": False, "quota": False}
+    for k, need in files.items():
+        v = a.get(k, "")
+        if not isinstance(v, str) or not PLAIN.match(v) or " " in v:
+            errs.append(("arm." + k, "a file name (no spaces or quotes)"))
+        elif need and not v:
+            errs.append(("arm." + k, "the arm's model file (arm_sim's .arm: its dh lines, limits, bodies)"))
+        elif v and mdir and not os.path.isfile(arm_path(v, mdir)):
+            errs.append(("arm." + k, "%s isn't there" % arm_path(v, mdir)))
+    if a["model"] and mdir and os.path.isfile(arm_path(a["model"], mdir)):
+        n = dh_count(arm_path(a["model"], mdir))
+        if n != len(m["joints"]):
+            errs.append(("joints", "%d: the model has %d dh lines" % (len(m["joints"]), n)))
+    drives = [j.get("drive", {}).get("type") for j in m["joints"] if isinstance(j, dict)]
+    sim = "stmbl_arm" in drives
+    if sim and set(drives) != {"stmbl_arm"}:
+        errs.append(("joints", "all on stmbl_arm (the simulated arm) or none"))
+    if sim:
+        for k in ("arm", "lib"):
+            v = a["sim"].get(k, "")
+            if not v or not isinstance(v, str):
+                errs.append(("arm.sim." + k, "stmbl_arm's %s file" % ("arm (host/arm/.../*.arm)" if k == "arm" else "drive library (host/arm/libstmbl_drive.so)")))
+            elif mdir and not os.path.isfile(arm_path(v, mdir)):
+                errs.append(("arm.sim." + k, "%s isn't there" % arm_path(v, mdir)))
+    if not isinstance(a["collide"], bool):
+        errs.append(("arm.collide", "true or false"))
+    elif a["collide"]:
+        if not a["cell"]:
+            errs.append(("arm.collide", "with a cell (armguard stops the arm on a collision)"))
+        if "sim" in drives:
+            errs.append(("arm.collide", "drives that report their current (not sim)"))
+    g = a["gripper"]
+    if g["type"] not in GRIPPERS:
+        errs.append(("arm.gripper.type", ", ".join(GRIPPERS)))
+    elif g["type"] == "stmbl_arm" and not sim:
+        errs.append(("arm.gripper.type", "stmbl_arm with the simulated arm only"))
+    elif g["type"] == "stmbl_sserial":
+        if not m["board"]["type"].startswith("hm2_"):
+            errs.append(("arm.gripper.type", "a drive on smart-serial needs a Mesa board (board.type hm2_...)"))
+        _num(g["port"], "arm.gripper.port", errs, 0, 7, True)
+        _num(g["channel"], "arm.gripper.channel", errs, 0, 7, True)
+    elif g["type"] == "stmbl_can":
+        if not m["can"]["spi"] and not any(j.get("drive", {}).get("type") == "stmbl_can" for j in m["joints"] if isinstance(j, dict)):
+            errs.append(("can.spi", "the SPI device of each CAN bus (e.g. /dev/spidev0.0), or sim"))
+        _num(g["bus"], "arm.gripper.bus", errs, 0, max(0, len(m["can"]["spi"]) - 1), True)
+        _num(g["node"], "arm.gripper.node", errs, 1, 127, True)
+    if g["type"] != "none" and not a["collide"]:
+        errs.append(("arm.gripper.type", "with collide (armgrip checks the payload on the collision detector's model)"))
+    ch = a["changer"]
+    for k in ("valve", "locked", "unlocked", "present", "id"):
+        if ch[k] and not HALNAME.match(str(ch[k])):
+            errs.append(("arm.changer." + k, "a HAL pin name"))
+    if a["tools"] and not sim:
+        for k in ("valve", "locked", "unlocked"):
+            if not ch[k]:
+                errs.append(("arm.changer." + k, "the changer's %s pin" % {"valve": "lock valve (output)", "locked": "locked sensor", "unlocked": "unlocked sensor"}[k]))
+    if not isinstance(ch["ready"], str) or "\n" in ch["ready"]:
+        errs.append(("arm.changer.ready", "one MDI line (where the arm goes before a tool change), or blank"))
+    hj = a["home"]
+    if not isinstance(hj, list) or (hj and len(hj) != len(m["joints"])) or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in hj):
+        errs.append(("arm.home", "the home pose: a value a joint (%d), or none" % len(m["joints"])))
+    e = a["enable"]
+    if e["input"] and not HALNAME.match(str(e["input"])):
+        errs.append(("arm.enable.input", "the enabling switch's HAL pin"))
+    for k in ("invert", "hold_all"):
+        if not isinstance(e[k], bool):
+            errs.append(("arm.enable." + k, "true or false"))
+
+
 # ------------------------------------------------------------------ making the configuration
 def _fmt(v):
     if isinstance(v, bool):
@@ -476,23 +610,92 @@ def _drive(m, d):
 
 def drives_of(m):
     """[(joint index, joint name, drive, HAL prefix, pin names {pos_cmd, ...}, console tty name or None)]; an stmbl
-    spindle last, named S, its index None."""
+    spindle last, named S, its index None; an arm's gripper drive likewise, named G."""
     names, out = joint_names(m), []
     for i, j in enumerate(m["joints"]):
         d = j["drive"]
+        if d["type"] == "stmbl_arm":  # the simulated arm: a drive's smart-serial pins per joint, no console
+            out.append((i, names[i], d, "stmbl-arm.0.%d" % i, {k: k.replace("_", "-") for k in DRIVE_PINS}, None))
+            continue
         pre, pins = _drive(m, d)
         out.append((i, names[i], d, pre, pins, ("drive-%s" % names[i].lower()) if pre and d.get("console") else None))
     sp = m["spindle"]
     if sp["type"] in ("stmbl_sserial", "stmbl_can"):
         pre, pins = _drive(m, sp)
         out.append((None, "S", sp, pre, pins, "drive-s" if sp.get("console", True) else None))
+    g = m.get("arm", {}).get("gripper", {}) if m["type"] == "arm" else {}
+    if g.get("type") == "stmbl_arm":
+        out.append((None, "G", g, "stmbl-arm.0.grip", {k: k.replace("_", "-") for k in DRIVE_PINS}, None))
+    elif g.get("type") in ("stmbl_sserial", "stmbl_can"):
+        pre, pins = _drive(m, g)
+        out.append((None, "G", g, pre, pins, "drive-g" if g.get("console", True) else None))
     return out
+
+
+def _millweb_keys(m, mdir, run, drv):
+    """[MILLWEB]: the console's settings, the drives' pins and consoles"""
+    c = m["console"]
+    ts = m["toolsetter"]
+    mw = [("PORT", c["port"]), ("HOST", c["host"]), ("TOKEN", c["token"] or None), ("ON_CONTROL_LOSS", c["on_control_loss"]),
+          ("HAL_WRITE", "yes" if c["hal_write"] else "no"), ("DRIVE_WRITE", "yes" if c["drive_write"] else "no"),
+          ("CPUS", c["cpus"] or None), ("NC_DIR", os.path.join(mdir, "nc_files")),
+          ("SETUP", os.path.join(mdir, "millweb-setup.json")), ("DEBUG_VIEWS", os.path.join(mdir, "debug-views.json")),
+          ("MACHINE_DIR", mdir), ("MACHINE_TYPE", m["type"]),
+          ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
+          ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
+          ("PIN", list(c["pins"]) or None)]
+    if m["spindle"]["type"] == "sim" and "AT_SPEED_PIN" not in c["extra"]:
+        mw.append(("AT_SPEED_PIN", "spindle.0.at-speed"))
+    for i, n, dd, pre, pins, con in drv:
+        if pre:
+            mw.append(("DRIVE", "%s %s.%s %s.%s %s.%s" % (n, pre, pins["current"], pre, pins["power"], pre, pins["fault"])))
+        if con:
+            mw.append(("DRIVE_LINK", "%s %s %s" % (n, os.path.join(run, con), pre)))
+    for k, v in sorted(c["extra"].items()):
+        mw.append((k, v))
+    return mw
+
+
+def _load_drivers(m, mdir, run, drv, h, first, last):
+    """loadrt the Mesa board, the CAN buses, a simulated stmbl drive, the drives' consoles; their read and write
+    functions into first and last"""
+    b = m["board"]
+    hm2 = b["type"].startswith("hm2_")
+    board = "hm2_%s.0" % b["name"] if hm2 else None
+    cans = [x for x in drv if x[2]["type"] == "stmbl_can"]
+    consoles = [x for x in drv if x[5]]
+    if hm2:
+        h("loadrt hostmot2")
+        args = ['config="%s"' % b["config"]] if b["config"] else []
+        if b["params"]:
+            args.append(b["params"])
+        h("loadrt %s %s" % (b["type"], " ".join(args)))
+        h("setp %s.watchdog.timeout_ns %d" % (board, int(b["watchdog_ms"] * 1e6)))
+        first.append(board + ".read")
+        last.append(board + ".write")
+    if cans:
+        buses = sorted({x[2]["bus"] for x in cans})
+        nodes = ":".join(",".join(str(x[2]["node"]) for x in cans if x[2]["bus"] == bb) for bb in range(max(buses) + 1))
+        h("loadrt stmblcan spi=%s nodes=%s discover=%d spi_hz=%d" % (",".join(m["can"]["spi"][:max(buses) + 1]), nodes,
+                                                                      1 if m["can"]["discover"] else 0, m["can"]["spi_hz"]))
+        first.append("stmblcan.read")
+        last.append("stmblcan.write")
+    sim = [x for x in drv if x[2]["type"] == "stmbl_sim"]
+    if sim:
+        dd = sim[0][2]
+        h("loadrt stmbl_sim conf=%s tty=%s" % (os.path.join(mdir, dd["conf"]), os.path.join(run, "drive-sim-usb")) +
+          (" sim=%s" % os.path.join(mdir, dd["sim"]) if dd.get("sim") else ""))
+        first.insert(0, "stmbl-sim.0")
+    if consoles:
+        h("loadrt sserialterm tty=%s" % ",".join(os.path.join(run, x[5]) for x in consoles))
 
 
 def generate(m, mdir, mill, custom=None):
     """{"mill.ini": text, "machine.hal": text} for machine m (validated) in machine
     folder mdir; mill is webui/mill (millweb's launcher is there). custom: the
     custom.hal text to be (None: whether the folder has one)."""
+    if m["type"] == "arm":
+        return generate_arm(m, mdir, mill, custom)
     run = os.path.join(mdir, "run")
     names = joint_names(m)
     coords = "".join(j["axis"] for j in m["joints"])
@@ -530,26 +733,7 @@ def generate(m, mdir, mill, custom=None):
         ("POSITION_FEEDBACK", "ACTUAL"), ("MAX_LINEAR_VELOCITY", maxv), ("DEFAULT_LINEAR_VELOCITY", round(maxv / 10, 3)),
         ("PROGRAM_PREFIX", os.path.join(mdir, "nc_files")), ("MAX_FEED_OVERRIDE", d["max_feed_override"]),
         ("MAX_SPINDLE_OVERRIDE", d["max_spindle_override"]), ("MIN_SPINDLE_OVERRIDE", d["min_spindle_override"]))
-    c = m["console"]
-    ts = m["toolsetter"]
-    mw = [("PORT", c["port"]), ("HOST", c["host"]), ("TOKEN", c["token"] or None), ("ON_CONTROL_LOSS", c["on_control_loss"]),
-          ("HAL_WRITE", "yes" if c["hal_write"] else "no"), ("DRIVE_WRITE", "yes" if c["drive_write"] else "no"),
-          ("CPUS", c["cpus"] or None), ("NC_DIR", os.path.join(mdir, "nc_files")),
-          ("SETUP", os.path.join(mdir, "millweb-setup.json")), ("DEBUG_VIEWS", os.path.join(mdir, "debug-views.json")),
-          ("MACHINE_DIR", mdir), ("MACHINE_TYPE", m["type"]),
-          ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
-          ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
-          ("PIN", list(c["pins"]) or None)]
-    if m["spindle"]["type"] == "sim" and "AT_SPEED_PIN" not in c["extra"]:
-        mw.append(("AT_SPEED_PIN", "spindle.0.at-speed"))
-    for i, n, dd, pre, pins, con in drv:
-        if pre:
-            mw.append(("DRIVE", "%s %s.%s %s.%s %s.%s" % (n, pre, pins["current"], pre, pins["power"], pre, pins["fault"])))
-        if con:
-            mw.append(("DRIVE_LINK", "%s %s %s" % (n, os.path.join(run, con), pre)))
-    for k, v in sorted(c["extra"].items()):
-        mw.append((k, v))
-    sec("MILLWEB", *mw)
+    sec("MILLWEB", *_millweb_keys(m, mdir, run, drv))
     atc = m["atc"]["type"] == "rack"
     sec("RS274NGC", ("PARAMETER_FILE", os.path.join(mdir, "linuxcnc.var")),
         ("RS274NGC_STARTUP_CODE", "G18 %s G21 G40 G49 G80 G90 G94 G97" % ("G7" if m["lathe"]["diameter"] else "G8") if lathe else None),
@@ -599,30 +783,7 @@ def generate(m, mdir, mill, custom=None):
 
     def comp(mod, *names):
         loads.setdefault(mod, []).extend(names)
-    if hm2:
-        h("loadrt hostmot2")
-        args = ['config="%s"' % b["config"]] if b["config"] else []
-        if b["params"]:
-            args.append(b["params"])
-        h("loadrt %s %s" % (b["type"], " ".join(args)))
-        h("setp %s.watchdog.timeout_ns %d" % (board, int(b["watchdog_ms"] * 1e6)))
-        first.append(board + ".read")
-        last.append(board + ".write")
-    if cans:
-        buses = sorted({x[2]["bus"] for x in cans})
-        nodes = ":".join(",".join(str(x[2]["node"]) for x in cans if x[2]["bus"] == bb) for bb in range(max(buses) + 1))
-        h("loadrt stmblcan spi=%s nodes=%s discover=%d spi_hz=%d" % (",".join(m["can"]["spi"][:max(buses) + 1]), nodes,
-                                                                      1 if m["can"]["discover"] else 0, m["can"]["spi_hz"]))
-        first.append("stmblcan.read")
-        last.append("stmblcan.write")
-    sim = [x for x in drv if x[2]["type"] == "stmbl_sim"]
-    if sim:
-        dd = sim[0][2]
-        h("loadrt stmbl_sim conf=%s tty=%s" % (os.path.join(mdir, dd["conf"]), os.path.join(run, "drive-sim-usb")) +
-          (" sim=%s" % os.path.join(mdir, dd["sim"]) if dd.get("sim") else ""))
-        first.insert(0, "stmbl-sim.0")
-    if consoles:
-        h("loadrt sserialterm tty=%s" % ",".join(os.path.join(run, x[5]) for x in consoles))
+    _load_drivers(m, mdir, run, drv, h, first, last)
     # joints with a screw lead (mech): the drive works in motor radians, LinuxCNC in mm; scale comps between
     mech = {i: m["joints"][i]["mech"] for i, n, dd, pre, pins, con in drv if pre and i is not None and m["joints"][i].get("mech")}
     if mech:
@@ -859,6 +1020,299 @@ def generate(m, mdir, mill, custom=None):
     return out
 
 
+def generate_arm(m, mdir, mill, custom=None):
+    """An arm's configuration (as hwtest/arcmate-sim's, from machine.json): armkins on the model (and the changer's
+    tools), each joint's drive through armguard (the cell) with armcollide's residuals, the gripper (armgrip), the
+    changer (armtool, M6 = run/toolchange.ngc), the power quota; the E-STOP chain through each; the enabling
+    switch on jog-inhibit."""
+    run = os.path.join(mdir, "run")
+    a = m["arm"]
+    n = len(m["joints"])
+    drv = drives_of(m)
+    jdrv = [x for x in drv if x[0] is not None]
+    gdrv = next((x for x in drv if x[1] == "G"), None)
+    b = m["board"]
+    hm2 = b["type"].startswith("hm2_")
+    board = "hm2_%s.0" % b["name"] if hm2 else None
+    sim = any(x[2]["type"] == "stmbl_arm" for x in jdrv)
+    guard, collide, tools, quota = bool(a["cell"]), bool(a["collide"]), bool(a["tools"]), bool(a["quota"])
+    grip = gdrv is not None
+    path = lambda k: arm_path(a[k], mdir)  # noqa: E731
+    model = path("model")
+    cmodel = arm_path(a["collide_model"], mdir) if a["collide_model"] else model
+    lin = [m["axes"][x] for x in "XYZ"]
+    ang = [m["axes"][x] for x in "ABC"]
+    maxv, maxa, maxw = max(x["max_vel"] for x in lin), max(x["max_acc"] for x in lin), max(x["max_vel"] for x in ang)
+    consoles = [x for x in drv if x[5]]
+
+    # ---------------------------------------------------------- the INI
+    L = []
+    w = L.append
+
+    def sec(name, *kv):
+        w("\n[%s]" % name)
+        for k, v in kv:
+            if v is None:
+                continue
+            for x in (v if isinstance(v, list) else [v]):
+                w("%s = %s" % (k, _fmt(x)))
+
+    w("# made by millweb from %s at %s: edit machine.json (the console's Configure page), not this file" % (
+        os.path.join(mdir, "machine.json"), datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    sec("EMC", ("VERSION", "1.1"), ("MACHINE", m["name"]), ("DEBUG", 0))
+    d = m["display"]
+    sec("DISPLAY", ("DISPLAY", os.path.join(mill, "millweb")), ("CYCLE_TIME", 0.1), ("POSITION_OFFSET", "RELATIVE"),
+        ("POSITION_FEEDBACK", "ACTUAL"), ("GEOMETRY", "XYZABC"),
+        ("MAX_LINEAR_VELOCITY", maxv), ("DEFAULT_LINEAR_VELOCITY", round(maxv / 5, 3)),
+        ("MAX_ANGULAR_VELOCITY", maxw), ("DEFAULT_ANGULAR_VELOCITY", round(maxw / 5, 3)),
+        ("PROGRAM_PREFIX", os.path.join(mdir, "nc_files")), ("MAX_FEED_OVERRIDE", d["max_feed_override"]))
+    mw = _millweb_keys(m, mdir, run, drv)
+    mw.append(("ARM_MODEL", arm_path(a["vis"], mdir) if a["vis"] else os.path.join(run, "arm.vis")))
+    if a["enable"]["input"]:
+        mw.append(("ENABLE_PIN", "motion.jog-inhibit"))  # the console: released while it is set
+    sec("MILLWEB", *mw)
+    sec("RS274NGC", ("PARAMETER_FILE", os.path.join(mdir, "linuxcnc.var")),
+        ("SUBROUTINE_PATH", run if tools else None), ("REMAP", "M6 modalgroup=6 ngc=toolchange" if tools else None))
+    sec("EMCMOT", ("EMCMOT", "motmod"), ("COMM_TIMEOUT", 1.0), ("SERVO_PERIOD", m["servo_period_ns"]))
+    sec("TASK", ("TASK", "milltask"), ("CYCLE_TIME", 0.01))
+    halfiles = [os.path.join(run, "machine.hal")]
+    if (custom.strip() if custom is not None else os.path.isfile(os.path.join(mdir, "custom.hal"))):
+        halfiles.append(os.path.join(mdir, "custom.hal"))
+    sec("HAL", ("HALFILE", halfiles))
+    sec("TRAJ", ("COORDINATES", "X Y Z A B C"), ("LINEAR_UNITS", "mm"), ("ANGULAR_UNITS", "degree"),
+        ("DEFAULT_LINEAR_VELOCITY", round(maxv / 5, 3)), ("MAX_LINEAR_VELOCITY", maxv),
+        ("DEFAULT_LINEAR_ACCELERATION", round(maxa / 2, 3)), ("MAX_LINEAR_ACCELERATION", maxa))
+    sec("EMCIO", ("EMCIO", "io"), ("CYCLE_TIME", 0.1), ("TOOL_TABLE", os.path.join(mdir, "tool.tbl")))
+    sec("KINS", ("KINEMATICS", "armkins model=%s%s" % (model, " tools=%s" % path("tools") if tools else "")), ("JOINTS", n))
+    sec("STMBL_ARM", ("ARM", arm_path(a["sim"]["arm"], mdir) if sim else None), ("LIB", arm_path(a["sim"]["lib"], mdir) if sim else None),
+        ("TOOLS", path("tools") if tools else None))
+    if guard:
+        sec("ARMGUARD", ("CELL", path("cell")))
+    if guard or collide or grip:
+        sec("ARMCOLLIDE", ("MODEL", cmodel))
+    if quota:
+        sec("POWERQUOTA", ("CONFIG", path("quota")))
+    ch = a["changer"]
+    sec("ARM6HMI", ("TOOL_READY", ch["ready"] or None), ("HOME_JOINTS", " ".join(_fmt(x) for x in a["home"]) or None))
+    for x in "XYZABC":
+        ax = m["axes"][x]
+        sec("AXIS_" + x, ("MIN_LIMIT", ax["min"]), ("MAX_LIMIT", ax["max"]), ("MAX_VELOCITY", ax["max_vel"]), ("MAX_ACCELERATION", ax["max_acc"]))
+    for i, j in enumerate(m["joints"]):
+        h = j["home"]
+        kv = [("TYPE", "ANGULAR"), ("MIN_LIMIT", j["min"]), ("MAX_LIMIT", j["max"]), ("MAX_VELOCITY", j["max_vel"]),
+              ("MAX_ACCELERATION", j["max_acc"]), ("FERROR", j["ferror"]), ("MIN_FERROR", j["min_ferror"]),
+              ("HOME", h["pos"]), ("HOME_SEQUENCE", h["sequence"])]
+        kv += [("HOME_ABSOLUTE_ENCODER", 2)] if h["method"] == "absolute" else [("HOME_SEARCH_VEL", 0), ("HOME_LATCH_VEL", 0)]
+        sec("JOINT_%d" % i, *kv)
+    ini = "\n".join(L) + "\n"
+
+    # ---------------------------------------------------------- the HAL
+    H = ["# made by millweb from machine.json: edit that (the Configure page), or add to custom.hal",
+         "loadrt [KINS]KINEMATICS",
+         "loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS num_dio=8 num_aio=16"]
+    h = H.append
+    first, last = [], []
+    loads = {}
+
+    def comp(mod, *names):
+        loads.setdefault(mod, []).extend(names)
+    _load_drivers(m, mdir, run, drv, h, first, last)
+    if sim:
+        h("loadrt stmbl_arm arm=[STMBL_ARM]ARM lib=[STMBL_ARM]LIB" + (" cell=[ARMGUARD]CELL" if guard else ""))
+    if collide:
+        h("loadrt armcollide model=[ARMCOLLIDE]MODEL")
+    if guard:
+        h("loadrt armguard model=[ARMCOLLIDE]MODEL cell=[ARMGUARD]CELL")
+    if grip:
+        h("loadrt armgrip model=[ARMCOLLIDE]MODEL")
+    if tools:
+        h("loadrt armtool model=%s tools=[STMBL_ARM]TOOLS" % model)
+    if quota:
+        h("loadrt powerquota config=[POWERQUOTA]CONFIG")
+    # real drives work in motor radians: scale comps (the joint's degrees times its gear)
+    real = [x for x in jdrv if x[2]["type"] in ("stmbl_sserial", "stmbl_can")]
+    if real:
+        h("loadrt scale names=%s" % ",".join("j%d-%s" % (x[0], k) for x in real for k in ("cmd", "vel", "fb", "vfb")))
+    loads_at = len(H)
+    for f in first:
+        h("addf %s servo-thread" % f)
+    for f in ["j%d-fb" % x[0] for x in real] + ["j%d-vfb" % x[0] for x in real]:
+        h("addf %s servo-thread" % f)
+    h("addf motion-command-handler servo-thread")
+    h("addf motion-controller servo-thread")
+    for f, on in (("armguard.0", guard), ("stmbl-arm.0", sim), ("armcollide.0", collide), ("armgrip.0", grip), ("armtool.0", tools), ("powerquota.0", quota)):
+        if on:
+            h("addf %s servo-thread" % f)
+    tail = ["j%d-%s" % (x[0], k) for x in real for k in ("cmd", "vel")] + ["sserialterm.%d" % k for k in range(len(consoles))]
+    h("")
+    for i, nm, dd, pre, pins, con in jdrv:
+        j = m["joints"][i]
+        h("# joint %d (%s): %s" % (i, nm, {"sim": "simulated (its command is its feedback)", "stmbl_sserial": "stmbl drive over smart-serial",
+                                            "stmbl_can": "stmbl drive over CAN", "stmbl_sim": "simulated stmbl drive",
+                                            "stmbl_arm": "the simulated arm's drive"}[dd["type"]]))
+        if guard:  # motion -> armguard -> the drive; the drive's feedback -> armguard -> motion
+            h("net j%d-pos-cmd joint.%d.motor-pos-cmd => armguard.0.%d.motion-cmd" % (i, i, i))
+            h("net j%d-vel-cmd joint.%d.vel-cmd => armguard.0.%d.motion-vel" % (i, i, i))
+            cmd, vel = "armguard.0.%d.cmd" % i, "armguard.0.%d.vel" % i
+        else:
+            cmd, vel = "joint.%d.motor-pos-cmd" % i, "joint.%d.vel-cmd" % i
+        fb_to = (["armguard.0.%d.drive-fb" % i] if guard else ["joint.%d.motor-pos-fb" % i]) + (["armcollide.0.%d.pos" % i] if collide else []) + \
+            (["armgrip.0.%d.pos" % i] if grip else []) + (["armtool.0.%d.pos" % i] if tools else [])
+        vfb_to = (["armcollide.0.%d.vel" % i] if collide else []) + (["armgrip.0.%d.vel" % i] if grip else [])
+        if dd["type"] == "sim":
+            h("net j%d-drv-fb %s => %s" % (i, cmd, " ".join(fb_to)))
+        elif dd["type"] in ("stmbl_sserial", "stmbl_can"):
+            k = j["gear"] * math.pi / 180  # motor rad a joint degree
+            h("# the motor turns %s times a joint turn: %s rad a degree" % (_fmt(float(j["gear"])), _fmt(k)))
+            for part, gain in (("cmd", k), ("vel", k), ("fb", 1 / k), ("vfb", 1 / k)):
+                h("setp j%d-%s.gain %s" % (i, part, repr(gain)))
+            h("net j%d-drv-cmd %s => j%d-cmd.in" % (i, cmd, i))
+            h("net j%d-drv-cmd-rad j%d-cmd.out => %s.%s" % (i, i, pre, pins["pos_cmd"]))
+            h("net j%d-drv-vel %s => j%d-vel.in" % (i, vel, i))
+            h("net j%d-drv-vel-rad j%d-vel.out => %s.%s" % (i, i, pre, pins["vel_cmd"]))
+            h("net j%d-drv-fb-rad %s.%s => j%d-fb.in" % (i, pre, pins["pos_fb"], i))
+            h("net j%d-drv-fb j%d-fb.out => %s" % (i, i, " ".join(fb_to)))
+            h("net j%d-vel-fb-rad %s.%s => j%d-vfb.in" % (i, pre, pins["vel_fb"], i))
+            if vfb_to:
+                h("net j%d-vel-fb j%d-vfb.out => %s" % (i, i, " ".join(vfb_to)))
+        else:  # the simulated arm: joint degrees
+            h("net j%d-drv-cmd %s => %s.%s" % (i, cmd, pre, pins["pos_cmd"]))
+            h("net j%d-drv-vel %s => %s.%s" % (i, vel, pre, pins["vel_cmd"]))
+            h("net j%d-drv-fb %s.%s => %s" % (i, pre, pins["pos_fb"], " ".join(fb_to)))
+            if vfb_to:
+                h("net j%d-vel-fb %s.%s => %s" % (i, pre, pins["vel_fb"], " ".join(vfb_to)))
+        if guard:
+            h("net j%d-pos-fb joint.%d.motor-pos-fb <= armguard.0.%d.fb" % (i, i, i))
+        if collide:
+            h("net j%d-current %s.%s => armcollide.0.%d.current" % (i, pre, pins["current"], i))
+            h("net j%d-residual armcollide.0.%d.residual => %s" % (i, i, " ".join(["armguard.0.%d.residual" % i] + (["armgrip.0.%d.residual" % i] if grip else []))))
+        if quota and pre:
+            h("net j%d-power %s.%s => powerquota.0.power-%d" % (i, pre, pins["power"], i))
+        if pre:
+            h("net j%d-enable joint.%d.amp-enable-out => %s.%s" % (i, i, pre, pins["enable"]))
+            h("net j%d-fault %s.%s => joint.%d.amp-fault-in" % (i, pre, pins["fault"], i))
+        if con:
+            k = consoles.index(next(x for x in consoles if x[0] == i))
+            h("net j%d-con-fb %s.%s => sserialterm.%d.con-fb" % (i, pre, pins["con_fb"], k))
+            h("net j%d-con-cmd sserialterm.%d.con-cmd => %s.%s" % (i, k, pre, pins["con_cmd"]))
+    h("")
+    on = [x for x, y in (("armcollide.0.enable", collide), ("armguard.0.enable", guard), ("armgrip.0.enable", grip), ("armtool.0.enable", tools)) if y]
+    if on:
+        h("net machine-enabled motion.motion-enabled => %s" % " ".join(on))
+    resets = [x for x, y in (("armcollide.0.reset", collide), ("armguard.0.reset", guard), ("armgrip.0.reset", grip),
+                             ("armtool.0.reset", tools), ("powerquota.0.reset", quota)) if y]
+    if collide:
+        h("net collision armcollide.0.collision => armguard.0.collision")
+    if grip:  # armgrip on the gripper's drive (mm of finger gap); M64/M65 P0 close/open, M68 E0..2 what it expects
+        gpre, gp = gdrv[3], gdrv[4]
+        h("# the gripper: armgrip on its drive (finger gap in mm)")
+        h("net grip-gap-cmd armgrip.0.gap-cmd => %s.%s" % (gpre, gp["pos_cmd"]))
+        h("net grip-gap-vel armgrip.0.gap-vel => %s.%s" % (gpre, gp["vel_cmd"]))
+        h("net grip-drv-en armgrip.0.drive-enable => %s.%s" % (gpre, gp["enable"]))
+        h("net grip-gap-fb %s.%s => armgrip.0.gap-fb" % (gpre, gp["pos_fb"]))
+        for k in ("mass", "cx", "cy", "cz"):
+            h("net grip-pay-%s armgrip.0.payload-%s => armcollide.0.payload-%s" % (k, k, k))
+        h("net grip-mute armgrip.0.mute => armcollide.0.mute")
+        h("net grip-close motion.digital-out-00 => armgrip.0.close")
+        h("net grip-width motion.analog-out-00 => armgrip.0.width-expect")
+        h("net grip-mass motion.analog-out-01 => armgrip.0.mass-expect")
+        h("net grip-cz motion.analog-out-02 => armgrip.0.cz")
+        h("net grip-gripped armgrip.0.gripped => motion.digital-in-00")
+        h("net grip-pay-ok armgrip.0.pay-ok => motion.digital-in-01")
+    if tools:  # the changer: armtool watches it; armkins on the mounted tool's TCP; M6 = run/toolchange.ngc
+        pin = lambda k, simpin: ch[k] or ("stmbl-arm.0.changer." + simpin if sim else "")  # noqa: E731
+        h("# the tool changer (armtool), M6: run/toolchange.ngc")
+        h("net tool-valve armtool.0.valve => %s" % pin("valve", "valve"))
+        h("net tool-locked %s => armtool.0.locked motion.digital-in-02" % pin("locked", "locked"))
+        h("net tool-unlocked %s => armtool.0.unlocked motion.digital-in-03" % pin("unlocked", "unlocked"))
+        if pin("present", "present"):
+            h("net tool-present %s => armtool.0.present" % pin("present", "present"))
+        if pin("id", "id"):
+            h("net tool-id %s => armtool.0.id" % pin("id", "id"))
+        h("net tool-lock motion.digital-out-01 => armtool.0.lock")
+        h("net tool-kins motion.analog-out-03 => motion.switchkins-type")
+        h("net tool-kins-now armkins.tool => armtool.0.kins-tool")
+        h("net tool-expect motion.analog-out-04 => armtool.0.expect")
+        h("net tool-dock-sel motion.analog-out-05 => armtool.0.dock-select")
+        for k in range(12):
+            h("net tool-dock-%d armtool.0.dock-%d => motion.analog-in-%02d" % (k, k, k))
+        if collide:
+            for k in ("mass", "cx", "cy", "cz"):
+                h("net tool-%s armtool.0.tool-%s => armcollide.0.tool-%s" % (k, k, k))
+        if guard:
+            h("net tool-mounted armtool.0.mounted => armguard.0.tool")
+    if quota:  # the drives' input power into the supply's fuses; the feed scale into adaptive feed
+        h("net feed-scale powerquota.0.feed-scale => motion.adaptive-feed")
+    h("net tool-prep-loop iocontrol.0.tool-prepare => iocontrol.0.tool-prepared")
+    h("net tool-change-loop iocontrol.0.tool-change => iocontrol.0.tool-changed")
+    # the enabling switch: released (or not wired: never) stops and inhibits jogs (hold_all: every move)
+    e = a["enable"]
+    if e["input"]:
+        h("# the enabling switch (%s): released, no jog%s" % (e["input"], ", no motion" if e["hold_all"] else ""))
+        stop = ["motion.jog-inhibit", "motion.jog-stop"] + (["motion.feed-inhibit"] if e["hold_all"] else [])
+        if e["invert"]:  # the pin is true while released
+            h("net arm-released %s => %s" % (e["input"], " ".join(stop)))
+        else:
+            comp("not", "arm-enable-not")
+            tail.insert(0, "arm-enable-not")
+            h("net arm-enable %s => arm-enable-not.in" % e["input"])
+            h("net arm-released arm-enable-not.out => %s" % " ".join(stop))
+    # the E-STOP chain: the input (or the GUI's loop) -> armguard (a collision, a protective stop) -> powerquota ->
+    # armgrip -> armtool -> LinuxCNC (through estop_latch with an input or a board's watchdog)
+    est = m["estop"]
+
+    def chain(src, dst):
+        name = "estop-chain"
+        if guard:
+            comp("not", "guard-not")
+            comp("and2", "guard-and")
+            tail.extend(["guard-not", "guard-and"])
+            h("net guard-estop armguard.0.estop => guard-not.in")
+            h("net guard-ok guard-not.out => guard-and.in1")
+            h("net %s %s => guard-and.in0" % (name, src)) if src else h("setp guard-and.in0 1")
+            src, name = "guard-and.out", name + "-guard"
+        for stage, on in (("powerquota.0", quota), ("armgrip.0", grip), ("armtool.0", tools)):
+            if on:
+                h("net %s %s => %s.chain-in" % (name, src, stage)) if src else h("setp %s.chain-in 1" % stage)
+                src, name = stage + ".chain-out", name + "-" + stage.split(".")[0]
+        h("net %s %s => %s" % (name, src, dst)) if src else h("setp %s 1" % dst)
+
+    if est["input"] or hm2:
+        h("loadrt estop_latch")
+        tail.append("estop-latch.0")
+        resets.append("estop-latch.0.reset")
+        h("net estop-ok estop-latch.0.ok-out => iocontrol.0.emc-enable-in")
+        if est["input"] and est["invert"]:
+            comp("not", "estop-not")
+            tail.insert(0, "estop-not")
+            h("net estop-raw %s => estop-not.in" % est["input"])
+            chain("estop-not.out", "estop-latch.0.ok-in")
+        else:
+            chain(est["input"] or None, "estop-latch.0.ok-in")
+        if hm2:
+            h("net watchdog %s.watchdog.has_bit => estop-latch.0.fault-in" % board)
+    else:
+        chain("iocontrol.0.user-enable-out", "iocontrol.0.emc-enable-in")
+    if resets:
+        h("net estop-reset iocontrol.0.user-request-enable => %s" % " ".join(resets))
+    h("")
+    for f in tail + last:
+        h("addf %s servo-thread" % f)
+    H[loads_at:loads_at] = ["loadrt %s names=%s" % (k, ",".join(v)) for k, v in loads.items()]
+    out = {"mill.ini": ini, "machine.hal": "\n".join(H) + "\n"}
+    if not a["vis"]:  # the console's 3D model: the arm model's bodies, its joints in DH theta (as armkins')
+        out["arm.vis"] = "# made by millweb from machine.json: the arm's model for the console\njoints theta\ninclude %s\n" % model
+    if tools:  # M6 and the dock reader, as hwtest/arcmate-sim's; the changer's tools as the first tool.tbl
+        for f in ("toolchange.ngc", "dockread.ngc"):
+            out[f] = open(os.path.join(REPO, "hwtest", "arcmate-sim", f)).read()
+        try:
+            names = [line.split()[1:3] for line in open(path("tools")) if line.split()[:1] == ["tool"]]
+            out[TOOL_TBL_INIT] = "".join("T%s P%s ; %s (tool changer tool %s)\n" % (t[0], t[0], t[1] if len(t) > 1 else "", t[0]) for t in names)
+        except OSError:
+            pass
+    return out
+
+
 def toolchange_ngc(t):
     """The rack changer's M6 (run/toolchange.ngc): the tool in the spindle back to its pocket, the new one out of
     its own; a tool beyond the pockets is changed by hand (a message and a pause)."""
@@ -1007,15 +1461,20 @@ def diff(a, b, name="machine.json"):
     return "".join(difflib.unified_diff(a.splitlines(True), b.splitlines(True), "saved/" + name, "new/" + name, n=2))
 
 
+TOOL_TBL_INIT = "tool.tbl.init"  # in generate's files: the machine's first tool.tbl (not a run/ file)
+
+
 def write_run(mdir, files):
     """The configuration into run/, and the files LinuxCNC needs that aren't there yet."""
     p = paths(mdir)
     os.makedirs(p["run"], exist_ok=True)
+    files = dict(files)
+    tbl = files.pop(TOOL_TBL_INIT, None) or "T1 P1 D6.0 Z+0.000 ;6 mm endmill\n"
     for name, text in files.items():
         _atomic(os.path.join(p["run"], name), text)
     for d in ("nc_files", "logs", "bitstreams"):
         os.makedirs(os.path.join(mdir, d), exist_ok=True)
-    for f, text in (("tool.tbl", "T1 P1 D6.0 Z+0.000 ;6 mm endmill\n"), ("linuxcnc.var", "")):
+    for f, text in ((("tool.tbl", tbl),) if files else ()) + (("linuxcnc.var", ""),):  # tool.tbl: once a configuration is made (an arm's: its changer's tools)
         if not os.path.exists(os.path.join(mdir, f)):
             with open(os.path.join(mdir, f), "w") as fh:
                 fh.write(text)

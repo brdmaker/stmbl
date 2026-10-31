@@ -868,6 +868,31 @@ test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("Configure (simulation): an arm: X Y Z A B C and six joints seeded, its model, changer, gripper and enabling switch; its joints in degrees", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  await t.page.selectOption('[data-path="type"]', "arm");
+  t.check(await t.until(() => cfg.m.type === "arm" && Object.keys(cfg.m.axes).join("") === "XYZABC" && cfg.m.joints.length === 6 && cfg.m.joints.every((j) => !j.axis) && cfg.m.spindle.type === "none"), "type arm: X Y Z A B C, six joints without an axis, no spindle");
+  t.check(await t.until(() => R.type === "arm" && ARM && document.body.classList.contains("arm")), "the view: an arm");
+  t.check(await t.ev(() => !!document.querySelector('[data-path="arm.model"]') && !!document.querySelector('[data-path="arm.enable.input"]') && !document.querySelector('[data-path="arm.changer.ready"]')), "the Machine tab: the arm's model, its enabling switch (no changer yet)");
+  await t.page.fill('[data-path="arm.tools"]', "{repo}/host/arm/arcmate/tools.txt"); await t.page.press('[data-path="arm.tools"]', "Tab");
+  t.check(await t.until(() => !!document.querySelector('[data-path="arm.changer.ready"]') && !!document.querySelector('[data-path="arm.changer.valve"]')), "a tool table: the changer's ready move and its pins");
+  await t.page.selectOption('[data-path="arm.gripper.type"]', "stmbl_can");
+  t.check(await t.until(() => !!document.querySelector('[data-path="arm.gripper.node"]')), "a gripper on CAN: its node");
+  await t.click('#cf-tabs button[data-t="axes"]');
+  t.check(await t.until(() => /J1/.test(document.querySelector('.cf-joint[data-joint="0"] .h').textContent) && !document.querySelector('[data-path="joints.0.axis"]') && !document.querySelector('[data-path="joints.0.mech.lead"]')), "the joints: J1…, no axis, no screw");
+  await t.page.selectOption('[data-path="joints.1.drive.type"]', "stmbl_sserial");
+  t.check(await t.until(() => !!document.querySelector('[data-path="joints.1.gear"]') && [...document.querySelector('[data-path="joints.1.home.method"]').options].map((o) => o.value).join() === "absolute,immediate"), "a real drive: its gear; homing absolute or here");
+  await t.click('#cf-tabs button[data-t="machine"]');
+  await t.click("#cf-check");
+  t.check(await t.until(() => cfg.errors.some(([w]) => w === "arm.model")), "Check: the model is missing");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !ARM && !document.body.classList.contains("arm")), "back to a gantry: the console a mill's");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); });
+  await t.page.reload();
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("messages: a warning as a large card that goes by itself; a fault stays until a tap; the footer opens the last again", async (t) => {
   await stop(t);  // the simulation starts mid-program: its M1 would be the last message
   await t.ev(() => msg("Just so you know", "info"));
@@ -1070,11 +1095,33 @@ test("arm (simulation, the ARC Mate with its tool changer): the 3D arm, joints, 
   // the tool changer, Record point
   await t.nav("tool");
   t.check(await t.until(() => document.querySelectorAll("#tl-arm tr[data-armtool]").length === 2), "the Tools page: the changer's two tools");
+  t.check(await t.ev(() => $("tm-panel").offsetParent === null), "no mill tool's 3D-model card on an arm");
   await t.click('#tl-arm [data-mount="2"]');
   t.check(await t.until(() => ARM.mounted === 2 && ARM.mountedShown === 2 && /ON FLANGE/.test(document.querySelector('#tl-arm tr[data-armtool="2"]').textContent)), "T2 mounted: on the flange in the view and its row");
   await t.nav("main");
   await t.click("#arm-rec");
   t.check(await t.until(() => /1 point/.test($("arm-teach").textContent)) && await t.msgHas("Recorded G1 X"), "Record point");
+  // a second point 50 mm lower; the list: swap them, Go to the first, load them as the program and run it
+  await t.click("#st-mdi");
+  const z1 = await t.ev(() => st.pos.z);
+  await t.page.fill("#mdi", `G1 Z${(z1 - 50).toFixed(3)} F6000`); await t.page.press("#mdi", "Enter");
+  await t.until((z) => st.run === "idle" && Math.abs(st.pos.z - z + 50) < 0.01, z1, 15000);
+  await t.click("#arm-rec");
+  await t.page.click("#arm-pts summary");
+  t.check(await t.until(() => document.querySelectorAll("#arm-ptlist li [data-pt]").length === 8 && $("arm-ptn").textContent === "2"), "the teach points: two, each with Go ↑ ↓ ×");
+  await t.click('#arm-ptlist [data-pt="up"][data-i="1"]');
+  t.check(await t.until((z) => ARM.points[0].includes(`Z${(z - 50).toFixed(3)}`), z1), "↑: the lower point first");
+  await t.click('#arm-ptlist [data-pt="go"][data-i="1"]');
+  t.check(await t.until((z) => st.run === "idle" && Math.abs(st.pos.z - z) < 0.01, z1, 15000), "Go: the arm at the other point");
+  await t.click("#arm-ptload");
+  t.check(await t.until(() => prog.name === "teach.ngc" && prog.segs.filter((s) => s.k === "mv").length === 2), "Load as program: teach.ngc, its two moves");
+  await t.click("#b-start");
+  t.check(await t.until((z) => st.run === "done" && Math.abs(st.pos.z - z) < 0.01, z1, 20000), "it runs: ends at its last point");
+  // Go home: the joints back to the home pose, together
+  await t.click("#arm-home");
+  t.check(await t.until(() => !ARM.goal && ARM.q.every((x, j) => Math.abs(x - ARM_HOME[j]) < 1e-6) && Math.abs(st.pos.z - ARMMODEL.pose(ARM.v, ARM_HOME, armTcp()).xyz[2]) < 0.01, null, 20000), "Go home: every joint at home, the DRO on the tool's point there");
+  await t.click('#arm-ptlist [data-pt="delete"][data-i="0"]');
+  t.check(await t.until(() => ARM.points.length === 1 && /1 point/.test($("arm-teach").textContent)), "×: one point left");
   // back to a mill
   await t.ev(() => localStorage.removeItem("pmc.machine"));
   await t.page.reload();

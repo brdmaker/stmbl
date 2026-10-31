@@ -5,19 +5,26 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 
 ## Arm (millweb arm page, `webui/mill/js/arm.js`)
 
-- [ ] Configure page: a machine type "arm" — generator for 6 stmbl drives,
-      armkins/genserkins, armguard, armcollide, armgrip, armtool, powerquota.
-- [ ] Simulation IK keeps the tool orientation fixed: a program's A B C is
-      ignored and MDI does nothing in the simulation.
-- [ ] Teach pendant beyond "Record point" — the rest of the
-      features in `docs/hmi/pendant.dc.html`.
-- [ ] Hardware enabling (dead-man) switch for the pendant.
-- [ ] TOOL-frame jog (only joint and world frames today).
+- [x] Configure page: machine type "arm" (`generate_arm`: armkins, armguard,
+      armcollide, armgrip, armtool + M6, powerquota, the E-STOP chain;
+      `machines/arcmate_sim`, run by `make test-gui-arm-machine`).
+- [x] Simulation: a program's and MDI's A B C by IK; MDI moves, M6, gripper.
+- [x] Teach pendant: Go home, the points list (Go, reorder, delete, clear,
+      Load as program); the teach file is a program (M2).
+- [x] Hardware enabling switch (`arm.enable`: jog-inhibit / jog-stop,
+      optional feed-inhibit; the console shows it and stops its own jogs).
+- [x] TOOL-frame jog (simulated; live as one G53 MDI move).
+- [x] Hide the mill tool 3D-model card on the arm Tools page.
+- [x] Safety note in the README (the browser jog is not safety-rated).
+- [ ] Real drives on an arm: the generated config (gear scaling, enabling
+      switch, changer pins, estop input) is only checked by unit tests; run it
+      on hardware.
+- [ ] TOOL-frame turns follow LinuxCNC's linear A B C between the ends, not
+      an exact turn about the tool axis (fine for small steps; a held turn
+      goes 45° in one move).
+- [ ] A phone-sized pendant layout (`docs/hmi/pendant.dc.html`, 390 px).
 - [ ] Real dock-stand parts in the cell model (docks are placeholders).
 - [ ] Check the 3D frame rate on a Raspberry Pi and a tablet.
-- [ ] Hide the mill tool 3D-model card on the arm Tools page.
-- [ ] Safety: browser jog is not safety-rated. Needs a hardware enabling
-      switch and safe-stop chain before any use near people; document it.
 
 ## Lathe (`linuxcnc/lathe`, Emco Compact 5)
 

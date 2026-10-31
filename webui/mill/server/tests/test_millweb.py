@@ -663,6 +663,9 @@ TOOLS = arm/tools.txt
 [MILLWEB]
 NC_DIR = nc
 ARM_MODEL = vis/arm.vis
+ENABLE_PIN = motion.jog-inhibit
+[ARM6HMI]
+HOME_JOINTS = 0 -90 0 0 -90 180
 """
 
 
@@ -671,7 +674,7 @@ class Arm(Base):
     its components' pins."""
     INI_TEXT = ARM_INI
     HAL = FakeHal({"armguard.0.state": 0, "armguard.0.reason": 0, "armguard.0.clearance": 123.4, "powerquota.0.total-power": 850.0,
-                   "powerquota.0.feed-scale": 1.0, "powerquota.0.limiting": False, "armkins.tool": 2})
+                   "powerquota.0.feed-scale": 1.0, "powerquota.0.limiting": False, "armkins.tool": 2, "motion.jog-inhibit": False})
 
     def files(self):
         for d in ("vis", "arm", "cell"):
@@ -751,7 +754,27 @@ class Arm(Base):
         lc.M.pos[:6] = [900.0, 300.0, 1150.0, 0.0, 45.0, 0.0]
         r = await self.call(ws, "teach_record")
         self.assertEqual(r["points"], 2)
-        self.assertEqual(open(os.path.join(self.d, "nc", "teach.ngc")).read().count("G1 "), 2)
+        text = open(os.path.join(self.d, "nc", "teach.ngc")).read()
+        self.assertEqual((sum(x.startswith("G1 ") for x in text.splitlines()), text.splitlines()[-1]), (2, "M2"))  # a program: it ends with M2
+        # the points: listed (another browser may read them), moved, deleted, cleared
+        self.assertTrue((await self.call(ws, "teach_record", rate=1200))["ok"])
+        r = await self.call(ws, "teach", action="list")
+        self.assertEqual((len(r["points"]), r["points"][2][-5:], r["file"]), (3, "F1200", "teach.ngc"))
+        r = await self.call(ws, "teach", action="up", index=2)
+        self.assertTrue(r["points"][1].endswith("F1200"))
+        r = await self.call(ws, "teach", action="delete", index=0)
+        self.assertEqual(len(r["points"]), 2)
+        self.assertIn("no point", (await self.call(ws, "teach", action="delete", index=7))["err"])
+        r = await self.call(ws, "teach", action="clear")
+        self.assertEqual((r["points"], open(os.path.join(self.d, "nc", "teach.ngc")).read().splitlines()[-1]), ([], "M2"))
+        self.assertTrue((await self.call(ws, "teach_record"))["ok"])
+        self.assertEqual(len((await self.call(ws, "teach", action="list"))["points"]), 1)
+        # Go home: every joint to [ARM6HMI] HOME_JOINTS at once, in joint mode
+        self.assertEqual(ws.hello["machine"]["arm"]["home"], [0, -90, 0, 0, -90, 180])
+        lc.M.jpos[:6] = [10.0, -60.0, 5.0, 0.0, -80.0, 170.0]
+        r = await self.call(ws, "arm_home", rate=6000)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(([round(x, 6) for x in lc.M.jpos[:6]], lc.M.motion_mode), ([0, -90, 0, 0, -90, 180], lc.TRAJ_MODE_FREE))
         await self.until(ws, lambda m: m["t"] == "files")
         # its model: the .vis, what it includes and loads, the cell and the tool table; a watching browser may read it
         ws2 = await self.client()
@@ -769,6 +792,20 @@ class Arm(Base):
         self.assertEqual(sl["arm"]["guard"], {"state": 0, "reason": 0, "clearance": 123.4})
         self.assertEqual((sl["arm"]["quota"]["total_power"], sl["arm"]["kins_tool"]), (850.0, 2))
         self.assertNotIn("grip", sl["arm"])
+        # the enabling switch: held, jogs run; let go, a running jog stops and no new one starts
+        self.assertTrue(ws.hello["machine"]["arm"]["enable_switch"])
+        self.assertEqual(sl["arm"]["enable"], {"held": True})
+        lc.M.slow = True
+        self.assertTrue((await self.call(ws, "jog", axis="tz", dir=1, inc=0, rate=600))["ok"])
+        self.assertEqual(lc.M.interp_state, lc.INTERP_READING)
+        self.HAL.pins["motion.jog-inhibit"] = True
+        await self.until(ws, lambda m: m["t"] == "ev" and "enabling switch was released" in m.get("text", ""))
+        self.assertEqual(lc.M.interp_state, lc.INTERP_IDLE)  # the tool-frame move aborted
+        sl = await self.until(ws, lambda m: m["t"] == "slow" and "arm" in m and m["arm"].get("enable") == {"held": False})
+        r = await self.call(ws, "jog", axis="j0", dir=1, inc=1, rate=600)
+        self.assertIn("enabling switch is released", r["err"])
+        lc.M.slow = False
+        self.HAL.pins["motion.jog-inhibit"] = False
         await ws.close(); await ws2.close()
 
 

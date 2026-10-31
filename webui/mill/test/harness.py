@@ -199,6 +199,8 @@ class Machine:
         import json
         shutil.copytree(os.path.join(HERE, "machine"), self.dir, dirs_exist_ok=True)
         shutil.copytree(os.path.join(HERE, "sim", "nc_files"), os.path.join(self.dir, "nc_files"), dirs_exist_ok=True)
+        if self.machine_json is not None and self.machine_json.get("type") == "arm":  # its tools: the changer's (made)
+            os.remove(os.path.join(self.dir, "tool.tbl"))
         if self.machine_json is not None:
             with open(os.path.join(self.dir, "machine.json"), "w") as f:
                 json.dump(self.machine_json, f, indent=2)
@@ -303,6 +305,7 @@ def main():
     ap.add_argument("--drive", action="store_true", help="a simulated stmbl drive on X, its console through sserialterm")
     ap.add_argument("--supervised", action="store_true", help="test/machine's machine.json, run by millweb-supervisor")
     ap.add_argument("--arm", action="store_true", help="hwtest/arcmate-sim (the ARC Mate with its tool changer) in place of test/sim")
+    ap.add_argument("--arm-machine", action="store_true", help="machines/arcmate_sim's machine.json (the same arm), made and run by millweb-supervisor")
     ap.add_argument("--serve", action="store_true", help="serve the test machine on the network for suites run elsewhere")
     ap.add_argument("--port", type=int, default=8080, help="--serve's port")
     ap.add_argument("--stress-files", action="store_true", help="--serve: write the stress suite's programs too")
@@ -313,7 +316,11 @@ def main():
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
     if not cmd:
         ap.error("a command to run: -- CMD ARGS (or --serve)")
-    with Machine(a.ini_set, a.keep, drive=a.drive, supervised=a.supervised, arm=a.arm) as m:
+    machine = None
+    if a.arm_machine:
+        import json
+        machine = json.load(open(os.path.join(MILL, "machines", "arcmate_sim", "machine.json")))
+    with Machine(a.ini_set, a.keep, drive=a.drive, supervised=a.supervised or a.arm_machine, arm=a.arm, machine=machine) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
         env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
         rc = subprocess.run(cmd, env=env).returncode

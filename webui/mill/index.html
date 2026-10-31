@@ -238,7 +238,7 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .rem-find li { padding: 4px 6px; border-left: 3px solid var(--line-hi); background: var(--panel); cursor: pointer; }
 .rem-find li.bad { border-color: #ff4d5e; } .rem-find li.warn { border-color: var(--warn); } .rem-find li.info { border-color: #4cc9ff; }
 .rem-find li b { font-family: var(--f-mono); font-weight: 600; margin-right: 4px; }
-body.arm #spin-panel, body.arm #jogpad, body.arm #sp-jog .note, body.arm #b-zeroall, body.arm #b-gotozero, body.arm #b-park { display: none; }
+body.arm #spin-panel, body.arm #tm-panel, body.arm #jogpad, body.arm #sp-jog .note, body.arm #b-zeroall, body.arm #b-gotozero, body.arm #b-park { display: none; }
 .armj { display: flex; flex-direction: column; gap: 3px; }
 .armjrow { display: grid; grid-template-columns: 22px 10px 1fr 66px 52px auto; align-items: center; gap: 6px; font-size: 12px; }
 .armjrow .h { width: 8px; height: 8px; border-radius: 50%; background: var(--line-hi); } .armjrow .h.on { background: var(--ok, #5fe0a0); }
@@ -247,10 +247,16 @@ body.arm #spin-panel, body.arm #jogpad, body.arm #sp-jog .note, body.arm #b-zero
 .armjrow .bar.warn i { background: var(--warn); }
 .armjrow .num { font-family: var(--f-mono); text-align: right; }
 .armkv { margin-top: 6px; }
+.armpts { margin-top: 6px; } .armpts summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.armpts ol { margin: 4px 0; padding-left: 22px; max-height: 220px; overflow: auto; font-size: 12px; }
+.armpts li { display: flex; gap: 6px; align-items: center; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid var(--line); }
+.armpts li .num { font-family: var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.armpts li .b { display: flex; gap: 3px; flex: none; } .armpts li .b .btn { min-width: 30px; padding: 0 6px; }
 .armpad { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .armpad .armrow { display: grid; grid-template-columns: 30px 1fr 1fr; gap: 4px; align-items: center; }
 .armpad .armrow button { min-height: 40px; font: 600 13px var(--f-mono); background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 5px; color: var(--ink); touch-action: none; }
 .armpad .armrow button:active { background: var(--accent, #4cc9ff); color: #000; }
+.armpad.inhibit .armrow button { opacity: .45; }
 #tl-turret { display: none; margin-top: 4px; } body.lathe #tl-turret { display: block; } #tl-turret.bad { color: var(--warn); font-weight: 600; }
 .ops { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
 .op { border: 1px solid var(--line-hi); background: var(--panel-2); border-radius: 5px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-dim); }
@@ -764,7 +770,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
         <div class="row"><button class="btn accent" id="tl-load">Load selected (M6)</button><button class="btn" id="tl-meas">Measure on the tool setter</button><button class="btn" id="tl-add">Add tool</button><button class="btn" id="tl-del">Delete selected</button></div>
         <p class="note" id="tl-note">Tool setter at machine X 980 Y 20. Lengths are from the spindle's gauge line.</p>
       </div>
-      <div class="panel">
+      <div class="panel" id="tm-panel">
         <h2>3D model <small id="tm-t">T3</small></h2>
         <div class="form">
           <label>Model<select id="tm-src"></select></label>

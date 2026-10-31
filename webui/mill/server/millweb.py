@@ -227,7 +227,7 @@ class Hub:
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
                       "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
-                      "vib_spectrum", "vib_trend", "vib_console_read", "arm_model"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "vib_spectrum", "vib_trend", "vib_console_read", "arm_model", "teach"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -455,6 +455,25 @@ class Hub:
             self.event("ok", "Recorded %s (%d points in %s)" % (res["line"], res["points"], res["file"]))
             self.broadcast(self.files_msg())
         return res
+
+    async def op_teach(self, c, m):
+        """the teach points: list (anyone may read them), delete / up / down an index, clear"""
+        act = str(m.get("action", "list"))
+        if act != "list" and self.control != c.id:
+            return "this browser doesn't have control (take it first)"
+        try:
+            res = await self.run(self.m.cmd_teach, act, m.get("index"))
+        except ValueError as e:
+            return str(e)
+        if act != "list":
+            self.broadcast(self.files_msg())
+        return res
+
+    async def op_arm_home(self, c, m):
+        err = await self.run(self.m.cmd_arm_home, m.get("rate"))
+        if not err:
+            self.event("info", "Go home: every joint to its home pose")
+        return err
 
     async def op_model_get(self, c, m):
         loop = asyncio.get_event_loop()
@@ -1148,6 +1167,11 @@ class Hub:
             # the status without a work offset (DEBUGNOTES): fix it when the machine allows
             if self.m.wcs_unknown and st["run"] == "idle" and all(st["homed"]) and not self.resyncing:
                 asyncio.ensure_future(self.resync())
+            # the enabling switch let go: every jog stops (LinuxCNC's jog-stop stops its own; a tool-frame jog is an MDI move)
+            if self.jog_seen and self.m.enable_released():
+                self.jog_seen.clear()
+                await self.urgent(self.m.cmd_jog_stop)
+                self.event("warn", "Jog stopped: the enabling switch was released")
             # the jog deadman
             for a, seen in list(self.jog_seen.items()):
                 if time.time() - seen > JOG_DEADMAN:

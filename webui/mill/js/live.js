@@ -157,6 +157,7 @@ const Live = (() => {
     if (m.jh) st.armJH = m.jh;
     if (m.jfe) st.armJfe = m.jfe;
     if (m.ax) st.armAx = m.ax;
+    if (m.axm) st.armAxm = m.axm;
     if (m.jmode) st.armJmode = m.jmode;
     if ("run" in m) {
       st.run = m.run === "mdi" ? "run" : m.run;
@@ -361,7 +362,7 @@ const Live = (() => {
   };
   L.opt = (k, v) => act("opt", { [k]: v }, k === "m1" ? "Optional stop" : "Block delete");
   L.pcomp = (k, on) => act("pcomp", { k: k === "jerk" ? "jerk-ms" : k, v: k === "jerk" ? (on ? 20 : 0) : on ? 1 : 0 }, "pcomp");
-  L.mdi = (c) => act("mdi", { cmd: c }, "MDI");
+  L.mdi = (c, wait) => act("mdi", wait ? { cmd: c, wait: true } : { cmd: c }, "MDI");  // wait: the reply once it is done
   L.toolLoad = (t) => act("tool_load", { t }, `T${t} M6`);
   L.toolsSave = () => {  // after edits settle
     clearTimeout(toolsTimer);
@@ -500,6 +501,8 @@ const Live = (() => {
   };
   L.armModel = () => send("arm_model");
   L.teach = (rate) => act("teach_record", { rate }, "Record point");
+  L.teachOp = (action, index) => (action === "list" ? send("teach", { action }) : act("teach", { action, index }, "Teach points"));
+  L.armHome = (rate) => act("arm_home", { rate }, "Go home");
 
   // programs: the server's files; preflight from the server's preview
   L.loadProgram = async (p) => {

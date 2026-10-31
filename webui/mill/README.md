@@ -240,13 +240,18 @@ is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper
 - **`hello`:** `machine.type` `arm`, and `machine.arm`:
   - `joints`, `axes` (`XYZABC`);
   - `jlim`: each joint's min, max, vel (per minute), acc, type, from `[JOINT_n]`; `alim`: the axes';
-  - `teach`: the teach file's name; `grip` {open, close}: the gripper's MDI (`[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`, default `M65 P0` / `M64 P0`); `tool_ready` (`[ARM6HMI] TOOL_READY`).
+  - `teach`: the teach file's name; `grip` {open, close}: the gripper's MDI (`[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`, default `M65 P0` / `M64 P0`); `tool_ready` (`[ARM6HMI] TOOL_READY`);
+  - `home`: the Go home pose (`[ARM6HMI] HOME_JOINTS`, a value a joint, or null); `enable_switch`: the machine has an enabling switch (`[MILLWEB] ENABLE_PIN`).
 - **`st`:** `homed` (all three: all joints homed), and:
   - `ax`, `axm`: every axis in the work offset and in machine coordinates;
   - `j`, `jh`, `jfe`: each joint's position (LinuxCNC's joint `input`, °), homed, following error;
-  - `jmode`: `joint` or `world` (teleop).
+  - `jmode`: `joint`, `world` (teleop) or `coord` (a program or MDI move).
 - **Jog:** `J<n>` jogs a joint in joint mode (before homing too), X..C the axes in world mode (homed); millweb switches LinuxCNC's mode first and waits for motion to take it (up to 1 s). Home a joint with `home` `J<n>`.
-- **`teach_record` {rate}:** the arm's position as `G1 X.. Y.. Z.. A.. B.. C.. F<rate>` at the end of the teach file (`[MILLWEB] TEACH_FILE`, else `[ARM6HMI] TEACH_FILE`, else `teach.ngc` in the program folder); the reply has the line and the number of points, and the file list is sent again.
+  - **The tool frame** (`TX`..`TC`): along and about the mounted tool's own axes. LinuxCNC has no such jog, so millweb works the target out from the commanded pose (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F<rate>`: an increment that far, held to the `[AXIS_*]` limits along the line (a turn: 45°), aborted on release or by the deadman. A turn keeps the tool point; LinuxCNC moves A B C linearly between the ends.
+  - **The enabling switch** (`[MILLWEB] ENABLE_PIN`, set while released: the generated config's `motion.jog-inhibit`): released, a jog is refused, and a running one stops (LinuxCNC's own `jog-stop`; millweb aborts a tool-frame move).
+- **`teach_record` {rate}:** the arm's position in the work coordinates as `G1 X.. Y.. Z.. A.. B.. C.. F<rate>` after the teach file's last point (`[MILLWEB] TEACH_FILE`, else `[ARM6HMI] TEACH_FILE`, else `teach.ngc` in the program folder). The file is a program: a header, the points, `M2`. The reply has the line and the number of points, and the file list is sent again.
+- **`teach` {action, index}:** the points: `list` (any browser), `delete`, `up`, `down` (an index), `clear`.
+- **`arm_home` {rate}:** Go home: every joint to `[ARM6HMI] HOME_JOINTS` at once in joint mode, one increment each, their speeds such that they arrive together (at most the rate in °/min and each joint's `MAX_VELOCITY`). Joint space: the mounted tool doesn't matter.
 - **`arm_model`:** `{files: {name: text | {b64: STL}}, model, cell, tools}`: the 3D model (`[MILLWEB] ARM_MODEL`, else `[ARM6HMI] MODEL`, else linuxcnc/vis3d's `arm6_changer.vis` with a tool changer, `arm6_lcnc.vis` without), every file it `include`s or loads (`part … mesh FILE.stl`), armguard's cell (`[ARMGUARD] CELL`) and the tool table (`[STMBL_ARM] TOOLS`) with theirs. Names are paths from the model's folder; in the texts each include and mesh names its file as `@<name>` (the files vis3d resolves from the including file's folder).
 - **`slow`'s `arm`:** each loaded component's pins, `-` as `_`:
   - `guard` (armguard.0: state, reason, clearance);
@@ -264,11 +269,21 @@ is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper
   - the guard: ARMED / NEAR / STOP and why, the clearance against its limit;
   - the gripper: its state and gap, Open / Close (the MDI of `[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`);
   - the power quota;
-  - **Record point** (`teach_record`).
-- **JOG:** JOINT (J1..J6, joint mode, before homing too) or WORLD (X..C, homed), the increments or CONT (hold the key).
+  - the enabling switch: HELD / RELEASED (the jog pad dims while released);
+  - **Record point** (`teach_record`), **Go home** (`arm_home`; the simulation: the ARC Mate's home pose);
+  - **Teach points:** the list, each with Go (its line as MDI), ↑ ↓ (its place), ×; Clear; **Load as program** (LinuxCNC opens the teach file; the simulation makes its moves).
+- **JOG:** JOINT (J1..J6, joint mode, before homing too), WORLD (X..C, homed) or TOOL (along and about the tool's axes), the increments or CONT (hold the key).
 - **Tools page:** the tool changer's tools, IN DOCK / ON FLANGE, **Mount** (`T<n> M6`, after `[ARM6HMI] TOOL_READY` when set), **Put the tool back** (`T0 M6`); the lock, its sensors, the kinematics' tool point, a fault and its reason.
-- **The simulation:** machine.json's `type: arm` gives the ARC Mate with its tool changer (`js/arm_demo.js`, made by `tools/gen_arm_demo.js` from linuxcnc/vis3d and hwtest/arcmate-sim), a pick-and-place program; its joints follow the program's tool point by IK (orientation held), the jog pad's joints by forward kinematics.
-- **Tests:** `make test-gui-arm` runs `test/gui/arm_suite.js` against LinuxCNC with hwtest/arcmate-sim and its tool changer (`harness.py --arm`): the model and panels, homing, a joint and a world jog, MDI, the guard, Record point, three tool changes with armtool, LinuxCNC and the kinematics agreeing, the gripper.
+- **The simulation:** machine.json's `type: arm` gives the ARC Mate with its tool changer (`js/arm_demo.js`, made by `tools/gen_arm_demo.js` from linuxcnc/vis3d and hwtest/arcmate-sim), a pick-and-place program that also tilts the tool (B, then C); its joints follow the program's tool point and A B C by IK (A B C interpolated as LinuxCNC's rotary axes), the jog pad's joints by forward kinematics. MDI runs G0/G1 with X..C (a target out of reach is refused), `T<n> M6` and the gripper's `M64`/`M65 P0`.
+- **Configure:** machine type **arm** (`machines/arcmate_sim/machine.json`: the simulated ARC Mate as hwtest/arcmate-sim's HMI config). The `arm` section names the files (in the machine folder, absolute, or `{repo}/…`):
+  - `model`: arm_sim's `.arm` (dh, limits, bodies, masses) for `armkins` (always the kinematics: `armkins model=… [tools=…]`), armtool and, unless `collide_model`, armguard, armcollide and armgrip;
+  - `vis`: the console's 3D model (blank: `run/arm.vis`, the model's bodies with `joints theta`);
+  - `cell` (armguard; blank: no guard), `collide` (armcollide, its residuals into the guard), `quota` (powerquota, its feed scale into adaptive feed);
+  - `tools` (the changer: armtool, M6 = `run/toolchange.ngc` and `dockread.ngc`; the changer's tools become the first `tool.tbl`), `changer` (its pins; `ready`: the MDI before a change);
+  - `gripper` (armgrip on a drive, mm of finger gap), `enable` (the enabling switch: `jog-inhibit` and `jog-stop`, `hold_all` also `feed-inhibit`), `home` (Go home's joint values), `sim` (stmbl_arm's arm file and drive library).
+  - Each joint: a drive (`stmbl_sserial`, `stmbl_can`: motor radians by its `gear`, motor turns a joint turn, through scale comps; `stmbl_arm`: the simulated arm; `sim`), its travel and speeds in degrees, homed by an absolute encoder or where it is.
+  - The E-STOP chain: the input (or the GUI's loop) → armguard (a collision, a protective stop) → powerquota → armgrip → armtool → LinuxCNC (through estop_latch with an input or a board's watchdog).
+- **Tests:** `make test-gui-arm` runs `test/gui/arm_suite.js` against LinuxCNC with hwtest/arcmate-sim and its tool changer (`harness.py --arm`); `make test-gui-arm-machine` against the config millweb-supervisor makes from `machines/arcmate_sim/machine.json`, with test/machine's G54 offset (`harness.py --arm-machine`). Both: the model and panels, homing, a joint, a world and two tool-frame jogs, MDI, the guard, Record point and the points list, Load as program, Go home (where configured), three tool changes with armtool, LinuxCNC and the kinematics agreeing, the gripper.
 
 ## Programs
 
@@ -461,6 +476,7 @@ round (`make test-gui-tablet`):
 - **The E-STOP chain is hardware**: stmbl's fault inputs and the drives' quick stop. The page's E-STOP only asks LinuxCNC for `STATE_ESTOP`, and any browser, watching or not, may press it.
 - **One browser has control** at a time, the others watch. Control goes away when its browser disconnects. `REMOTE_ENABLE_PIN` forbids remote control at the machine, and `TOKEN` asks for a password.
 - **Continuous jogging needs a keep-alive:** a message at least every 300 ms, or millweb stops the jog. A lost connection stops it at once.
+- **An arm's jog is not safety-rated.** The browser's keys and the keep-alive are conveniences, not a safety function. Wire the arm's enabling switch (`arm.enable`: LinuxCNC's own `jog-inhibit`/`jog-stop`, so a released switch stops jogs without millweb), a hardware E-STOP chain into the drives, and keep people out of the cell while it moves; the cell guard (armguard) and the collision detector protect the machine, not people.
 - **E-STOP, Stop and jog stop never wait** behind another command (a tool measurement takes 30 s): they go to LinuxCNC from their own thread on their own command channel. After a Stop or an E-STOP, a running sequence (tool setter, probe, a multi-point move) sends nothing more.
 - **Checks before LinuxCNC:** commands are checked (E-STOP, machine on, homed, idle) first, and LinuxCNC checks everything again.
 - **A program can't take millweb down.** The preview interprets in a child process (killed after `PREVIEW_TIMEOUT`); the server keeps answering while it works.

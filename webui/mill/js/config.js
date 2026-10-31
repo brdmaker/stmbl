@@ -48,6 +48,41 @@ function cfgTurret() {
       ${t === "sim" ? fld(P + ".sim_index_at", "Simulated index at", "num") : ""}</div>` : ""}`;
 }
 
+// an arm (machine type arm, machineconf.py generate_arm): its model, cell, changer, gripper, enabling switch
+function cfgArm() {
+  const a = cfg.m.arm || {}, g = a.gripper || {}, gt = g.type || "none", sim = (cfg.m.joints || []).some((j) => (j.drive || {}).type === "stmbl_arm");
+  const F = (k, l, h, re) => fld("arm." + k, l, "text", { def: "", help: h, re });
+  const pins = { valve: ["Lock valve (bit out)", "in"], locked: ["Locked sensor (bit in)", "out"], unlocked: ["Unlocked sensor (bit in)", "out"], present: ["Tool present (bit in)", "out"], id: ["Tool ID (s32 in)", "out"] };
+  return `<h3>The arm <small class="muted">(files: in the machine folder, absolute, or {repo}/… in this checkout)</small></h3><div class="cf-grid">
+      ${F("model", "Model (.arm)", "arm_sim's: its dh lines (armkins), limits, bodies, masses")}
+      ${F("vis", "3D model (.vis)", "the console's; blank: the model's bodies")}
+      ${F("cell", "Cell (armguard)", "its obstacles and the guard's settings; blank: no guard")}
+      ${fld("arm.collide", "Collision detection (armcollide: drives that report their current)", "bool", { def: false, re: true })}
+      ${a.collide ? F("collide_model", "The detector's model", "blank: the model (an identified one detects better)") : ""}
+      ${F("quota", "Power quota (powerquota)", "the supply's fuses; blank: none")}
+      ${F("tools", "Tool changer's table", "blank: no changer; M6 changes tools, armkins on the mounted tool's TCP", true)}</div>
+    ${a.tools ? `<h3>Tool changer <small class="muted">(armtool; M6: run/toolchange.ngc)</small></h3><div class="cf-grid">
+      ${fld("arm.changer.ready", "Before a change, go to (one MDI line)", "text", { def: "", wide: true, help: "e.g. G53 G1 X900 Y300 Z1150 A0 B45 C0 F6000; blank: from where it is" })}
+      ${sim ? "" : Object.entries(pins).map(([k, [l, d]]) => fld("arm.changer." + k, l, "pin", { def: "", dir: d })).join("")}</div>` : ""}
+    <h3>Gripper</h3><div class="cf-grid">
+      ${fld("arm.gripper.type", "Gripper (armgrip)", "sel", { re: true, def: "none", choices: [["none", "none"], ["stmbl_sserial", "an stmbl drive, smart-serial (mm of finger gap)"], ["stmbl_can", "an stmbl drive, CAN"], ["stmbl_arm", "the simulated arm's"]] })}
+      ${gt === "stmbl_sserial" ? fld("arm.gripper.port", "Smart-serial port", "num", { def: 0 }) + fld("arm.gripper.channel", "Channel", "num", { def: 0 }) : gt === "stmbl_can" ? fld("arm.gripper.bus", "CAN bus", "num", { def: 0 }) + fld("arm.gripper.node", "Node", "num", { def: 1 }) : ""}</div>
+    <h3>Enabling switch <small class="muted">(the pendant's three-position switch)</small></h3><div class="cf-grid">
+      ${fld("arm.enable.input", "Input (bit in, true: held)", "pin", { def: "", dir: "out", help: "released: no jog (LinuxCNC's jog-inhibit); blank: none" })}
+      ${fld("arm.enable.invert", "Inverted (true: released)", "bool", { def: false })}
+      ${fld("arm.enable.hold_all", "Released: no motion at all (feed-inhibit)", "bool", { def: false })}</div>
+    ${sim ? `<h3>The simulated arm <small class="muted">(stmbl_arm)</small></h3><div class="cf-grid">${F("sim.arm", "Its arm file", "host/arm/…/*.arm: the plant and its drives")}${F("sim.lib", "Its drive library", "{repo}/host/arm/libstmbl_drive.so")}</div>` : ""}
+    <p class="note">An arm: joints that aren't axes (armkins; the joints in DH theta, degrees), the tool point as X Y Z A B C. The E-STOP chain runs through the guard, the power quota, the gripper and the changer: a fault in any opens it. The browser's jog is not safety-rated: wire the enabling switch and a hardware E-STOP.</p>`;
+}
+// a new arm: X Y Z A B C, six joints, no spindle, probe or rack
+function cfgArmSeed() {
+  const L = { min: -2000, max: 2000, max_vel: 250, max_acc: 1000 }, A = { min: -720, max: 720, max_vel: 90, max_acc: 360 };
+  cfg.m.arm = cfg.m.arm || { model: "" };
+  cfg.m.axes = { X: { ...L }, Y: { ...L }, Z: { ...L }, A: { ...A }, B: { ...A }, C: { ...A } };
+  if (!(cfg.m.joints || []).length || cfg.m.joints.some((j) => j.axis)) cfg.m.joints = [...Array(6)].map(() => ({ drive: { type: "sim" }, min: -170, max: 170, max_vel: 90, max_acc: 300, home: { method: "absolute", pos: 0, sequence: 0 } }));
+  cfg.m.spindle = { type: "none" }; cfg.m.probe = { type: "none" }; cfg.m.atc = { type: "none" }; cfg.m.toolsetter = null;
+}
+
 // ------------------------------------------------------------ fields
 // kind: text | num | bool | sel | lines (a list, a line each) | kv (KEY = value lines)
 function fld(path, label, kind = "text", o = {}) {
@@ -82,14 +117,14 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["lathe", "lathe: X and Z, the console a lathe's"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["lathe", "lathe: X and Z, the console a lathe's"], ["arm", "arm: joints that aren't axes (armkins), X Y Z A B C"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
       ${cfg.m.type === "lathe" ? fld("lathe.post", "Tool post", "sel", { def: "front", re: true, choices: [["front", "in front of the spindle's axis (+X toward the operator)"], ["back", "behind it (+X away from the operator)"]] }) +
         fld("lathe.diameter", "X as a diameter (G7) from the start", "bool", { def: true }) : ""}
       ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
       ${fld("display.max_feed_override", "Feed override max", "num", { help: "2: 200 %" })}
       ${fld("display.max_spindle_override", "Spindle override max", "num")}
       ${fld("display.min_spindle_override", "Spindle override min", "num")}
-    </div>`,
+    </div>${cfg.m.type === "arm" ? cfgArm() : ""}`,
   spindle: () => {
     const sp = cfg.m.spindle || {}, hal = sp.type === "hal", stmbl = /^stmbl_/.test(sp.type || "");
     return `<div class="cf-grid">
@@ -113,6 +148,7 @@ const TABS = {
   },
   tools: () => {
     const pr = cfg.m.probe || {}, t = cfg.m.atc || {}, rack = t.type === "rack";
+    if (cfg.m.type === "arm") return `<p class="note">An arm's tool changer and gripper are on the Machine tab; it has no probe or tool setter here.</p>`;
     return `<h3>Probe</h3><div class="cf-grid">
       ${fld("probe.type", "Probe", "sel", { re: true, choices: [["none", "none"], ["input", "an input pin"], ["sim", "simulated (trips below a Z)"]] })}
       ${pr.type === "input" ? fld("probe.input", "Input pin", "pin", { dir: "out" }) + fld("probe.invert", "Inverted", "bool") : ""}
@@ -141,8 +177,10 @@ const TABS = {
     const axes = cfg.m.axes || {}, J = cfg.m.joints || [];
     const ax = Object.keys(axes).map((a) => `<tr data-axis="${a}"><td><b>${a}</b></td>${["min", "max", "max_vel", "max_acc"].map((k) => `<td data-f="axes.${a}.${k}">${fldIn(`axes.${a}.${k}`, "num")}</td>`).join("")}<td><button class="btn sm" data-rmaxis="${a}" title="Remove the axis">×</button></td></tr>`).join("");
     const free = "XYZABCUVW".split("").filter((a) => !axes[a]);
+    const arm = cfg.m.type === "arm";
     const jr = J.map((j, i) => {
       const d = j.drive || {}, h = j.home || {}, t = d.type || "sim", hm = h.method || "absolute", P = `joints.${i}`;
+      if (arm) return cfgArmJoint(j, i, t);
       const drv = t === "stmbl_sserial" ? fld(`${P}.drive.port`, "Smart-serial port", "num", { def: 0 }) + fld(`${P}.drive.channel`, "Channel", "num", { def: 0 })
         : t === "stmbl_can" ? fld(`${P}.drive.bus`, "CAN bus", "num", { def: 0 }) + fld(`${P}.drive.node`, "Node", "num", { def: 1 })
         : t === "stmbl_sim" ? fld(`${P}.drive.conf`, "Drive config (in the folder)", "text", { def: "drive.conf" }) + fld(`${P}.drive.sim`, "Sim commands file", "text", { def: "" }) : "";
@@ -166,7 +204,7 @@ const TABS = {
     return `<h3>Axes <small class="muted">(the machine's travel and speeds: mm, mm/s, mm/s²)</small></h3>
       <div class="wrapx"><table class="cf-t"><thead><tr><th>Axis</th><th>Min</th><th>Max</th><th>Max vel</th><th>Max acc</th><th></th></tr></thead><tbody>${ax}</tbody></table></div>
       ${free.length ? `<div class="row"><select id="cf-newaxis">${free.map((a) => `<option>${a}</option>`).join("")}</select><button class="btn sm" id="cf-addaxis">Add axis</button></div>` : ""}
-      <h3>Joints <small class="muted">(a motor each; two on one axis make a gantry, homed together)</small></h3>
+      <h3>Joints <small class="muted">${arm ? "(an arm's: J1 at the base; degrees, °/s, °/s²)" : "(a motor each; two on one axis make a gantry, homed together)"}</small></h3>
       ${jr}
       <div class="row"><button class="btn sm" id="cf-addjoint">Add joint</button></div>`;
   },
@@ -243,6 +281,21 @@ const TABS = {
     <pre class="cf-code" id="cf-log">${esc(cfg.log || "")}</pre>`,
 };
 cfg.logw = 0;
+// an arm's joint: its drive (motor radians by its gear), its travel in degrees, homed by an absolute encoder or where it is
+function cfgArmJoint(j, i, t) {
+  const P = `joints.${i}`, real = t === "stmbl_sserial" || t === "stmbl_can";
+  const drv = t === "stmbl_sserial" ? fld(`${P}.drive.port`, "Smart-serial port", "num", { def: 0 }) + fld(`${P}.drive.channel`, "Channel", "num", { def: 0 })
+    : t === "stmbl_can" ? fld(`${P}.drive.bus`, "CAN bus", "num", { def: 0 }) + fld(`${P}.drive.node`, "Node", "num", { def: 1 }) : "";
+  return `<div class="cf-joint" data-joint="${i}"><div class="h"><b>Joint ${i} · J${i + 1}</b><span class="muted">${esc((DRIVE_T.concat([["stmbl_arm", "the simulated arm"]]).find((x) => x[0] === t) || [t, t])[1])}</span><span class="spacer"></span><button class="btn sm" data-rmjoint="${i}" title="Remove the joint">Remove</button></div>
+    <div class="cf-grid">
+      ${fld(`${P}.drive.type`, "Drive", "sel", { re: true, choices: DRIVE_T.filter((x) => x[0] !== "stmbl_sim").concat([["stmbl_arm", "the simulated arm (stmbl_arm)"]]) })}
+      ${drv}
+      ${real ? fld(`${P}.drive.console`, "Its console on the Drives tab", "bool", { def: true }) + fld(`${P}.gear`, "Motor turns a joint turn", "num", { def: 1, help: "the gearbox (the drive in motor radians); negative: the motor turns the other way" }) : ""}
+      ${fld(`${P}.min`, "Min (°)", "num", { def: "" })}${fld(`${P}.max`, "Max (°)", "num", { def: "" })}${fld(`${P}.max_vel`, "Max vel (°/s)", "num", { def: "" })}${fld(`${P}.max_acc`, "Max acc (°/s²)", "num", { def: "" })}
+      ${fld(`${P}.ferror`, "Following error (°)", "num", { def: 1 })}${fld(`${P}.min_ferror`, "… at rest", "num", { def: 0.25 })}
+      ${fld(`${P}.home.method`, "Homing", "sel", { re: true, choices: [["absolute", "absolute encoder (at once)"], ["immediate", "here (no move)"]] })}${fld(`${P}.home.pos`, "Home at (°)", "num", { def: 0 })}${fld(`${P}.home.sequence`, "Sequence", "num", { def: 0 })}
+    </div></div>`;
+}
 // a joint's screw and gearing: mm a motor turn, and the motor's speed at the joint's top speed
 function mechHelp(j, ax) {
   const me = j.mech || {}, lead = +me.lead, ratio = +(me.ratio ?? 1) || 1;
@@ -310,7 +363,7 @@ function markErrors() {
   p.hidden = !cfg.errors.length;
   p.innerHTML = cfg.errors.length ? `<h2>Problems <small>${cfg.errors.length}</small></h2><ul>${cfg.errors.map(([w, t]) => `<li data-go="${esc(w)}"><b>${esc(w || "machine.json")}</b>: ${esc(t)}</li>`).join("")}</ul>` : "";
 }
-const tabOf = (w) => (/^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^estop/.test(w) ? "io" : /^(probe|toolsetter|atc|lathe\.turret)/.test(w) ? "tools" : /^spindle/.test(w) ? "spindle" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
+const tabOf = (w) => (/^arm/.test(w) ? "machine" : /^model/.test(w) ? "model" : /^(axes|joints)/.test(w) ? "axes" : /^(board|bitstream|can)/.test(w) ? "hw" : /^estop/.test(w) ? "io" : /^(probe|toolsetter|atc|lathe\.turret)/.test(w) ? "tools" : /^spindle/.test(w) ? "spindle" : /^console/.test(w) ? "console" : /^custom/.test(w) ? "custom" : w ? "machine" : "json");
 
 // ------------------------------------------------------------ the source: millweb or the supervisor, or the simulation's example
 const cfgSupervised = () => (LIVE ? LIVE.supervised() : false);
@@ -376,7 +429,9 @@ $("cf-body").addEventListener("change", (e) => {
   const el = e.target;
   if (el.id === "cf-ts") { cfg.m.toolsetter = el.checked ? { x: 0, y: 0, z_above: 0, z_ref: 0, travel: 50 } : null; renderCfg(); return; }
   if (!el.dataset.path || !cfg.m) return;
+  const wasArm = cfg.m.type === "arm";
   cset(cfg.m, el.dataset.path, readField(el));
+  if (el.dataset.path === "type" && cfg.m.type === "arm" && !wasArm) cfgArmSeed();
   cfg.text = cfgText();
   if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
   if (el.dataset.path.startsWith("model") || el.dataset.path === "type" || el.dataset.path.startsWith("lathe")) mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry", cfgLathe());  // the view follows the form
@@ -386,7 +441,11 @@ $("cf-body").addEventListener("click", async (e) => {
   const t = e.target;
   if (t.id === "cf-addaxis") { const a = $("cf-newaxis").value; cfg.m.axes[a] = { min: 0, max: 100, max_vel: 50, max_acc: 500 }; renderCfg(); }
   if (t.dataset.rmaxis) { delete cfg.m.axes[t.dataset.rmaxis]; renderCfg(); }
-  if (t.id === "cf-addjoint") { const free = Object.keys(cfg.m.axes)[0] || "X"; (cfg.m.joints = cfg.m.joints || []).push({ axis: free, drive: { type: "sim" }, home: { method: "absolute", pos: 0, sequence: 0 } }); renderCfg(); }
+  if (t.id === "cf-addjoint") {
+    const free = Object.keys(cfg.m.axes)[0] || "X", home = { method: "absolute", pos: 0, sequence: 0 };
+    (cfg.m.joints = cfg.m.joints || []).push(cfg.m.type === "arm" ? { drive: { type: "sim" }, min: -170, max: 170, max_vel: 90, max_acc: 300, home } : { axis: free, drive: { type: "sim" }, home });
+    renderCfg();
+  }
   if (t.dataset.rmjoint) { cfg.m.joints.splice(+t.dataset.rmjoint, 1); renderCfg(); }
   if (t.id === "cf-bsup") $("cf-bsfile").click();
   if (t.id === "cf-mup") $("cf-mfile").click();
@@ -554,9 +613,14 @@ const cfgSim = (() => {
       let m; try { m = JSON.parse(text); } catch (e) { return ok({ errors: [["", "machine.json isn't JSON: " + e.message]], files: {} }); }
       const errs = [];
       if (!m.name) errs.push(["name", "a name"]);
-      for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
-      for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
-      if (m.type && !["gantry", "bridge", "lathe"].includes(m.type)) errs.push(["type", "gantry, bridge or lathe"]);
+      if (m.type === "arm") {
+        if (Object.keys(m.axes || {}).sort().join("") !== "ABCXYZ") errs.push(["axes", "an arm's: X Y Z A B C"]);
+        if (!(m.arm || {}).model) errs.push(["arm.model", "the arm's model file"]);
+      } else {
+        for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
+        for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
+      }
+      if (m.type && !["gantry", "bridge", "lathe", "arm"].includes(m.type)) errs.push(["type", "gantry, bridge, lathe or arm"]);
       if (m.type === "lathe") for (const a of Object.keys(m.axes || {})) if (!"XZ".includes(a)) errs.push([`axes.${a}`, "a lathe here has X and Z only"]);
       if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
