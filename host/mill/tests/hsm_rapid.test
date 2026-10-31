@@ -1,0 +1,27 @@
+# The HSM 400U's Siemens servos are wound for a 600 V DC link; on an stmbl
+# drive's ~325 V bus (230 V mains rectified) the voltage runs out at about
+# 1750 rpm: an X rapid (16 mm screw) at 28 m/min follows within 50 um, at
+# 34 m/min the drive can't and trips (position error). machine/hsm400u_380v.mill:
+# a 380 V bus does 34 m/min.
+@program mill/mill_sim
+@args mill/machine/hsm400u.mill
+@timeout 300
+lcnc 1
+run 0.3
+move 2.5 10 225 -100 0 0
+run 0.4
+trapfrac 0.1
+mark
+tmove 0.905 390 225 -100 0 0
+run 0.2
+print fault max_ferr_x
+move 2.5 10 225 -100 0 0
+run 0.4
+mark
+tmove 0.745 390 225 -100 0 0
+run 0.2
+print fault fault_code
+@expect mill.fault[1] == 0
+@expect mill.max_ferr_x < 50
+@expect mill.fault[2] == 1
+@expect mill.fault_code == 5

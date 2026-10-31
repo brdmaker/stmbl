@@ -1,0 +1,3 @@
+# simulation only: the EnDat absolute from the start, the scale too
+enc_fb0.sim_absolute = 1
+enc_fb1.sim_absolute = 1

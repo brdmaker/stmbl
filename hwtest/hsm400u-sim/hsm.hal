@@ -1,0 +1,70 @@
+# hwtest/hsm400u-sim: five joints on the simulated HSM 400U (stmbl_mill
+# runs the drives and the machine in the servo thread; their pins are a
+# drive's smart-serial pins, as hm2_*.stbl.*). xyzac-trt-kins' pivots and
+# tool as the machine file's trt line (trt 200 225 -250 0 80 100). A
+# sampler records every servo cycle while sampler.0.enable is set.
+loadrt [KINS]KINEMATICS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+loadrt stmbl_mill machine=[MILL]FILE lib=[MILL]LIB
+loadrt sampler depth=40000 cfg=ffffffffffffffffffs
+
+setp xyzac-trt-kins.x-rot-point 200
+setp xyzac-trt-kins.y-rot-point 225
+setp xyzac-trt-kins.z-rot-point -250
+setp xyzac-trt-kins.y-offset 0
+setp xyzac-trt-kins.z-offset 80
+setp xyzac-trt-kins.tool-offset 100
+
+addf motion-command-handler servo-thread
+addf motion-controller      servo-thread
+addf stmbl-mill.0           servo-thread
+addf sampler.0              servo-thread
+setp sampler.0.enable 0     # mill_run.py records while a program runs
+net j0-pos-cmd joint.0.motor-pos-cmd  => stmbl-mill.0.0.pos-cmd
+net j0-vel-cmd joint.0.vel-cmd        => stmbl-mill.0.0.vel-cmd
+net j0-pos-fb  stmbl-mill.0.0.pos-fb  => joint.0.motor-pos-fb
+net j0-enable  joint.0.amp-enable-out => stmbl-mill.0.0.enable
+net j0-fault   stmbl-mill.0.0.fault   => joint.0.amp-fault-in
+net j1-pos-cmd joint.1.motor-pos-cmd  => stmbl-mill.0.1.pos-cmd
+net j1-vel-cmd joint.1.vel-cmd        => stmbl-mill.0.1.vel-cmd
+net j1-pos-fb  stmbl-mill.0.1.pos-fb  => joint.1.motor-pos-fb
+net j1-enable  joint.1.amp-enable-out => stmbl-mill.0.1.enable
+net j1-fault   stmbl-mill.0.1.fault   => joint.1.amp-fault-in
+net j2-pos-cmd joint.2.motor-pos-cmd  => stmbl-mill.0.2.pos-cmd
+net j2-vel-cmd joint.2.vel-cmd        => stmbl-mill.0.2.vel-cmd
+net j2-pos-fb  stmbl-mill.0.2.pos-fb  => joint.2.motor-pos-fb
+net j2-enable  joint.2.amp-enable-out => stmbl-mill.0.2.enable
+net j2-fault   stmbl-mill.0.2.fault   => joint.2.amp-fault-in
+net j3-pos-cmd joint.3.motor-pos-cmd  => stmbl-mill.0.3.pos-cmd
+net j3-vel-cmd joint.3.vel-cmd        => stmbl-mill.0.3.vel-cmd
+net j3-pos-fb  stmbl-mill.0.3.pos-fb  => joint.3.motor-pos-fb
+net j3-enable  joint.3.amp-enable-out => stmbl-mill.0.3.enable
+net j3-fault   stmbl-mill.0.3.fault   => joint.3.amp-fault-in
+net j4-pos-cmd joint.4.motor-pos-cmd  => stmbl-mill.0.4.pos-cmd
+net j4-vel-cmd joint.4.vel-cmd        => stmbl-mill.0.4.vel-cmd
+net j4-pos-fb  stmbl-mill.0.4.pos-fb  => joint.4.motor-pos-fb
+net j4-enable  joint.4.amp-enable-out => stmbl-mill.0.4.enable
+net j4-fault   stmbl-mill.0.4.fault   => joint.4.amp-fault-in
+
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
+
+# the test's recording, one row per servo cycle (hsm_test.py's COLS)
+net j0-pos-cmd => sampler.0.pin.0
+net j1-pos-cmd => sampler.0.pin.1
+net j2-pos-cmd => sampler.0.pin.2
+net j3-pos-cmd => sampler.0.pin.3
+net j4-pos-cmd => sampler.0.pin.4
+net s-wx stmbl-mill.0.work-x => sampler.0.pin.5
+net s-wy stmbl-mill.0.work-y => sampler.0.pin.6
+net s-wz stmbl-mill.0.work-z => sampler.0.pin.7
+net s-fe0 joint.0.f-error => sampler.0.pin.8
+net s-fe1 joint.1.f-error => sampler.0.pin.9
+net s-fe2 joint.2.f-error => sampler.0.pin.10
+net s-fe3 joint.3.f-error => sampler.0.pin.11
+net s-fe4 joint.4.f-error => sampler.0.pin.12
+net s-i0 stmbl-mill.0.0.current => sampler.0.pin.13
+net s-i1 stmbl-mill.0.1.current => sampler.0.pin.14
+net s-i2 stmbl-mill.0.2.current => sampler.0.pin.15
+net s-i3 stmbl-mill.0.3.current => sampler.0.pin.16
+net s-i4 stmbl-mill.0.4.current => sampler.0.pin.17
+net s-mt motion.motion-type => sampler.0.pin.18

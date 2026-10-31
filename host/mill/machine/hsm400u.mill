@@ -1,0 +1,17 @@
+# Mikron HSM 400U (iTNC 520 era) retrofitted with stmbl drives, ROUGH: its
+# Siemens servos (EnDat) on stmbl drives' ~325 V bus (230 V mains rectified),
+# semi-closed loop: every axis on its motor's EnDat. Variants: _scales (the
+# glass scales close the position loops), _blend (blended in), _380v (a 380 V
+# bus). All numbers are estimates (hsm400u/*.conf, hsm400u/frame.inc).
+include hsm400u/frame.inc
+drive x hsm400u/1fk6.conf,hsm400u/x.conf hsm400u/sim.txt 16
+drive y hsm400u/1fk6.conf,hsm400u/y.conf hsm400u/sim.txt 16
+drive z hsm400u/1fk6.conf,hsm400u/z.conf hsm400u/sim.txt 16
+drive a hsm400u/1fk6.conf,hsm400u/a.conf hsm400u/sim.txt 3
+drive c hsm400u/1fk6.conf,hsm400u/c.conf hsm400u/sim.txt 4.5
+brake z
+rnoise x 0.5
+rnoise y 0.5
+rnoise z 0.5
+rnoise a 0.5
+rnoise c 0.5

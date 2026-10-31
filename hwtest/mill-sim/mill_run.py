@@ -10,7 +10,8 @@ while it runs (halsampler -> OUT/NAME.samples, columns as mill.hal's
 sampler pins, after halsampler's sample number), and OUT/NAME.json gets
 how it ended: done, or aborted with LinuxCNC's errors (a following error,
 a drive fault). After an abort the machine is switched on again and brought
-to the middle slowly before the next program. Then LinuxCNC shuts down.
+to the middle slowly (MILL_RECOVER: an MDI line) before the next program.
+Every joint LinuxCNC has is homed. Then LinuxCNC shuts down.
 """
 import json
 import os
@@ -54,12 +55,13 @@ def machine_on():
     if not wait(lambda s: s.task_state == linuxcnc.STATE_ON, 5):
         return False
     time.sleep(0.3)  # the drives enabled
-    if not all(poll().homed[j] for j in range(3)):
+    nj = poll().joints
+    if not all(poll().homed[j] for j in range(nj)):
         C.mode(linuxcnc.MODE_MANUAL)
         C.wait_complete()
         C.teleop_enable(0)
         C.home(-1)
-        if not wait(lambda s: all(s.homed[j] for j in range(3)), 10):
+        if not wait(lambda s: all(s.homed[j] for j in range(nj)), 10):
             return False
     return True
 
@@ -112,7 +114,7 @@ def run(path, out):
     if res["status"] != "done":  # back on, slowly to the middle
         time.sleep(0.5)
         if machine_on():
-            mdi("G90 G1 X350 Y215 Z-20 F3000")
+            mdi(os.environ.get("MILL_RECOVER", "G90 G1 X350 Y215 Z-20 F3000"))
     return res
 
 

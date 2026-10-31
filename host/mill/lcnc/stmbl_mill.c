@@ -19,6 +19,11 @@
  *   stmbl-mill.0.bridge-y            the bridge's sway on its columns [um]
  *   stmbl-mill.0.frame-x, .frame-y   the base on its feet [um]
  *   stmbl-mill.0.stop-hits           (s32) end stop hits
+ * A five-axis machine (drives a and c in the machine file, the HSM 400U):
+ * joints 3 (A) and 4 (C) too [deg], for xyzac-trt-kins, and
+ *   stmbl-mill.0.table-a, .table-c   the table's angles [deg]
+ *   stmbl-mill.0.work-x, .work-y, .work-z  the tool tip in the work's frame
+ *                                    (the machine file's trt line) [mm]
  */
 #include "rtapi.h"
 #include "rtapi_app.h"
@@ -45,8 +50,8 @@ typedef struct {
 } jpins_t;
 
 typedef struct {
-  jpins_t j[3];
-  hal_float_t *tool[3], *head[2], *bridge_y, *frame[2];
+  jpins_t j[MP_NAX];
+  hal_float_t *tool[3], *head[2], *bridge_y, *frame[2], *table[2], *work[3];
   hal_s32_t *stop_hits;
 } pins_t;
 
@@ -56,12 +61,12 @@ static double tnow = 0.0;  // the servo thread's time, as the core counts it
 
 static void update(void *arg, long period) {
   pins_t *p = arg;
-  for(int j = 0; j < 3; j++) {
+  for(int j = 0; j < mc_P.nax; j++) {
     mccore_set_cmd(j, *p->j[j].enable, *p->j[j].pos_cmd, *p->j[j].vel_cmd);
   }
   mccore_servo(period * 1e-9);
   tnow += period * 1e-9;
-  for(int j = 0; j < 3; j++) {
+  for(int j = 0; j < mc_P.nax; j++) {
     jpins_t *jp = &p->j[j];
     mc_drive *d = &mc_drv[j];
     *jp->pos_fb = mccore_fb(j);
@@ -78,12 +83,25 @@ static void update(void *arg, long period) {
   *p->head[0] = mc_P.hx * 1e6, *p->head[1] = mc_P.hy * 1e6;
   *p->bridge_y = mc_P.yb * 1e6;
   *p->frame[0] = mc_P.xf * 1e6, *p->frame[1] = mc_P.yf * 1e6;
-  *p->stop_hits = mc_P.hits[0] + mc_P.hits[1] + mc_P.hits[2];
+  int hits = 0;
+  for(int k = 0; k < mc_P.nax; k++) {
+    hits += mc_P.hits[k];
+  }
+  *p->stop_hits = hits;
+  if(mc_P.nax >= 5) {
+    double a[2], w[3];
+    mccore_angles(tnow, a);
+    mccore_work(tnow, w);
+    *p->table[0] = a[0], *p->table[1] = a[1];
+    for(int k = 0; k < 3; k++) {
+      *p->work[k] = w[k];
+    }
+  }
 }
 
 static int export_pins(void) {
   int r = 0;
-  for(int j = 0; j < 3 && !r; j++) {
+  for(int j = 0; j < mc_P.nax && !r; j++) {
     jpins_t *jp = &pins->j[j];
     r |= hal_pin_float_newf(HAL_IN, &jp->pos_cmd, comp_id, PREFIX ".%d.pos-cmd", j);
     r |= hal_pin_float_newf(HAL_IN, &jp->vel_cmd, comp_id, PREFIX ".%d.vel-cmd", j);
@@ -103,6 +121,13 @@ static int export_pins(void) {
   r |= hal_pin_float_newf(HAL_OUT, &pins->frame[0], comp_id, PREFIX ".frame-x");
   r |= hal_pin_float_newf(HAL_OUT, &pins->frame[1], comp_id, PREFIX ".frame-y");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->stop_hits, comp_id, PREFIX ".stop-hits");
+  if(mc_P.nax >= 5) {
+    r |= hal_pin_float_newf(HAL_OUT, &pins->table[0], comp_id, PREFIX ".table-a");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->table[1], comp_id, PREFIX ".table-c");
+    for(int k = 0; k < 3; k++) {
+      r |= hal_pin_float_newf(HAL_OUT, &pins->work[k], comp_id, PREFIX ".work-%c", "xyz"[k]);
+    }
+  }
   return r;
 }
 

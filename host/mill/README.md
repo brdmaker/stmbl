@@ -6,6 +6,9 @@ aluminium machine (DATRON-style: small tools, thin chips, high feeds):
 - **Axes:** ball screws driven by SEW CMP40M servos without their gearboxes.
 - **Spindle:** an ISO20 ATC spindle.
 
+**Five axes:** the same simulator runs a Mikron HSM 400U retrofit with its A/C trunnion through LinuxCNC's
+`xyzac-trt-kins` (`machine/hsm400u*.mill`, `hsm_runs.py`): see [HSM400U.md](HSM400U.md).
+
 The motor data comes from `conf/sew_cmp40m.txt` on the mill branch. The
 frame's numbers are estimates. Weigh the table, the X carriage and the Z
 slide, and tap-test the head and the bridge, then put the measured values
@@ -95,6 +98,8 @@ The full tables are in RESULTS.md. `econt` is the tool's distance from the comma
 | `mill_circle` | circles at 6 and 12 m/min, 2 kHz, within their limits |
 | `mill_lead`, `mill_lead_resolver` | the warm screw: 37 µm on the resolver, under 8 µm with the blended scale |
 | `mill_bandwidth` | vel_bw 1200: the Y screw mode goes unstable and trips |
+| `hsm_rtcp` | the HSM 400U: a tool-centre-point turn of the table and a five-axis line keep the tip within 10 / 15 um in the work; A holds its unbalance at 90 deg |
+| `hsm_rapid` | the HSM 400U's 600 V motors on stmbl's ~325 V bus: X at 28 m/min follows, at 34 m/min the drive trips |
 
 ## In LinuxCNC (lcnc/, hwtest/mill-sim)
 

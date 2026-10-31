@@ -14,7 +14,8 @@ void mp_defaults(mp_plant *p) {
   memset(p, 0, sizeof(*p));
   p->g = 9.81;
   p->vs = 1e-4;
-  for(int k = 0; k < 3; k++) {
+  p->nax = 3;
+  for(int k = 0; k < MP_NAX; k++) {
     p->p[k] = 0.01, p->jm[k] = 5e-5, p->ea[k] = 2.8e7, p->l0[k] = 0.1, p->ldir[k] = 1.0;
     p->ka[k] = 1.5e8, p->zeta[k] = 0.03;
     p->smin[k] = -1.0, p->smax[k] = 1.0;
@@ -23,6 +24,9 @@ void mp_defaults(mp_plant *p) {
 }
 
 double mp_kscrew(const mp_plant *p, int k) {
+  if(k >= MA) {  // a rotary axis' gear: no screw
+    return p->kt[k];
+  }
   double L = p->l0[k] + p->ldir[k] * p->s[k];
   L = L < 0.02 ? 0.02 : L;
   double ks = p->ea[k] / L;
@@ -43,12 +47,15 @@ static double fric(double c, double vis, double v, double vs) {  // the force op
 
 // the load each screw moves (for its damping)
 static double load_mass(const mp_plant *p, int k) {
+  if(k >= MA) {
+    return p->jl[k];
+  }
   return k == MX ? p->mc + p->mz + p->mh : k == MY ? p->mt : p->mz + p->mh;
 }
 
 void mp_step(mp_plant *p, const double *T, double dt) {
-  double a_s[3], a_w[3];
-  for(int k = 0; k < 3; k++) {
+  double a_s[MP_NAX], a_w[MP_NAX];
+  for(int k = 0; k < p->nax; k++) {
     double r = p->p[k] * (1.0 + p->lead[k]) / (2.0 * M_PI);  // m per rad, as the nut really moves
     double kk = mp_kscrew(p, k), c = mp_damp(kk, load_mass(p, k), p->zeta[k]);
     p->F[k] = kk * (p->phi[k] * r - p->s[k]) + c * (p->w[k] * r - p->v[k]);
@@ -78,13 +85,18 @@ void mp_step(mp_plant *p, const double *T, double dt) {
   double fgz = fric(p->fc[MZ], p->fv[MZ], p->v[MZ], p->vs);
   double az = (p->F[MZ] - fgz - (p->mz + p->mh) * p->g + p->cut[MZ]) / (p->mz + p->mh);
 
+  // the rotary axes: the gear's torque against friction and (A) the unbalance
+  for(int k = MA; k < p->nax; k++) {
+    double tg = k == MA ? -p->ub * p->g * sin(p->s[MA] + p->ub0) : 0.0;
+    a_s[k] = (p->F[k] - fric(p->fc[k], p->fv[k], p->v[k], p->vs) + tg) / p->jl[k];
+  }
   a_s[MX] = acx - afx;
   a_s[MY] = -(aty - afy);
   a_s[MZ] = az;
   double ayb = aby - afy, ahx_r = ahx - acx, ahy_r = ahy - aby;
 
   // semi-implicit Euler
-  for(int k = 0; k < 3; k++) {
+  for(int k = 0; k < p->nax; k++) {
     p->w[k] = p->brake[k] ? 0.0 : p->w[k] + a_w[k] * dt;
     p->phi[k] += p->w[k] * dt;
     p->v[k] += a_s[k] * dt, p->s[k] += p->v[k] * dt;

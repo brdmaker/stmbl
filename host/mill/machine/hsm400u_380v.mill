@@ -1,0 +1,15 @@
+# Mikron HSM 400U retrofit (hsm400u.mill) on a stiff 380 V bus
+# (hsm400u/sim380.txt; hsm400u/bus380.conf raises the drive's over-voltage
+# limits): about the most an stmbl HV board takes. Estimates throughout.
+include hsm400u/frame.inc
+drive x hsm400u/1fk6.conf,hsm400u/x.conf,hsm400u/bus380.conf hsm400u/sim380.txt 16
+drive y hsm400u/1fk6.conf,hsm400u/y.conf,hsm400u/bus380.conf hsm400u/sim380.txt 16
+drive z hsm400u/1fk6.conf,hsm400u/z.conf,hsm400u/bus380.conf hsm400u/sim380.txt 16
+drive a hsm400u/1fk6.conf,hsm400u/a.conf,hsm400u/bus380.conf hsm400u/sim380.txt 3
+drive c hsm400u/1fk6.conf,hsm400u/c.conf,hsm400u/bus380.conf hsm400u/sim380.txt 4.5
+brake z
+rnoise x 0.5
+rnoise y 0.5
+rnoise z 0.5
+rnoise a 0.5
+rnoise c 0.5

@@ -15,14 +15,20 @@
 #define SUB 10
 
 
-mc_drive mc_drv[3];
+mc_drive mc_drv[MP_NAX];
+mc_trt_t mc_trt;
 mp_plant mc_P;
 double mc_servo_t = 0.001;
 long mc_ticks = 0;
 static char libpath[1024], dir[1024] = ".";
 #define NEED_OFF 5
 static int need_off = NEED_OFF;
-static const char *axname = "xyz";
+static const char *axname = "xyzac";
+#define NAX (mc_P.nax)
+// LinuxCNC's units per plant unit: mm per m, degrees per rad
+static double unit(int k) {
+  return k >= MA ? 180.0 / M_PI : 1000.0;
+}
 
 // --- the drives --------------------------------------------------------------
 
@@ -152,12 +158,12 @@ static double gauss(void) {  // Box-Muller, fixed seed: runs repeat
 
 // what LinuxCNC's scale (or the motor's feedback) reads: mm
 double mccore_scale(int k) {
-  return mc_P.s[k] * 1000.0;
+  return mc_P.s[k] * unit(k);
 }
 
 static void tick(int servo) {
-  double T[3] = {0};
-  for(int k = 0; k < 3; k++) {
+  double T[MP_NAX] = {0};
+  for(int k = 0; k < NAX; k++) {
     mc_drive *d = &mc_drv[k];
     double g = 2.0 * M_PI / mc_P.p[k];
     *d->sim_pos = (float)wrap(mc_P.phi[k] + (d->rnoise > 0 ? d->rnoise * gauss() : 0.0));
@@ -180,7 +186,7 @@ static void tick(int servo) {
     mc_P.brake[k] = d->has_brake && !(d->brake && *d->brake > 0.0f);
   }
   if(servo && need_off && --need_off == 0) {  // absolute positions: LinuxCNC's offset
-    for(int k = 0; k < 3; k++) {
+    for(int k = 0; k < NAX; k++) {
       mc_drv[k].off = mccore_scale(k) - mc_drv[k].pd.pos_fb;
     }
   }
@@ -199,7 +205,7 @@ void mccore_servo(double period) {
   static double last = 0.0;
   if(period != last) {  // the drives' command interpolation (vel_int mode 1) needs the packet rate
     last = period;
-    for(int k = 0; k < 3; k++) {
+    for(int k = 0; k < NAX; k++) {
       float *f = mc_drv[k].on ? mc_drv[k].pin("vel_int0.cmd_freq") : NULL;
       if(f) {
         *f = (float)(1.0 / period);
@@ -235,6 +241,40 @@ int mccore_synced(void) {
   return !need_off;
 }
 
+void mccore_angles(double t, double out[2]) {
+  double dt = mc_ticks * RT - t;
+  for(int i = 0; i < 2; i++) {
+    out[i] = NAX > MA + i ? (mc_P.s[MA + i] - mc_P.v[MA + i] * dt) * 180.0 / M_PI : 0.0;
+  }
+}
+
+void mccore_trt_fwd(const double *j, double out[3]) {
+  const mc_trt_t *k = &mc_trt;
+  double a = j[3] * M_PI / 180.0, c = j[4] * M_PI / 180.0, dy = k->dy, dz = k->dz + k->tool;
+  double X = j[0] - k->xr, Y = j[1] - dy - k->yr, Z = j[2] - dz - k->zr;
+  out[0] = cos(c) * X + sin(c) * cos(a) * Y + sin(c) * sin(a) * Z + sin(c) * dy + k->xr;
+  out[1] = -sin(c) * X + cos(c) * cos(a) * Y + cos(c) * sin(a) * Z + cos(c) * dy + k->yr;
+  out[2] = -sin(a) * Y + cos(a) * Z + dz + k->zr;
+}
+
+void mccore_trt_inv(const double *w, double a_deg, double c_deg, double *j) {
+  const mc_trt_t *k = &mc_trt;
+  double a = a_deg * M_PI / 180.0, c = c_deg * M_PI / 180.0, dy = k->dy, dz = k->dz + k->tool;
+  double X = w[0] - k->xr, Y = w[1] - k->yr, Z = w[2] - k->zr;
+  j[0] = cos(c) * X - sin(c) * Y + k->xr;
+  j[1] = sin(c) * cos(a) * X + cos(c) * cos(a) * Y - sin(a) * Z - cos(a) * dy + sin(a) * dz + dy + k->yr;
+  j[2] = sin(c) * sin(a) * X + cos(c) * sin(a) * Y + cos(a) * Z - sin(a) * dy - cos(a) * dz + dz + k->zr;
+  j[3] = a_deg, j[4] = c_deg;
+}
+
+void mccore_work(double t, double out[3]) {
+  double j[5], ang[2];
+  mccore_tool(t, j);
+  mccore_angles(t, ang);
+  j[3] = ang[0], j[4] = ang[1];
+  mccore_trt_fwd(j, out);
+}
+
 void mccore_tool(double t, double out[3]) {
   mp_tool(&mc_P, out);
   double dt = mc_ticks * RT - t, v[3] = {mc_P.v[MX] + mc_P.vhx, mc_P.v[MY] + mc_P.vyb + mc_P.vhy, mc_P.v[MZ]};
@@ -247,14 +287,16 @@ double mccore_fb(int k) {
   return mc_drv[k].pd.pos_fb + mc_drv[k].off;
 }
 
-void mccore_home(double X, double Y, double Z) {
-  double h[3] = {X, Y, Z};
-  for(int k = 0; k < 3; k++) {
-    mc_P.s[k] = h[k] / 1000.0, mc_P.v[k] = 0;
+void mccore_home(const double *h) {
+  for(int k = 0; k < NAX; k++) {
+    mc_P.s[k] = h[k] / unit(k), mc_P.v[k] = 0;
     mc_P.phi[k] = mc_P.s[k] * 2.0 * M_PI / (mc_P.p[k] * (1.0 + mc_P.lead[k])), mc_P.w[k] = 0;
   }
   // Z hangs on its screw: stretch it by its weight, so it starts at rest
   mc_P.phi[MZ] += (mc_P.mz + mc_P.mh) * mc_P.g / mp_kscrew(&mc_P, MZ) * 2.0 * M_PI / mc_P.p[MZ];
+  if(NAX > MA && mc_P.kt[MA] > 0) {  // A hangs on its gear with its unbalance
+    mc_P.phi[MA] -= mc_P.ub * mc_P.g * sin(mc_P.s[MA] + mc_P.ub0) / mc_P.kt[MA] * 2.0 * M_PI / mc_P.p[MA];
+  }
   mc_P.xf = mc_P.vxf = mc_P.yf = mc_P.vyf = mc_P.yb = mc_P.vyb = mc_P.hx = mc_P.vhx = mc_P.hy = mc_P.vhy = 0;
   need_off = NEED_OFF;
 }
@@ -275,7 +317,7 @@ static int nums(const char *s, double *v, int max) {
 }
 
 int mccore_axis(const char *s) {
-  return !strcmp(s, "x") ? MX : !strcmp(s, "y") ? MY : !strcmp(s, "z") ? MZ : -1;
+  return !strcmp(s, "x") ? MX : !strcmp(s, "y") ? MY : !strcmp(s, "z") ? MZ : !strcmp(s, "a") ? MA : !strcmp(s, "c") ? MC : -1;
 }
 
 static double hz2k(double m, double f) {
@@ -283,7 +325,7 @@ static double hz2k(double m, double f) {
   return m * w * w;
 }
 
-static double home_at[3];
+static double home_at[MP_NAX];
 static int loading = 0;
 
 int mccore_line(char *line) {
@@ -331,17 +373,27 @@ int mccore_line(char *line) {
     }
     snprintf(cp, sizeof(cp), "%s", conf);  // relative names: drive_open
     rel_path(sp, sizeof(sp), sim);
-    mc_P.p[k] = v[0] / 1000.0;
+    mc_P.p[k] = v[0] / unit(k);  // a rotary axis: rad a motor turn
+    if(k >= MA) {  // no end stops unless a stroke line sets them
+      mc_P.smin[k] = -1e6, mc_P.smax[k] = 1e6;
+    }
     mc_drv[k].pd.scale = v[0];
     return drive_open(&mc_drv[k], cp, sp) == 0;
   }
-  if(!strcmp(kw, "screw") && k >= 0 && nums(q, v, 8) == 6) {
+  if(!strcmp(kw, "rotary") && k >= MA && nums(q, v, 8) == 4) {
+    mc_P.jm[k] = v[0], mc_P.kt[k] = v[1], mc_P.jl[k] = v[2], mc_P.zeta[k] = v[3];
+  } else if(!strcmp(kw, "unbalance") && nums(p, v, 8) == 2) {
+    mc_P.ub = v[0], mc_P.ub0 = v[1] * M_PI / 180.0;
+  } else if(!strcmp(kw, "trt") && nums(p, v, 8) >= 5) {
+    mc_trt.xr = v[0], mc_trt.yr = v[1], mc_trt.zr = v[2], mc_trt.dy = v[3], mc_trt.dz = v[4];
+    mc_trt.tool = nums(p, v, 8) >= 6 ? v[5] : 0.0;
+  } else if(!strcmp(kw, "screw") && k >= 0 && k < MA && nums(q, v, 8) == 6) {
     mc_P.jm[k] = v[0], mc_P.ea[k] = v[1], mc_P.l0[k] = v[2], mc_P.ldir[k] = v[3], mc_P.ka[k] = v[4], mc_P.zeta[k] = v[5];
   } else if(!strcmp(kw, "fric") && k >= 0 && nums(q, v, 8) == 4) {
     mc_P.tc[k] = v[0], mc_P.tv[k] = v[1], mc_P.fc[k] = v[2], mc_P.fv[k] = v[3];
   } else if(!strcmp(kw, "stroke") && k >= 0 && nums(q, v, 8) == 2) {
-    mc_P.smin[k] = v[0] / 1000.0, mc_P.smax[k] = v[1] / 1000.0;
-  } else if(!strcmp(kw, "scale") && k >= 0 && nums(q, v, 8) >= 1) {
+    mc_P.smin[k] = v[0] / unit(k), mc_P.smax[k] = v[1] / unit(k);
+  } else if(!strcmp(kw, "scale") && k >= 0 && k < MA && nums(q, v, 8) >= 1) {
     mc_drv[k].scale_res = v[0] * 1e-6;
     mc_drv[k].scale_noise = nums(q, v, 8) >= 2 ? v[1] * 1e-6 : 0.0;
     if(!mc_drv[k].on || !(mc_drv[k].scale_pos = mc_drv[k].pin("enc_fb1.sim_pos")) || !(mc_drv[k].scale_abs = mc_drv[k].pin("enc_fb1.sim_abs_pos"))) {
@@ -379,10 +431,11 @@ int mccore_line(char *line) {
     latency = v[0] * 1e-6;
   } else if(!strcmp(kw, "servo") && nums(p, v, 8) == 1 && v[0] > 0) {
     mc_servo_t = v[0] / 1000.0;
-  } else if(!strcmp(kw, "home") && nums(p, v, 8) == 3) {  // while loading: once the pitches are known
-    memcpy(home_at, v, sizeof(home_at));
+  } else if(!strcmp(kw, "home") && (nums(p, v, 8) == 3 || nums(p, v, 8) == 5)) {  // while loading: once the pitches are known
+    memset(home_at, 0, sizeof(home_at));
+    memcpy(home_at, v, nums(p, v, 8) * sizeof(double));
     if(!loading) {
-      mccore_home(v[0], v[1], v[2]);
+      mccore_home(home_at);
     }
   } else if(!strcmp(kw, "cut") && nums(p, v, 8) == 3) {
     mc_P.cut[0] = v[0], mc_P.cut[1] = v[1], mc_P.cut[2] = v[2];
@@ -418,7 +471,18 @@ int mccore_load(const char *file, const char *lib) {
   }
   loading = 0;
   free(text);
-  mccore_home(home_at[0], home_at[1], home_at[2]);
+  if(!rc && mc_drv[MA].on != mc_drv[MC].on) {
+    fprintf(stderr, "mill_sim: %s: a five-axis machine has drives a and c\n", file);
+    rc = -1;
+  }
+  mc_P.nax = mc_drv[MA].on && mc_drv[MC].on ? 5 : 3;
+  for(int k = MA; k < mc_P.nax && !rc; k++) {
+    if(mc_P.kt[k] <= 0 || mc_P.jl[k] <= 0) {
+      fprintf(stderr, "mill_sim: %s: rotary %c: its stiffness and inertia (a rotary line)\n", file, axname[k]);
+      rc = -1;
+    }
+  }
+  mccore_home(home_at);
   for(int k = 0; k < 3 && !rc; k++) {
     if(!mc_drv[k].on) {
       fprintf(stderr, "mill_sim: %s: drive %c missing\n", file, axname[k]);

@@ -20,6 +20,14 @@
  * it changes with position) in series with the nut, the bearing and the
  * coupling. The reactions go into the base (X: through the rigid bridge).
  *
+ * Rotary axes (a five-axis machine, MA MC: a trunnion's tilt A about X and
+ * the rotary table C on it): the motor turns the axis through a gear
+ * (p: axis rad per motor turn), its output twists by the drive train's
+ * torsional stiffness kt; jl is what turns (A: the trunnion with the C
+ * table and the work), ub the A side's unbalance (m e, the centre of mass
+ * off the axis at ub0 from straight down). Their reactions on the base are
+ * left out. s[MA], s[MC] are the axes' angles [rad].
+ *
  * Positions: s[] are the loads relative to the base along the scales
  * (machine coordinates without compliance): s[MX] carriage, s[MY] machine
  * Y (= minus the table's travel), s[MZ] the Z slide, up positive. The tool
@@ -29,20 +37,23 @@
 #ifndef MPLANT_H
 #define MPLANT_H
 
-enum { MX, MY, MZ };
+enum { MX, MY, MZ, MA, MC, MP_NAX };
 
 typedef struct {
-  // screw drives, per axis
-  double p[3];               // pitch [m] (one motor turn)
-  double lead[3];            // the nut's real travel per turn / p - 1: lead error, a warm screw
-  double jm[3];              // motor side: rotor, coupling, screw [kg m^2]
-  double ea[3];              // the screw's E A [N]
-  double l0[3], ldir[3];     // nut distance from the fixed bearing at s = 0 [m], +1/-1 as s grows
-  double ka[3];              // nut, bearing, coupling in series [N/m]
-  double zeta[3];            // screw mode damping ratio
-  double tc[3], tv[3];       // motor side friction: Coulomb [Nm], viscous [Nm s/rad]
-  double fc[3], fv[3];       // guide friction on the load: Coulomb [N], viscous [N s/m]
-  double smin[3], smax[3];   // end stops [m]
+  int nax;                   // 3 (X Y Z) or 5 (and A C)
+  // screw drives (rotary axes: gears), per axis
+  double p[MP_NAX];          // pitch [m] (one motor turn); a rotary axis: [rad] a motor turn
+  double lead[MP_NAX];       // the nut's real travel per turn / p - 1: lead error, a warm screw
+  double jm[MP_NAX];         // motor side: rotor, coupling, screw [kg m^2]
+  double ea[MP_NAX];         // the screw's E A [N]
+  double l0[MP_NAX], ldir[MP_NAX];  // nut distance from the fixed bearing at s = 0 [m], +1/-1 as s grows
+  double ka[MP_NAX];         // nut, bearing, coupling in series [N/m]
+  double zeta[MP_NAX];       // screw (gear) mode damping ratio
+  double tc[MP_NAX], tv[MP_NAX];  // motor side friction: Coulomb [Nm], viscous [Nm s/rad]
+  double fc[MP_NAX], fv[MP_NAX];  // guide friction on the load: Coulomb [N], viscous [N s/m]; rotary [Nm], [Nm s/rad]
+  double smin[MP_NAX], smax[MP_NAX];  // end stops [m] / [rad]
+  double kt[MP_NAX], jl[MP_NAX];  // rotary: the drive train's torsional stiffness at the axis [Nm/rad], what turns [kg m^2]
+  double ub, ub0;            // A's unbalance [kg m] and its angle from straight down at A 0 [rad]
   // bodies
   double mf;                 // base (with what is rigid on it)
   double kfx, cfx, kfy, cfy; // feet
@@ -58,16 +69,16 @@ typedef struct {
   double vs;                 // Coulomb regularization speed [m/s]
 
   // state
-  double phi[3], w[3];       // motor angle [rad] (unwrapped), speed [rad/s]
-  double s[3], v[3];         // loads along the scales [m], [m/s]
+  double phi[MP_NAX], w[MP_NAX];  // motor angle [rad] (unwrapped), speed [rad/s]
+  double s[MP_NAX], v[MP_NAX];    // loads along the scales [m], [m/s]; rotary [rad], [rad/s]
   double xf, vxf, yf, vyf;   // base on its feet (absolute)
   double yb, vyb;            // bridge relative to the base
   double hx, vhx, hy, vhy;   // head tip relative to the carriage / bridge
   double cut[3];             // force on the tool from the work [N] (reaction on the table)
-  int brake[3];              // the motor's holding brake grips: the rotor stands
-  double F[3];               // screw forces, last step [N]
-  double acc[3];             // load accelerations along the scales, last step
-  int hits[3];
+  int brake[MP_NAX];         // the motor's holding brake grips: the rotor stands
+  double F[MP_NAX];          // screw forces, last step [N] (rotary: torques [Nm])
+  double acc[MP_NAX];        // load accelerations along the scales, last step
+  int hits[MP_NAX];
 } mp_plant;
 
 void mp_defaults(mp_plant *p);
@@ -76,7 +87,7 @@ double mp_damp(double k, double m, double zeta);
 double mp_kscrew(const mp_plant *p, int k);
 // head stiffness at the Z slide's position
 void mp_khead(const mp_plant *p, double *kx, double *ky);
-// advance by dt with motor torques T[3] [Nm]
+// advance by dt with motor torques T[nax] [Nm]
 void mp_step(mp_plant *p, const double *T, double dt);
 // the tool relative to the work, machine axes [m]
 void mp_tool(const mp_plant *p, double out[3]);

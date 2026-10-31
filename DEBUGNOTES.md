@@ -3454,3 +3454,25 @@ Entry format:
   Not isolated further (current mode, so not the voltage-mode clamp).
 - Fix:     momentum: 0.6 s moves, and it now checks for no fault. move:
   econt < 150; racking: far rail < 1.1 (the near rail > 1.25 unchanged).
+
+## 2026-10-31  HSM 400U sim: 600 V motors on stmbl's bus run out of voltage
+- Area:    host/mill (machine/hsm400u*), hwtest/hsm400u-sim
+- Status:  Note (simulated, guessed motor data)
+- Symptom: the simulated HSM 400U's X rapid follows at 28 m/min, lags a
+  quarter millimetre at 30 and trips (position error) from 32 m/min; C's
+  90 deg in 1 s (169 deg/s peak) trips too.
+- Cause:   its Siemens servos are wound for a 600 V DC link (kE ~330 V at
+  3000 rpm, guessed); stmbl's bus is ~325 V (230 V mains rectified), so the
+  voltage runs out at ~1750 rpm.
+- Fix:     none in software: plan the rapids for it (28 m/min, A 85 / C
+  125 deg/s as hwtest/hsm400u-sim's joint limits) or a 380 V bus (~36 m/min;
+  the drive's conf0.high_dc_volt / max_dc_volt must be raised, else it
+  scales its current to nothing: hsm400u/bus380.conf). The real kE (motor
+  nameplate) decides.
+
+## 2026-10-31  mill_sim scripts: the test runner's indexes are 1-based
+- Area:    host/tests/run_tests.py (PIN[n] in @expect)
+- Status:  Note
+- Symptom: new tests compared the wrong printed value.
+- Cause:   PIN[1] is the first value printed, PIN (no index) the last.
+- Fix:     wrote them 1-based.

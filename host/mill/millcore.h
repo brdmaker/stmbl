@@ -43,6 +43,17 @@
  *                                    stands unless fault0.mot_brake releases it
  *   rnoise x|y|z LSB                 motor feedback noise, rms in counts of
  *                                    enc_fb0.res (a resolver's jitter)
+ * A five-axis machine (drives a and c too: the trunnion's tilt about X and
+ * the rotary table on it; LinuxCNC's xyzac-trt-kins). Angles in degrees:
+ *   drive a|c CONF SIM DEG           DEG: the axis' degrees a motor turn (360 / the gear ratio)
+ *   rotary a|c JM KT JL ZETA         motor side inertia [kg m^2], the drive train's torsional
+ *                                    stiffness at the axis [Nm/rad], what turns [kg m^2], damping
+ *   fric a|c TC TV FC FV             as above; FC [Nm], FV [Nm s/rad] at the axis
+ *   stroke a|c MIN MAX               [deg]
+ *   unbalance ME OFF                 A's unbalance m e [kg m], its angle from straight down [deg]
+ *   trt XR YR ZR DY DZ [TOOL]        xyzac-trt-kins' x/y/z-rot-point, y/z-offset, tool-offset [mm]:
+ *                                    the work frame the tool is judged in (mccore_work)
+ *   home X Y Z [A C]
  *   servo MS                         LinuxCNC's servo period [ms] (1, 0.5, ...)
  *   latency US                       the packet's way from LinuxCNC into the drive
  *                                    (50 us); it is taken at the next rt cycle
@@ -75,7 +86,7 @@ typedef struct {
   int on;
 } mc_drive;
 
-extern mc_drive mc_drv[3];  // MX, MY, MZ
+extern mc_drive mc_drv[MP_NAX];  // MX, MY, MZ (, MA, MC)
 extern mp_plant mc_P;
 extern double mc_servo_t;   // the machine file's servo period [s] (mill_sim's; LinuxCNC has its own)
 extern long mc_ticks;       // rt cycles run
@@ -84,8 +95,8 @@ extern long mc_ticks;       // rt cycles run
 // 0, or -1 with a message on stderr.
 int mccore_load(const char *file, const char *lib);
 int mccore_line(char *line);  // one machine line: 1 if understood
-int mccore_axis(const char *s);  // "x" "y" "z" -> MX MY MZ, else -1
-void mccore_home(double X, double Y, double Z);  // at rest there [mm]
+int mccore_axis(const char *s);  // "x" "y" "z" "a" "c" -> MX MY MZ MA MC, else -1
+void mccore_home(const double *h);  // at rest there [mm, deg] (nax values)
 
 // LinuxCNC's side, axis k: enable, position [mm], velocity [mm/s]
 void mccore_set_cmd(int k, int en, double pos, double vel);
@@ -98,5 +109,18 @@ void mccore_servo(double period);
 // the tool relative to the work at LinuxCNC's time t [s] (the plant moved
 // back along its velocity from the last rt cycle) [mm]
 void mccore_tool(double t, double out[3]);
+// the rotary axes' angles at time t [deg] (A, C; 0 on a three-axis machine)
+void mccore_angles(double t, double out[2]);
+
+// xyzac-trt-kins (LinuxCNC 2.9 trtfuncs.c), its parameters from the machine's trt line [mm]
+typedef struct {
+  double xr, yr, zr, dy, dz, tool;
+} mc_trt_t;
+extern mc_trt_t mc_trt;
+// joints X Y Z [mm] A C [deg] -> the tool tip in the work's frame [mm], and back
+void mccore_trt_fwd(const double *j, double out[3]);
+void mccore_trt_inv(const double *w, double a, double c, double *j);
+// the tool tip at time t in the work's frame (the simulated tool and table angles) [mm]
+void mccore_work(double t, double out[3]);
 
 #endif
