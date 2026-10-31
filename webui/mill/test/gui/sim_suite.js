@@ -1046,8 +1046,27 @@ test("arm (simulation, the ARC Mate with its tool changer): the 3D arm, joints, 
   await t.until(() => st.run === "run");
   await ffwd(t, await t.ev(() => prog.total * 0.45));
   t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q).xyz; return Math.hypot(p[0] - st.pos.x, p[1] - st.pos.y, p[2] - st.pos.z) < 0.05 && !ARM.reach; }), "running: the 3D arm's tool point on the program's");
+  // its A B C: the tilt (B 30, then C 45) by IK, the tool point kept
+  await ffwd(t, await t.ev(() => { const s = prog.segs.find((x) => x.abc && x.abc[1] === 30 && x.abc[2] === 45); return s.t0 + s.t * 0.4; }));
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q); return Math.abs(p.abc[1] - 30) < 0.05 && ARM.abc[2] > 5 && ARM.abc[2] < 45 && Math.abs(p.abc[2] - ARM.abc[2]) < 0.05 && Math.hypot(p.xyz[0] - 700, p.xyz[2] - 1100) < 0.05; }, null, 5000), "the program's B30 then C to 45: the 3D arm tilted, turning, its tool point kept");
   await ffwd(t, await t.ev(() => prog.total - 0.2));
   t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  t.check(await t.ev(() => ARM.abc.every((x) => Math.abs(x) < 1e-6) && /0\.000°/.test($("d-b").textContent)), "upright again at its end");
+  // MDI: a move with B; then the TOOL frame: +Z along the tilted tool, a turn about it
+  await t.click("#st-mdi");
+  await t.page.fill("#mdi", "G1 X700 Y0 Z1100 B30 F6000"); await t.page.press("#mdi", "Enter");
+  t.check(await t.until(() => st.run === "idle" && Math.abs(ARM.abc[1] - 30) < 1e-6 && Math.abs(ARMMODEL.pose(ARM.v, ARM.q).abc[1] - 30) < 0.01 && Math.abs(st.pos.z - 1100) < 0.01, null, 15000), "MDI G1 … B30: the arm there, tilted");
+  await t.page.fill("#mdi", "G1 X5000 F6000"); await t.page.press("#mdi", "Enter");
+  t.check(await t.msgHas("out of the arm's reach"), "MDI out of reach: refused");
+  await t.click("#st-jog");
+  await t.click('#armpad-frame button[data-f="tool"]');
+  t.check(await t.until(() => $("arm-jmode").textContent === "tool frame" && !!document.querySelector('#armpad button[data-ax="tz"]')), "the TOOL frame: its pad");
+  await t.page.locator('#armpad button[data-ax="tz"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => Math.abs(st.pos.x - 705) < 0.01 && Math.abs(st.pos.z - 1100 - 10 * Math.cos(Math.PI / 6)) < 0.01), "tool +Z 10: along the tilted tool (X +5, Z +8.66)");
+  const p0 = await t.ev(() => [st.pos.x, st.pos.y, st.pos.z]);
+  await t.page.locator('#armpad button[data-ax="tc"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until((p) => { const P = ARMMODEL.pose(ARM.v, ARM.q), want = ARMMODEL.mul(ARMMODEL.rpy(0, Math.PI / 6, 0), ARMMODEL.rpy(0, 0, Math.PI / 18));
+    return Math.hypot(P.xyz[0] - p[0], P.xyz[1] - p[1], P.xyz[2] - p[2]) < 0.01 && [0, 1, 2, 4, 5, 6, 8, 9, 10].every((i) => Math.abs(P.M[i] - want[i]) < 1e-4); }, p0), "tool C +10: a turn about the tool's own Z, the tool point kept");
   // the tool changer, Record point
   await t.nav("tool");
   t.check(await t.until(() => document.querySelectorAll("#tl-arm tr[data-armtool]").length === 2), "the Tools page: the changer's two tools");

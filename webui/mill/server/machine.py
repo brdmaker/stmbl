@@ -17,6 +17,37 @@ import time
 
 AXES = "XYZABCUVW"
 # kinematics of an arm: its joints are not axes (millweb: machine type "arm")
+def axis_rot(i, deg):
+    """3x3 rotation about x (0), y (1) or z (2) by deg"""
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    return [[[1, 0, 0], [0, c, -s], [0, s, c]], [[c, 0, s], [0, 1, 0], [-s, 0, c]], [[c, -s, 0], [s, c, 0], [0, 0, 1]]][i]
+
+
+def mat_mul(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(3)) for c in range(3)] for r in range(3)]
+
+
+def rpy_matrix(a, b, c):
+    """an arm's A B C [deg] as genserkins: R = Rz(C) Ry(B) Rx(A)"""
+    return mat_mul(axis_rot(2, c), mat_mul(axis_rot(1, b), axis_rot(0, a)))
+
+
+def rpy_of(R):
+    """R's A B C [deg] (shared/robot/kin.c rb_rpy_from_R)"""
+    cb = math.hypot(R[0][0], R[1][0])
+    b = math.atan2(-R[2][0], cb)
+    if cb > 1e-9:
+        a, c = math.atan2(R[2][1], R[2][2]), math.atan2(R[1][0], R[0][0])
+    else:
+        a, c = 0.0, math.atan2(-R[0][1], R[1][1])
+    return [math.degrees(a), math.degrees(b), math.degrees(c)]
+
+
+def unwrap_deg(x, ref):
+    """x moved by whole turns to within 180° of ref (LinuxCNC moves A B C the way the numbers go)"""
+    return x + 360.0 * round((ref - x) / 360.0)
+
+
 ARM_KINS = ("genserkins", "armkins", "pumakins", "scarakins", "genhexkins", "pentakins", "rosekins", "5axiskins")
 ARM_PINS = {  # what the console shows of an arm, if loaded (linuxcnc/armguard, armcollide, armgrip, armtool, powerquota)
     "guard": ("armguard.0.", ("state", "reason", "clearance")),
@@ -569,7 +600,7 @@ class Machine:
                 "axm": [round(s.actual_position[i], 4) for i in ix],
                 "j": [round(j["input"], 4) for j in js], "jh": [bool(j["homed"]) for j in js],
                 "jfe": [round(j["ferror_current"], 5) for j in js],
-                "jmode": "world" if s.motion_mode == self.lc.TRAJ_MODE_TELEOP else "joint"}
+                "jmode": {self.lc.TRAJ_MODE_TELEOP: "world", self.lc.TRAJ_MODE_FREE: "joint"}.get(s.motion_mode, "coord")}
 
     def slow(self):
         out = {"pins": {p: self._pin(p) for p in self.pins}}
@@ -775,8 +806,12 @@ class Machine:
 
     def _jog_target(self, axis):
         """(joint jog, index): "J3" a joint (joint mode: an arm's, or any machine's before homing); "X".."W" an
-        axis the machine has (world mode)."""
+        axis the machine has (world mode); "TX".."TC" an arm's tool frame ("tool", 0..5)."""
         a = str(axis).upper()
+        if re.match(r"^T[XYZABC]$", a):
+            if not self.arm:
+                raise ValueError("no tool frame: not an arm")
+            return "tool", "XYZABC".index(a[1])
         if re.match(r"^J\d+$", a):
             j = int(a[1:])
             if not 0 <= j < self.njoints:
@@ -807,6 +842,8 @@ class Machine:
             joint, a = self._jog_target(axis)
         except ValueError as e:
             return str(e)
+        if joint == "tool":
+            return self._jog_tool(a, direction, inc, rate)
         err = self._ready(need_homed=not joint)
         if err:
             return err
@@ -833,9 +870,55 @@ class Machine:
         except ValueError as e:
             return str(e)
         for joint, a in keys:
+            if joint == "tool":  # a tool-frame jog is an MDI move: abort it
+                if self.jog_active.pop((joint, a), None):
+                    self.cu.abort()
+                continue
             self.cu.jog(self.lc.JOG_STOP, joint, a)
             self.jog_active.pop((joint, a), None)
         return None
+
+    TOOL_JOG_TURN = 45.0  # a held tool-frame rotation: at most this far [deg] in one move
+
+    def _jog_tool(self, k, direction, inc, rate):
+        """An arm's jog in its tool frame (k: 0..2 along the tool's X Y Z, 3..5 about them), as one G53 G1 MDI move
+        from the commanded pose: inc > 0 that far [mm or deg]; inc == 0 (held) to the axes' limits along the line
+        (a rotation: TOOL_JOG_TURN), stopped by jog_stop (abort) or the deadman. LinuxCNC interpolates A B C
+        linearly: a rotation keeps the tool point, its path between the ends is the A B C line's."""
+        err = self._ready()
+        if err:
+            return err
+        self.ws.poll()
+        p = list(self.ws.position[:6])
+        R = rpy_matrix(*p[3:6])
+        s = 1.0 if direction > 0 else -1.0
+        xyz, abc = p[:3], p[3:6]
+        if k < 3:
+            u = [R[r][k] * s for r in range(3)]
+            d = float(inc) if inc > 0 else self._reach_along(xyz, u)
+            if d <= 1e-6:
+                return "the tool %s%s: at the axes' limits" % ("+" if s > 0 else "-", "XYZ"[k])
+            xyz = [xyz[r] + u[r] * d for r in range(3)]
+        else:
+            ang = float(inc) if inc > 0 else self.TOOL_JOG_TURN
+            R2 = mat_mul(R, axis_rot(k - 3, s * ang))
+            abc = [unwrap_deg(x, ref) for x, ref in zip(rpy_of(R2), abc)]
+        words = dict(zip("XYZABC", xyz + abc))
+        line = "G53 G1 " + " ".join("%s%.4f" % (a, words[a]) for a in self.axes if a in words) + " F%.1f" % max(1.0, abs(rate))
+        err = self.mdi(line)
+        if not err and inc <= 0:
+            self.jog_active[("tool", k)] = True
+        return err
+
+    def _reach_along(self, xyz, u, cap=2000.0):
+        """how far [mm] from xyz along the unit vector u the [AXIS_*] limits allow (at most cap)"""
+        d = cap
+        for r, a in enumerate("XYZ"):
+            if abs(u[r]) < 1e-9 or a not in self.axes:
+                continue
+            lo, hi = self.cfg.num("AXIS_" + a, "MIN_LIMIT", -1e9), self.cfg.num("AXIS_" + a, "MAX_LIMIT", 1e9)
+            d = min(d, ((hi if u[r] > 0 else lo) - xyz[r]) / u[r])
+        return max(0.0, d - 0.01)
 
     def cmd_cycle(self, action, line=0):
         lc = self.lc

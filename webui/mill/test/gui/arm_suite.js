@@ -45,6 +45,19 @@ test("E-STOP reset, power, home; J1 +10° (joint mode), X −10 (world mode), MD
   await t.click("#st-mdi");
   await t.page.fill("#mdi", `G1 Z${(z0 - 20).toFixed(3)} F3000`); await t.page.press("#mdi", "Enter");
   t.check(await t.until((z) => Math.abs(st.armAx[2] - z + 20) < 0.05, z0, 20000), "MDI G1 Z−20: the DRO follows");
+  // the TOOL frame (the server's G53 MDI move): +Z 10 along the tool's own Z; then a turn about it, the tool point kept
+  await t.click("#st-jog");
+  await t.click('#armpad-frame button[data-f="tool"]');
+  await t.until(() => st.run === "idle" || st.run === "done");
+  const a0 = await t.ev(() => st.armAx.slice());
+  await t.page.locator('#armpad button[data-ax="tz"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until((a) => { const R = ARMMODEL.rpy(...a.slice(3).map((x) => x * Math.PI / 180)); return [0, 1, 2].every((i) => Math.abs(st.armAx[i] - a[i] - 10 * R[8 + i]) < 0.05); }, a0, 20000), "tool +Z 10: along the tool's Z");
+  await t.until(() => st.run === "idle" || st.run === "done");
+  const a1 = await t.ev(() => st.armAx.slice());
+  await t.page.locator('#armpad button[data-ax="tc"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until((a) => { const r = (v) => v.map((x) => x * Math.PI / 180), want = ARMMODEL.mul(ARMMODEL.rpy(...r(a.slice(3))), ARMMODEL.rpy(0, 0, Math.PI / 18)), got = ARMMODEL.rpy(...r(st.armAx.slice(3)));
+    return [0, 1, 2].every((i) => Math.abs(st.armAx[i] - a[i]) < 0.05) && [0, 1, 2, 4, 5, 6, 8, 9, 10].every((i) => Math.abs(got[i] - want[i]) < 1e-3); }, a1, 20000), "tool C +10: a turn about the tool's Z, the tool point kept");
+  t.check(await t.until(() => st.armJmode === "coord" && /coordinated/.test(document.getElementById("arm-jmode").textContent), null, 3000), "the joints panel: coordinated (an MDI move)");
   t.check(await t.until(() => /^ARMED|^NEAR/.test(document.getElementById("arm-guard").textContent) && /limit 10/.test(document.getElementById("arm-clear").textContent), null, 5000), "the guard armed, the cell's 10 mm");
   // the 3D arm follows: its flange where LinuxCNC says
   t.check(await t.ev(() => { const p = ARMMODEL.pose(ARM.v, st.armJ, armTcp()).xyz; return Math.abs(p[0] - st.armAx[0]) < 0.5 && Math.abs(p[2] - st.armAx[2]) < 0.5; }), "the 3D arm's tool point = LinuxCNC's position");

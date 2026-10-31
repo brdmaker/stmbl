@@ -139,10 +139,14 @@ class command:
             M.interp_state = INTERP_READING
         import re
         t = text.upper()
+        g53 = t.startswith("G53 ")  # machine coordinates
+        if g53:
+            t = t[4:]
         if re.match(r"^G[01]\b", t):
-            for a, v in re.findall(r"([XYZ])\s*(-?\d*\.?\d+)", t):
-                i = "XYZ".index(a)
-                M.pos[i] = float(v) + M.g5x[i]
+            M.motion_mode = TRAJ_MODE_COORD
+            for a, v in re.findall(r"([XYZABC])\s*(-?\d*\.?\d+)", t):
+                i = "XYZABC".index(a)
+                M.pos[i] = float(v) + (M.g5x[i] if i < 3 and not g53 else 0.0)
         m = re.match(r"^G10 L20 P0 ([XYZ])(-?[\d.]+)", t)
         if m:
             i = "XYZ".index(m.group(1))

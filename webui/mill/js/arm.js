@@ -97,11 +97,14 @@ function armUi(on) {
   if (pad) pad.hidden = !on;
   if (on) armRenderPad();
 }
+// the frames: JOINT (each joint), WORLD (X Y Z, A B C about the base's axes), TOOL (along and about the tool's own
+// axes: "tx".."tc"; live, one MDI move the server works out)
+const ARM_FRAMES = [["joint", "JOINT"], ["world", "WORLD"], ["tool", "TOOL"]];
 function armRenderPad() {
   const pad = $("armpad"); if (!pad || !ARM) return;
-  const n = 6, joint = ARM.frame === "joint";
-  pad.innerHTML = `<div class="seg" id="armpad-frame" role="group" aria-label="Jog frame"><button data-f="joint" aria-pressed="${joint}">JOINT</button><button data-f="world" aria-pressed="${!joint}">WORLD</button></div>` +
-    [...Array(n)].map((_, i) => { const ax = joint ? "j" + i : "xyzabc"[i], lab = joint ? "J" + (i + 1) : ax.toUpperCase();
+  const n = 6, f = ARM.frame, joint = f === "joint";
+  pad.innerHTML = `<div class="seg" id="armpad-frame" role="group" aria-label="Jog frame">${ARM_FRAMES.map(([k, l]) => `<button data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>` +
+    [...Array(n)].map((_, i) => { const ax = joint ? "j" + i : (f === "tool" ? "t" : "") + "xyzabc"[i], lab = joint ? "J" + (i + 1) : "XYZABC"[i];
       return `<div class="armrow"><b>${lab}</b><button data-ax="${ax}" data-s="-1" aria-label="${lab} minus">${lab}−</button><button data-ax="${ax}" data-s="1" aria-label="${lab} plus">${lab}+</button></div>`; }).join("");
 }
 
@@ -237,22 +240,31 @@ function armCam(kind) {
 // ------------------------------------------------------------ the simulation: joints by IK from the program's tool point
 function armSimPose() {  // the tool point (DRO, st.pos) from the joints
   const p = ARMMODEL.pose(ARM.v, ARM.q, armTcp());
-  st.pos = { x: p.xyz[0], y: p.xyz[1], z: p.xyz[2] }; ARM.abc = p.abc; ARM.lastTip = { ...st.pos };
+  st.pos = { x: p.xyz[0], y: p.xyz[1], z: p.xyz[2] }; ARM.abc = p.abc; ARM.lastTip = { ...st.pos }; ARM.lastAbc = p.abc.slice();
 }
 function armSimStep(dt, tip) {
   const v = ARM.v;
   if (ARM.held) {  // a held jog key
     const h = ARM.held, rate = st.jogRate / 60 * dt * h.s;
-    if (h.ax[0] === "j") armSimJoint(+h.ax.slice(1), rate);
-    else armSimWorld(h.ax, rate);
+    armSimJog(h.ax, rate);
     return;
   }
-  const t = st.pos, L = ARM.lastTip;
-  if (L && Math.abs(t.x - L.x) < 1e-6 && Math.abs(t.y - L.y) < 1e-6 && Math.abs(t.z - L.z) < 1e-6) return;
-  const s = ARMMODEL.ik(v, { xyz: [t.x, t.y, t.z], abc: ARM.abc }, ARM.q, armTcp(), 60);
+  const t = st.pos, L = ARM.lastTip, A = ARM.lastAbc, abc = ARM.abc;
+  if (L && A && Math.abs(t.x - L.x) < 1e-6 && Math.abs(t.y - L.y) < 1e-6 && Math.abs(t.z - L.z) < 1e-6 && abc.every((x, k) => Math.abs(x - A[k]) < 1e-6)) return;
+  const s = ARMMODEL.ik(v, { xyz: [t.x, t.y, t.z], abc }, ARM.q, armTcp(), 60);
   if (s.ok && armInLimits(s.q)) { ARM.q = s.q; ARM.reach = false; }
-  else if (!ARM.reach) { ARM.reach = true; msg(`X${t.x.toFixed(1)} Y${t.y.toFixed(1)} Z${t.z.toFixed(1)}: out of the arm's reach or its joints' limits`, "warn"); }
-  ARM.lastTip = { ...t };
+  else if (!ARM.reach) { ARM.reach = true; msg(`X${t.x.toFixed(1)} Y${t.y.toFixed(1)} Z${t.z.toFixed(1)} A${abc[0].toFixed(1)} B${abc[1].toFixed(1)} C${abc[2].toFixed(1)}: out of the arm's reach or its joints' limits`, "warn"); }
+  ARM.lastTip = { ...t }; ARM.lastAbc = abc.slice();
+}
+// a program's or MDI's segment with A B C (the simulation): from abc0 to abc, linear as LinuxCNC's rotary axes
+function armSegAbc(seg, u) {
+  if (!seg.abc0) seg.abc0 = ARM.abc.slice();
+  ARM.abc = seg.abc0.map((a, k) => a + (seg.abc[k] - a) * u);
+}
+function armSimJog(ax, d) {
+  if (ax[0] === "j") armSimJoint(+ax.slice(1), d);
+  else if (ax[0] === "t") armSimTool("xyzabc".indexOf(ax[1]), d);
+  else armSimWorld(ax, d);
 }
 // the joints' limits as the joint values are: LinuxCNC's [JOINT_n] (live); the model's (arm_sim's: offsets from
 // theta0) moved by theta0 when the joint values are the DH theta
@@ -277,6 +289,34 @@ function armSimWorld(ax, d) {
   }
   st.pos = { ...st.pos, [ax]: st.pos[ax] + d };
 }
+// the tool frame: k 0..2 along the tool's X Y Z [mm], 3..5 about them [deg]; the tool point stays for a rotation
+function armSimTool(k, d) {
+  const P = ARMMODEL.pose(ARM.v, ARM.q, armTcp()), M = P.M;
+  let xyz = P.xyz, abc = ARM.abc;
+  if (k < 3) xyz = xyz.map((x, r) => x + M[k * 4 + r] * d);
+  else {
+    const r = d * Math.PI / 180, rot = ARMMODEL.rpy(k === 3 ? r : 0, k === 4 ? r : 0, k === 5 ? r : 0);
+    abc = ARMMODEL.rpyOf(ARMMODEL.mul(M, rot)).map((x, i) => x + 360 * Math.round((ARM.abc[i] - x) / 360));
+  }
+  const s = ARMMODEL.ik(ARM.v, { xyz, abc }, ARM.q, armTcp(), 25);
+  if (s.ok && armInLimits(s.q)) { ARM.q = s.q; armSimPose(); ARM.abc = abc; ARM.lastAbc = abc.slice(); }
+  else { msg(`Tool ${"XYZABC"[k]}: out of reach`, "warn"); ARM.held = null; }
+}
+// MDI in the simulation: G0/G1 with X Y Z A B C (absolute), T<n> M6, the gripper's M64/M65 P0. false: not an arm's
+function armMdi(c) {
+  const u = c.toUpperCase().replace(/\(.*?\)/g, ""), w = {};
+  for (const m of u.matchAll(/([A-Z])\s*(-?\d*\.?\d+)/g)) (w[m[1]] = w[m[1]] || []).push(+m[2]);
+  const has = (l, v) => (w[l] || []).includes(v), one = (l, d) => (w[l] ? w[l][0] : d);
+  if (w.T && has("M", 6)) { armMount(one("T", 0)); return true; }
+  if (has("M", 64) || has("M", 65)) { ARM.grip = has("M", 64) ? { state: 4, gap: 0 } : { state: 0, gap: 75 }; armRenderPanel(); msg(`${c}: gripper ${has("M", 64) ? "closed (EMPTY)" : "open"}`, "ok"); return true; }
+  if (!(has("G", 0) || has("G", 1)) || !["X", "Y", "Z", "A", "B", "C"].some((l) => w[l])) return false;
+  const t = { x: one("X", st.pos.x), y: one("Y", st.pos.y), z: one("Z", st.pos.z) }, abc = ["A", "B", "C"].map((l, k) => one(l, ARM.abc[k]));
+  const s = ARMMODEL.ik(ARM.v, { xyz: [t.x, t.y, t.z], abc }, ARM.q, armTcp(), 80);
+  if (!s.ok || !armInLimits(s.q)) { msg(`${c}: out of the arm's reach or its joints' limits`, "warn"); return true; }
+  const rapid = has("G", 0) && !has("G", 1), seg = { k: "mv", x0: st.pos.x, y0: st.pos.y, z0: st.pos.z, ...t, abc0: ARM.abc.slice(), abc, f: rapid ? 0 : one("F", 1000), rapid, line: 0, tool: st.tool };
+  st.motion = plan({ segs: [seg], name: c, kind: "mdi" }); st.t = 0; st.seg = 0; setRun("run"); msg(c, "info");
+  return true;
+}
 
 // ------------------------------------------------------------ the jog pad, the panel's buttons
 function armJog(ax, s) {
@@ -284,7 +324,7 @@ function armJog(ax, s) {
   if (!ready("jog")) return;
   if (busy()) { msg("Jogging is off while the program runs.", "warn"); return; }
   if (st.jogInc === 0) { ARM.held = { ax, s }; return; }
-  if (ax[0] === "j") armSimJoint(+ax.slice(1), s * st.jogInc); else armSimWorld(ax, s * st.jogInc);
+  armSimJog(ax, s * st.jogInc);
 }
 document.addEventListener("pointerdown", (e) => {
   if (!ARM) return;
@@ -335,7 +375,7 @@ function armRenderPanel() {
       <button class="btn sm" data-armhome="${j}" title="Home J${j + 1}">REF</button></div>`;
   }).join("");
   const jm = LIVE ? st.armJmode : ARM.frame;
-  $("arm-jmode").textContent = jm === "world" ? "world mode" : "joint mode";
+  $("arm-jmode").textContent = { world: "world mode", tool: "tool frame", coord: "coordinated" }[jm] || "joint mode";
   const gd = st.arm && st.arm.guard, prevent = ARM.v ? ARM.v.prevent || 10 : 10;
   const gp = $("arm-guard");
   if (gd) {
@@ -349,15 +389,20 @@ function armRenderPanel() {
   const qa = st.arm && st.arm.quota;
   $("arm-quota").textContent = qa ? `${Math.round(qa.total_power)} W · feed ${Math.round(100 * qa.feed_scale)} %${qa.limiting ? " · LIMITING" : ""}` : "—";
   $("arm-teach").textContent = `${ARM.teach} point${ARM.teach === 1 ? "" : "s"} · ${info.teach || "teach.ngc"}`;
+  const tl = st.arm && st.arm.tool;
+  if (st.page === "tool" && ARM.v && ARM.toolsDrawn !== `${armBusy()}/${armMounted()}/${!!(tl && tl.fault)}`) armRenderTools();
 }
-// the Tools page: the tool changer's tools, in their docks or on the flange
+// the Tools page: the tool changer's tools, in their docks or on the flange; drawn again when the machine
+// goes busy or idle, or another tool is on the flange (its buttons' enabled state)
+const armBusy = () => (LIVE ? st.run === "run" || st.lmode === "mdi" && st.run !== "idle" : busy());
 function armRenderTools() {
   let el = $("tl-arm");
   if (!el) { el = document.createElement("div"); el.id = "tl-arm"; el.className = "card"; $("tl-note").after(el); }
   el.hidden = !ARM || !ARM.v || !Object.keys(ARM.v.tools).length;
   if (el.hidden) return;
   const mt = armMounted(), ch = st.arm && st.arm.changer, tl = st.arm && st.arm.tool, fault = tl && tl.fault;
-  const busyNow = LIVE ? st.run === "run" || st.lmode === "mdi" && st.run !== "idle" : busy();
+  const busyNow = armBusy();
+  ARM.toolsDrawn = `${busyNow}/${mt}/${!!fault}`;
   el.innerHTML = `<h3>Tool changer <span class="pill ${fault ? "bad" : "ok"}">${fault ? "FAULT" : "READY"}</span></h3>
     <table class="t"><tbody>${Object.values(ARM.v.tools).map((t) => `<tr data-armtool="${t.id}"><td class="num">T${t.id}</td><td>${esc(t.name)}</td>
       <td><span class="pill ${t.id === mt ? "info" : "off"}">${t.id === mt ? "ON FLANGE" : "IN DOCK"}</span></td>
@@ -372,12 +417,18 @@ function armRenderTools() {
 // ------------------------------------------------------------ the simulation's program: pick and place over the docks' side
 function armDemo() {
   const p = Prog("ARM_PICK_PLACE.ngc"); p.curTool = 0;
-  const mv = (x, y, z, f) => { const ln = p.emit((f ? "G1" : "G0") + ` X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} A0 B0 C0` + (f ? ` F${f}` : "")); const a = p.pos; p.segs.push({ k: "mv", x0: a.x, y0: a.y, z0: a.z, x, y, z, f: f || 0, rapid: !f, line: ln, tool: p.curTool || 0 }); p.pos = { x, y, z }; };
+  let abc0 = [0, 0, 0];
+  const mv = (x, y, z, f, abc = [0, 0, 0]) => {
+    const ln = p.emit((f ? "G1" : "G0") + ` X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} ` + abc.map((v, k) => "ABC"[k] + v.toFixed(3)).join(" ") + (f ? ` F${f}` : ""));
+    const a = p.pos; p.segs.push({ k: "mv", x0: a.x, y0: a.y, z0: a.z, x, y, z, abc0, abc, f: f || 0, rapid: !f, line: ln, tool: p.curTool || 0 }); p.pos = { x, y, z }; abc0 = abc;
+  };
   p.emit("%"); p.emit("(ARM · PICK AND PLACE · A SQUARE OF FOUR PLACES · SIMULATION)"); p.emit("G21 G90 G17");
   p.pos = { x: 799.3, y: 0.2, z: 1270.9 };
   for (const [x, y] of [[800, -300], [800, 300], [600, 300], [600, -300]]) {
     mv(x, y, 1100, 0); mv(x, y, 900, 3000); p.m("M64 P0", "io"); mv(x, y, 1100, 3000); p.m("M65 P0", "io");
   }
+  p.emit("(TILT THE TOOL: B 30, THEN C 45 ABOUT THE BASE, BACK UPRIGHT)");
+  mv(700, 0, 1100, 0); mv(700, 0, 1100, 3000, [0, 30, 0]); mv(700, 0, 1100, 3000, [0, 30, 45]); mv(700, 0, 1100, 3000);
   mv(799.3, 0.2, 1270.9, 0);
   p.emit("M2"); p.emit("%");
   return p;

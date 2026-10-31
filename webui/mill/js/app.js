@@ -170,7 +170,12 @@ function plan(p) {
     s.len = Math.hypot(s.x - s.x0, s.y - s.y0, s.z - s.z0);
     if (s.k === "tc") s.t = 5.5;
     else if (s.k !== "mv") s.t = s.k === "m3" ? 1.2 : 0.05;
-    else { const f = (s.rapid ? RAPID : s.f) / 60; s.t = s.len / f + (s.len > 0 ? Math.min(f / ACC, Math.sqrt(s.len / ACC)) : 0); }
+    else {
+      const f = (s.rapid ? RAPID : s.f) / 60;
+      // an arm's A B C: a turn alone takes F as °/min (a rapid: 120 °/s), as LinuxCNC's rotary axes
+      const rot = s.abc && s.abc0 ? Math.max(...s.abc.map((a, k) => Math.abs(a - s.abc0[k]))) : 0, tr = rot / (s.rapid ? 120 : s.f / 60);
+      s.t = Math.max(s.len / f, tr) + (s.len > 0 ? Math.min(f / ACC, Math.sqrt(s.len / ACC)) : rot > 0 ? 0.1 : 0);
+    }
     s.t0 = t; t += s.t;
     if (s.k === "mv" && !s.rapid) cut += s.len;
     let ang = 0;
@@ -367,9 +372,10 @@ function startCycle(fromLine) {
   confirmPending = false;
   st.motion = prog; st.t = 0; st.seg = 0;
   prog.segs[0].x0 = st.pos.x; prog.segs[0].y0 = st.pos.y; prog.segs[0].z0 = st.pos.z;
+  if (typeof ARM !== "undefined" && ARM && prog.segs[0].abc) prog.segs[0].abc0 = ARM.abc.slice();
   if (fromLine) {
     const s = prog.segs.find((x) => x.line >= fromLine && x.k === "mv");
-    if (s) { st.t = s.t0; s.x0 = st.pos.x; s.y0 = st.pos.y; s.z0 = Math.max(st.pos.z, 5); msg(`Run from ${nline(fromLine)}: the tool, spindle and offsets are set from the lines before it`, "info"); }
+    if (s) { st.t = s.t0; s.x0 = st.pos.x; s.y0 = st.pos.y; s.z0 = Math.max(st.pos.z, 5); if (typeof ARM !== "undefined" && ARM && s.abc) s.abc0 = ARM.abc.slice(); msg(`Run from ${nline(fromLine)}: the tool, spindle and offsets are set from the lines before it`, "info"); }
   }
   setRun("run"); msg(`Cycle start · ${prog.name}`, "ok");
 }
@@ -746,6 +752,7 @@ function runMdi(c) {
   const w = {}; for (const m of u.matchAll(/([A-Z])\s*(-?\d*\.?\d+)/g)) (w[m[1]] = w[m[1]] || []).push(+m[2]);
   const has = (l, v) => (w[l] || []).includes(v);
   mdiHist.unshift(c); if (mdiHist.length > 30) mdiHist.pop(); renderMdi(); $("mdi").value = "";
+  if (typeof ARM !== "undefined" && ARM && ARM.v && armMdi(c)) return;  // an arm's moves (A B C), tool changes, gripper
   if (has("G", 10) && has("L", 20)) { const pidx = clamp(Math.round((w.P || [st.wcs + 1])[0]) - 1, 0, 8); if (pidx !== st.wcs) setWcs(pidx); for (const a of ["X", "Y", "Z"]) if (w[a]) zeroAxis(a.toLowerCase(), w[a][0]); return; }
   const g5 = [54, 55, 56, 57, 58, 59].find((g) => has("G", g)); if (g5) { setWcs(g5 - 54); return; }
   if (w.M && w.M.includes(6) && w.T) { toolChange(w.T[0]); return; }
@@ -1330,6 +1337,7 @@ function tick(now) {
     st.seg = i; seg = mo.segs[i];
     u = seg.t > 0 ? clamp((st.t - seg.t0) / seg.t, 0, 1) : 1;
     st.pos = { x: seg.x0 + (seg.x - seg.x0) * u, y: seg.y0 + (seg.y - seg.y0) * u, z: seg.z0 + (seg.z - seg.z0) * u };
+    if (seg.abc && typeof ARM !== "undefined" && ARM) armSegAbc(seg, u);
     moving = running && st.on && seg.k === "mv" && u < 1;
     if (st.t >= mo.total - 1e-9 && running) {
       if (mo === prog) { setRun("done"); st.motion = null; st.cutTime += prog.total; msg(`${prog.name} finished · ${mmss(prog.total)} · path p99 ${Math.round(st.p99)} µm`, "ok"); }

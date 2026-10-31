@@ -729,6 +729,26 @@ class Arm(Base):
         r = await self.call(ws, "teach_record", rate=3000)
         self.assertTrue(r["ok"], r)
         self.assertEqual((r["line"], r["points"]), ("G1 X900.000 Y300.000 Z1150.000 A0.000 B45.000 C0.000 F3000", 1))
+        # the tool frame: +Z 10 along the tool (tilted B 45: X and Z 7.071 each), as a G53 MDI move
+        r = await self.call(ws, "jog", axis="tz", dir=1, inc=10, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(lc.M.mdi_log[-1], "G53 G1 X907.0711 Y300.0000 Z1157.0711 A0.0000 B45.0000 C0.0000 F600.0")
+        # about the tool's Z by 90: the tool point stays, R = Ry(45) Rz(90)
+        r = await self.call(ws, "jog", axis="tc", dir=1, inc=90, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual([round(v, 3) for v in lc.M.pos[:3]], [907.071, 300.0, 1157.071])
+        from machine import rpy_matrix, mat_mul, axis_rot
+        want, got = mat_mul(axis_rot(1, 45), axis_rot(2, 90)), rpy_matrix(*lc.M.pos[3:6])
+        self.assertTrue(all(abs(want[i][k] - got[i][k]) < 1e-4 for i in range(3) for k in range(3)), (lc.M.pos[3:6], got))
+        # held: one move to the axes' limits along the line, stopped by jog_stop (an abort)
+        lc.M.slow = True
+        r = await self.call(ws, "jog", axis="tx", dir=-1, inc=0, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(lc.M.interp_state, lc.INTERP_READING)
+        self.assertTrue((await self.call(ws, "jog_stop", axis="tx"))["ok"])
+        self.assertEqual(lc.M.interp_state, lc.INTERP_IDLE)
+        lc.M.slow = False
+        lc.M.pos[:6] = [900.0, 300.0, 1150.0, 0.0, 45.0, 0.0]
         r = await self.call(ws, "teach_record")
         self.assertEqual(r["points"], 2)
         self.assertEqual(open(os.path.join(self.d, "nc", "teach.ngc")).read().count("G1 "), 2)

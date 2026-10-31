@@ -2886,3 +2886,27 @@ Entry format:
 - Fix:     the server writes every include and mesh in the texts as
   @<name>, the bundle's own name for the file; the browser takes @names
   as they are.
+
+## 2026-10-31  An arm's Tools page: Mount buttons stayed disabled
+- Area:    webui/mill/js/arm.js (armRenderTools)
+- Status:  Fixed
+- Symptom: test-gui-arm failed now and then: clicking "Mount T2" timed
+  out after T1 M6 although the machine was idle again.
+- Cause:   the changer table was drawn when the Tools page opened or the
+  tool table changed; drawn while T1 M6 ran, its buttons stayed disabled.
+- Fix:     the joints panel's 20 Hz update draws the table again when
+  busy/idle, the mounted tool or the changer's fault changes.
+
+## 2026-10-31  An arm's TOOL-frame jog is an MDI move
+- Area:    webui/mill/server/machine.py (_jog_tool)
+- Status:  Note
+- Symptom: LinuxCNC has no tool-frame jog: teleop jogs X..C in the
+  world frame only.
+- Cause:   by design (motion's teleop).
+- Fix:     the server works the target out from the commanded pose
+  (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F`; held, it
+  goes to the [AXIS_*] limits along the line (a turn: 45°) and jog_stop or
+  the deadman aborts it. A turn keeps the tool point, but LinuxCNC moves
+  A B C linearly, so between the ends the orientation is the A B C line's,
+  not an exact turn about the tool axis. A B C wrap to within 180° of the
+  current values.
