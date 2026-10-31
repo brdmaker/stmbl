@@ -2860,3 +2860,29 @@ Entry format:
   console to host/lcnc's (sim_api.c needs them).
 - Fix:     host/arm/Makefile has host/lcnc's sources and flags again. A
   change to one wants the other (or one shared list).
+
+## 2026-10-31  An arm's model limits are offsets from theta0
+- Area:    webui/mill/js/arm.js (the simulation's joint limits)
+- Status:  Fixed
+- Symptom: the simulated arm refused every pose of the demo program: "out
+  of the arm's reach or its joints' limits"; J2 at -86 deg read as below
+  its -60 limit.
+- Cause:   arm_sim's .arm `limits` are on its q (offsets from theta0);
+  with `joints theta` (vis3d, LinuxCNC) the joint values include theta0
+  (J2's -90).
+- Fix:     the model's limits moved by theta0 when the joints are the DH
+  theta; live, LinuxCNC's own [JOINT_n] limits.
+
+## 2026-10-31  An arm's model files: two names for one file
+- Area:    webui/mill/server/machine.py (arm_model), js/armmodel.js
+- Status:  Fixed
+- Symptom: with the cell elsewhere than the model (hwtest/arcmate-sim's,
+  a copy in /tmp), the browser missed the tool table: "not in the model's
+  files".
+- Cause:   files are named by their path from the model's folder; an
+  include resolved from another folder gives another, equally valid,
+  relative path (../../../../../../home/... against ../../../host/...),
+  and the browser can't tell without the server's absolute paths.
+- Fix:     the server writes every include and mesh in the texts as
+  @<name>, the bundle's own name for the file; the browser takes @names
+  as they are.

@@ -385,8 +385,9 @@ class Machine:
 
     def arm_model(self):
         """The arm's model files for the browser: {"files": {name: text, or {"b64": STL}}, "model", "cell", "tools"},
-        each name its path relative to the model's folder (includes resolve as vis3d's: from the including file's
-        folder). Only what the INI names and what those files include or load."""
+        each name its path relative to the model's folder; in the texts, each include and mesh names its file as
+        @<name> (vis3d resolves them from the including file's folder: the same files). Only what the INI names and
+        what those files include or load."""
         model, cell, tools = self.arm_model_paths()
         if not model or not os.path.isfile(model):
             raise ValueError("no arm model: %s ([MILLWEB] ARM_MODEL)" % model)
@@ -408,14 +409,19 @@ class Machine:
             text = open(path, errors="replace").read()
             if len(text) > 2 * 1024 * 1024:
                 raise ValueError("%s: over 2 MB" % name)
-            files[name] = text
+            out, refs = [], []
             for line in text.splitlines():
                 w = line.split("#", 1)[0].split()
                 ref = w[1] if len(w) >= 2 and w[0] == "include" else w[3] if len(w) >= 4 and w[0] == "part" and w[2] == "mesh" else None
                 if ref:
                     p = ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref)
-                    if os.path.isfile(p):
-                        add(p, depth + 1)
+                    if os.path.isfile(p):  # the browser has names, not paths: @ and the file's name
+                        line = line.replace(ref, "@" + rel(p), 1)
+                        refs.append(p)
+                out.append(line)
+            files[name] = "\n".join(out) + "\n"
+            for p in refs:
+                add(p, depth + 1)
         add(model)
         for p in (cell, tools):
             if p and os.path.isfile(p):

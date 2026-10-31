@@ -608,6 +608,7 @@ $("tp-go").addEventListener("click", () => probeCycle("plate"));
 const MILL_TYPES = [["", "auto"], ["flat", "flat end mill"], ["ball", "ball nose"], ["bull", "bull nose"], ["drill", "drill"], ["vee", "chamfer / vee"], ["probe", "probe"]];
 function renderTools() {
   if (typeof LATHE !== "undefined" && LATHE) { renderToolModel(); renderToolGeo(); return latheRenderTools(); }
+  if (typeof ARM !== "undefined") armRenderTools();
   renderToolModel(); renderToolGeo();
   $("tool-t").innerHTML = `<thead><tr><th>T</th><th class="n">Pocket</th><th class="n">Ø mm</th><th class="n">Length</th><th class="n">Flutes</th><th class="n">Wear</th><th class="n">Life</th><th>Comment</th></tr></thead><tbody>` +
     st.tools.map((t, i) => `<tr class="${t.t === st.tool ? "active" : t.t === st.toolSel ? "sel" : ""}" data-t="${t.t}"><td class="num">T${t.t}${t.t === st.tool ? " ● in spindle" : ""}</td>
@@ -923,6 +924,14 @@ function buildBuiltin(type) {
   machine.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   machine.clear();
   R.type = type; R.tableG = null; R.spinG = null; R.stock = null; R.stockG = null;
+  if (type === "arm") {  // arm.js: the console becomes an arm's (its model comes from the machine, or arm_demo.js)
+    if (typeof LATHE !== "undefined" && LATHE) latheExit();
+    armEnter();
+    Object.assign(R, armBuild(machine));
+    sizeLimits(); buildTool();
+    return;
+  }
+  if (typeof ARM !== "undefined" && ARM) armExit();
   if (type === "lathe") {  // lathe.js: the console becomes a lathe's, and the scene its
     latheEnter(latheOpts);
     Object.assign(R, latheBuild(machine));
@@ -1042,6 +1051,7 @@ function buildTool() {
   $("sp-tool").textContent = `T${st.tool} Ø${t.d} · ${t.c.replace(/^[\d.]+ mm /, "")}`;
   if (!R) return;
   if (R.type === "lathe" && !setup.tools[String(st.tool)]) return latheBuildTool();
+  if (R.type === "arm") return;  // arm.js draws the tools (on the flange, in their docks)
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
   // its own 3D model (the Tools page): the tip at its origin, the spindle along +Z
   const tm = setup.tools[String(st.tool)];
@@ -1140,7 +1150,7 @@ function setCam(kind, instant) {
     side: [[cx - 3100 * k, cy, 520], [cx, cy, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
     follow: [[sx - 260, sy - 420, sz + 300], [sx, sy, sz]],
   };
-  const v = R.type === "lathe" ? latheCam(kind) : views[kind];
+  const v = R.type === "lathe" ? latheCam(kind) : R.type === "arm" ? armCam(kind) : views[kind];
   R.camAnim = { from: [R.cam.position.toArray(), R.controls ? R.controls.target.toArray() : [500, 500, 0]], to: v, t: instant ? 1 : 0 };
 }
 $$("[data-cam]").forEach((b) => b.addEventListener("click", () => setCam(b.dataset.cam)));
@@ -1160,6 +1170,7 @@ $$("[data-show]").forEach((b) => b.addEventListener("click", () => {
 function update3d(dt, tip, moving, cutting) {
   if (!R) return;
   if (R.type === "lathe") return latheUpdate3d(dt, tip, moving, cutting);
+  if (R.type === "arm") return armUpdate3d(dt, tip, moving, cutting);
   const m = toMach(tip), k = st.show.defl ? st.exag : 0;
   // the head lags under acceleration and the bridge yaws: drawn k times larger
   const yaw = st.yaw * 1e-6 * k * (st.fe[1] > st.fe[2] ? 1 : -1), hx = st.err * 1e-3 * k * .6, hy = st.err * 1e-3 * k * .8;
@@ -1381,6 +1392,7 @@ function renderUi(tip, seg, moving, pTot) {
   });
   $("ds-y").textContent += ` · Y1−Y2 ${(st.fe[1] - st.fe[2]).toFixed(1)} µm`;
   if (typeof LATHE !== "undefined" && LATHE) latheDro(show, mach, tip);
+  if (typeof ARM !== "undefined" && ARM) armDro(show, mach);
   const fcmd = seg && seg.k === "mv" && !seg.rapid ? seg.f : 0;
   $("modal").textContent = LIVE && LIVE.modal ? LIVE.modal : LATHE ? [off().n, "G18", LATHE.dia ? "G7" : "G8", "G21", "G90", "G95", "G40", "T" + st.tool, st.spindle.dir > 0 ? "M3" : st.spindle.dir < 0 ? "M4" : "M5", st.cool.flood ? "M8" : "M9", "S" + st.spindle.s].join(" ") : [off().n, "G17", st.units === "in" ? "G20" : "G21", "G90", "G94", "G40", "G43 H" + st.tool, "G64 P0.02", st.spindle.dir > 0 ? "M3" : st.spindle.dir < 0 ? "M4" : "M5", st.cool.flood ? "M8" : st.cool.mist ? "M7" : "M9", "T" + st.tool, "F" + fcmd, "S" + st.spindle.s].join(" ");
   $("sp-rpm").textContent = Math.round(st.spindle.rpm).toLocaleString("en-US");

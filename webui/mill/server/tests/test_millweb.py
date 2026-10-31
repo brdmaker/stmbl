@@ -680,7 +680,7 @@ class Arm(Base):
         open(os.path.join(self.d, "vis", "flange.stl"), "wb").write(b"\0" * 84)
         open(os.path.join(self.d, "arm", "base.arm"), "w").write("dh 1 0 0 0.45 0\ndh 2 0.15 -90 0 -90\n")
         open(os.path.join(self.d, "arm", "tools.txt"), "w").write("tool 1 torch\n")
-        open(os.path.join(self.d, "cell", "cell.txt"), "w").write("include base_cell.txt\nobstacle plate box 0.8 -0.4 1 0.3 0.05 0.3\n")
+        open(os.path.join(self.d, "cell", "cell.txt"), "w").write("include base_cell.txt\ninclude %s\nobstacle plate box 0.8 -0.4 1 0.3 0.05 0.3\n" % os.path.join(self.d, "arm", "tools.txt"))
         open(os.path.join(self.d, "cell", "base_cell.txt"), "w").write("prevent 10\n")
 
     async def asyncSetUp(self):
@@ -741,6 +741,9 @@ class Arm(Base):
         self.assertEqual(sorted(r["files"]), ["../arm/base.arm", "../arm/tools.txt", "../cell/base_cell.txt", "../cell/cell.txt", "arm.vis", "flange.stl"])
         self.assertEqual((r["cell"], r["tools"]), ("../cell/cell.txt", "../arm/tools.txt"))
         self.assertEqual(r["files"]["flange.stl"], {"b64": base64.b64encode(b"\0" * 84).decode()})
+        self.assertIn("include @../arm/tools.txt\n", r["files"]["../cell/cell.txt"])  # every include: @ its file's name
+        self.assertIn("include @../arm/base.arm\n", r["files"]["arm.vis"])
+        self.assertIn("part 6 mesh @flange.stl material dark", r["files"]["arm.vis"])
         # its components (those loaded)
         sl = await self.until(ws, lambda m: m["t"] == "slow" and "arm" in m)
         self.assertEqual(sl["arm"]["guard"], {"state": 0, "reason": 0, "clearance": 123.4})

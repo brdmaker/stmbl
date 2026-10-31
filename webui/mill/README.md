@@ -247,7 +247,7 @@ is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper
   - `jmode`: `joint` or `world` (teleop).
 - **Jog:** `J<n>` jogs a joint in joint mode (before homing too), X..C the axes in world mode (homed); millweb switches LinuxCNC's mode first and waits for motion to take it (up to 1 s). Home a joint with `home` `J<n>`.
 - **`teach_record` {rate}:** the arm's position as `G1 X.. Y.. Z.. A.. B.. C.. F<rate>` at the end of the teach file (`[MILLWEB] TEACH_FILE`, else `[ARM6HMI] TEACH_FILE`, else `teach.ngc` in the program folder); the reply has the line and the number of points, and the file list is sent again.
-- **`arm_model`:** `{files: {name: text | {b64: STL}}, model, cell, tools}`: the 3D model (`[MILLWEB] ARM_MODEL`, else `[ARM6HMI] MODEL`, else linuxcnc/vis3d's `arm6_changer.vis` with a tool changer, `arm6_lcnc.vis` without), every file it `include`s or loads (`part … mesh FILE.stl`), armguard's cell (`[ARMGUARD] CELL`) and the tool table (`[STMBL_ARM] TOOLS`) with theirs. Names are paths from the model's folder, as vis3d resolves them.
+- **`arm_model`:** `{files: {name: text | {b64: STL}}, model, cell, tools}`: the 3D model (`[MILLWEB] ARM_MODEL`, else `[ARM6HMI] MODEL`, else linuxcnc/vis3d's `arm6_changer.vis` with a tool changer, `arm6_lcnc.vis` without), every file it `include`s or loads (`part … mesh FILE.stl`), armguard's cell (`[ARMGUARD] CELL`) and the tool table (`[STMBL_ARM] TOOLS`) with theirs. Names are paths from the model's folder; in the texts each include and mesh names its file as `@<name>` (the files vis3d resolves from the including file's folder).
 - **`slow`'s `arm`:** each loaded component's pins, `-` as `_`:
   - `guard` (armguard.0: state, reason, clearance);
   - `collide` (armcollide.0: collision);
@@ -257,7 +257,18 @@ is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper
   - `quota` (powerquota.0: total_power, feed_scale, limiting);
   - `kins_tool` (armkins.tool).
 
-The console's arm page (the 3D arm from these files, the joints, the jog pad, the panels) is to come; linuxcnc/arm6hmi is the QtVCP screen.
+**The console on an arm** (`js/arm.js`, `js/armmodel.js`; linuxcnc/arm6hmi is the same as a QtVCP screen):
+- **The 3D view:** the arm from its model files, posed from LinuxCNC's joints (Craig DH as genserkins: the browser's forward kinematics give LinuxCNC's own X Y Z A B C, `test/armmodel_test.js`). The tools on the flange or in their docks (with their stands), the cell's obstacles see-through, green while the guard is clear, amber under twice its limit, red stopped. The tool point marked; the program's path and the trail as a mill's.
+- **The DRO:** X Y Z A B C (the tool point).
+- **Joints panel** (in place of the spindle's): each joint within its limits (LinuxCNC's `[JOINT_n]`), its angle, following error, homed, REF homes it. Below:
+  - the guard: ARMED / NEAR / STOP and why, the clearance against its limit;
+  - the gripper: its state and gap, Open / Close (the MDI of `[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`);
+  - the power quota;
+  - **Record point** (`teach_record`).
+- **JOG:** JOINT (J1..J6, joint mode, before homing too) or WORLD (X..C, homed), the increments or CONT (hold the key).
+- **Tools page:** the tool changer's tools, IN DOCK / ON FLANGE, **Mount** (`T<n> M6`, after `[ARM6HMI] TOOL_READY` when set), **Put the tool back** (`T0 M6`); the lock, its sensors, the kinematics' tool point, a fault and its reason.
+- **The simulation:** machine.json's `type: arm` gives the ARC Mate with its tool changer (`js/arm_demo.js`, made by `tools/gen_arm_demo.js` from linuxcnc/vis3d and hwtest/arcmate-sim), a pick-and-place program; its joints follow the program's tool point by IK (orientation held), the jog pad's joints by forward kinematics.
+- **Tests:** `make test-gui-arm` runs `test/gui/arm_suite.js` against LinuxCNC with hwtest/arcmate-sim and its tool changer (`harness.py --arm`): the model and panels, homing, a joint and a world jog, MDI, the guard, Record point, three tool changes with armtool, LinuxCNC and the kinematics agreeing, the gripper.
 
 ## Programs
 

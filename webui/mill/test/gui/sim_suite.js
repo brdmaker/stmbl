@@ -1025,6 +1025,44 @@ test("material removal (mill): the stock cut as it runs, the Preflight check, a 
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("arm (simulation, the ARC Mate with its tool changer): the 3D arm, joints, the jog pad, a program by IK, tools, Record point, back to a mill", async (t) => {
+  const mj = { version: 1, name: "ARC Mate (simulated)", type: "arm", axes: { X: { min: -2000, max: 2000, max_vel: 250, max_acc: 1000 }, Y: { min: -2000, max: 2000, max_vel: 250, max_acc: 1000 }, Z: { min: -200, max: 2200, max_vel: 250, max_acc: 1000 } }, joints: [] };
+  await t.ev((x) => localStorage.setItem("pmc.machine", x), JSON.stringify(mj));
+  await t.page.reload();
+  t.check(await t.until(() => typeof R !== "undefined" && R && R.type === "arm" && ARM && ARM.built && document.body.classList.contains("arm"), null, 15000), "machine.json's type arm: the console an arm's, its model built");
+  t.check(await t.ev(() => prog.name === "ARM_PICK_PLACE.ngc" && $("pg-name").textContent === "ARM_PICK_PLACE.ngc"), "the arm's program loaded and shown");
+  t.check(await t.ev(() => Math.abs(st.pos.x - 800) < 0.01 && Math.abs(st.pos.z - 1270) < 0.01 && /0\.000°/.test($("d-b").textContent)), "home: X800 Z1270 A B C 0 (the DH chain)");
+  await stop(t);
+  await t.click("#st-jog");
+  await t.click('#jog-inc button[data-v="10"]');
+  await t.page.locator('#armpad button[data-ax="j0"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => Math.abs(ARM.q[0] - 10) < 1e-9 && Math.abs(st.pos.y - 800 * Math.sin(Math.PI / 18)) < 0.01), "J1 +10°: the tool point swings round (Y 138.9)");
+  await t.click('#armpad-frame button[data-f="world"]');
+  await t.page.locator('#armpad button[data-ax="z"][data-s="-1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q).xyz; return Math.abs(p[2] - 1260) < 0.01; }), "Z −10 in world mode: the joints by IK");
+  // the program: its tool point through IK, to its end
+  await t.ev(() => { ARM.q = ARM_HOME.slice(); armSimPose(); st.m1 = false; });
+  await t.click("#b-start");
+  await t.until(() => st.run === "run");
+  await ffwd(t, await t.ev(() => prog.total * 0.45));
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q).xyz; return Math.hypot(p[0] - st.pos.x, p[1] - st.pos.y, p[2] - st.pos.z) < 0.05 && !ARM.reach; }), "running: the 3D arm's tool point on the program's");
+  await ffwd(t, await t.ev(() => prog.total - 0.2));
+  t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  // the tool changer, Record point
+  await t.nav("tool");
+  t.check(await t.until(() => document.querySelectorAll("#tl-arm tr[data-armtool]").length === 2), "the Tools page: the changer's two tools");
+  await t.click('#tl-arm [data-mount="2"]');
+  t.check(await t.until(() => ARM.mounted === 2 && ARM.mountedShown === 2 && /ON FLANGE/.test(document.querySelector('#tl-arm tr[data-armtool="2"]').textContent)), "T2 mounted: on the flange in the view and its row");
+  await t.nav("main");
+  await t.click("#arm-rec");
+  t.check(await t.until(() => /1 point/.test($("arm-teach").textContent)) && await t.msgHas("Recorded G1 X"), "Record point");
+  // back to a mill
+  await t.ev(() => localStorage.removeItem("pmc.machine"));
+  await t.page.reload();
+  t.check(await t.until(() => R && R.type === "gantry" && !ARM && !document.body.classList.contains("arm") && (!$("arm-panel") || !$("arm-panel").offsetParent)), "a gantry again: no arm panel");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, the turret's tools, wizards, a program to its end, back to a mill", async (t) => {
   const emco = require("fs").readFileSync(path.join(MILL, "machines", "emco_compact5", "machine.json"), "utf8");
   await t.ev((x) => localStorage.setItem("pmc.machine", x), emco);

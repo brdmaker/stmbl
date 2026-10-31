@@ -152,6 +152,12 @@ const Live = (() => {
     if (m.fe) st.fe = [m.fe.X || 0, m.fe.Y1 ?? m.fe.Y ?? 0, m.fe.Y2 ?? m.fe.Y ?? 0, m.fe.Z || 0];
     if ("vel" in m) { st.velNow = m.vel; st.feedNow = m.vel; }
     if ("mode" in m) st.lmode = m.mode;
+    // an arm's: every axis, every joint, the jog mode (arm.js)
+    if (m.j) st.armJ = m.j;
+    if (m.jh) st.armJH = m.jh;
+    if (m.jfe) st.armJfe = m.jfe;
+    if (m.ax) st.armAx = m.ax;
+    if (m.jmode) st.armJmode = m.jmode;
     if ("run" in m) {
       st.run = m.run === "mdi" ? "run" : m.run;
       st.motion = (m.run === "run" || m.run === "hold") ? prog : null;
@@ -171,6 +177,8 @@ const Live = (() => {
   function slow() {
     if (slowSt.load != null) st.spindle.load = slowSt.load;
     st.turret = slowSt.turret || null;
+    st.arm = slowSt.arm || null;  // an arm's components (arm.js)
+    if (typeof ARM !== "undefined" && ARM && st.page === "tool") armRenderTools();
     if (typeof LATHE !== "undefined" && LATHE) latheTurret();
     if (slowSt.bus != null) st.bus = slowSt.bus;
     if (slowSt.yaw != null) st.yaw = Math.abs(slowSt.yaw);
@@ -479,6 +487,19 @@ const Live = (() => {
     jogAxis = null;
   }
   L.jogEnd = () => stopJog(true);
+  // an arm's jog: a joint ("j0".., joint mode) or an axis ("x".."c", world mode)
+  L.jogAxis = (axis, s) => {
+    if (st.jogInc === 0) {
+      jogHeld = { a: axis, s }; jogAxis = axis;
+      const go = () => send("jog", { axis, dir: s, inc: 0, rate: st.jogRate * st.ovr.maxv });
+      act("jog", { axis, dir: s, inc: 0, rate: st.jogRate * st.ovr.maxv }, "Jog");
+      clearInterval(jogTimer); jogTimer = setInterval(go, 100);
+      return;
+    }
+    act("jog", { axis, dir: s, inc: st.jogInc, rate: st.jogRate }, "Jog");
+  };
+  L.armModel = () => send("arm_model");
+  L.teach = (rate) => act("teach_record", { rate }, "Record point");
 
   // programs: the server's files; preflight from the server's preview
   L.loadProgram = async (p) => {

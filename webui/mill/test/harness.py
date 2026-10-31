@@ -102,7 +102,8 @@ class Machine:
                  "AXIS_X.MAX_VELOCITY=200", "AXIS_X.MAX_ACCELERATION=1500"]
 
     def __init__(self, ini_set=(), keep=False, hal_extra="", port=None, host="127.0.0.1", drive=False, supervised=False, machine=None,
-                 vib=0):
+                 vib=0, arm=False):
+        self.arm = arm  # hwtest/arcmate-sim with its tool changer (as its make test-tool) in place of test/sim
         self.ini_set, self.keep, self.hal_extra, self.drive = list(ini_set), keep, hal_extra, drive
         self.vib, self.vibmon = vib, None  # vib: this many simulated vibration sensors, through vibmon --sim
         self.supervised, self.machine_json = supervised, machine  # machine: a machine.json (dict) in place of test/machine's
@@ -119,8 +120,10 @@ class Machine:
         self.dir = tempfile.mkdtemp(prefix="millweb-test.")
         if self.supervised:
             return self.start_supervised()
-        shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
-        p = os.path.join(self.dir, "mill.ini")
+        ininame = self.arm_files() if self.arm else "mill.ini"
+        if not self.arm:
+            shutil.copytree(os.path.join(HERE, "sim"), self.dir, dirs_exist_ok=True)
+        p = os.path.join(self.dir, ininame)
         ini = open(p).read()
         ini_set, hal_extra = list(self.ini_set), self.hal_extra
         if self.drive:
@@ -151,7 +154,7 @@ class Machine:
         if hal_extra:
             with open(os.path.join(self.dir, "mill.hal"), "a") as f:
                 f.write("\n" + hal_extra + "\n")
-        sh = RIP + "cd %s && exec linuxcnc mill.ini > linuxcnc.log 2>&1" % self.dir
+        sh = RIP + "cd %s && exec linuxcnc %s > linuxcnc.log 2>&1" % (self.dir, ininame)
         self.proc = subprocess.Popen(["bash", "-c", sh], start_new_session=True)
         t = time.time() + 90
         while time.time() < t:
@@ -166,6 +169,31 @@ class Machine:
                       if os.path.exists(os.path.join(self.dir, f)))
         self.__exit__(None, None, None)
         raise RuntimeError("millweb didn't come up:\n" + log)
+
+    def arm_files(self):
+        """hwtest/arcmate-sim in self.dir, with its tool changer (armkins, M6 = toolchange.ngc), the gripper and the
+        guard's cell, as its Makefile's test-tool; a program folder; returns the INI's name"""
+        h, a = os.path.join(ROOT, "hwtest", "arcmate-sim"), os.path.join(ROOT, "host", "arm", "arcmate")
+        for f in os.listdir(h):
+            if os.path.isfile(os.path.join(h, f)):
+                shutil.copy(os.path.join(h, f), self.dir)
+        os.makedirs(os.path.join(self.dir, "nc_files"), exist_ok=True)
+        model, tools = os.path.join(a, "model_perturbed.arm"), os.path.join(a, "tools.txt")
+        p = os.path.join(self.dir, "arcmate.ini")
+        ini = open(p).read()
+        for old, new in (("ARM = ", "ARM = %s\n#" % os.path.join(a, "arcmate_changer.arm")),
+                         ("LIB = ", "LIB = %s\nTOOLS = %s\n#" % (os.path.join(ROOT, "host", "arm", "libstmbl_drive.so"), tools)),
+                         ("MODEL = ", "MODEL = %s\n#" % model), ("CELL = ", "CELL = %s\n#" % os.path.join(self.dir, "cell_changer.txt")),
+                         ("HALFILE = genserkins.hal", "HALFILE = grip.hal\nHALFILE = changer.hal"),
+                         ("KINEMATICS = genserkins", "KINEMATICS = armkins model=%s tools=%s" % (model, tools)),
+                         ("PARAMETER_FILE = arcmate.var", "PARAMETER_FILE = arcmate.var\nREMAP=M6 modalgroup=6 ngc=toolchange\nSUBROUTINE_PATH = %s" % self.dir)):
+            ini = re.sub(r"(?m)^" + re.escape(old), new.replace("\\", "\\\\"), ini, count=1)
+        ini = set_ini(ini, "MILLWEB", "NC_DIR", os.path.join(self.dir, "nc_files"))
+        open(p, "w").write(ini)
+        c = os.path.join(self.dir, "cell_changer.txt")
+        text = open(c).read()
+        open(c, "w").write(text.replace("include ../../host/arm/arcmate/tools.txt", "include " + tools))
+        return "arcmate.ini"
 
     def start_supervised(self):
         import json
@@ -274,6 +302,7 @@ def main():
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--drive", action="store_true", help="a simulated stmbl drive on X, its console through sserialterm")
     ap.add_argument("--supervised", action="store_true", help="test/machine's machine.json, run by millweb-supervisor")
+    ap.add_argument("--arm", action="store_true", help="hwtest/arcmate-sim (the ARC Mate with its tool changer) in place of test/sim")
     ap.add_argument("--serve", action="store_true", help="serve the test machine on the network for suites run elsewhere")
     ap.add_argument("--port", type=int, default=8080, help="--serve's port")
     ap.add_argument("--stress-files", action="store_true", help="--serve: write the stress suite's programs too")
@@ -284,7 +313,7 @@ def main():
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
     if not cmd:
         ap.error("a command to run: -- CMD ARGS (or --serve)")
-    with Machine(a.ini_set, a.keep, drive=a.drive, supervised=a.supervised) as m:
+    with Machine(a.ini_set, a.keep, drive=a.drive, supervised=a.supervised, arm=a.arm) as m:
         print("millweb on port %d (%s)" % (m.port, m.dir), flush=True)
         env = dict(m.lcnc_env(), MILLWEB_PORT=str(m.port), MILLWEB_DIR=m.dir)
         rc = subprocess.run(cmd, env=env).returncode
