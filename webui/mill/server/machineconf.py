@@ -38,7 +38,7 @@ HOMING = ("absolute", "immediate", "switch", "index")
 # bridge over a table that moves in Y (Scripta CN 720 style: one joint an axis); the console draws it
 # or a lathe: X (the cross slide, its DRO a diameter) and Z (along the spindle), the tools on a post in front of
 # or behind the spindle's axis; or an arm: joints that aren't axes (armkins), the tool point as X Y Z A B C
-TYPES = ("gantry", "bridge", "lathe", "arm")
+TYPES = ("gantry", "bridge", "router", "lathe", "arm")  # router: a moving gantry over a fixed table, drawn as a wood router
 CONSOLE_KEYS = {  # [MILLWEB] keys the console section may set as extra (the rest have fields of their own)
     "POLL_HZ", "HAL_HZ", "PREVIEW_SEGS", "PREVIEW_TIMEOUT", "PREVIEW_NICE", "DRIVE_POLL_MS", "CERT", "KEY", "PCOMP",
     "SPINDLE_LOAD_PIN", "BUS_PIN", "YAW_PIN", "CONTOUR_PIN", "AT_SPEED_PIN", "REMOTE_ENABLE_PIN", "AIR_PIN"}
@@ -412,7 +412,7 @@ def validate(raw, mdir=None):
         for k in ("unclamp", "clamped", "released", "air"):
             if t[k] and not HALNAME.match(str(t[k])):
                 errs.append(("atc." + k, "a HAL pin name"))
-        if not t["unclamp"]:
+        if not t["unclamp"] and m["board"]["type"] != "none":  # a simulated machine (no board) has no drawbar to drive
             errs.append(("atc.unclamp", "the drawbar's output pin"))
         if "Z" not in m["axes"]:
             errs.append(("atc.type", "a tool changer needs a Z axis"))
@@ -643,6 +643,7 @@ def _millweb_keys(m, mdir, run, drv):
           ("MACHINE_DIR", mdir), ("MACHINE_TYPE", m["type"]),
           ("DRIVE_FW", m["stmbl"].get("fw")), ("DRIVE_FW_BLOCK", "yes" if m["stmbl"].get("block", True) else "no"),
           ("TOOLSETTER", " ".join(_fmt(ts[k]) for k in ("x", "y", "z_above", "z_ref", "travel")) if ts else None),
+          ("ATC_RACK", " ".join(_fmt(m["atc"][k]) for k in ("pockets", "x", "y", "dx", "dy", "z_clear", "z_pocket", "slide")) if m["atc"]["type"] == "rack" else None),
           ("PIN", list(c["pins"]) or None)]
     if m["spindle"]["type"] == "sim" and "AT_SPEED_PIN" not in c["extra"]:
         mw.append(("AT_SPEED_PIN", "spindle.0.at-speed"))
@@ -1002,7 +1003,7 @@ def generate(m, mdir, mill, custom=None):
             h("net spindle-con-cmd sserialterm.%d.con-cmd => %s.%s" % (con, pre, pins["con_cmd"]))
     t = m["atc"]
     if t["type"] == "rack":  # the M6 remap's I/O: motion's digital outputs 0 (drawbar), 1 (air); inputs 0 (clamped), 1 (released)
-        h("net atc-unclamp motion.digital-out-00 => %s" % t["unclamp"])
+        h(("net atc-unclamp motion.digital-out-00 => %s" % t["unclamp"]) if t["unclamp"] else "net atc-unclamp motion.digital-out-00  # simulated: no drawbar")
         if t["air"]:
             h("net atc-air motion.digital-out-01 => %s" % t["air"])
         if t["clamped"]:
@@ -1017,6 +1018,12 @@ def generate(m, mdir, mill, custom=None):
     out = {"mill.ini": ini, "machine.hal": hal}
     if t["type"] == "rack":
         out["toolchange.ngc"] = toolchange_ngc(t)
+        # the first tool.tbl (only when the machine has none yet): a tool in each pocket, to be measured and named
+        kinds = ["12 mm 2-flute spiral cutter", "8 mm 2-flute spiral cutter", "6 mm 1-flute O-flute", "20 mm surfacing bit",
+                 "6 mm ball nose", "90 deg V-groove bit"]
+        dia = [12, 8, 6, 20, 6, 12]
+        out[TOOL_TBL_INIT] = "".join("T%d P%d D%g Z+0.000 ;%s (pocket %d)\n" % (n, n, dia[(n - 1) % 6], kinds[(n - 1) % 6], n)
+                                     for n in range(1, min(int(t["pockets"]), 99) + 1))
     return out
 
 

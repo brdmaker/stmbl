@@ -117,7 +117,7 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["lathe", "lathe: X and Z, the console a lathe's"], ["arm", "arm: joints that aren't axes (armkins), X Y Z A B C"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["router", "router: a moving gantry over a spoilboard, the rack along the back"], ["lathe", "lathe: X and Z, the console a lathe's"], ["arm", "arm: joints that aren't axes (armkins), X Y Z A B C"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
       ${cfg.m.type === "lathe" ? fld("lathe.post", "Tool post", "sel", { def: "front", re: true, choices: [["front", "in front of the spindle's axis (+X toward the operator)"], ["back", "behind it (+X away from the operator)"]] }) +
         fld("lathe.diameter", "X as a diameter (G7) from the start", "bool", { def: true }) : ""}
       ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
@@ -600,9 +600,12 @@ const cfgSim = (() => {
       { axis: "Z", drive: { type: "stmbl_sserial", port: 0, channel: 3 }, ferror: 2, min_ferror: 0.5, home: { method: "index", pos: 0, sequence: 0, latch_vel: 2 } }],
     estop: { input: "hm2_7i96s.0.inm.00.input-00" }, probe: { type: "input", input: "hm2_7i96s.0.inm.00.input-01" }, spindle: { type: "sim", max_rpm: 24000 },
     toolsetter: { x: 980, y: 20, z_above: -40, z_ref: -245, travel: 200 }, console: { port: 8080 } };
-  let saved = JSON.stringify(EX, null, 2) + "\n", custom = "", hist = [];
+  // index.html?machine=<name>: an example machine (js/demo_machines.js) in place of the PORTAL-M, kept apart in the storage
+  const demo = (location.search.match(/[?&]machine=(\w+)/) || [])[1], DX = demo && typeof DEMO_MACHINES !== "undefined" && DEMO_MACHINES[demo];
+  const KEY = DX ? "pmc.machine." + demo : "pmc.machine";
+  let saved = JSON.stringify(DX || EX, null, 2) + "\n", custom = "", hist = [];
   const files = new Map();  // uploaded models: this page only (a reload forgets them)
-  try { saved = localStorage.getItem("pmc.machine") || saved; custom = localStorage.getItem("pmc.custom") || ""; } catch (e) { /* storage blocked */ }
+  try { saved = localStorage.getItem(KEY) || saved; custom = localStorage.getItem("pmc.custom") || ""; } catch (e) { /* storage blocked */ }
   const ok = (x) => Promise.resolve(Object.assign({ ok: true }, x));
   return {
     get: () => ok({ text: saved, custom, default: saved, history: hist, bitstreams: [], models: [...files].map(([name, b]) => ({ name, size: b.byteLength })), dir: "(this browser)" }),
@@ -620,12 +623,12 @@ const cfgSim = (() => {
         for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
         for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
       }
-      if (m.type && !["gantry", "bridge", "lathe", "arm"].includes(m.type)) errs.push(["type", "gantry, bridge, lathe or arm"]);
+      if (m.type && !["gantry", "bridge", "router", "lathe", "arm"].includes(m.type)) errs.push(["type", "gantry, bridge, router, lathe or arm"]);
       if (m.type === "lathe") for (const a of Object.keys(m.axes || {})) if (!"XZ".includes(a)) errs.push([`axes.${a}`, "a lathe here has X and Z only"]);
       if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
     },
-    save: (text, c, note) => { hist.unshift({ id: String(Date.now()), time: new Date().toLocaleString(), who: "this browser", note, text: saved, custom }); saved = text; custom = c; try { localStorage.setItem("pmc.machine", text); localStorage.setItem("pmc.custom", c); } catch (e) { /* storage blocked */ } return ok({}); },
+    save: (text, c, note) => { hist.unshift({ id: String(Date.now()), time: new Date().toLocaleString(), who: "this browser", note, text: saved, custom }); saved = text; custom = c; try { localStorage.setItem(KEY, text); localStorage.setItem("pmc.custom", c); } catch (e) { /* storage blocked */ } return ok({}); },
     version: (id) => { const h = hist.find((x) => x.id === id); return ok(h ? { text: h.text, custom: h.custom } : {}); },
     bitstreamSave: () => ok({ bitstreams: [], err: "the simulation keeps no bitstreams" }).then((r) => Object.assign(r, { ok: false })),
     bitstreamDelete: () => ok({ bitstreams: [] }),

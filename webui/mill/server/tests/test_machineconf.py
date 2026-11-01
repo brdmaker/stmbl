@@ -121,7 +121,7 @@ class Machine(unittest.TestCase):
             mc.validate(two)
         self.assertIn(("axes.Y", "a fixed-bridge machine moves Y with one joint (2 here: that's a gantry)"), e.exception.errors)
         bad = copy.deepcopy(mc.DEFAULT)
-        bad["type"] = "router"
+        bad["type"] = "planer"
         with self.assertRaises(mc.Invalid) as e:
             mc.validate(bad)
         self.assertEqual([w for w, _ in e.exception.errors], ["type"])
@@ -179,7 +179,8 @@ class Machine(unittest.TestCase):
         m["spindle"] = {"type": "hal"}
         with self.assertRaises(mc.Invalid) as cm:
             mc.validate(m, self.d)
-        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
+        # (this machine has no board: simulated, no drawbar pin needed; test_router checks one with a board)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.z_pocket", "spindle.on"})
 
     def test_example_machines(self):
         """machines/*: each valid and made; the test stand's racks scale its drives, its switches home it."""
@@ -193,6 +194,30 @@ class Machine(unittest.TestCase):
         self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
         self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["66"], ["10"]))   # Y homes at its +65 end
         self.assertIn("net j2-home-sw hm2_7i96s.0.inm.00.input-04 => joint.2.home-sw-in", f["machine.hal"])
+
+    def test_router(self):
+        """machines/excitech: a router (moving gantry, Y1/Y2), the 6-fork rack at the back; simulated (no board): no drawbar pin"""
+        m = json.load(open(os.path.join(MILL, "machines", "excitech", "machine.json")))
+        f = self.gen(m)
+        ini, hal, ngc = ini_sections(f["mill.ini"]), f["machine.hal"], f["toolchange.ngc"]
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["router"])
+        self.assertEqual(ini["MILLWEB"]["ATC_RACK"], ["6 150 1290 150 0 0 -150 80"])
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["trivkins coordinates=XYYZ kinstype=BOTH"])
+        self.assertEqual(ini["SPINDLE_0"]["MAX_FORWARD_VELOCITY"], ["24000"])
+        self.assertIn("net atc-unclamp motion.digital-out-00  # simulated: no drawbar", hal)
+        self.assertIn("[#<_current_tool> LE 6]", ngc)
+        self.assertIn("G53 G0 X[150 + [#<_pk> - 1] * 150] Y[[1290 + [#<_pk> - 1] * 0] - 80]", ngc)
+        self.assertEqual(len(f[mc.TOOL_TBL_INIT].splitlines()), 6)  # the first tool.tbl: a tool in each fork
+        self.assertTrue(f[mc.TOOL_TBL_INIT].startswith("T1 P1 D12 "))
+        # with a board, the drawbar's pin is needed again
+        m["board"] = {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10", "config": ""}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertIn("atc.unclamp", {w for w, _ in cm.exception.errors})
+        # no rack: no ATC_RACK
+        m = json.load(open(os.path.join(MILL, "machines", "excitech", "machine.json")))
+        m["atc"] = {"type": "none"}
+        self.assertNotIn("ATC_RACK", ini_sections(self.gen(m)["mill.ini"])["MILLWEB"])
 
     def test_lathe(self):
         """machines/emco_compact5: X Z, G18 G7 at the start, LATHE in [DISPLAY], a simulated spindle encoder."""

@@ -103,7 +103,7 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
-| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `router` (a moving gantry over a spoilboard, drawn as a wood router with its rack of forks along the back; a Y pair allowed: the Excitech, `machines/excitech`; see *Routers*). Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
 | `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …`. `turret` (see *Lathes*): `type` `none`, `sim`, `stepper` (`stepgen`: its HAL prefix, `steps` a turret turn, `index`: the once-a-turn pulse's pin, `index_invert`), `stations`, and its moves in turret turns: `offset` (station 1 after the index), `overtravel`, `lock`, `speed`, `lock_speed`, `acc`, `dwell`, `timeout`, `slip` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
@@ -410,6 +410,27 @@ the event log.
 
 **AC servos everywhere** (`machines/emco_compact5/machine-stmbl.json`): stmbl drives on X, Z and the spindle on smart-serial, the turret's stepper on a stepgen, and an EBAZ4205 (Zynq) card running hostmot2 (`hm2_soc_ol`, its bitstream through `fpga_manager`). The board's name, its stepgen and GPIO numbers, and the X/Z leads in the file are placeholders: set them to the card's bitstream and the machine. The spindle drive's config is velocity mode, as `conf/haas_spindle.txt` (`pid0.pos_en = 0`).
 
+## Routers
+
+`machines/excitech` is an Excitech-style router: 1200 × 1200 mm on a moving gantry (two Y
+motors on racks), Z 215 mm, an ISO30 electrospindle to 24 000 min⁻¹ and a rack of six forks
+along the back of the bed. Its drives are simulated (`sim`, no board): it runs as it is, and
+becomes the real machine by giving the joints their drives and the rack its drawbar pins.
+- **The 3D view** (type `router`): the welded bed on its feet, the vacuum table with its MDF
+  spoilboard (top at Z 0 of the table), the side beams with their racks, the gantry and its
+  pinion motors, the X carriage, the Z slide, the square electrospindle, the tool setter, and
+  the rack from machine.json's `atc` (each fork with its holder; the spindle's own fork empty).
+  Sized from the travels: another router is the same machine.json with other numbers.
+- **The rack:** `atc` type `rack`, 6 pockets from X 150 at Y 1290, 150 mm apart, the forks open
+  towards the front (the holder slides in along +Y, 80 mm), Z −150 in the fork. M6 runs the
+  generated `run/toolchange.ngc`: the tool back into its fork, then the new one out of its fork;
+  a tool beyond pocket 6 is changed by hand. The first tool.tbl has a tool in each pocket (to be
+  measured and named). Y travels to 1320, past the 1200 of the work area, to reach the rack.
+- **Without LinuxCNC:** `index.html?machine=router` (or `?sim&machine=router` over HTTP) is the
+  simulation as this router; M6 (the Tools page's Load, MDI) runs through the rack in the view.
+- **Guessed:** the travels' exact ends, the rack's place and pitch, Z of the forks, the speeds
+  (667 mm/s, 3 m/s²): measure them on the machine.
+
 `machines/emco_compact5` is an example: simulated joints, spindle (with an encoder: G76 threads) and turret.
 Its 3D model comes from the machine's STEP file through `tools/step2parts.py`; see its README.
 
@@ -529,6 +550,7 @@ round (`make test-gui-tablet`):
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
+| `make test-router` | `machines/excitech` made and run by millweb-supervisor: the router's hello, M6 through the rack's forks (`test/router_live.py`) | 1 min | LinuxCNC |
 | `make test-config` | the Configure page and restarts: test/machine run by millweb-supervisor (backend cases and the page) | 2 min | all of the above |
 | `make test-drive` | the Drives tab on LinuxCNC with a simulated stmbl drive on X (`harness.py --drive`: `stmbl_sim` closing joint 0's loop, `sserialterm`) | 1 min | all of the above, `stmbl_sim.so` and `sserialterm.so` installed |
 | `make check-all` | unit, simulated, tablet, backend and live GUI suites | 17 min | |

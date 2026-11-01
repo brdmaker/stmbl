@@ -467,6 +467,29 @@ test("file page: CAM scene import (zip): the stock and the placed parts into the
   t.check(await t.msgHas("not a zip file"), "a broken zip: refused");
 });
 
+test("router (index.html?machine=router): the Excitech, its 6-fork rack, M6 through the rack", async (t) => {
+  await t.page.goto(URL + "?machine=router");
+  await t.page.waitForFunction(() => typeof st !== "undefined" && st.run === "hold" && R && R.type === "router" && R.rackHolders && R.rackHolders.length === 6, null, { timeout: 20000 });
+  t.check((await t.text(".brand b")) === "EXCITECH", "the brand");
+  t.check(await t.ev(() => TRAVEL.x[1] === 1200 && TRAVEL.y[1] === 1320 && RACK.pockets === 6 && RACK.y === 1290), "travel 1200 x 1320, the rack at Y 1290");
+  t.check(await t.ev(() => R.rackHolders.map((h) => h.visible).join() === "true,true,false,true,true,true"), "T3 in the spindle: its fork empty");
+  await stop(t);
+  await t.ev(() => toolChange(5));
+  t.check(await t.until(() => st.motion && st.motion.name === "T3: back to pocket 3"), "T3 goes back to pocket 3 first");
+  t.check(await t.until(() => st.motion && st.motion.name === "T5: from pocket 5", null, 30000), "then T5 from pocket 5");
+  t.check(await t.ev(() => { const m = st.motion.segs, k = RACK, x = k.x + 4 * k.dx; return Math.abs(m[2].x + off().x + st.g92.x - x) < 1e-6 && Math.abs(m[2].z + off().z + st.g92.z - k.z_pocket) < 1e-6; }), "down onto pocket 5 (machine X 750, Z -150)");
+  t.check(await t.until(() => st.tool === 5 && !st.motion, null, 30000), "T5 in the spindle");
+  t.check(await t.ev(() => R.rackHolders.map((h) => h.visible).join() === "true,true,true,true,false,true"), "T3 back in its fork, fork 5 empty");
+  t.check(await t.msgHas("T5 M6 from pocket 5"), "message");
+  // a tool beyond the rack: by hand
+  await t.ev(() => toolChange(12));
+  t.check(await t.until(() => st.tool === 12 && !st.motion, null, 30000) && await t.msgHas("beyond the rack"), "T12: beyond the 6 pockets, by hand");
+  t.check(await t.ev(() => R.rackHolders.every((h) => h.visible)), "all six back in the rack");
+  // the Configure page has the example machine
+  await t.nav("config");
+  t.check(await t.until(() => /"type": "router"/.test(document.body.innerText) || (typeof cfg !== "undefined" && cfg.m && cfg.m.type === "router"), null, 8000), "Configure: the router's machine.json");
+}, { open: false });
+
 test("wizards: facing, bolt circle, circular pocket", async (t) => {
   await t.nav("wiz");
   const opts = await t.ev(() => [...document.querySelectorAll("#fz-t option")].map((o) => o.value));

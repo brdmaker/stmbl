@@ -579,7 +579,8 @@ class Machine:
         if self.arm:
             mtype = "arm"
         return {"name": cfg.get("EMC", "MACHINE", "LinuxCNC"), "coords": self.coords, "limits": lim,
-                "type": mtype if mtype in ("gantry", "bridge", "lathe", "arm") else "gantry",
+                "type": mtype if mtype in ("gantry", "bridge", "router", "lathe", "arm") else "gantry",
+                "rack": self.rack_info(),
                 "arm": self.arm_info() if self.arm else None,
                 "lathe": {"post": "back" if (cfg.get("DISPLAY", "BACK_TOOL_LATHE", "0") or "0").strip().lower() in ("1", "yes", "true") else "front"}
                 if mtype == "lathe" else None,
@@ -589,6 +590,17 @@ class Machine:
                 "toolsetter": bool(self.toolsetter), "pcomp": self._pin_exists(self.pcomp + ".shaper"),
                 "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max,
                 "hal_write": (cfg.get("MILLWEB", "HAL_WRITE", "no") or "no").lower() in ("yes", "1", "true")}
+
+    def rack_info(self):
+        """[MILLWEB] ATC_RACK (machineconf writes it from machine.json's atc): the rack for the 3D view, or None."""
+        v = (self.cfg.get("MILLWEB", "ATC_RACK") or "").split()
+        try:
+            n = [float(x) for x in v]
+        except ValueError:
+            return None
+        if len(n) != 8:
+            return None
+        return dict(zip(("pockets", "x", "y", "dx", "dy", "z_clear", "z_pocket", "slide"), [int(n[0])] + n[1:]))
 
     def _pin_exists(self, name):
         if not self.hal or not name:

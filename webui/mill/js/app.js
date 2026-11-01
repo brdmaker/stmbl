@@ -19,6 +19,9 @@ let LIVE = null;
 
 // ============================================================ the machine
 const TRAVEL = { x: [0, 1000], y: [0, 1000], z: [-215, 0] };  // machine coordinates (Z: the tool tip, 0 = top)
+// a rack tool changer (machine.json's atc, millweb's info.rack; the router demo's): {pockets, x, y, dx, dy, z_clear, z_pocket, slide}
+let RACK = null;
+const ROUTER_RACK = { pockets: 6, x: 150, y: 1290, dx: 150, dy: 0, z_clear: 0, z_pocket: -150, slide: 80 };
 const ZTOP = 234;      // height of the tool tip above the table at machine Z 0 (G54 Z −195: the stock top 39 mm up, on its fixture plate)
 const STOCK = { w: 120, l: 80, h: 25 };
 const RAPID = 30000, ACC = 4900;
@@ -493,7 +496,7 @@ function renderRunStats() {
   const run = rs.wall - rs.hold, est = rs.estT - rs.est0, pace = est > 1 && run > 1 ? est / run : null;
   const f0 = (v) => Math.round(v).toLocaleString("en-US"), f1 = (v) => v.toFixed(1);
   const cell = (k, v, sub = "", warn = false) => `<div class="${warn ? "warn" : ""}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
-  const gantry = !R || R.type === "gantry", joints = gantry ? [0, 1, 2, 3] : R.type === "lathe" ? [0, 3] : [0, 1, 3];  // a fixed bridge has one Y, a lathe none
+  const gantry = !R || R.type === "gantry" || R.type === "router", joints = gantry ? [0, 1, 2, 3] : R.type === "lathe" ? [0, 3] : [0, 1, 3];  // a fixed bridge has one Y, a lathe none
   $("rs-head").textContent = `${rs.done ? (rs.end === "done" ? "Last run, finished" : "Last run, stopped") : st.run === "hold" ? "Running · on hold" : "Running"}: ${rs.name}`;
   $("rstats").innerHTML = [
     cell("RUN TIME", mmss(rs.wall), rs.hold > 0.5 ? `${mmss(rs.hold)} on hold` : "&nbsp;"),
@@ -681,7 +684,34 @@ function toolChange(t) {
   if (LIVE) return LIVE.toolLoad(t);
   if (!ready()) return; if (busy()) { msg("Not while the program runs.", "warn"); return; }
   if (!toolOf(t)) { msg(`T${t} is not in the tool table.`, "warn"); return; }
+  if (RACK && R && R.rackHolders) return rackChange(t);
   st.tool = t; buildTool(); if (st.page === "tool") renderTools(); msg(`T${t} M6: ${toolOf(t).c}`, "ok");
+}
+// the simulation's M6 with a rack (the router): the spindle's tool back into its fork (in along +Y, the drawbar
+// opens, up), then the new one (down onto it, clamp, out along -Y, up). Tool n sits in pocket n; one beyond the
+// rack is changed by hand
+function rackChange(t) {
+  const k = RACK, inRack = (n) => n >= 1 && n <= k.pockets, P = (n) => ({ x: k.x + (n - 1) * k.dx, y: k.y + (n - 1) * k.dy });
+  const W = (x, y, z) => toWork({ x, y, z }), here = toMach(st.pos);
+  const done = () => { st.rackOut = 0; st.tool = t; buildTool(); if (st.page === "tool") renderTools(); msg(`T${t} M6${inRack(t) ? ` from pocket ${t}` : ""}: ${toolOf(t).c}`, "ok"); };
+  const fetch = (from) => {
+    if (!inRack(t)) { done(); msg(`T${t} is beyond the rack's ${k.pockets} pockets: put it in by hand`, "warn"); return; }
+    const q = P(t);
+    st.rackOut = t; rackShow();  // it leaves the fork as the spindle clamps it
+    if (!moveTo([W(from.x, from.y, k.z_clear), W(q.x, q.y, k.z_clear), W(q.x, q.y, k.z_pocket), W(q.x, q.y - k.slide, k.z_pocket), W(q.x, q.y - k.slide, k.z_clear)], `T${t}: from pocket ${t}`)) return;
+    st.motion.segs[2].f = 2000; st.motion.segs[2].rapid = false; st.motion.segs[3].f = 2000; st.motion.segs[3].rapid = false; plan(st.motion);
+    // the tool appears on the spindle when it reaches the holder (the third move): drawn from the start of the slide out
+    const i0 = st.motion.segs[3].t0, mo = st.motion;
+    const watch = () => { if (st.motion !== mo) return; if (st.t >= i0) { st.tool = t; buildTool(); return; } requestAnimationFrame(watch); }; requestAnimationFrame(watch);
+    st.onDone = done;
+  };
+  const cur = st.tool;
+  if (cur === t) { msg(`T${t} is in the spindle already`, "info"); return; }
+  if (!inRack(cur)) { if (cur) msg(`T${cur} has no pocket: take it out by hand`, "warn"); st.tool = 0; buildTool(); fetch(here); return; }
+  const p = P(cur);
+  if (!moveTo([W(here.x, here.y, k.z_clear), W(p.x, p.y - k.slide, k.z_clear), W(p.x, p.y - k.slide, k.z_pocket), W(p.x, p.y, k.z_pocket), W(p.x, p.y, k.z_clear)], `T${cur}: back to pocket ${cur}`)) return;
+  st.motion.segs[2].f = 2000; st.motion.segs[2].rapid = false; st.motion.segs[3].f = 2000; st.motion.segs[3].rapid = false; plan(st.motion);
+  st.onDone = () => { st.tool = 0; buildTool(); fetch({ x: p.x, y: p.y }); };  // the drawbar opens at the fork: an empty spindle up
 }
 
 // ============================================================ PROBE page
@@ -930,7 +960,7 @@ function buildBuiltin(type) {
   const { machine, mat, box, cyl } = R;
   machine.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   machine.clear();
-  R.type = type; R.tableG = null; R.spinG = null; R.stock = null; R.stockG = null;
+  R.type = type; R.tableG = null; R.spinG = null; R.stock = null; R.stockG = null; R.rackG = null; R.rackHolders = null;
   if (type === "arm") {  // arm.js: the console becomes an arm's (its model comes from the machine, or arm_demo.js)
     if (typeof LATHE !== "undefined" && LATHE) latheExit();
     armEnter();
@@ -949,7 +979,69 @@ function buildBuiltin(type) {
   if (typeof LATHE !== "undefined" && LATHE) latheExit();
   const bridge = new THREE.Group(), carriage = new THREE.Group(), ram = new THREE.Group(), headG = new THREE.Group(), toolG = new THREE.Group(), coolant = new THREE.Group();
   machine.add(bridge); bridge.add(carriage); carriage.add(ram); ram.add(headG);
-  if (type === "bridge") {
+  if (type === "router") {
+    // a moving-gantry router (Excitech style): a welded bed, an MDF spoilboard on a vacuum table, the gantry
+    // on rack and pinion each side, an ISO30 electrospindle, a fork rack along the back. Sized from the travels;
+    // the tool line 220 mm in front of the beam (update3d's gantry convention)
+    const X0 = TRAVEL.x[0], X1 = TRAVEL.x[1], Y0 = TRAVEL.y[0], Y1 = TRAVEL.y[1], cx = (X0 + X1) / 2, w = X1 - X0;
+    const rk = RACK || ROUTER_RACK, tY1 = Math.min(Y1, rk.y - 60), cy = (Y0 + tY1) / 2, tl = tY1 - Y0 + 60, bedL = Y1 - Y0 + 520;
+    const wood = R.mat.wood || (R.mat.wood = new THREE.MeshStandardMaterial({ color: 0xc8a878, metalness: 0, roughness: .9 }));
+    const yel = R.mat.yel || (R.mat.yel = new THREE.MeshStandardMaterial({ color: 0xd9a21b, metalness: .3, roughness: .5 }));
+    machine.add(box(w + 520, bedL, 160, mat.frame, cx, (Y0 + Y1) / 2, -150));
+    for (const fx of [cx - w / 2 - 200, cx + w / 2 + 200]) for (const fy of [Y0 - 200, (Y0 + Y1) / 2, Y1 + 200]) {
+      machine.add(box(120, 120, 480, mat.frame, fx, fy, -460)); machine.add(cyl(70, 30, mat.feet, fx, fy, -705));
+    }
+    machine.add(box(w + 60, tl, 40, mat.table, cx, cy, -40));  // the vacuum table, its grid and zones
+    machine.add(box(w + 40, tl - 20, 18, wood, cx, cy, -9));     // the MDF spoilboard: its top is z 0
+    for (let x = X0; x <= X1 + 1; x += 100) machine.add(box(4, tl - 20, 1, mat.slot, x, cy, 0.6, false));
+    for (let y = Y0; y <= tY1 + 1; y += 100) machine.add(box(w + 40, 4, 1, mat.slot, cx, y, 0.6, false));
+    for (const sx of [X0 - 170, X1 + 170]) {  // the side beams: Y rail on top, the rack on the inside
+      machine.add(box(140, bedL - 80, 200, mat.frame, sx, (Y0 + Y1) / 2, 30));
+      machine.add(box(30, bedL - 120, 24, mat.rail, sx, (Y0 + Y1) / 2, 142));
+      machine.add(box(14, bedL - 120, 30, mat.accent, sx + (sx < cx ? 72 : -72), (Y0 + Y1) / 2, 110, false));
+    }
+    // the tool rack along the back: a fork for each pocket on a beam across the bed, a holder in each but the spindle's
+    const nz = rk.z_pocket + ZTOP, rackG = new THREE.Group(); machine.add(rackG); R.rackG = rackG; R.rackHolders = [];
+    const rx0 = rk.x, rx1 = rk.x + (rk.pockets - 1) * rk.dx, ry = rk.y + (rk.pockets - 1) * rk.dy / 2;
+    rackG.add(box(Math.abs(rx1 - rx0) + 200, 80, 60, mat.frame, (rx0 + rx1) / 2, ry + 70, nz - 70));
+    for (const lx of [Math.min(rx0, rx1) - 80, Math.max(rx0, rx1) + 80]) rackG.add(box(60, 60, nz + 40, mat.frame, lx, ry + 70, (nz - 120) / 2));
+    for (let i = 0; i < rk.pockets; i++) {
+      const x = rk.x + i * rk.dx, y = rk.y + i * rk.dy;
+      rackG.add(box(110, 60, 14, yel, x, y + 20, nz - 4));  // the fork, open towards the front
+      rackG.add(box(70, 22, 14, mat.dark, x, y + 40, nz - 4, false));
+      const h = new THREE.Group(); h.position.set(x, y, 0); rackG.add(h); R.rackHolders.push(h);
+      const cone = new THREE.Mesh(new THREE.CylinderGeometry(16, 25, 48, 24), mat.spindle); cone.rotation.x = Math.PI / 2; cone.position.z = nz + 40; h.add(cone);  // ISO30 taper
+      h.add(cyl(32, 16, mat.dark, 0, 0, nz + 8, 32));  // the flange in the fork
+      h.add(cyl(14, 30, mat.spindle, 0, 0, nz - 15, 20)); h.add(cyl(5, 40, mat.tool, 0, 0, nz - 50, 12));  // the collet nut, a cutter
+      const lbl = box(14, 4, 10, mat.accent, 0, -36, nz - 4, false); h.add(lbl);
+    }
+    machine.add(cyl(18, 40, mat.dark, X1 - 40, Y0 + 40, 20)); machine.add(cyl(12, 6, mat.accent, X1 - 40, Y0 + 40, 43));  // the tool setter
+    // the gantry: side plates on the Y carriages, the pinion motors, the beam, X rails and rack, a cable chain
+    const top = ZTOP + 300;
+    for (const sx of [X0 - 170, X1 + 170]) {
+      bridge.add(box(160, 220, 40, mat.carriage, sx, 0, 172));
+      bridge.add(box(60, 260, top + 60 - 190, mat.bridge, sx, 0, 190 + (top + 60 - 190) / 2));
+      bridge.add(cyl(45, 160, mat.dark, sx + (sx < cx ? -70 : 70), 60, 260));  // the Y motor and its gearbox
+    }
+    bridge.add(box(w + 400, 170, 220, mat.bridge, cx, 0, top));
+    bridge.add(box(w + 300, 26, 26, mat.rail, cx, -92, top + 60)); bridge.add(box(w + 300, 26, 26, mat.rail, cx, -92, top - 60));
+    bridge.add(box(w + 300, 10, 20, mat.accent, cx, -88, top, false));
+    for (let i = 0; i < 26; i++) bridge.add(box(40, 60, 26, mat.dark, X0 - 120 + i * (w + 240) / 25, 20, top + 130, false));
+    // the X carriage, the Z slide, the ISO30 electrospindle (square body, fan cap, the nose): the tool at y -220
+    carriage.add(box(260, 50, 320, mat.carriage, 0, -128, top));
+    carriage.add(cyl(40, 140, mat.dark, 0, -170, top + 230));
+    carriage.add(box(120, 8, 12, mat.accent, 0, -156, top + 140, false));
+    ram.add(box(200, 40, 480, mat.carriage, 0, -175, 300));
+    ram.add(box(8, 6, 320, mat.accent, 0, -197, 330, false));
+    headG.add(box(150, 150, 260, mat.spindle, 0, -220, 205));
+    headG.add(cyl(70, 30, mat.dark, 0, -220, 350, 32));
+    headG.add(box(152, 152, 10, mat.accent, 0, -220, 300, false));
+    headG.add(cyl(48, 30, mat.dark, 0, -220, 60, 32));
+    const tc = new THREE.Mesh(new THREE.CylinderGeometry(16, 25, 40, 24), mat.spindle); tc.rotation.x = Math.PI / 2; tc.position.set(0, -220, 38); headG.add(tc);
+    toolG.position.set(0, -220, 0); headG.add(toolG); headG.add(coolant);
+    for (const a of [0.6, 2.4, 4.2]) { const n = cyl(4, 60, mat.accent, 60 * Math.cos(a), -220 + 60 * Math.sin(a), 52, 8); n.rotation.y = .45 * Math.cos(a); n.rotation.x = -.45 * Math.sin(a); coolant.add(n); }
+    rackShow();
+  } else if (type === "bridge") {
     const X0 = TRAVEL.x[0], X1 = TRAVEL.x[1], Y0 = TRAVEL.y[0], Y1 = TRAVEL.y[1], cx = (X0 + X1) / 2, w = X1 - X0;
     // the base: a cast bed on a stand, the table's two guide rails along Y and its screw with the motor in front
     const bedL = (Y1 - Y0) * 2 + 300;
@@ -1047,12 +1139,18 @@ function sizeLimits() {
   R.limits.scale.set(Math.max(dx, 1), Math.max(dy, 1), Math.max(dz, 1));
   R.limits.position.set(TRAVEL.x[0] + dx / 2, TRAVEL.y[0] + dy / 2, ZTOP + TRAVEL.z[0] + dz / 2);
 }
+// the rack's holders: each pocket's tool in its fork, but the spindle's (tool n in pocket n)
+function rackShow() {
+  if (!R || !R.rackHolders) return;
+  R.rackHolders.forEach((h, i) => { h.visible = st.tool !== i + 1 && !(st.rackOut === i + 1); });
+}
 function resize3d() {
   if (!R) return;
   const r = VIEWER.getBoundingClientRect(); if (r.width < 10 || r.height < 10) return;
   R.renderer.setSize(r.width, r.height, false); R.cam.aspect = r.width / r.height; R.cam.updateProjectionMatrix();
 }
 function buildTool() {
+  rackShow();
   const t = toolOf(st.tool) || { d: 6, l: 50, c: "" };
   $("v-tool").textContent = "T" + st.tool; $("f-tool").textContent = "T" + st.tool;
   $("sp-tool").textContent = `T${st.tool} Ø${t.d} · ${t.c.replace(/^[\d.]+ mm /, "")}`;
@@ -1060,6 +1158,7 @@ function buildTool() {
   if (R.type === "lathe" && !setup.tools[String(st.tool)]) return latheBuildTool();
   if (R.type === "arm") return;  // arm.js draws the tools (on the flange, in their docks)
   while (R.toolG.children.length) R.toolG.remove(R.toolG.children[0]);
+  if (!st.tool) return;  // an empty spindle (between a rack's put-back and pick-up)
   // its own 3D model (the Tools page): the tip at its origin, the spindle along +Z
   const tm = setup.tools[String(st.tool)];
   if (tm) {
@@ -1151,7 +1250,8 @@ function setCam(kind, instant) {
   R.follow = kind === "follow";
   // the work's place in the view: a fixed bridge's table moves (workG), a gantry's stands
   const o = off(), sx = o.x + STOCK.w / 2, sy = o.y + STOCK.l / 2 + R.workG.position.y, sz = o.z + ZTOP;
-  const B = R.type === "bridge", cx = B ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, cy = B ? 0 : 500, k = B ? 0.8 : 1;
+  const B = R.type === "bridge", RT = R.type === "router", cx = B || RT ? (TRAVEL.x[0] + TRAVEL.x[1]) / 2 : 500, cy = B ? 0 : RT ? (TRAVEL.y[0] + TRAVEL.y[1]) / 2 : 500;
+  const k = B ? 0.8 : RT ? Math.max(1, Math.max(TRAVEL.x[1] - TRAVEL.x[0], TRAVEL.y[1] - TRAVEL.y[0]) / 1000) : 1;
   const views = {
     iso: [[cx - 1600 * k, cy - 2200 * k, 1700 * k], [cx, cy + 60, 120]], top: [[cx, cy - 1, 3300 * k], [cx, cy, 0]], front: [[cx, cy - 3100 * k, 520], [cx, cy, 260]],
     side: [[cx - 3100 * k, cy, 520], [cx, cy, 260]], part: [[sx - 240, sy - 380, sz + 330], [sx, sy, sz - 10]],
@@ -1219,7 +1319,7 @@ function update3d(dt, tip, moving, cutting) {
   }
   R.sparkGeo.attributes.position.needsUpdate = true;
   millRemFollow(performance.now());  // millrem.js: the stock as the program cuts it
-  view3d(dt, [wx, wy + R.workG.position.y, wz], R.type === "bridge" ? [(TRAVEL.x[0] + TRAVEL.x[1]) / 2, 0, 100] : [500, 500, 100]);
+  view3d(dt, [wx, wy + R.workG.position.y, wz], R.type === "bridge" ? [(TRAVEL.x[0] + TRAVEL.x[1]) / 2, 0, 100] : R.type === "router" ? [(TRAVEL.x[0] + TRAVEL.x[1]) / 2, (TRAVEL.y[0] + TRAVEL.y[1]) / 2, 100] : [500, 500, 100]);
 }
 // the camera (its move to a preset, or following the tool at tgt), the path's colours, the frame; look: where
 // to look without the orbit controls
@@ -1476,9 +1576,18 @@ function hideBoot() {
 }
 // the simulated machine: opens mid-cut (the pocket's second depth), held for
 // inspection, so every panel shows a working machine
+// the simulation as a router (index.html?machine=router): 1200 x 1200 on a moving gantry, an ISO30 24k
+// electrospindle, a 6-fork rack at the back (an Excitech-style machine; machines/excitech for LinuxCNC)
+// (the machine itself, its travel and rack, come from js/demo_machines.js through the Configure page's
+// machine.json: machmodel.js's mm3dLoad)
+function routerDemo() {
+  document.querySelector(".brand b").textContent = "EXCITECH";
+  document.querySelector(".brand span").textContent = "1200 × 1200 router · ISO30 24k · simulated";
+}
 function bootSim(note) {
   for (const [t, l, x] of [["07:10:03", "warn", "Spindle load 92 % in a pocket corner (BRACKET OP1, N0118)"], ["06:44:50", "ok", "HOUSING-7075_OP2 finished · 3:51 · path p99 24 µm"], ["06:02:14", "info", "Machine model from dynwiz: 44.6 / 53.5 / 27.8 Hz"], ["06:02:12", "info", "Gantry link up: Y1 ↔ Y2, 0.6 ms"], ["06:02:11", "ok", "Machine on, homed: absolute scales on all axes"]]) events.push({ t, lvl: l, text: x });
   bootCommon();
+  if (/[?&]machine=router(&|$)/.test(location.search)) routerDemo();
   st.tool = 3; buildTool(); spindle(1, 18000); st.spindle.rpm = 18000; setCool("flood", true);
   st.motion = prog;
   const s0 = prog.segs.find((s) => s.k === "mv" && s.cut && s.tool === 3 && s.z < -6);

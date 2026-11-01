@@ -651,6 +651,28 @@ class HalShow(unittest.TestCase):
         self.assertEqual(d["params"][0], ["motion-command-handler.tmax", "s32", "RW", "motmod", "66844"])
 
 
+class Router(Base):
+    """a router (machineconf: MACHINE_TYPE router, ATC_RACK): the console draws it with its rack"""
+    INI_EXTRA = "MACHINE_TYPE = router\nATC_RACK = 6 150 1290 150 0 0 -150 80\n"
+
+    async def test_hello(self):
+        ws = await self.client()
+        info = ws.hello["machine"]
+        self.assertEqual(info["type"], "router")
+        self.assertEqual(info["rack"], {"pockets": 6, "x": 150.0, "y": 1290.0, "dx": 150.0, "dy": 0.0, "z_clear": 0.0, "z_pocket": -150.0, "slide": 80.0})
+        await ws.close()
+
+
+class NoRack(Base):
+    INI_EXTRA = "ATC_RACK = 6 150 x\n"  # unreadable: no rack
+
+    async def test_hello(self):
+        ws = await self.client()
+        self.assertIsNone(ws.hello["machine"]["rack"])
+        self.assertEqual(ws.hello["machine"]["type"], "gantry")
+        await ws.close()
+
+
 class TurretStatus(Base):
     async def asyncSetUp(self):
         self.HAL = FakeHal({"lathe.turret.station": 3, "lathe.turret.stations": 6, "lathe.turret.homed": True,

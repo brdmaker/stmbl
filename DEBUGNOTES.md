@@ -3553,3 +3553,12 @@ Entry format:
   the event, or the other way round, depending on timing.
 - Fix:     both start "Imported <folder>: ..." (one text either way).
 
+## 2026-11-01  Sim GUI suite: two timing cases fail when the live suite runs beside it
+- Area:    `webui/mill/test/gui/sim_suite.js` ("cycle: stop, start, feed hold...", "feed hold lifts Z 5 mm")
+- Status:  Note
+- Symptom: 55/57 with LinuxCNC + the live suite running in parallel on the same
+  machine; both pass alone (and the whole suite passed 56/56 earlier).
+- Cause:   they check where the simulated tool is a set time after a hold or a
+  single block: a loaded CPU drops the page's frames and the sim lags.
+- Fix:     run the GUI suites one at a time (as make check-all does).
+
