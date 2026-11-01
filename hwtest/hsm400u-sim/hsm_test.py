@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """LinuxCNC runs five-axis programs on the simulated Mikron HSM 400U retrofit
-(host/mill, machine/hsm400u*.mill, stmbl_mill) through xyzac-trt-kins, and
+(host/mill, machine/hsm400u*.mill, stmbl_mill) through xyzbc-trt-kins, and
 checks how well the tool tip follows in the work.
 
     hsm_test.py [--servo MS,MS..] [--machine NAME,NAME..] [--out DIR] [--no-check]
 
 Programs (in the work's coordinates: LinuxCNC's world mode is the tool centre
 point):
-  rtcp      the tip on a point 30 / 20 mm off the axes while A 0 -> 30 and
-            C 0 -> 90, then back to A 0 at C 180 (30 deg/s)
-  wline     the tip 40 mm along X at 600 mm/min while A 0 -> 20, C 0 -> 60
-  circle    A 20, C 45 held: a circle R 10 mm at 3 m/min in the work's XY
+  rtcp      the tip on a point 30 / 20 mm off the C axis while B 0 -> 30 and
+            C 0 -> 90, then back to B 0 at C 180 (30 deg/s)
+  wline     the tip 40 mm along X at 600 mm/min while B 0 -> 20, C 0 -> 60
+  circle    B 20, C 45 held: a circle R 10 mm at 3 m/min in the work's XY
             (every joint moves)
 
-Per program, while cutting (feed moves at Z -150 in the work):
+Per program, while cutting (feed moves at Z -300 in the work: 50 mm above
+the pallet face):
   geom      the simulated tip (stmbl-mill.0.work-*) against the programmed
             point / line / circle: max and 99th percentile [um]
   servo     the tip against LinuxCNC's own commanded path (its joint
@@ -41,30 +42,30 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 LINUXCNC = os.environ.get("LINUXCNC", "/home/user/linuxcnc-2.9")
 COLS = "j0 j1 j2 j3 j4 wx wy wz fe0 fe1 fe2 fe3 fe4 i0 i1 i2 i3 i4 mt".split()
-TRT = dict(xr=200.0, yr=225.0, zr=-250.0, dy=0.0, dz=80.0, tool=100.0)  # as hsm.hal and the machine file's trt line
-ZCUT = -150.0
+TRT = dict(xr=200.0, yr=160.0, zr=-450.0, dx=0.0, dz=-80.0, tool=100.0)  # as hsm.hal and the machine file's trtbc line
+ZCUT = -300.0
 
-HEAD = "G21 G90 G17 G64 P0.01\nG0 Z-120\nG0 A0 C0\n"
-TAIL = "G0 Z-120\nG0 A0 C0\nM2\n"
+HEAD = "G21 G90 G17 G64 P0.01\nG0 Z-120\nG0 B0 C0\n"
+TAIL = "G0 Z-120\nG0 B0 C0\nM2\n"
 PROGRAMS = {  # name: (G-code body, geometry, what it is)
-    "rtcp": ("G0 X230 Y245\nG1 Z-150 F1000\nG1 A30 C90 F1800\nG1 A0 C180 F1800\n", ("point", (230.0, 245.0, ZCUT)),
-             "tool centre point: the tip held while A 0 -> 30, C 0 -> 90 -> 180"),
-    "wline": ("G0 X210 Y225\nG1 Z-150 F1000\nG1 X250 A20 C60 F600\n", ("line", (210.0, 225.0, ZCUT), (250.0, 225.0, ZCUT)),
-              "five-axis line: X 40 mm at 600 mm/min while A 0 -> 20, C 0 -> 60"),
-    "circle": ("G0 A20 C45\nG0 X240 Y225\nG1 Z-150 F1000\nG2 X240 Y225 I-10 J0 F3000\n", ("circle", (230.0, 225.0, ZCUT), 10.0),
-               "A 20, C 45: circle R 10 mm at 3 m/min in the work"),
+    "rtcp": ("G0 X230 Y180\nG1 Z-300 F1000\nG1 B30 C90 F1800\nG1 B0 C180 F1800\n", ("point", (230.0, 180.0, ZCUT)),
+             "tool centre point: the tip held while B 0 -> 30, C 0 -> 90 -> 180"),
+    "wline": ("G0 X210 Y160\nG1 Z-300 F1000\nG1 X250 B20 C60 F600\n", ("line", (210.0, 160.0, ZCUT), (250.0, 160.0, ZCUT)),
+              "five-axis line: X 40 mm at 600 mm/min while B 0 -> 20, C 0 -> 60"),
+    "circle": ("G0 B20 C45\nG0 X240 Y160\nG1 Z-300 F1000\nG2 X240 Y160 I-10 J0 F3000\n", ("circle", (230.0, 160.0, ZCUT), 10.0),
+               "B 20, C 45: circle R 10 mm at 3 m/min in the work"),
 }
 BOUNDS = {"geom_max": 40.0, "servo_max": 40.0, "ferror": 100.0, "gaps": 0}
 
 
 def trt_fwd(j):
-    """xyzac-trt-kins forward (LinuxCNC 2.9 trtfuncs.c), j: N x 5 -> N x 3"""
-    a, c = np.radians(j[:, 3]), np.radians(j[:, 4])
-    dy, dz = TRT["dy"], TRT["dz"] + TRT["tool"]
-    X, Y, Z = j[:, 0] - TRT["xr"], j[:, 1] - dy - TRT["yr"], j[:, 2] - dz - TRT["zr"]
-    return np.c_[np.cos(c) * X + np.sin(c) * np.cos(a) * Y + np.sin(c) * np.sin(a) * Z + np.sin(c) * dy + TRT["xr"],
-                 -np.sin(c) * X + np.cos(c) * np.cos(a) * Y + np.cos(c) * np.sin(a) * Z + np.cos(c) * dy + TRT["yr"],
-                 -np.sin(a) * Y + np.cos(a) * Z + dz + TRT["zr"]]
+    """xyzbc-trt-kins forward (LinuxCNC 2.9 trtfuncs.c xyzbcKinematicsForward), j: N x 5 (X Y Z B C) -> N x 3"""
+    b, c = np.radians(j[:, 3]), np.radians(j[:, 4])
+    dx, dz = TRT["dx"], TRT["dz"] + TRT["tool"]
+    X, Y, Z = j[:, 0] - dx - TRT["xr"], j[:, 1] - TRT["yr"], j[:, 2] - dz - TRT["zr"]
+    return np.c_[np.cos(c) * np.cos(b) * X + np.sin(c) * Y - np.cos(c) * np.sin(b) * Z + np.cos(c) * dx + TRT["xr"],
+                 -np.sin(c) * np.cos(b) * X + np.cos(c) * Y + np.sin(c) * np.sin(b) * Z - np.sin(c) * dx + TRT["yr"],
+                 np.sin(b) * X + np.cos(b) * Z + dz + TRT["zr"]]
 
 
 def setup(d, servo, machine):

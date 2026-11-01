@@ -1,7 +1,7 @@
 # hwtest/hsm400u-sim: LinuxCNC drives the simulated Mikron HSM 400U retrofit
 # (host/mill, machine/hsm400u*.mill): five simulated stmbl drives, the
-# machine's Siemens servos on stmbl's bus, the A/C trunnion through
-# xyzac-trt-kins (world mode = the tool centre point).
+# machine's Siemens servos on stmbl's bus, the B/C trunnion through
+# xyzbc-trt-kins (world mode = the tool centre point).
 #
 #   make test       three five-axis programs at 1 and 2 kHz on the motors'
 #                   EnDat (~2 min), checked against bounds (hsm_test.py)

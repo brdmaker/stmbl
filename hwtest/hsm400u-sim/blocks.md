@@ -18,7 +18,7 @@ control was measured.
 | iTNC 530, software option 2 (0.5 ms per block) | ~2000 | 0.067 mm |
 | LinuxCNC 2.9, 1 kHz servo, no merging (`G64 P0.01 Q0`) | ~980 measured | 0.2 mm |
 | LinuxCNC 2.9, 2 kHz servo, no merging | 1000-1500 measured | 0.1 mm |
-| LinuxCNC 2.9, default `G64 P0.01` (Q = P) | 13,333 measured (0.01 mm lines) | 0.01 mm, the shortest tried |
+| LinuxCNC 2.9, default `G64 P0.01` (Q = P) | 6,666 measured (0.02 mm lines; 13,333 with 0.01 mm) | 0.02 mm, the shortest tried |
 
 - **Which iTNC 530 rate applies:** it depends on whether option 2 is
   enabled on this machine. The option list is under MOD on the control. A
@@ -30,7 +30,7 @@ control was measured.
   Noisy or finely detailed surfaces cannot be joined; for those, the
   no-merging rows apply.
 - **LinuxCNC's own planner limit:** without merging, it runs about one
-  segment per servo cycle. 0.1 mm lines at 1 kHz reached only 564 lines/s,
+  segment per servo cycle. 0.1 mm lines at 1 kHz reached only 569 lines/s,
   below the 980 of shorter lines. That run is an outlier and is not
   explained yet (see `DEBUGNOTES.md`).
 
@@ -38,11 +38,11 @@ control was measured.
 
 | | path max [um] | servo max [um] |
 |---|---|---|
-| LinuxCNC + stmbl, 1 kHz, `G64 P0.01` | 13.4 | 18.6 |
-| LinuxCNC + stmbl, 1 kHz, `G64 P0.002` | 11.1 | 11.5 |
-| LinuxCNC + stmbl, 2 kHz, `G64 P0.01` | 9.3-11.5 | 13.0 |
-| LinuxCNC + stmbl, 2 kHz, `G64 P0.002` | 10.9 | 11.4 |
-| Five-axis RTCP, line, circle (`results.md`, 2 kHz) | 5.5-6.6 | 5.5-10.5 |
+| LinuxCNC + stmbl, 1 kHz, `G64 P0.01` | 14.5 | 19.5 |
+| LinuxCNC + stmbl, 2 kHz, `G64 P0.01` | 10.7-11.5 | 13.6 |
+| LinuxCNC + stmbl, 1 kHz, `G64 P0.002` (A/C layout, before B/C) | 11.1 | 11.5 |
+| LinuxCNC + stmbl, 2 kHz, `G64 P0.002` (A/C layout, before B/C) | 10.9 | 11.4 |
+| Five-axis RTCP, line, circle (`results.md`, 2 kHz) | 7.7-8.3 | 7.9-11.2 |
 | iTNC 530 + Simodrive 611 D | not published for this machine | — |
 
 - **Path:** the tip's largest distance from the programmed lines. It
@@ -59,36 +59,59 @@ control was measured.
   ballscrew heat and pitch error mostly drop out. What remains is how stiff
   the loop is (servo rate, feedforward) and how the axes are tuned.
 
-## Measured (`hsm_blocks.py`, machine `hsm400u` = the motors' encoders)
+## Measured (`hsm_blocks.py`, machine `hsm400u` = the motors' encoders, B/C layout)
 
-1 kHz, `G64 P0.01 Q0` (no merging):
+Circle R 20 mm 30 mm off the C axis at F8000. Without merging (`G64 P0.01 Q0`):
 
-| segment [mm] | lines | feed [mm/min] | lines/s | path max [um] | servo max [um] |
-|---|---|---|---|---|---|
-| 1 | 126 | 8000 | 133 | 13.3 | 18.5 |
-| 0.5 | 251 | 8000 | 267 | 13.2 | 18.4 |
-| 0.2 | 628 | 8000 | 667 | 13.2 | 18.5 |
-| 0.1 | 1257 | 3383 | 564 | 21.3 | 21.4 |
-| 0.05 | 2513 | 2941 | 980 | 13.2 | 18.5 |
-| 0.02 | 6283 | 1176 | 980 | 15.1 | 29.8 |
-| 0.01 | 12566 | 588 | 979 | 11.0 | 18.4 |
+**servo 1 ms (1000 Hz), G64 P0.01 Q0**
 
-2 kHz, `G64 P0.01 Q0`:
+| segment [mm] | lines | status | feed [mm/min] | lines/s | path max [um] | servo max [um] | time [s] |
+|---|---|---|---|---|---|---|---|
+| 1 | 126 | done | 8000 | 133 | 14.5 | 19.7 | 1.00 |
+| 0.5 | 251 | done | 8000 | 267 | 14.5 | 19.4 | 1.00 |
+| 0.2 | 628 | done | 8000 | 667 | 14.5 | 19.5 | 1.00 |
+| 0.1 | 1257 | done | 3415 | 569 | 32.4 | 32.5 | 2.01 |
+| 0.067 | 1876 | done | 3938 | 980 | 14.5 | 19.4 | 2.02 |
+| 0.05 | 2513 | done | 2941 | 980 | 14.5 | 19.4 | 2.58 |
+| 0.02 | 6283 | done | 1176 | 980 | 16.5 | 29.2 | 6.42 |
 
-| segment [mm] | lines | feed [mm/min] | lines/s | path max [um] | servo max [um] |
-|---|---|---|---|---|---|
-| 1 | 126 | 8000 | 133 | 9.5 | 13.1 |
-| 0.5 | 251 | 8000 | 267 | 9.3 | 13.0 |
-| 0.2 | 628 | 8000 | 667 | 9.4 | 12.9 |
-| 0.1 | 1257 | 7999 | 1333 | 9.4 | 13.0 |
-| 0.05 | 2513 | 3000 | 1000 | 9.4 | 12.9 |
-| 0.02 | 6283 | 1522 | 1268 | 35.3 | 35.4 |
-| 0.01 | 12566 | 920 | 1533 | 25.8 | 25.8 |
+**servo 0.5 ms (2000 Hz), G64 P0.01 Q0**
 
-Default `G64 P0.01` (Q = P), 1 kHz and 2 kHz: 8000 mm/min for every segment
-length from 1 mm down to 0.01 mm (133-13,333 lines/s). Path max is
-13.4-13.6 um at 1 kHz and 9.3-11.5 um at 2 kHz; servo max is 18.6 um at
-1 kHz and 13 um at 2 kHz.
+| segment [mm] | lines | status | feed [mm/min] | lines/s | path max [um] | servo max [um] | time [s] |
+|---|---|---|---|---|---|---|---|
+| 1 | 126 | done | 8000 | 133 | 10.7 | 13.7 | 0.99 |
+| 0.5 | 251 | done | 8000 | 267 | 11.0 | 13.7 | 1.00 |
+| 0.2 | 628 | done | 8000 | 667 | 10.8 | 13.6 | 1.00 |
+| 0.1 | 1257 | done | 8000 | 1333 | 10.8 | 13.6 | 1.00 |
+| 0.067 | 1876 | done | 4278 | 1064 | 15.7 | 15.6 | 1.75 |
+| 0.05 | 2513 | done | 3003 | 1001 | 11.0 | 13.7 | 2.52 |
+| 0.02 | 6283 | done | 1523 | 1269 | 43.8 | 43.8 | 4.87 |
+
+Default (`G64 P0.01`, Q = P):
+
+**servo 1 ms (1000 Hz), G64 P0.01**
+
+| segment [mm] | lines | status | feed [mm/min] | lines/s | path max [um] | servo max [um] | time [s] |
+|---|---|---|---|---|---|---|---|
+| 1 | 126 | done | 8000 | 133 | 14.5 | 19.6 | 1.00 |
+| 0.5 | 251 | done | 8000 | 267 | 14.5 | 19.5 | 1.00 |
+| 0.2 | 628 | done | 8000 | 667 | 14.5 | 19.5 | 0.99 |
+| 0.1 | 1257 | done | 8000 | 1333 | 14.5 | 19.4 | 0.99 |
+| 0.067 | 1876 | done | 8000 | 1990 | 14.5 | 19.4 | 0.99 |
+| 0.05 | 2513 | done | 8000 | 2667 | 14.5 | 19.4 | 0.99 |
+| 0.02 | 6283 | done | 8000 | 6666 | 14.3 | 19.4 | 0.99 |
+
+**servo 0.5 ms (2000 Hz), G64 P0.01**
+
+| segment [mm] | lines | status | feed [mm/min] | lines/s | path max [um] | servo max [um] | time [s] |
+|---|---|---|---|---|---|---|---|
+| 1 | 126 | done | 8000 | 133 | 10.7 | 13.5 | 0.99 |
+| 0.5 | 251 | done | 8000 | 267 | 10.9 | 13.6 | 0.99 |
+| 0.2 | 628 | done | 8000 | 667 | 10.9 | 13.6 | 0.99 |
+| 0.1 | 1257 | done | 8000 | 1333 | 10.9 | 13.6 | 0.99 |
+| 0.067 | 1876 | done | 8000 | 1990 | 10.8 | 13.5 | 0.99 |
+| 0.05 | 2513 | done | 8000 | 2667 | 11.4 | 13.5 | 0.99 |
+| 0.02 | 6283 | done | 8000 | 6666 | 11.5 | 13.7 | 0.99 |
 
 ## Sources (the iTNC 530's block processing time)
 

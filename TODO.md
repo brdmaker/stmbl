@@ -28,12 +28,15 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 
 ## Mikron HSM 400U retrofit (`host/mill/HSM400U.md`, `hwtest/hsm400u-sim`)
 
-- [x] Rough simulation: five axes (A/C trunnion, xyzac-trt-kins), the
-      Siemens servos on stmbl's bus, glass scales; LinuxCNC runs five-axis
-      programs on it.
+- [x] Rough simulation: five axes, the Siemens servos on stmbl's bus,
+      glass scales; LinuxCNC runs five-axis programs on it.
+- [x] B/C kinematics (`xyzbc-trt-kins`, the sim's `trtbc` line) with the
+      manual's travels about the table centre and B +/-110.
 - [ ] Real data: motor nameplates (kE decides the rapids), the iTNC 520's
       machine parameters (back up before removing anything), scale and EnDat
-      model numbers, masses, tap tests. Confirm A/C (not B/C) and the strokes.
+      model numbers, masses, tap tests. The pivots: MP950 (C) and the B
+      pivot replace the guessed B axis 80 mm below the pallet face. The
+      belt ratios, and whether B and C are direct drives (150 / 250 rpm).
 - [ ] EnDat 2.1 / 2.2 on the stmbl drive: check `src/comps/endat.c` against
       the encoders' order code.
 - [ ] Glass scales into LinuxCNC / the drive: 1 Vpp (interpolator) or
@@ -43,9 +46,13 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       warm-up as the manual says.
 - [ ] The spindle: is its drive a stand-alone VFD or a module of the
       Heidenhain inverter rack (then it needs its own)?
-- [ ] Console: a trunnion machine type (Configure: xyzac-trt-kins and its
-      pivots; the 3D view's tilting table; A/C in the DRO).
+- [ ] Console: a trunnion machine type (Configure: xyzbc/xyzac-trt-kins and
+      its pivots; the 3D view's tilting table; B/C in the DRO).
 - [ ] Material removal for five axes (TODO below: the height map is 3-axis).
+- [ ] Five-axis functions: tool-offset from the tool length (G43), TCP on/off
+      (switchkins), a tilted work plane (G68.2-style remap), B/C clamps
+      (M10/M11, M15/M16 with the pressure switches), C wrapping, a pivot
+      calibration probe macro (cycle 307's job), a CAM post.
 
 ## Lathe (`linuxcnc/lathe`, Emco Compact 5)
 

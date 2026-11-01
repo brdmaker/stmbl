@@ -1,19 +1,21 @@
 # hwtest/hsm400u-sim: five joints on the simulated HSM 400U (stmbl_mill
 # runs the drives and the machine in the servo thread; their pins are a
-# drive's smart-serial pins, as hm2_*.stbl.*). xyzac-trt-kins' pivots and
-# tool as the machine file's trt line (trt 200 225 -250 0 80 100). A
+# drive's smart-serial pins, as hm2_*.stbl.*). xyzbc-trt-kins' pivots and
+# tool as the machine file's trtbc line (trtbc 200 160 -450 0 -80 100:
+# the C axis at X 200 Y 160, the pallet face at -450 in the tip's frame,
+# the B axis 80 mm below it [guess], a 100 mm tool). A
 # sampler records every servo cycle while sampler.0.enable is set.
 loadrt [KINS]KINEMATICS
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
 loadrt stmbl_mill machine=[MILL]FILE lib=[MILL]LIB
 loadrt sampler depth=40000 cfg=ffffffffffffffffffs
 
-setp xyzac-trt-kins.x-rot-point 200
-setp xyzac-trt-kins.y-rot-point 225
-setp xyzac-trt-kins.z-rot-point -250
-setp xyzac-trt-kins.y-offset 0
-setp xyzac-trt-kins.z-offset 80
-setp xyzac-trt-kins.tool-offset 100
+setp xyzbc-trt-kins.x-rot-point 200
+setp xyzbc-trt-kins.y-rot-point 160
+setp xyzbc-trt-kins.z-rot-point -450
+setp xyzbc-trt-kins.x-offset 0
+setp xyzbc-trt-kins.z-offset -80
+setp xyzbc-trt-kins.tool-offset 100
 
 addf motion-command-handler servo-thread
 addf motion-controller      servo-thread

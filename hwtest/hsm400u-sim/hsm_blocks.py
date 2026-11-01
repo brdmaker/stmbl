@@ -28,13 +28,13 @@ import numpy as np
 
 import hsm_test as H
 
-R, CX, CY = 20.0, 230.0, 225.0
+R, CX, CY = 20.0, 230.0, 160.0  # the circle 30 mm off the C axis (X 200, Y 160)
 
 
 def program(seg, tol, feed, q=None):
     n = max(8, int(round(2 * math.pi * R / seg)))
     pts = [(CX + R * math.cos(2 * math.pi * k / n), CY + R * math.sin(2 * math.pi * k / n)) for k in range(n + 1)]
-    body = ["G21 G90 G17 G64 P%g" % tol + ("" if q is None else " Q%g" % q), "G0 Z-120", "G0 A0 C0", "G0 X%.4f Y%.4f" % pts[0], "G1 Z%g F1000" % H.ZCUT, "F%g" % feed]
+    body = ["G21 G90 G17 G64 P%g" % tol + ("" if q is None else " Q%g" % q), "G0 Z-120", "G0 B0 C0", "G0 X%.4f Y%.4f" % pts[0], "G1 Z%g F1000" % H.ZCUT, "F%g" % feed]
     body += ["G1 X%.4f Y%.4f" % p for p in pts[1:]]
     body += ["G0 Z-120", "M2", ""]
     return "\n".join(body), np.array(pts), n

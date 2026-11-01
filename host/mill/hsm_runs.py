@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sample runs on the simulated Mikron HSM 400U retrofit (mill_sim,
 machine/hsm400u*.mill): its Siemens servos with EnDat on stmbl drives, the
-glass scales, the A/C trunnion through xyzac-trt-kins.
+glass scales, the B/C trunnion through xyzbc-trt-kins.
 
   python3 hsm_runs.py [--only NAME,...] [--variants a,b] [-j N] [--md FILE] [--no-sweep]
 
@@ -28,30 +28,30 @@ VARIANTS = {  # name: (machine file, servo ms)
     "EnDat 380V 1k": ("machine/hsm400u_380v.mill", 1),
 }
 
-# every scenario starts here: enabled, then a slow move to its start pose (X Y Z A C)
+# every scenario starts here: enabled, then a slow move to its start pose (X Y Z B C)
 START = "lcnc 1\nrun 0.3\nmove 2.5 {0} {1} {2} {3} {4}\nrun 0.4\n"
 
 # name: (title, start pose, script, values printed)
 SCENARIOS = {
-    "hold": ("Standing still, 1 s (the tip in the work)", (200, 225, -100, 0, 0),
+    "hold": ("Standing still, 1 s (the tip in the work)", (200, 160, -100, 0, 0),
              "mark\nrun 1\n", "rms_ework max_ework rms_etool"),
-    "rapid_x": ("X rapid 380 mm at 25 m/min, 0.1 trapezoid ramps (~0.7 g)", (10, 225, -100, 0, 0),
-                "trapfrac 0.1\nmark\ntmove 1.013 390 225 -100 0 0\nrun 0.2\n", "max_ferr_x max_cur_x max_econt etool"),
-    "circle25_5": ("XY circle R 25 mm at 5 m/min, 2nd and 3rd turn", (225, 225, -100, 0, 0),
-                   "circle 1.885 200 225 25 1\nmark\ncircle 3.770 200 225 25 2\n", "max_econt rms_econt max_hx max_hy"),
-    "circle10_10": ("XY circle R 10 mm at 10 m/min (0.28 g)", (210, 225, -100, 0, 0),
-                    "circle 0.377 200 225 10 1\nmark\ncircle 0.754 200 225 10 2\n", "max_econt rms_econt max_hx max_hy"),
-    "square": ("20 mm square, exact stop at 0.5 g per side", (190, 215, -100, 0, 0),
-               "mark\nsquare 0.146 200 225 20\nrun 0.1\n", "max_econt rms_econt max_hx max_hy"),
-    "warm": ("X 300 mm with a 5 K warm screw (57.5 um/m), the error at the end", (50, 225, -100, 0, 0),
-             "lead x 57.5\ntrapfrac 0.1\nmark\ntmove 3 350 225 -100 0 0\nrun 0.5\n", "etool tx cx"),
-    "rtcp": ("Tool centre point: A 0 -> 30, C 0 -> 90 in 3 s, the tip 30 / 20 mm off the axes (in the work)", (230, 245, -150, 0, 0),
-             "mark\nrtcp 3 30 90\nrun 0.3\n", "max_ework max_econtw ework max_ferr_a max_ferr_c"),
-    "wline": ("Five-axis line: the tip 40 mm along the work's X while A 0 -> 20, C 0 -> 60, 2 s", (210, 225, -150, 0, 0),
-              "mark\nwmove 2 250 225 -150 20 60\nrun 0.3\n", "max_ework max_econtw ework"),
-    "a90": ("A to 90 deg (the unbalance at its largest), held 1 s: the tip 100 mm from the A axis", (200, 225, -150, 0, 0),
-            "move 4 200 225 -150 90 0\nrun 0.5\nmark\nrun 1\n", "max_ferr_a max_cur_a max_ework"),
-    "cut": ("Steady 100 N cutting force on the tool in X and Y", (200, 225, -100, 0, 0),
+    "rapid_x": ("X rapid 380 mm at 25 m/min, 0.1 trapezoid ramps (~0.7 g)", (10, 160, -100, 0, 0),
+                "trapfrac 0.1\nmark\ntmove 1.013 390 160 -100 0 0\nrun 0.2\n", "max_ferr_x max_cur_x max_econt etool"),
+    "circle25_5": ("XY circle R 25 mm at 5 m/min, 2nd and 3rd turn", (225, 160, -100, 0, 0),
+                   "circle 1.885 200 160 25 1\nmark\ncircle 3.770 200 160 25 2\n", "max_econt rms_econt max_hx max_hy"),
+    "circle10_10": ("XY circle R 10 mm at 10 m/min (0.28 g)", (210, 160, -100, 0, 0),
+                    "circle 0.377 200 160 10 1\nmark\ncircle 0.754 200 160 10 2\n", "max_econt rms_econt max_hx max_hy"),
+    "square": ("20 mm square, exact stop at 0.5 g per side", (190, 150, -100, 0, 0),
+               "mark\nsquare 0.146 200 160 20\nrun 0.1\n", "max_econt rms_econt max_hx max_hy"),
+    "warm": ("X 300 mm with a 5 K warm screw (57.5 um/m), the error at the end", (50, 160, -100, 0, 0),
+             "lead x 57.5\ntrapfrac 0.1\nmark\ntmove 3 350 160 -100 0 0\nrun 0.5\n", "etool tx cx"),
+    "rtcp": ("Tool centre point: B 0 -> 30, C 0 -> 90 in 3 s, the tip 30 / 20 mm off the C axis, 50 mm above the pallet (in the work)",
+             (230, 180, -300, 0, 0), "mark\nrtcp 3 30 90\nrun 0.3\n", "max_ework max_econtw ework max_ferr_b max_ferr_c"),
+    "wline": ("Five-axis line: the tip 40 mm along the work's X while B 0 -> 20, C 0 -> 60, 2 s", (210, 160, -300, 0, 0),
+              "mark\nwmove 2 250 160 -300 20 60\nrun 0.3\n", "max_ework max_econtw ework"),
+    "b90": ("B to 90 deg (the unbalance at its largest), held 1 s", (200, 160, -150, 0, 0),
+            "move 4 200 160 -150 90 0\nrun 0.5\nmark\nrun 1\n", "max_ferr_b max_cur_b max_ework"),
+    "cut": ("Steady 100 N cutting force on the tool in X and Y", (200, 160, -100, 0, 0),
             "cut 100 100 0\nrun 0.5\nmark\nrun 0.5\n", "etool max_hx max_hy"),
 }
 
@@ -80,7 +80,7 @@ def run_one(variant, scen):
 def rapid_ok(mfile, v):
     """X 380 mm at v m/min (0.1 trapezoid): (no fault, max following error um)"""
     T = 380.0 / (v * 1000 / 60) / 0.9
-    r = run_script(mfile, 1, START.format(10, 225, -100, 0, 0) + "trapfrac 0.1\nmark\ntmove %.4f 390 225 -100 0 0\nrun 0.2\nprint fault max_ferr_x\n" % T)
+    r = run_script(mfile, 1, START.format(10, 160, -100, 0, 0) + "trapfrac 0.1\nmark\ntmove %.4f 390 160 -100 0 0\nrun 0.2\nprint fault max_ferr_x\n" % T)
     return not r.get("fault", 1) and "_err" not in r, r.get("max_ferr_x", float("nan"))
 
 

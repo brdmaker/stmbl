@@ -3497,3 +3497,16 @@ Entry format:
   and the planner's blending stops working.
 - Fix:     -
 
+## 2026-11-01  xyzbc-trt-kins: world Z is the gauge line; z-offset is below the rot point
+- Area:    `hwtest/hsm400u-sim/hsm.hal`, `host/mill/millcore.c` (trtbc)
+- Status:  Note
+- Symptom: with `tool-offset` 100, B 0 C 0, world X Y Z equal the joints:
+  the tool length does not show in the world position.
+- Cause:   trtfuncs.c adds tool-offset to z-offset on both sides of the
+  transform, so it only moves the B pivot (to z-rot-point + z-offset +
+  tool-offset in world coordinates). x/y-rot-point place the C axis,
+  x/z-offset the B axis relative to it.
+- Fix:     the HSM sim uses `trtbc 200 160 -450 0 -80 100`: the pallet face
+  at world Z -350 for the 100 mm tool. A real config feeds tool-offset from
+  the tool length and programs with G43.
+

@@ -22,6 +22,7 @@
  * A five-axis machine (drives a and c in the machine file, the HSM 400U):
  * joints 3 (A) and 4 (C) too [deg], for xyzac-trt-kins, and
  *   stmbl-mill.0.table-a, .table-c   the table's angles [deg]
+ * (a trtbc line, the HSM 400U's B/C: joint 3 is B, xyzbc-trt-kins, table-b)
  *   stmbl-mill.0.work-x, .work-y, .work-z  the tool tip in the work's frame
  *                                    (the machine file's trt line) [mm]
  */
@@ -122,7 +123,7 @@ static int export_pins(void) {
   r |= hal_pin_float_newf(HAL_OUT, &pins->frame[1], comp_id, PREFIX ".frame-y");
   r |= hal_pin_s32_newf(HAL_OUT, &pins->stop_hits, comp_id, PREFIX ".stop-hits");
   if(mc_P.nax >= 5) {
-    r |= hal_pin_float_newf(HAL_OUT, &pins->table[0], comp_id, PREFIX ".table-a");
+    r |= hal_pin_float_newf(HAL_OUT, &pins->table[0], comp_id, PREFIX ".table-%c", mccore_tilt());
     r |= hal_pin_float_newf(HAL_OUT, &pins->table[1], comp_id, PREFIX ".table-c");
     for(int k = 0; k < 3; k++) {
       r |= hal_pin_float_newf(HAL_OUT, &pins->work[k], comp_id, PREFIX ".work-%c", "xyz"[k]);

@@ -248,8 +248,20 @@ void mccore_angles(double t, double out[2]) {
   }
 }
 
+char mccore_tilt(void) {
+  return mc_trt.bc ? 'b' : 'a';
+}
+
 void mccore_trt_fwd(const double *j, double out[3]) {
   const mc_trt_t *k = &mc_trt;
+  if(k->bc) {  // xyzbcKinematicsForward
+    double b = j[3] * M_PI / 180.0, c = j[4] * M_PI / 180.0, dx = k->dx, dz = k->dz + k->tool;
+    double X = j[0] - dx - k->xr, Y = j[1] - k->yr, Z = j[2] - dz - k->zr;
+    out[0] = cos(c) * cos(b) * X + sin(c) * Y - cos(c) * sin(b) * Z + cos(c) * dx + k->xr;
+    out[1] = -sin(c) * cos(b) * X + cos(c) * Y + sin(c) * sin(b) * Z - sin(c) * dx + k->yr;
+    out[2] = sin(b) * X + cos(b) * Z + dz + k->zr;
+    return;
+  }
   double a = j[3] * M_PI / 180.0, c = j[4] * M_PI / 180.0, dy = k->dy, dz = k->dz + k->tool;
   double X = j[0] - k->xr, Y = j[1] - dy - k->yr, Z = j[2] - dz - k->zr;
   out[0] = cos(c) * X + sin(c) * cos(a) * Y + sin(c) * sin(a) * Z + sin(c) * dy + k->xr;
@@ -259,6 +271,16 @@ void mccore_trt_fwd(const double *j, double out[3]) {
 
 void mccore_trt_inv(const double *w, double a_deg, double c_deg, double *j) {
   const mc_trt_t *k = &mc_trt;
+  if(k->bc) {  // xyzbcKinematicsInverse (a_deg is B)
+    double b = a_deg * M_PI / 180.0, c = c_deg * M_PI / 180.0, dx = k->dx, dz = k->dz + k->tool;
+    double X = w[0] - k->xr, Y = w[1] - k->yr, Z = w[2] - k->zr;
+    double dpx = -cos(b) * dx - sin(b) * dz + dx, dpz = sin(b) * dx - cos(b) * dz + dz;
+    j[0] = cos(c) * cos(b) * X - sin(c) * cos(b) * Y + sin(b) * Z + dpx + k->xr;
+    j[1] = sin(c) * X + cos(c) * Y + k->yr;
+    j[2] = -cos(c) * sin(b) * X + sin(c) * sin(b) * Y + cos(b) * Z + dpz + k->zr;
+    j[3] = a_deg, j[4] = c_deg;
+    return;
+  }
   double a = a_deg * M_PI / 180.0, c = c_deg * M_PI / 180.0, dy = k->dy, dz = k->dz + k->tool;
   double X = w[0] - k->xr, Y = w[1] - k->yr, Z = w[2] - k->zr;
   j[0] = cos(c) * X - sin(c) * Y + k->xr;
@@ -317,7 +339,7 @@ static int nums(const char *s, double *v, int max) {
 }
 
 int mccore_axis(const char *s) {
-  return !strcmp(s, "x") ? MX : !strcmp(s, "y") ? MY : !strcmp(s, "z") ? MZ : !strcmp(s, "a") ? MA : !strcmp(s, "c") ? MC : -1;
+  return !strcmp(s, "x") ? MX : !strcmp(s, "y") ? MY : !strcmp(s, "z") ? MZ : !strcmp(s, "a") || !strcmp(s, "b") ? MA : !strcmp(s, "c") ? MC : -1;
 }
 
 static double hz2k(double m, double f) {
@@ -384,8 +406,10 @@ int mccore_line(char *line) {
     mc_P.jm[k] = v[0], mc_P.kt[k] = v[1], mc_P.jl[k] = v[2], mc_P.zeta[k] = v[3];
   } else if(!strcmp(kw, "unbalance") && nums(p, v, 8) == 2) {
     mc_P.ub = v[0], mc_P.ub0 = v[1] * M_PI / 180.0;
-  } else if(!strcmp(kw, "trt") && nums(p, v, 8) >= 5) {
-    mc_trt.xr = v[0], mc_trt.yr = v[1], mc_trt.zr = v[2], mc_trt.dy = v[3], mc_trt.dz = v[4];
+  } else if((!strcmp(kw, "trt") || !strcmp(kw, "trtbc")) && nums(p, v, 8) >= 5) {
+    mc_trt.bc = !strcmp(kw, "trtbc");
+    mc_trt.xr = v[0], mc_trt.yr = v[1], mc_trt.zr = v[2], mc_trt.dz = v[4];
+    mc_trt.dx = mc_trt.bc ? v[3] : 0.0, mc_trt.dy = mc_trt.bc ? 0.0 : v[3];
     mc_trt.tool = nums(p, v, 8) >= 6 ? v[5] : 0.0;
   } else if(!strcmp(kw, "screw") && k >= 0 && k < MA && nums(q, v, 8) == 6) {
     mc_P.jm[k] = v[0], mc_P.ea[k] = v[1], mc_P.l0[k] = v[2], mc_P.ldir[k] = v[3], mc_P.ka[k] = v[4], mc_P.zeta[k] = v[5];

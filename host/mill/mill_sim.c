@@ -21,7 +21,9 @@
  *   lcnc EN                          enable the drives where the machine is
  *   move T X Y Z / tmove T X Y Z     smooth (quintic) / trapezoid move in T s
  *   trapfrac F                       trapezoid's acceleration fraction (0.25)
- *   move T X Y Z A C                 a five-axis machine: the joints (A C [deg]) too
+ *   move T X Y Z A C                 a five-axis machine: the joints (A C [deg]) too; on a
+ *                                    trtbc machine A is B (the tilt) here and below, and the
+ *                                    values' a is b (b cb tb ferr_b cur_b)
  *   wmove T X Y Z A C                five-axis, tool centre point: the tool tip moves on a line
  *                                    in the work's frame (quintic) while A and C turn; the joints
  *                                    by xyzac-trt-kins' inverse (the machine's trt line), as
@@ -67,7 +69,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *axname = "xyzac";
+static char axname[] = "xyzac";  // a trtbc machine: "xyzbc" (main)
 #define NAX (mc_P.nax)
 
 // --- LinuxCNC's side ----------------------------------------------------------
@@ -134,6 +136,7 @@ static float *pinv(int k, const char *name) {
 }
 
 enum { M_ECONT, M_ETOOL, M_EZ, M_FX, M_FY, M_FZ, M_HX, M_HY, M_YB, M_FRX, M_FRY, M_CX, M_CY, M_CZ, M_FA, M_FC, M_CA, M_CC, M_EW, M_ECW, NMAX };
+// ferr_a, cur_a: ferr_b, cur_b on a trtbc machine (main)
 static const char *maxname[NMAX] = {"econt", "etool", "ez", "ferr_x", "ferr_y", "ferr_z", "hx", "hy", "yb", "frame_x", "frame_y", "cur_x", "cur_y", "cur_z",
                                     "ferr_a", "ferr_c", "cur_a", "cur_c", "ework", "econtw"};
 static double mx[NMAX], sq[NMAX];
@@ -446,6 +449,9 @@ int main(int argc, char **argv) {
   snprintf(libpath, sizeof(libpath), "%.*s../arm/libstmbl_drive.so", sl ? (int)(sl - argv[0] + 1) : 0, argv[0]);
   if(mccore_load(argv[1], libpath)) {
     return 1;
+  }
+  if(mccore_tilt() == 'b') {  // B about Y (trtbc): b, cb, tb, ferr_b, cur_b
+    axname[3] = 'b', maxname[M_FA] = "ferr_b", maxname[M_CA] = "cur_b";
   }
   FILE *in = argc > 2 ? fopen(argv[2], "r") : stdin;
   if(!in) {

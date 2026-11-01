@@ -1,17 +1,24 @@
 # hwtest/hsm400u-sim: the Mikron HSM 400U retrofit in LinuxCNC (simulated)
 
-LinuxCNC 2.9 with `xyzac-trt-kins` drives the simulated HSM 400U
+LinuxCNC 2.9 with `xyzbc-trt-kins` drives the simulated HSM 400U
 (`host/mill`, [HSM400U.md](../../host/mill/HSM400U.md)): the `stmbl_mill`
 module runs five simulated stmbl drives and the machine in the servo
 thread. The drives carry the machine's Siemens servos (EnDat), as the
 simulation guesses them, on stmbl's ~325 V bus. X Y Z run on ball screws
-(`hsm400u_scales` / `_blend`: with the glass scales), and A/C on gears with
-A's unbalance.
+(`hsm400u_scales` / `_blend`: with the glass scales), and the B/C trunnion
+(B tilts about Y, +/-110 deg) on gears with B's unbalance.
 
 - **Kinematics:** `hsm.hal` sets the pivots and the tool length
-  (`xyzac-trt-kins.*-rot-point`, `y/z-offset`, `tool-offset`) to the machine
-  file's `trt` line. World mode is the tool centre point: the programs are in
-  the work's coordinates.
+  (`xyzbc-trt-kins.*-rot-point`, `x/z-offset`, `tool-offset`) to the machine
+  file's `trtbc` line. World mode is the tool centre point: the programs are
+  in the work's coordinates.
+- **Layout (the manual's travels):** X 0..400 and Y 0..240 with the table
+  centre (the C axis) at X 200, Y 160; Z -350..0, the pallet face at Z -350
+  in world coordinates; B +/-110. The B axis 80 mm below the pallet face is
+  a guess: replace it, and the C pivot, with the iTNC's MP950 and B pivot.
+- **World Z is the gauge line, not the tip:** at B 0 the kinematics give
+  world = joints, and `tool-offset` only moves the pivot. In a real config,
+  `tool-offset` follows the tool length and the programs use G43.
 - **Homing:** absolute encoders, `HOME_ABSOLUTE_ENCODER`, so homing needs no
   motion.
 - **Limits:** feed and rapids at most 8000 mm/min (`MAX_LINEAR_VELOCITY =

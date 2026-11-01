@@ -30,8 +30,8 @@ iTNC 530.
 |---|---|---|
 | Control | iTNC 520 | **iTNC 530** throughout |
 | Axis drives | Siemens servos, drives unknown | **Siemens Simodrive 611 D**, which feeds braking energy back to the mains |
-| Rotary axes | A/C trunnion, geared | **B (swivel, ±110°) and C**, also numbered as axes IV/V. The naming is inconsistent: some messages say A. Clamped hydraulically. Absolute encoders "on the rotor", which may mean direct drives. |
-| Travels | X 400 / Y 450 / Z 360 (guessed) | **X 400 / Y 240 / Z 350 mm** |
+| Rotary axes | A/C trunnion, geared (the simulation now uses B/C) | **B (swivel, ±110°) and C**, also numbered as axes IV/V. The naming is inconsistent: some messages say A. Clamped hydraulically. Absolute encoders "on the rotor", which may mean direct drives. |
+| Travels | X 400 / Y 450 / Z 360 (guessed; the simulation now uses the manual's) | **X 400 / Y 240 / Z 350 mm** |
 | Linear drives | 16 mm screws, direct | **3000 rpm AC servos, toothed belt to the ballscrews**, 40 m/min at 1 g (10 m/s²). Belt ratio and pitch not given. |
 | Rotary speeds | A 85 / C 125 deg/s | **B 150 rpm and 100 rad/s², C 250 rpm and 300 rad/s²** |
 | Feedback | glass scales and EnDat | Heidenhain incremental glass scales with distance-coded marks on X Y Z. Incremental encoders in the motors. The control's inputs are 1 Vpp. The manual never mentions EnDat. |
