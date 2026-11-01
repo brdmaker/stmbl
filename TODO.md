@@ -81,6 +81,8 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       max and sserial errors.
 - [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
       (needed above 2 kHz).
+- [ ] Zynq: `docs/zynq-measurement-plan.md` (steps 1-8, servo_rate.py and
+      servo_load.py), pick the rate.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81
       (SPI), Pi 5 / CM4 + PCIe Mesa card (hm2_pci), Zynq EBAZ4205
       (hm2_soc_ol). Pick by the largest servo time; 4 kHz needs < ~90 us.

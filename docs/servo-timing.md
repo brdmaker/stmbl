@@ -202,6 +202,10 @@ python3 hwtest/timing/servo_rate.py --driver hm2_soc_ol \
 # with and without isolcpus; --periods 1000,500,333,250 (default), --seconds 600 for a long run
 ```
 
+**On the Zynq:** step-by-step in `docs/zynq-measurement-plan.md`: OS latency
+(cyclictest), the card alone, idle motion, a five-axis load
+(`hwtest/timing/servo_load.py`), the console, the drive side, the wire.
+
 ## Plan
 
 1. Isolate the realtime core, trim the hostmot2 modules, and log `tmax`
