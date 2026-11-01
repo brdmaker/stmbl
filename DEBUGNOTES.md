@@ -3510,3 +3510,13 @@ Entry format:
   at world Z -350 for the 100 mm tool. A real config feeds tool-offset from
   the tool length and programs with G43.
 
+## 2026-11-01  mill_sim: a 5 kHz servo period faults before the drives sync
+- Area:    `host/mill/millcore.c` (mccore_servo), the simulated drives' sserial
+- Status:  Open
+- Symptom: `servo 0.2` (with vel_int0.cmd_freq 5000): `lcnc 1; run 0.3`
+  ends at t = 98 s with fault 1, fault_code 1; 4 kHz (0.25 ms) works.
+- Cause:   not found. 5 kHz puts one packet in every simulated rt cycle;
+  probably the simulated sserial's new-packet detection or the offset sync
+  (need_off) never completes.
+- Fix:     - (5 kHz doesn't fit the hardware budget either: docs/servo-timing.md)
+

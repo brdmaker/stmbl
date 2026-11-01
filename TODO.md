@@ -73,6 +73,17 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 - [ ] Model the spindle nose and the setup's rotation.
 - [ ] Preview paths past 100k moves are merged; keep full detail.
 
+## Servo rate (`docs/servo-timing.md`)
+
+- [ ] Bench: isolate the RT core (isolcpus, irqaffinity), trim hostmot2
+      modules, log servo-thread tmax for an hour under load.
+- [ ] Bench: 2 kHz (SERVO_PERIOD 500000, vel_int0.cmd_freq 2000); drive rt
+      max and sserial errors.
+- [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
+      (needed above 2 kHz).
+- [ ] Above 2 kHz only with a faster FPGA bus (Zynq / PCIe).
+- [ ] mill_sim: 5 kHz servo period faults before sync (DEBUGNOTES).
+
 ## Other
 
 - [ ] `host/arm` and `host/lcnc` keep duplicated source lists in their

@@ -4,6 +4,7 @@ machine/hsm400u*.mill): its Siemens servos with EnDat on stmbl drives, the
 glass scales, the B/C trunnion through xyzbc-trt-kins.
 
   python3 hsm_runs.py [--only NAME,...] [--variants a,b] [-j N] [--md FILE] [--no-sweep]
+  python3 hsm_runs.py --rates [MS,MS..]    the contour scenarios at each servo period
 
 Prints one table per scenario (um, arcsec, A, unless named otherwise) and the
 rapid sweep (the fastest X rapid each bus allows); with --md writes them as
@@ -105,6 +106,27 @@ def sweep(md):
         md.append("| %s | %s | %.1f | %s |\n" % (name, best, res[best][1] if best else float("nan"), nx))
 
 
+RATE_SCENARIOS = ("circle10_10", "circle25_5", "wline", "rtcp")
+
+
+def rates(periods, md):
+    """the contour scenarios on the EnDat machine at each servo period (the drives' cmd_freq follows)"""
+    print("\n## servo rate: max contour error [um] (econt or econtw)")
+    md.append("\n**Servo rate: the largest contour error [um] (machine/hsm400u.mill)**\n\n| scenario | %s |\n|---|%s\n" % (
+        " | ".join("%g kHz" % (1 / p) for p in periods), "---|" * len(periods)))
+    with cf.ThreadPoolExecutor(len(periods) * len(RATE_SCENARIOS)) as ex:
+        jobs = {(s, p): ex.submit(run_script, "machine/hsm400u.mill", p, START.format(*SCENARIOS[s][1]) + SCENARIOS[s][2] +
+                                  "print fault max_econt max_econtw\n") for s in RATE_SCENARIOS for p in periods}
+    for s in RATE_SCENARIOS:
+        row = []
+        for p in periods:
+            r = jobs[(s, p)].result()
+            v = r.get("max_econtw") if s in ("wline", "rtcp") else r.get("max_econt")
+            row.append("fault" if r.get("fault") or "_err" in r or v is None else "%.1f" % v)
+        print("%-12s" % s + "".join("%10s" % x for x in row))
+        md.append("| %s | %s |\n" % (s, " | ".join(row)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only")
@@ -112,7 +134,14 @@ def main():
     ap.add_argument("-j", type=int, default=os.cpu_count() or 2)
     ap.add_argument("--md")
     ap.add_argument("--no-sweep", action="store_true")
+    ap.add_argument("--rates", nargs="?", const="1,0.5,0.25,0.2", help="servo periods [ms]")
     a = ap.parse_args()
+    if a.rates:
+        md = []
+        rates([float(x) for x in a.rates.split(",")], md)
+        if a.md:
+            open(a.md, "w").write("".join(md))
+        return 0
     scens = a.only.split(",") if a.only else list(SCENARIOS)
     vars_ = a.variants.split(",") if a.variants else list(VARIANTS)
     jobs = {}
