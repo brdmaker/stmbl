@@ -3562,3 +3562,27 @@ Entry format:
   single block: a loaded CPU drops the page's frames and the sim lags.
 - Fix:     run the GUI suites one at a time (as make check-all does).
 
+
+## 2026-11-01  Material removal: the quick check on a merged path differs from every move
+- Area:    `webui/mill/js/millrem.js` (millCheck vs millFullSim), `server/preview.py` (PREVIEW_SEGS)
+- Status:  Known
+- Symptom: a 6.2 MB CAM program (507 726 moves): the Preflight's quick check
+  said 2 crash risks; the full simulation, every move on 0.25 mm cells, 1
+  (six G0 moves into uncut stock at slot ends, odd-slots floors).
+- Cause:   past PREVIEW_SEGS the preview merges neighbouring moves (stride 8
+  here), so a rapid and the feed after it become one straight segment, and
+  the quick check runs on 0.9 mm cells (250 000 over a 500 x 400 plate).
+- Fix:     "Run the full simulation" (program_get full: no merging, up to
+  PREVIEW_FULL_SEGS) for the verdict; the Simulated tick marks a program
+  that had it.
+
+## 2026-11-01  A standalone preview script needs LinuxCNC running and no `python3 -I`
+- Area:    `webui/mill/server/preview.py` used outside millweb
+- Status:  Note
+- Symptom: `python3 -I parse.py`: "the preview needs LinuxCNC's python";
+  without -I but with no LinuxCNC running: SIGSEGV on the first T word.
+- Cause:   -I ignores PYTHONPATH (rip-environment puts gcode.so there); the
+  tool data is LinuxCNC's shared memory (see the entries of 2026-10-21).
+- Fix:     run it inside `test/harness.py --ini-set EMCIO.TOOL_TABLE=<a table
+  with the program's tools> -- python3 script.py`, polling linuxcnc.stat()
+  once before gcode.parse.

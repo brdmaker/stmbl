@@ -190,6 +190,9 @@ the INI is configured by hand):
 | `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
+| `PREVIEW_FULL_SEGS` | 2000000 | the full simulation's path: every move up to this many, none merged |
+| `PREVIEW_FULL_TIMEOUT` | 600 | seconds of interpreting for the full simulation's path |
+| `MARKS` | `millweb-marks.json` beside the INI | the programs' Checked and Simulated ticks |
 
 ## The protocol
 
@@ -221,7 +224,8 @@ JSON over the WebSocket at `/ws`.
 - `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
-- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`);
+- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`). `program_get` {name, full: true}: every move, none merged (`PREVIEW_FULL_SEGS`), for the full simulation (not cached). A program in `files` has `marks` {check, sim} when it has been checked or simulated in full since it last changed;
+- `program_mark` {name, kind: check | sim, level: ok | warn | bad, sig, summary, full}: a program checked or simulated in full in a browser (no control needed). Kept with the file's size and mtime (an edited program loses its marks), moved with a rename; then a `files` message to every browser;
 - `program_rename` {name, to}: a program, model or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
 - `model_save` {name, data (base64), overwrite}, `model_get` {name}: 3D models (`.stl`, `.obj`);
 - `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
@@ -470,7 +474,16 @@ M-code subroutines on both sides:
   - the share within ±0.05.
 
   A wall inside a cell counts as neither: a gouge is measured from the part's lowest point among a cell and its neighbours, stock left from the highest. **Colour against the part** shows the run's result red where it gouges (deeper red to 0.5 mm), blue where stock is left (to 2 mm), green within the tolerance.
-- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path.
+- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path: the full simulation below doesn't merge.
+- **The full simulation:** **Run the full simulation** on the Material removal card. It takes every move from the machine (`program_get` with `full`; up to `PREVIEW_FULL_SEGS`), on 0.25 mm cells (up to 4 million), against the setup's stock, fixtures and parts, and shows its findings and the comparison under the quick check. A 6 MB CAM program of about 500 000 moves on a 500 × 400 mm plate takes about half a minute and 350 MB in a desktop browser; a tablet may run out of memory.
+
+### Checked and Simulated ticks
+
+Each program in the File list has two ticks:
+- **Checked:** its Preflight has run (shown when the program is selected): travel, tools in the table, reading it, the material removal's quick check.
+- **Simulated:** the full simulation has run on it.
+
+A tick is green when that run was clean, amber with warnings (or a full simulation that couldn't read every move), red with a crash risk, a gouge, a travel outside the limits or a missing tool. It is grey and dashed when it was made for another setup (stock, parts, fixtures, offsets or tools changed since: `sig`, a hash of those), and gone once the file changes. Hover it for when, by which browser, and what it found. On a machine millweb keeps them (`MARKS`), so every browser shows them; in the simulation they stay in the page.
 
 ## The 3D setup
 

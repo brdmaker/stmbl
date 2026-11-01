@@ -361,6 +361,7 @@ class Machine:
         self.nc_dir = cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
         self.setup_file = cfg.file("MILLWEB", "SETUP") or os.path.join(cfg.dir, "millweb-setup.json")
         self.views_file = cfg.file("MILLWEB", "DEBUG_VIEWS") or os.path.join(cfg.dir, "debug-views.json")
+        self.marks_file = cfg.file("MILLWEB", "MARKS") or os.path.join(cfg.dir, "millweb-marks.json")
         self.tool_file = cfg.file("EMCIO", "TOOL_TABLE") or os.path.join(cfg.dir, "tool.tbl")
         self.var_file = cfg.file("RS274NGC", "PARAMETER_FILE") or os.path.join(cfg.dir, "linuxcnc.var")
         self.offsets = parse_var_offsets(self.var_file)
@@ -1277,7 +1278,81 @@ class Machine:
                     files.append({"name": rel + n, "size": st.st_size, "mtime": int(st.st_mtime), "kind": kind})
             if len(files) + len(dirs) > self.MAX_ENTRIES:
                 break
+        marks = self.marks()
+        for f in files:
+            m = self._marks_of(f["name"], marks)
+            if m:
+                f["marks"] = m
         return files, dirs
+
+    # a program's marks: its checks run, its full simulation run (the File page's ticks), for every browser
+    MARK_KINDS = ("check", "sim")
+    MARK_LEVELS = ("ok", "warn", "bad")
+    MAX_MARKS = 2000
+
+    def marks(self):
+        """{program name: {"check" | "sim": record}} as stored (records of files changed since included)."""
+        try:
+            with open(self.marks_file) as f:
+                m = json.load(f)
+            return m if isinstance(m, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _marks_of(self, name, marks):
+        """A program's marks that still hold: those made on the file as it is now (its size and mtime)."""
+        recs = marks.get(name)
+        if not isinstance(recs, dict):
+            return None
+        try:
+            st = os.stat(self._safe(name))
+        except (OSError, ValueError):
+            return None
+        out = {k: {x: r.get(x) for x in ("level", "sig", "summary", "full", "at", "by")}
+               for k, r in recs.items() if k in self.MARK_KINDS and isinstance(r, dict)
+               and r.get("size") == st.st_size and r.get("mtime") == st.st_mtime}
+        return out or None
+
+    def _marks_write(self, marks):
+        with open(self.marks_file + ".tmp", "w") as f:
+            json.dump(marks, f, indent=1)
+        os.replace(self.marks_file + ".tmp", self.marks_file)
+
+    def cmd_program_mark(self, name, kind, level, sig="", summary="", full=False, by=""):
+        """A program checked (kind "check") or simulated in full ("sim"), with its result (level ok | warn | bad).
+        Kept with the file's size and mtime: an edited program loses its marks. sig is the setup's
+        signature (stock, parts, fixtures, offsets, tools) the browser compares: another setup, an old mark."""
+        if kind not in self.MARK_KINDS:
+            raise ValueError("kind: check or sim")
+        if level not in self.MARK_LEVELS:
+            raise ValueError("level: ok, warn or bad")
+        p = self._safe(name)
+        st = os.stat(p)
+        rel = self.relpath(p)
+        marks = self.marks()
+        marks.setdefault(rel, {})[kind] = {"level": level, "sig": str(sig)[:64], "summary": str(summary)[:300],
+                                           "full": bool(full), "at": int(time.time()), "by": str(by)[:40],
+                                           "size": st.st_size, "mtime": st.st_mtime}
+        if len(marks) > self.MAX_MARKS:  # those of files gone or changed first, then the oldest
+            for n in [n for n in marks if n != rel and not self._marks_of(n, marks)]:
+                del marks[n]
+            for n in sorted(marks, key=lambda n: max(r.get("at", 0) for r in marks[n].values()))[:max(0, len(marks) - self.MAX_MARKS)]:
+                del marks[n]
+        self._marks_write(marks)
+        return None
+
+    def _marks_move(self, src, dst, folder):
+        """Renamed or deleted (dst None): the marks go with the files."""
+        marks, moved, hit = self.marks(), {}, False
+        for n in list(marks):
+            if n == src or (folder and n.startswith(src + "/")):
+                hit = True
+                recs = marks.pop(n)
+                if dst is not None:
+                    moved[dst + n[len(src):]] = recs
+        if hit:
+            marks.update(moved)
+            self._marks_write(marks)
 
     def program_text(self, name):
         with open(self._safe(name), errors="replace") as f:
@@ -1311,6 +1386,7 @@ class Machine:
         if used:
             return "the 3D setup uses it (%s): remove it there first" % used
         os.remove(p)
+        self._marks_move(self.relpath(p), None, False)
         return None
 
     def cmd_rename(self, name, to):
@@ -1336,7 +1412,9 @@ class Machine:
         loaded = self._loaded()
         if loaded and (loaded == os.path.realpath(src) or loaded.startswith(os.path.realpath(src) + os.sep)):
             return "the loaded program is " + ("in it" if folder else "that one")
+        rs, rd = self.relpath(src), self.relpath(dst)
         os.rename(src, dst)
+        self._marks_move(rs, rd, folder)
         return None
 
     # 3D models and the setup (what stands on the table, for the 3D view)

@@ -28,7 +28,7 @@ const Live = (() => {
     };
   }
   // onSent(frac): how much of a large message has left the browser (the socket's buffer drains)
-  function send(op, args = {}, onSent) {
+  function send(op, args = {}, onSent, wait = 130000) {
     return new Promise((resolve) => {
       if (!ws || ws.readyState !== 1) { resolve({ ok: false, err: "not connected" }); return; }
       const id = ++nid;
@@ -44,7 +44,7 @@ const Live = (() => {
         };
         tick();
       }
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve({ ok: false, err: "no answer" }); } }, 130000);
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve({ ok: false, err: "no answer" }); } }, wait);
     });
   }
   async function act(op, args, label, onSent) {
@@ -543,7 +543,7 @@ const Live = (() => {
         return `<button class="file dir" data-dir="${esc(x)}" aria-pressed="${sel("dir", x)}"><span><b>${esc(baseName(x))}/</b><br><span class="muted">${n} program${n === 1 ? "" : "s"}</span></span><span></span><span class="btn sm" data-open="1">Open</span></button>`; }).join("") +
       here.map(([f, i]) => f.kind === "model"
         ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${(f.size / 1024).toFixed(1)} kB${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span><span class="btn sm" data-add="part">+ part</span></span></button>`
-        : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
+        : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${(f.size / 1024).toFixed(1)} kB · ${new Date(f.mtime * 1000).toLocaleString()}</span>${fileTicks(f.marks)}</span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
       `<p class="note">No programs in ${d ? esc(d) : esc(info ? info.nc_dir : "the program folder")}. Upload some, or drop them here.</p>`;
     if (L.sel && !(L.sel.kind === "dir" ? dirs.includes(L.sel.path) : files.some((f) => f.name === L.sel.path))) L.sel = null;
     if (!L.sel && inDir(prog.name, d) && files.some((f) => f.name === prog.name)) L.sel = { kind: "file", path: prog.name, auto: true };  // the loaded one
@@ -567,6 +567,20 @@ const Live = (() => {
     const p = r.ok && await toProgram(r.program, (f) => busyShow(`${name}: preparing the preview`, f, "preflight"));
     busyHide("preflight");
     if (p && files[fileSel] && files[fileSel].name === name) renderPreflight(p);
+  };
+  // a program checked or simulated in full here: on the machine for every browser (unless it says so already)
+  L.mark = (name, kind, rec) => {
+    const f = files.find((x) => x.name === name), o = f && f.marks && f.marks[kind];
+    if (!f || (o && markSame(o, rec))) return;
+    (f.marks || (f.marks = {}))[kind] = { ...rec, by: "this browser" };  // at once; the server's list follows
+    send("program_mark", { name, kind, ...rec });
+  };
+  L.marksOf = (name) => { const f = files.find((x) => x.name === name); return f && f.marks; };
+  // every move of a program (none merged), for the full simulation: null when it didn't come (said why)
+  L.programFull = async (name, onFrac) => {
+    const r = await send("program_get", { name, full: true }, null, 900000);
+    if (!r.ok) { msg(`${name}: ${r.err}`, "warn"); return null; }
+    return toProgram(r.program, onFrac);
   };
   const openDir = (d) => { L.dir = d; L.sel = null; L.renderFiles(); };
   // the File page's clicks: the server's programs, not the simulation's library

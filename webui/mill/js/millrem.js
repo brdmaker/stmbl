@@ -217,8 +217,9 @@ function remFindList(find) {
 function millRemCard(p) {
   const el = document.createElement("div"); el.className = "card"; el.id = "fl-rem";
   const head = (pill, cls) => `<h3>Material removal <span class="pill ${cls}">${pill}</span></h3>`;
-  if (!setup.objects.some((o) => o.role === "workpiece")) { el.innerHTML = head("NO STOCK", "info") + `<p class="note">No workpiece in the 3D setup: add one (the stock) to check the program against it.</p>`; return el; }
+  if (!setup.objects.some((o) => o.role === "workpiece")) { el.innerHTML = head("NO STOCK", "info") + `<p class="note">No workpiece in the 3D setup: add one (the stock) to check the program against it.</p>`; markCheck(p, null); return el; }
   const r = p.mremoval && p.mremoval.key === millRemKey() ? p.mremoval : null;
+  if (r) markCheck(p, r);
   if (!r) { el.innerHTML = head("CHECKING…", "info"); millCheck(p).then(() => { if ($("fl-rem") === el && st.page === "file") el.replaceWith(millRemCard(p)); }); return el; }
   const nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn"), S = r.S;
   const cm3 = (v) => (v / 1000).toFixed(1) + " cm³";
@@ -229,9 +230,68 @@ function millRemCard(p) {
       <dt>Deepest floor</dt><dd>${Number.isFinite(zl) ? "Z" + zl.toFixed(2) : "—"}</dd></dl>` + millCmpBlock(r) +
     (r.find.length ? remFindList(r.find)
       : `<p class="note">No rapid into the stock; every cut within the flutes; holders and tools clear of the stock and the fixtures.</p>`) +
+    millFullBlock(p) +
     `<div class="row"><button class="btn sm" id="ms-final" aria-pressed="${MREM.final}">${MREM.final ? "Showing the finished part" : "Show the finished part"}</button>${r.cmp ? `<button class="btn sm" id="ms-cmp" aria-pressed="${MREM.cmp}">${MREM.cmp ? "Coloured against the part" : "Colour against the part"}</button>` : ""}</div>`;
   return el;
 }
+// ------------------------------------------------------------ the full simulation
+// The check above runs on the path as drawn (a long program's moves merged, PREVIEW_SEGS) on coarse cells (250 000
+// over the stock). The full one: every move (from the machine: PREVIEW_FULL_SEGS), cells of 0.25 mm (4 million at
+// most), against the setup's parts; its result marks the program "Simulated" in the File list.
+const FULL_CELL = 0.25, FULL_CELLS = 4e6;
+MREM.full = null;  // the last full simulation here: {name, sig (setupSig), R, full, moves, secs}
+function millFullBlock(p) {
+  const fs = MREM.full && MREM.full.name === p.name && MREM.full.sig === setupSig() ? MREM.full : null;
+  let out = "";
+  if (fs) {
+    const r = fs.R, nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn");
+    out = `<h4 class="fs-head">Full simulation <span class="pill ${nb ? "bad" : nw ? "warn" : "ok"}">${nb ? `${nb} CRASH RISK${nb > 1 ? "S" : ""}` : nw ? `${nw} WARNING${nw > 1 ? "S" : ""}` : "CLEAN"}</span></h4>
+      <dl class="kv"><dt>Moves</dt><dd>${fs.moves.toLocaleString("en-US")}${fs.full ? " · every one" : " · <b>not all</b> (merged or cut short)"}</dd>
+      <dt>Cells</dt><dd>${r.S.nx} × ${r.S.ny} · ${r.S.cell.toFixed(2)} mm · ${fs.secs.toFixed(0)} s</dd><dt>Removed</dt><dd>${(r.stat.vol / 1000).toFixed(1)} cm³ · cut ${mmss(r.stat.cutT)} · air ${mmss(r.stat.air)}</dd></dl>` +
+      (r.cmp ? millCmpBlock(r) : "") + (r.find.length ? remFindList(r.find) : `<p class="note">Every move clean at ${r.S.cell.toFixed(2)} mm.</p>`);
+  }
+  return `<div class="fs" id="ms-fs">${out}<div class="row"><button class="btn sm${fs ? "" : " accent"}" id="ms-full" title="Every move of the program, none merged, on ${FULL_CELL} mm cells against the setup's stock, fixtures and parts: marks it Simulated in the file list">${fs ? "Run the full simulation again" : "Run the full simulation"}</button></div></div>`;
+}
+async function millFullSim(p) {
+  if (!p || MREM.fullBusy) return;
+  MREM.fullBusy = true;
+  const t0 = performance.now(), sig = setupSig();
+  try {
+    let q = p;
+    if (LIVE && p.server) {
+      busyShow(`${p.name}: LinuxCNC reads every move…`, null, "fullsim");
+      q = await LIVE.programFull(p.name, (f) => busyShow(`${p.name}: every move`, f, "fullsim"));
+      if (!q) return;
+    }
+    const full = !q.truncated && !q.error && !(q.stats && q.stats.stride > 1);
+    const o = { ...millRemSetup(), cell: FULL_CELL, maxCells: FULL_CELLS, tol: 0.05 };
+    MREM.full = null;  // the last one's memory back first
+    const R2 = MSTOCK.begin(o), n = q.segs.length, label = `${p.name}: full simulation`;
+    for (let i = 0; i < n;) {
+      i = Math.min(n, i + 20000);
+      MSTOCK.run(R2, q.segs, st.tools, i);
+      busyShow(label, i / n, "fullsim");
+      await nextFrame();
+    }
+    if (o.part.length) MSTOCK.against(R2, o.part, o.tol);
+    const order = { bad: 0, warn: 1, info: 2 };
+    R2.find.sort((a, b) => order[a.level] - order[b.level] || a.line - b.line);
+    const moves = q.stats && q.stats.moves ? q.stats.moves : q.segs.filter((s) => s.k === "mv").length;
+    MREM.full = { name: p.name, sig, R: R2, full, moves, secs: (performance.now() - t0) / 1000 };
+    const nb = remCount(R2.find, "bad"), nw = remCount(R2.find, "warn"), c = R2.cmp;
+    const level = nb || (c && c.gouge.area > 0) ? "bad" : nw || !full ? "warn" : "ok";
+    const summary = [nb ? `${nb} crash risk${nb > 1 ? "s" : ""}` : nw ? `${nw} warning${nw > 1 ? "s" : ""}` : "clean",
+      c ? `${c.cells ? (100 * c.ok / c.cells).toFixed(1) : "—"} % of the parts within ±${c.tol}${c.gouge.area ? `, gouges to ${c.gouge.max.toFixed(2)} mm` : ""}` : "no parts to compare",
+      `${moves.toLocaleString("en-US")} moves${full ? "" : " (not all)"}`, `${R2.S.cell.toFixed(2)} mm cells`].join(" · ");
+    fileMark(p, "sim", level, summary, full);
+    msg(`${p.name}: full simulation ${summary}`, level === "ok" ? "ok" : "warn");
+  } finally {
+    busyHide("fullsim");
+    MREM.fullBusy = false;
+  }
+  if (st.page === "file" && pfProg === p && $("fl-rem")) $("fl-rem").replaceWith(millRemCard(p));
+}
+
 // the comparison with the finished part (the setup's part): gouges, stock left, within the tolerance
 function millCmpBlock(r) {
   const c = r.cmp;
@@ -242,6 +302,7 @@ function millCmpBlock(r) {
     <dt>Stock left</dt><dd>${c.left.area ? `${(c.left.vol / 1000).toFixed(2)} cm³ · to ${c.left.max.toFixed(2)} mm` : "none"}</dd></dl>`;
 }
 document.addEventListener("click", (e) => {
+  if (e.target.id === "ms-full") { millFullSim(pfProg); return; }
   if (e.target.id === "ms-cmp") { MREM.cmp = !MREM.cmp; MREM.final = MREM.final || MREM.cmp; MREM.built = -1; e.target.setAttribute("aria-pressed", String(MREM.cmp)); e.target.textContent = MREM.cmp ? "Coloured against the part" : "Colour against the part"; return; }
   if (e.target.id !== "ms-final") return;
   MREM.final = !MREM.final; e.target.setAttribute("aria-pressed", String(MREM.final)); e.target.textContent = MREM.final ? "Showing the finished part" : "Show the finished part";

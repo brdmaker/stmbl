@@ -549,10 +549,55 @@ function loadProgram(p) {
 }
 
 // ============================================================ FILE page
-let fileSel = 0;
+let fileSel = 0, pfProg = null;  // pfProg: the program the Preflight shows
+
+// a program's marks, the File list's ticks: "check" (its preflight ran: travel, tools, the material removal) and
+// "sim" (the full simulation: every move, fine cells, against the setup's parts), each {level ok | warn | bad,
+// sig, summary, full, at, by}. On a machine millweb keeps them with the file (an edited file loses them); sig is
+// the setup's they were made with: for another setup a tick is grey (old).
+function setupSig() {
+  const o = off(), s = JSON.stringify([setup.objects.map((b) => [b.src, b.role, b.pos, b.rot, b.scale, b.frame]), [o.x, o.y, o.z], [st.g92.x, st.g92.y, st.g92.z],
+    st.tools.map((t) => [t.t, t.d, t.ty || "", t.cr || 0, t.ang || 0, t.cl || 0, t.so || 0, t.hd || 0])]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+const MARK_NAMES = { check: "Checked", sim: "Simulated" };
+const markSame = (a, b) => a.level === b.level && a.sig === b.sig && a.summary === b.summary && !!a.full === !!b.full;
+function fileTicks(marks) {
+  const sig = setupSig();
+  return `<span class="ticks">${["check", "sim"].map((k) => {
+    const m = marks && marks[k], cls = !m ? "" : m.sig && m.sig !== sig ? "old" : m.level;
+    const title = !m ? `${MARK_NAMES[k]}: not yet${k === "sim" ? " (Preflight, Material removal: Run the full simulation)" : ""}`
+      : `${MARK_NAMES[k]}${m.at ? " " + new Date(m.at * 1000).toLocaleString() : ""}${m.by ? " by " + m.by : ""}${cls === "old" ? ", for another setup (the stock, parts, offsets or tools have changed since)" : ""}: ${m.summary}`;
+    return `<span class="tick ${cls}" data-mark="${k}" title="${esc(title)}">${m ? "✓" : "○"} ${MARK_NAMES[k]}</span>`;
+  }).join("")}</span>`;
+}
+// a mark made in this page: to the machine, or on the simulation's program
+function fileMark(p, kind, level, summary, full) {
+  if (!p || !p.name) return;
+  const rec = { level, sig: setupSig(), summary, full: !!full, at: Math.floor(Date.now() / 1000) };
+  if (LIVE) { if (p.server) LIVE.mark(p.name, kind, rec); return; }
+  const o = p.marks && p.marks[kind];
+  if (o && markSame(o, rec)) return;
+  (p.marks || (p.marks = {}))[kind] = rec;
+  if (st.page === "file") $$("#files .file").forEach((b) => { const q = library[+b.dataset.i]; if (q === p) b.querySelector(".ticks").outerHTML = fileTicks(p.marks); });
+}
+// the preflight's checks (travel, tools, reading the program) and the material removal's (r; null: none made)
+function markCheck(p, r) {
+  const b = p.pfBase; if (!b) return;
+  let level = b.level;
+  const parts = [...b.notes];
+  if (r) {
+    const nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn");
+    parts.push(nb ? `${nb} crash risk${nb > 1 ? "s" : ""}` : nw ? `${nw} warning${nw > 1 ? "s" : ""} in the material removal` : "material removal clean");
+    if (nb) level = "bad"; else if (nw && level === "ok") level = "warn";
+  } else if (r === null && !(typeof LATHE !== "undefined" && LATHE)) parts.push("no stock to check against");
+  fileMark(p, "check", level, parts.join(" · "), false);
+}
 function renderFiles() {
   if (LIVE) return LIVE.renderFiles();
-  $("files").innerHTML = library.map((p, i) => `<button class="file" data-i="${i}" aria-pressed="${i === fileSel}"><span><b>${esc(p.name)}</b><br><span class="muted">${p.lines.length} lines · ${[...p.tools].map((t) => "T" + t).join(" ")}</span></span><span class="num muted">${mmss(p.total)}</span><span class="btn sm ${p === prog ? "accent" : ""}">${p === prog ? "Loaded" : "Load"}</span></button>`).join("");
+  $("files").innerHTML = library.map((p, i) => `<button class="file" data-i="${i}" aria-pressed="${i === fileSel}"><span><b>${esc(p.name)}</b><br><span class="muted">${p.lines.length} lines · ${[...p.tools].map((t) => "T" + t).join(" ")}</span>${fileTicks(p.marks)}</span><span class="num muted">${mmss(p.total)}</span><span class="btn sm ${p === prog ? "accent" : ""}">${p === prog ? "Loaded" : "Load"}</span></button>`).join("");
   selectFile(fileSel);
 }
 function selectFile(i) {
@@ -563,7 +608,7 @@ function selectFile(i) {
 }
 // a program's preflight: travel, tools, time and predicted error, its code
 function renderPreflight(p) {
-  $("fl-name").textContent = p.name;
+  $("fl-name").textContent = p.name; pfProg = p;
   const e = p.ext, mn = toMach({ x: e.x[0], y: e.y[0], z: e.z[0] }), mx = toMach({ x: e.x[1], y: e.y[1], z: e.z[1] });
   const fits = inside(mn) && inside(mx), missing = [...p.tools].filter((t) => !toolOf(t)), deep = !(typeof LATHE !== "undefined" && LATHE) && e.z[0] < -STOCK.h;
   const ps = p.stats, part = !!p.truncated;  // from the machine: over every move (part: interpreting stopped early)
@@ -571,8 +616,13 @@ function renderPreflight(p) {
     <div class="card"><h3>Travel <span class="pill ${part ? "warn" : fits ? "ok" : "bad"}">${part ? (fits ? "FITS SO FAR" : "OUTSIDE") : fits ? "FITS" : "OUTSIDE"}</span></h3><dl class="kv"><dt>X</dt><dd>${e.x[0].toFixed(1)} … ${e.x[1].toFixed(1)}</dd><dt>Y</dt><dd>${e.y[0].toFixed(1)} … ${e.y[1].toFixed(1)}</dd><dt>Z</dt><dd>${e.z[0].toFixed(1)} … ${e.z[1].toFixed(1)}</dd></dl><p class="note">In ${off().n}, checked against the soft limits.</p></div>
     <div class="card"><h3>Tools <span class="pill ${missing.length ? "bad" : "ok"}">${missing.length ? "MISSING" : "ALL IN THE TABLE"}</span></h3><dl class="kv">${[...p.tools].map((t) => { const tl = toolOf(t); return `<dt>T${t}</dt><dd>${tl ? "Ø" + tl.d.toFixed(1) + " · L " + tl.l.toFixed(2) + " · life " + tl.life + " %" : "not in the table"}</dd>`; }).join("")}</dl></div>
     <div class="card"><h3>Time and dynamics <span class="pill ${deep ? "warn" : "info"}">${deep ? "THROUGH THE STOCK" : "ESTIMATE"}</span></h3><dl class="kv"><dt>Cycle (planner, 0.5 g)</dt><dd>${mmss(p.total)}</dd><dt>Cutting length</dt><dd>${Math.round(p.cutLen)} mm</dd><dt>Predicted path error p99</dt><dd>${Math.round(pct(p.segs.filter((s) => s.cut).map((s) => s.errMean), 0.99))} µm</dd><dt>Tool changes</dt><dd>${p.segs.filter((s) => s.k === "tc").length}</dd>${ps ? `<dt>Moves</dt><dd>${ps.moves.toLocaleString("en-US")}${ps.stride > 1 ? ` · drawn: every ${ps.stride}th point` : ""}</dd>` : ""}</dl>${part ? `<p class="note">${esc(p.truncated)}: travel, time and tools cover the lines read.</p>` : ""}</div>`;
-  if (typeof LATHE !== "undefined" && LATHE && p.segs) $("fl-cards").appendChild(latheRemCard(p));  // the stock through the run
+  const tl = [...p.tools].filter((t) => !toolOf(t)).map((t) => "T" + t);
+  p.pfBase = { level: p.error || (!fits && !part) || missing.length ? "bad" : part || !fits ? "warn" : "ok",
+    notes: [...(p.error ? ["the program doesn't read: " + p.error] : []), part ? `read only in part (${p.truncated})` : "", fits ? "travel fits" : "outside the travel",
+      missing.length ? `${tl.join(" ")} not in the tool table` : "tools in the table"].filter(Boolean) };
+  if (typeof LATHE !== "undefined" && LATHE && p.segs) { $("fl-cards").appendChild(latheRemCard(p)); markCheck(p, undefined); }  // the stock through the run
   else if (p.segs && typeof millRemCard === "function") $("fl-cards").appendChild(millRemCard(p));
+  else markCheck(p, undefined);
   const nl = p.nlines || p.lines.length, shown = Math.min(400, p.lines.length);
   $("fl-code").textContent = p.lines.slice(0, shown).join("\n") + (nl > shown ? `\n… ${(nl - shown).toLocaleString("en-US")} more lines` : "");
 }

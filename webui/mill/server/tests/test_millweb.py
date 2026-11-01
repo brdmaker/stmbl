@@ -284,6 +284,45 @@ class Protocol(Base):
         self.assertAlmostEqual(lc.M.pos[1], -0.1)
         await ws.close()
 
+    async def test_program_marks(self):
+        """The File list's ticks: a program checked / simulated in full, kept with the file for every browser."""
+        ws, other = await self.client(), await self.client()
+        files = lambda r: {f["name"]: f for f in r["files"]}  # noqa: E731
+        r = await self.call(ws, "program_mark", name="a.ngc", kind="check", level="ok", sig="abc12345", summary="travel fits")
+        self.assertTrue(r["ok"], r)  # no control needed
+        m = await self.until(other, lambda m: m["t"] == "files" and "marks" in files(m).get("a.ngc", {}))
+        rec = files(m)["a.ngc"]["marks"]["check"]
+        self.assertEqual((rec["level"], rec["sig"], rec["summary"], rec["full"]), ("ok", "abc12345", "travel fits", False))
+        self.assertTrue(rec["by"] and rec["at"] > 0)
+        self.assertNotIn("sim", files(m)["a.ngc"]["marks"])
+        r = await self.call(ws, "program_mark", name="a.ngc", kind="sim", level="bad", sig="abc12345", summary="6 crash risks", full=True)
+        self.assertTrue(r["ok"])
+        self.assertEqual(files(await self.call(other, "files"))["a.ngc"]["marks"]["sim"]["level"], "bad")
+        for bad in ({"kind": "run"}, {"level": "great"}, {"name": "../x.ngc"}, {"name": "nope.ngc"}):
+            r = await self.call(ws, "program_mark", **dict({"name": "a.ngc", "kind": "check", "level": "ok"}, **bad))
+            self.assertFalse(r["ok"], bad)
+        # renamed: the marks go with it; edited: gone
+        await self.call(ws, "control", take=True)
+        self.assertTrue((await self.call(ws, "folder_create", name="sub"))["ok"])
+        self.assertTrue((await self.call(ws, "program_rename", name="a.ngc", to="sub/a.ngc"))["ok"])
+        fl = files(await self.call(ws, "files"))
+        self.assertEqual(set(fl["sub/a.ngc"]["marks"]), {"check", "sim"})
+        self.assertTrue((await self.call(ws, "program_rename", name="sub", to="sub2"))["ok"])
+        self.assertEqual(set(files(await self.call(ws, "files"))["sub2/a.ngc"]["marks"]), {"check", "sim"})
+        self.assertTrue((await self.call(ws, "program_save", name="sub2/a.ngc", text="G0 X2\nM2"))["ok"])
+        self.assertNotIn("marks", files(await self.call(ws, "files"))["sub2/a.ngc"])
+        stored = lambda: json.loads(open(os.path.join(self.d, "millweb-marks.json")).read())  # noqa: E731
+        self.assertIn("sub2/a.ngc", stored())  # kept, but not shown: made on the file as it was
+        self.assertTrue((await self.call(ws, "program_mark", name="sub2/a.ngc", kind="check", level="warn"))["ok"])
+        self.assertTrue((await self.call(ws, "program_delete", name="sub2/a.ngc"))["ok"])
+        self.assertNotIn("sub2/a.ngc", stored())
+        # the full preview asked for: said so in the program message
+        self.assertTrue((await self.call(ws, "program_save", name="c.ngc", text="G0 X5\nM2"))["ok"])
+        r = await self.call(ws, "program_get", name="c.ngc", full=True)
+        self.assertTrue(r["ok"])
+        self.assertTrue(r["program"]["full"])
+        self.assertFalse((await self.call(ws, "program_get", name="c.ngc"))["program"]["full"])
+
     async def test_tools_programs_probe(self):
         ws = await self.client()
         await self.call(ws, "control", take=True)

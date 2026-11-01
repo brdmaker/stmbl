@@ -1062,6 +1062,45 @@ test("3D view: see-through objects draw in a fixed order (no flicker); the chips
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("file list: the Checked and Simulated ticks (the preflight, the full simulation), old for another setup", async (t) => {
+  await stop(t);
+  await t.ev(() => { loadProgram(library[0]); fileSel = 0; });
+  await t.nav("file");
+  const tick = (i, k) => t.ev(([i, k]) => { const e = document.querySelectorAll("#files .file")[i].querySelector(`[data-mark="${k}"]`); return { cls: e.className.replace("tick", "").trim(), text: e.textContent, title: e.title }; }, [i, k]);
+  t.check(await t.until(() => $("fl-rem") && /CLEAN/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the bracket's preflight: CLEAN");
+  let c = await tick(0, "check");
+  t.check(c.cls === "ok" && c.text.includes("✓ Checked") && /travel fits · tools in the table · material removal clean/.test(c.title), `Checked: green, what was checked in its title (${c.cls}: ${c.title})`);
+  let s = await tick(0, "sim");
+  t.check(s.cls === "" && s.text.includes("○ Simulated") && /not yet/.test(s.title), "Simulated: not yet");
+  t.check((await t.text("#ms-full")) === "Run the full simulation", "the Material removal card: Run the full simulation");
+  await t.click("#ms-full");
+  t.check(await t.until(() => MREM.full && $("ms-fs") && /Full simulation/.test($("ms-fs").textContent), null, 30000), "the full simulation's result in the card");
+  t.check(/every one/.test(await t.text("#ms-fs")) && /0\.25 mm/.test(await t.text("#ms-fs")), "every move, 0.25 mm cells");
+  s = await tick(0, "sim");
+  t.check(s.cls === "ok" && s.text.includes("✓ Simulated") && /clean · no parts to compare · [\d,]+ moves · 0\.25 mm cells/.test(s.title), `Simulated: green (${s.cls}: ${s.title})`);
+  // the setup changed (a tool's diameter): Checked again at once, the full simulation's tick old
+  await t.ev(() => { toolOf(3).d += 0.5; latheVer++; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /CLEAN|WARNING|CRASH/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the preflight again");
+  await t.ev(() => renderFiles());
+  s = await tick(0, "sim"); c = await tick(0, "check");
+  t.check(s.cls === "old" && /another setup/.test(s.title), "Simulated: grey, for another setup");
+  t.check(c.cls !== "old", "Checked: made again for this setup");
+  t.check(!/Full simulation/.test(await t.text("#fl-rem")), "the card: no old result shown");
+  await t.ev(() => { toolOf(3).d -= 0.5; latheVer++; renderFiles(); });
+  await t.ev(() => renderFiles());
+  t.check((await tick(0, "sim")).cls === "ok", "the setup back: Simulated green again");
+  // a crash risk: the bolt circle through the stock into the vise
+  await t.ev(() => { loadProgram(plan(genBolt({ x: 60, y: 40, r: 28, n: 8, a: 0, d: -30, p: 3, t: 5 }))); fileSel = library.length - 1; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent), null, 15000), "the bolt circle: crash risks");
+  const last = await t.ev(() => library.length - 1);
+  c = await tick(last, "check");
+  t.check(c.cls === "bad" && /crash risk/.test(c.title), `Checked: red (${c.title})`);
+  await t.click("#ms-full");
+  t.check(await t.until(() => { const e = document.querySelectorAll("#files .file")[library.length - 1].querySelector('[data-mark="sim"]'); return e.classList.contains("bad"); }, null, 30000), "Simulated: red");
+  await t.ev(() => { library.pop(); loadProgram(library[0]); fileSel = 0; renderFiles(); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("material removal (mill): the stock cut as it runs, the Preflight check, a crash caught before the run", async (t) => {
   await stop(t);
   await t.ev(() => { loadProgram(library[0]); });

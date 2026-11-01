@@ -365,6 +365,14 @@ canvas.spark { width: 140px; height: 26px; display: block; }
 .file.dir b { color: var(--accent); }
 .file .adds { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .file-tools { margin-bottom: 8px; }
+.ticks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.tick { font: 600 10px var(--f-body); letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-hi); color: var(--ink-faint); white-space: nowrap; }
+.tick.ok { color: var(--ok); border-color: currentColor; background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.tick.warn { color: var(--warn); border-color: currentColor; }
+.tick.bad { color: var(--stop); border-color: currentColor; }
+.tick.old { color: var(--ink-faint); border-style: dashed; }
+.fs { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.fs-head { margin: 0 0 6px; font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .file-tools .grow { flex: 1; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-family: var(--f-mono); font-size: 12px; }
 .crumbs button { background: none; border: 0; color: var(--accent); padding: 2px 4px; cursor: pointer; font: inherit; }

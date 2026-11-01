@@ -78,6 +78,8 @@ class Hub:
         self.pv_sem = asyncio.Semaphore(2)
         self.pv_segs = int(cfg.num("MILLWEB", "PREVIEW_SEGS", 100000))
         self.pv_timeout = cfg.num("MILLWEB", "PREVIEW_TIMEOUT", 120.0)
+        self.pv_full_segs = int(cfg.num("MILLWEB", "PREVIEW_FULL_SEGS", 2000000))  # the full simulation's moves
+        self.pv_full_timeout = cfg.num("MILLWEB", "PREVIEW_FULL_TIMEOUT", 600.0)
         self.resyncing = False
         self.hal_watch = {}          # client id -> HAL names it watches
         self.scopes = {}             # client id -> its sampler process
@@ -227,7 +229,7 @@ class Hub:
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
                       "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
-                      "vib_spectrum", "vib_trend", "vib_console_read", "arm_model", "teach"):  # reading, and the Debug page's own (drive_cmd checks its own)
+                      "vib_spectrum", "vib_trend", "vib_console_read", "arm_model", "teach", "program_mark"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
                 return await reply("this browser doesn't have control (take it first)")
@@ -388,11 +390,21 @@ class Hub:
         return {"files": files, "dirs": dirs}
 
     async def op_program_get(self, c, m):
+        """A program's preview: {name, full}. full: every move (PREVIEW_FULL_SEGS of them at most), none merged,
+        for the File page's full simulation; else as drawn (PREVIEW_SEGS)."""
         path = self.m._safe(m["name"])
-        text, head = await self.preview(path)
+        text, head = await self.preview(path, full=bool(m.get("full")))
         # the preview's text goes in as it is: no second encoding of a big message
         await c.ws.send('{"t":"reply","id":%s,"op":"program_get","ok":true,"program":%s}' % (json.dumps(m.get("id")), text))
         return NO_REPLY
+
+    async def op_program_mark(self, c, m):
+        """A program checked or simulated in full in a browser: {name, kind: check | sim, level, sig, summary, full}.
+        Every browser's File page shows it (no control needed: it changes nothing on the machine)."""
+        await self.run(self.m.cmd_program_mark, m["name"], m.get("kind"), m.get("level"), m.get("sig", ""),
+                       m.get("summary", ""), bool(m.get("full")), c.name)
+        self.broadcast(self.files_msg())
+        return None
 
     async def op_program_lines(self, c, m):
         """Lines start ... start+count-1 (from 1) of a program: the listing of a
@@ -1044,17 +1056,18 @@ class Hub:
                         break
         return out, n
 
-    async def preview(self, path):
+    async def preview(self, path, full=False):
         """(the program message as JSON text, its header): from LinuxCNC's
-        interpreter in a child process (preview.py); cached; one at a time per file."""
+        interpreter in a child process (preview.py); cached; one at a time per file.
+        full: every move, none merged (the full simulation's; not kept in the cache: it can be tens of MB)."""
         s = self.state
         active = [round(s.get("g5x", [0, 0, 0])[i] + s.get("g92", [0, 0, 0])[i], 4) for i in range(3)]
         tl = self.m.tools()
         try:
             st = os.stat(path)
-            key = (path, st.st_mtime, st.st_size, tuple(active), json.dumps(tl), s.get("wcs", 0))
+            key = (path, st.st_mtime, st.st_size, tuple(active), json.dumps(tl), s.get("wcs", 0), full)
         except OSError:
-            key = (path, None)
+            key = (path, None, full)
         if key in self.pv_cache:
             return self.pv_cache[key]
         if key in self.pv_running:
@@ -1063,8 +1076,9 @@ class Hub:
         self.pv_running[key] = fut
         try:
             async with self.pv_sem:
-                res = await self._preview_child(path, active, tl)
-            self.pv_cache[key] = res
+                res = await self._preview_child(path, active, tl, full)
+            if not full:
+                self.pv_cache[key] = res
             while len(self.pv_cache) > 3:
                 self.pv_cache.pop(next(iter(self.pv_cache)))
             fut.set_result(res)
@@ -1077,13 +1091,14 @@ class Hub:
             if fut.done() and not fut.cancelled():
                 fut.exception()  # retrieved: no "never retrieved" warning
 
-    async def _preview_child(self, path, active, tl):
+    async def _preview_child(self, path, active, tl, full=False):
         # the INI's startup code first (a lathe: G18 G7, X words as diameters); a lathe tool's X offset, angles, orientation
         req = {"path": path, "var": self.m.var_file, "unitcode": "G21", "active": active,
                "initcode": self.cfg.get("RS274NGC", "RS274NGC_STARTUP_CODE", "") or "",
                "tools": {t["t"]: (t["t"], t.get("x", 0.0) / 25.4, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4,
                                   t.get("i", 0.0), t.get("j", 0.0), t.get("q", 0)) for t in tl},
-               "pockets": [t["t"] for t in tl], "max_segs": self.pv_segs, "timeout": self.pv_timeout,
+               "pockets": [t["t"] for t in tl], "max_segs": self.pv_full_segs if full else self.pv_segs,
+               "timeout": self.pv_full_timeout if full else self.pv_timeout,
                "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0),
                "spindle_max": self.cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0)}
         head, ptext = {"error": None, "truncated": None, "stats": None, "lines": 0, "start": [0, 0, 0]}, "[]"
@@ -1092,7 +1107,7 @@ class Hub:
                                                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                                                     preexec_fn=(lambda: os.nice(nice)) if nice > 0 else None)
         try:
-            out, err = await asyncio.wait_for(proc.communicate(json.dumps(req).encode()), self.pv_timeout + 30)
+            out, err = await asyncio.wait_for(proc.communicate(json.dumps(req).encode()), req["timeout"] + 30)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
@@ -1111,7 +1126,7 @@ class Hub:
             lines, n = [], 0
         msg = {"t": "program", "name": self.m.relpath(path), "path": path, "lines": lines, "line0": 1, "nlines": n,
                "error": head["error"], "truncated": head["truncated"], "stats": head["stats"], "start": head["start"],
-               "wcs": self.state.get("wcs", 0), "seconds": head.get("seconds")}
+               "wcs": self.state.get("wcs", 0), "seconds": head.get("seconds"), "full": full}
         return json.dumps(msg, separators=(",", ":"))[:-1] + ',"path":' + ptext + "}", msg
 
     # ------------------------------------------------------------ loops
