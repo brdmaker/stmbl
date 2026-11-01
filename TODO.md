@@ -81,7 +81,11 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       max and sserial errors.
 - [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
       (needed above 2 kHz).
-- [ ] Above 2 kHz only with a faster FPGA bus (Zynq / PCIe).
+- [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81
+      (SPI), Pi 5 / CM4 + PCIe Mesa card (hm2_pci), Zynq EBAZ4205
+      (hm2_soc_ol). Pick by the largest servo time; 4 kHz needs < ~90 us.
+- [ ] `servo_rate.py` is only checked without a board (no hm2 hardware in
+      the simulator); first run on each board may need fixes.
 - [ ] mill_sim: 5 kHz servo period faults before sync (DEBUGNOTES).
 
 ## Other

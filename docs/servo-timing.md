@@ -165,6 +165,43 @@ in µm:
   acceleration feedforward. The only remaining gain from a higher rate is
   sampling tight curves (R 10 at 10 m/min), which 2 kHz mostly covers.
 
+## The front ends on hand: measure all three
+
+A Zynq board (the EBAZ4205) and a Pi with PCIe are both available, so the
+bus question can be answered by measurement instead of estimates.
+`hwtest/timing/servo_rate.py` runs the same HAL session on each and writes
+`servo_rate.md`: servo thread, hm2 read and write, average and largest,
+smart-serial errors, and a verdict per period. The drives are connected but
+not enabled.
+
+| | Pi 4 + 7C81 (SPI) | Pi 5 / CM4 + PCIe Mesa card | Zynq EBAZ4205 |
+|---|---|---|---|
+| driver | `hm2_spix` | `hm2_pci` | `hm2_soc_ol` (bitstream via `fpga_manager`, `webui/mill/server/fpga_load.py`) |
+| hm2 read + write | **58 us measured** | estimate: writes posted (a few us), reads ~1 us per 32-bit word: ~10-30 us, depending on the modules enabled | estimate: the AXI bus, ~0.1-0.2 us per word: a few us |
+| CPU for motion and kinematics | Cortex-A72 1.5 GHz: ~10 us | Cortex-A76 2.4 GHz: ~5 us (estimate) | Cortex-A9 667 MHz: ~25-30 us (estimate) |
+| servo thread, largest | **175-192 us measured** | to measure | to measure |
+| console (millweb) beside it | yes | yes | 2 small cores and little RAM: heavy suites remote (`REMOTE=board:8080`) |
+| to check first | - | the Pi's PCIe link to a full-size card (adapter or HAT); `hm2_pci` on arm64 (uspace maps the card's BAR through sysfs); a bitfile with smart-serial | a PREEMPT_RT kernel and LinuxCNC (armhf) on it; a hostmot2 bitfile with smart-serial on its pins; the RS-422 interface used with the 7C81, wired to the EBAZ's 3.3 V pins |
+
+- **The deciding number:** the largest servo time, not the average. 4 kHz
+  needs it under ~90 us with the 150 us exchange; 3 kHz (333 us) under
+  ~180 us.
+- **Expected results:** the Zynq should have the shortest I/O but the
+  slowest CPU, and its jitter on an RT kernel is unknown. The Pi 5 with
+  PCIe should be strong on both, if `hm2_pci` works there.
+- **The drive firmware fix (item 2) is needed either way** for anything
+  above ~2.5 kHz. The front end only moves the Pi side of the budget.
+
+```
+# each front end, LinuxCNC stopped, as the machine's user:
+python3 hwtest/timing/servo_rate.py                                   # Pi 4 + 7C81 (stmbl.ini's driver)
+python3 hwtest/timing/servo_rate.py --driver hm2_pci \
+    --config "num_encoders=0 num_pwmgens=0 num_stepgens=0 sserial_port_0=00000000"
+python3 hwtest/timing/servo_rate.py --driver hm2_soc_ol \
+    --config "num_encoders=0 num_pwmgens=0 num_stepgens=0 sserial_port_0=00000000"
+# with and without isolcpus; --periods 1000,500,333,250 (default), --seconds 600 for a long run
+```
+
 ## Plan
 
 1. Isolate the realtime core, trim the hostmot2 modules, and log `tmax`
@@ -174,5 +211,6 @@ in µm:
    smart-serial error count.
 3. Drive firmware: remove the smart-serial busy-wait and use the adc0
    `__UADD16` sum. These are needed before anything above 2 kHz.
-4. Only if tighter curves at high feed matter: a Zynq or PCIe front end,
-   then 4 kHz.
+4. Measure the three front ends with `servo_rate.py` and pick by the
+   largest servo time. With the drive fix and a front end under ~90 us,
+   go to 4 kHz.
