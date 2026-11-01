@@ -391,6 +391,7 @@ const Live = (() => {
   let lastSetup = null, lastTools = null;  // the machine's: back to them when a change can't be saved
   L.setupSave = (objects, tools, lathe) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools, lathe }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
   L.modelFiles = () => files.filter((f) => f.kind === "model").map((f) => f.name);
+  L.sceneImport = (name, buf, keep, overwrite, onSent) => act("scene_import", { name, data: b64(buf), keep_fixtures: !!keep, overwrite: !!overwrite }, "Import " + name, onSent);
   L.modelUpload = async (name, buf) => { const r = await act("model_save", { name, data: b64(buf) }, "Upload " + name); if (r.ok) modelBufs.delete(name); return r.ok; };
   // the Debug page's HAL tab: the machine's HAL
   L.hal = {
@@ -639,6 +640,7 @@ const Live = (() => {
   const confirmP = (title, note) => new Promise((res) => ask(title, note, "", () => res(true), "confirm", () => res(false)));
   async function upload(list) {
     for (const f of list) {
+      if (/\.zip$/i.test(f.name)) { await sceneImportFile(f); continue; }  // a CAM scene (sceneui.js)
       const model = /\.(stl|obj)$/i.test(f.name);
       if (!model && !/\.(ngc|nc|tap|gcode)$/i.test(f.name)) { msg(`${f.name}: not a G-code program (.ngc .nc .tap .gcode) or a 3D model (.stl .obj)`, "warn"); continue; }
       const lim = model ? 5 : 6;

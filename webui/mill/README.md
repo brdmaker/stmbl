@@ -27,6 +27,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `index.html` | the console's markup and style |
 | `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
+| `js/scene.js`, `js/sceneui.js` | a CAM setup's scene dump (zip) read in the browser; the import dialog and the File page's CAM scene panel (`server/scene.py` checks and stores it on the machine) |
 | `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
 | `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
 | `js/machmodel.js` | the machine's own 3D model in the view: parts that move with the axes |
@@ -228,6 +229,7 @@ JSON over the WebSocket at `/ws`.
 - `drive_watch` {name | null}: a drive's console in this browser (the reply has what it said so far, `scroll`; then `dout` messages `{n, text}`); `drive_cmd` {name, cmd, sure}: a line to its console (reading for everyone; the rest with control and `DRIVE_WRITE`, and what moves, restarts or rewrites the drive with `sure`); `drive_detach` {name, on, seconds}: the tty left to other programs for a while (with control). `drive_conf` {name, action: backups | backup | plan | patch | restore | reset, backup, to, sure}: a drive's flash config (driveconf.py). A card has `ver` {fw, hv, hv_image, conf}, `fw_want`, `problems` [{level, block, action, text}], `job`. `drv` messages (2 Hz, when changed): each drive's card, `{n, link: ok | silent | missing | detached, state, fault, last, last_at, dc, hv_t, mot_t, ac, perr, sat, fw, rx, tx, age, pd: {enable, fault, pos_fb, vel_fb, current, power}}`;
 - `config_get`, `config_check` {text, custom}, `config_save` {text, custom, note, restart}, `config_version` {version}, `bitstream_save` {name, data}, `bitstream_delete` {name}, `mmodel_save` {name, data}, `mmodel_get` {name}, `mmodel_delete` {name} (the 3D model's files), `log_get` {which, n}, `sup_status`, `lcnc_restart`, `lcnc_stop` (with millweb-supervisor; `sup` messages carry its state). While LinuxCNC is down the supervisor answers these (`lcnc_start` for Start; its hello has `machine: null` and `supervisor`);
 - `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
+- `scene_import` {name, data (the zip, base64), keep_fixtures, overwrite}: a CAM scene into `scenes/<name>/` and the 3D setup (replies {folder, objects, summary, warnings, work_zero, units});
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
@@ -459,8 +461,29 @@ needs control.
 - **Top at work zero** puts its top at work Z0 and its front-left corner at X0 Y0; **On the table** sets its bottom on the table; **Turn 90°**, **Tip 90°**; **Remove**.
 - Each object is solid, see-through or hidden; the **fixtures** and **workpiece** buttons above the view do the same for all of them at once.
 - A new workpiece goes to the work zero, a new fixture onto the table under it.
+- **A CAM scene:** see below.
 - **Tools:** on the Tools page each tool can have its own model (the tool and its holder in one STL or OBJ, its origin at the cutting tip, the spindle along +Z), uploaded there or chosen from the program folder's models, shifted, turned and scaled; the 3D view draws it in place of the plain cylinder. Kept with the setup (`tools`).
 
+### Importing a CAM scene
+
+A CAM setup's dump: a zip with `scene.json` (the stock's box and material, the work zero,
+each part and its copies) and the STL files of the stock and of every placed copy, all
+in the work's coordinates. On the File page, **CAM scene → Import scene…** (or a .zip
+dropped on the program list or chosen with Upload):
+- **The dialog** shows the stock (size, material), the work zero, the parts and their copies,
+  and notes: a copy outside the stock, two copies overlapping, parts the CAM left unplaced,
+  files in the zip that scene.json doesn't name.
+- **Import** makes the 3D setup the scene: the stock as the workpiece, each copy a
+  see-through finished part, placed as they are (position 0, the work frame; a scene in
+  inches scaled 25.4). **Keep the fixtures** keeps the vise and plates in the setup.
+- **On a machine** millweb stores the models under `scenes/<zip name>/` in the program
+  folder (with its scene.json), checks them again (names, sizes, a zip bomb, real
+  STL/OBJ: `server/scene.py`) and every browser gets the new setup; importing the same
+  name again replaces it. In the simulation the scene stays in the page.
+- **Then:** set the work offset at the scene's zero on the real stock (the panel says
+  which: e.g. the top centre). The material removal cuts the scene's stock and compares
+  the result with the parts. The panel lists the parts; a click selects one in the view.
+- **Limits:** a zip up to 6 MB, 5 MB a model, 60 part copies.
 
 ## On a tablet
 

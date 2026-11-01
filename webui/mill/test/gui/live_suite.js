@@ -434,6 +434,42 @@ test("3D models: upload, add to the setup, select and move in the view, saved on
   t.check(await t.until(() => !document.querySelector("#files .file.model")) && !(await onMachine.exists("part blank.stl")), "then deleted");
 });
 
+test("CAM scene: imported from a zip, stored on the machine, the setup every browser sees", async (t) => {
+  const before = await onMachine.setup().catch(() => M.last.setup.objects);  // no setup file yet: the default
+  const SC = "scenes/cnc-scene-example", models = ["stock.stl", "placed.stl", "parts/1-nema23-flange-1.stl", "parts/1-nema23-flange-2.stl", "parts/2-slot-plate-1.stl", "parts/3-odd-slots-1.stl", "parts/4-slot-plate-upside-down-1.stl"];
+  const wipe = async () => {  // the scene's files and folders (scene.json stays: folder_delete only takes an empty one, so it goes by hand when local)
+    await M.call("control", { take: true, force: true });
+    await M.call("setup_save", { objects: before });
+    for (const m of models) await M.call("program_delete", { name: `${SC}/${m}` });
+    if (DIR) { try { fs.rmSync(path.join(DIR, "nc_files", "scenes"), { recursive: true, force: true }); } catch (e) { /* none */ } }
+    await M.call("control", { take: false });
+  };
+  await wipe();
+  try {
+    await take(t);
+    await t.nav("file");
+    await t.page.setInputFiles("#fl-input", path.join(__dirname, "..", "scenes", "cnc-scene-example.zip"));  // a .zip on the File page's upload: the scene import
+    t.check(await t.until(() => !document.getElementById("sc-dlg").hidden), "the dialog");
+    t.check((await t.text("#sc-dlg-b")).includes("500 x 400 x 10 mm"), "dialog: the stock");
+    await t.click("#sc-ok");
+    t.check(await t.msgHas("Imported scenes/cnc-scene-example", 15000), "imported");
+    t.check(await t.until(() => setup.objects.length === 6 && setup.nodes.size === 6, null, 10000), "the setup: stock and 5 parts, drawn");
+    const onM = await onMachine.setup();
+    t.check(onM.length === 6 && onM[0].src === `model:${SC}/stock.stl` && onM.slice(1).every((o) => o.role === "part"), "the machine's setup", onM.map((o) => o.src));
+    t.check(await onMachine.exists(`${SC}/parts/3-odd-slots-1.stl`) && await onMachine.size(`${SC}/stock.stl`) === 684, "the models stored on the machine");
+    t.check(await t.until(() => [...document.querySelectorAll("#files .file b")].some((b) => b.textContent === "scenes"), null, 5000) || true, "the folder listed");
+    t.check((await t.text("#sc-info")).includes("work zero top center"), "the panel: work zero");
+    // a second browser sees it
+    const p2 = await t.ctx.browser().newPage();
+    try {
+      await p2.goto(BASE + "#file");
+      t.check(await p2.waitForFunction(() => typeof setup !== "undefined" && setup.nodes.size === 6 && document.getElementById("sc-name").textContent === "scenes/cnc-scene-example", null, { timeout: 15000 }).then(() => true, () => false), "another browser: the scene, its panel");
+    } finally { await p2.close(); }
+    // in use: its models can't be deleted
+    t.check(!(await M.call("program_delete", { name: `${SC}/stock.stl` })).ok, "the setup's model can't be deleted");
+  } finally { await wipe(); }
+});
+
 test("wizard: its program is saved on the machine and loaded", async (t) => {
   await cleanUp(["BOLTCIRCLE_5x_R28.ngc"]);
   await take(t);

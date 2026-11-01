@@ -76,6 +76,18 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       hm2 board; untested so far).
 - [ ] Measure turret offset, overtravel and lock back-off on the machine.
 
+## CAM scene import (`webui/mill/js/scene.js`, `server/scene.py`)
+
+- [x] Import a CAM setup's scene zip: the stock as the workpiece, the placed
+      copies as finished parts (sim and machine; tests: test_scene, scene_test.js,
+      sim/live GUI cases).
+- [ ] Set the work offset from the scene: probe or touch off at its zero (e.g.
+      top centre: probe the plate's edges and top) from the scene panel.
+- [ ] Check a program against the scene's box before it runs (outside the
+      stock, into a part's keep-out); the material removal already compares.
+- [ ] Keep the scene's facts (material, work zero, units) in the setup, not
+      only in the stock object's name and scenes/<name>/scene.json.
+
 ## Mill material removal (`webui/mill/js/mstock.js`)
 
 - [ ] Undercuts and more than 3 axes (height map is 3-axis only).

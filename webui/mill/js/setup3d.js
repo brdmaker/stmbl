@@ -214,6 +214,7 @@ function setupLoad(objects, tools, lathe) {  // from the machine
   if (tools) { setup.tools = JSON.parse(JSON.stringify(tools)); buildTool(); if (st.page === "tool") renderToolModel(); }
   if (setup.sel && !objOf(setup.sel)) setup.sel = null;
   buildObjects(); selectObject(setup.sel);
+  if (typeof sceneRender === "function") sceneRender();
 }
 // a model from the File page into the setup
 function setupAddModel(path, role) {

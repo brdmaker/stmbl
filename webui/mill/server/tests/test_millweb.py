@@ -502,6 +502,39 @@ class Protocol(Base):
         await b.close()
         await ws.close()
 
+    async def test_scene_import(self):
+        """a CAM setup's scene (zip): its models into scenes/<name>/, the setup made of them, every browser told"""
+        import test_scene
+        ws = await self.client()
+        await self.ready(ws)
+        ok = lambda r: self.assertTrue(r["ok"], r)  # noqa: E731
+        data = base64.b64encode(open(test_scene.EXAMPLE, "rb").read()).decode()
+        r = await self.call(ws, "scene_import", name="cnc-scene-example", data=data)
+        ok(r)
+        self.assertEqual((r["folder"], r["objects"], r["work_zero"], r["units"]), ("scenes/cnc-scene-example", 6, "top_center", "mm"))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 6)
+        self.assertEqual(st["objects"][0]["src"], "model:scenes/cnc-scene-example/stock.stl")
+        self.assertEqual([o["role"] for o in st["objects"]], ["workpiece"] + ["part"] * 5)
+        nc = os.path.join(self.d, "nc", "scenes", "cnc-scene-example")
+        self.assertTrue(os.path.isfile(os.path.join(nc, "parts", "3-odd-slots-1.stl")))
+        self.assertEqual(json.load(open(os.path.join(nc, "scene.json")))["stock"]["material"], "aluminium 5083")
+        files = (await self.call(ws, "files"))["files"]
+        self.assertIn("scenes/cnc-scene-example/stock.stl", [f["name"] for f in files])
+        # again: refused unless replacing; replacing keeps the fixtures when asked
+        self.assertIn("there already", (await self.call(ws, "scene_import", name="cnc-scene-example", data=data))["err"])
+        ok(await self.call(ws, "setup_save", objects=[{"id": "vise", "name": "Vise", "role": "fixture", "src": "builtin:vise"}] + st["objects"]))
+        r = await self.call(ws, "scene_import", name="cnc-scene-example", data=data, overwrite=True, keep_fixtures=True)
+        ok(r)
+        self.assertEqual(r["objects"], 7)
+        # a model the setup uses can't be deleted; bad data is refused; a watching browser can't import
+        self.assertIn("3D setup", (await self.call(ws, "program_delete", name="scenes/cnc-scene-example/stock.stl"))["err"])
+        self.assertIn("not a zip", (await self.call(ws, "scene_import", name="x", data=base64.b64encode(b"hello").decode()))["err"])
+        self.assertIn("base64", (await self.call(ws, "scene_import", name="x", data="!!"))["err"])
+        b = await self.client()
+        self.assertIn("control", (await self.call(b, "scene_import", name="y", data=data))["err"])
+        await b.close()
+        await ws.close()
+
     async def test_tool_zero_unloads(self):
         ws = await self.client()
         await self.ready(ws)

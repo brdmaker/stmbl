@@ -34,6 +34,7 @@ test:
 	node test/stock_test.js
 	node test/mstock_test.js
 	node test/armmodel_test.js
+	node test/scene_test.js
 
 test-gui-sim:
 	node test/gui/sim_suite.js $(SEL)

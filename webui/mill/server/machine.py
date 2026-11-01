@@ -15,6 +15,8 @@ import subprocess
 import threading
 import time
 
+import scene as scene_mod  # the CAM scene import (server/scene.py)
+
 AXES = "XYZABCUVW"
 # kinematics of an arm: its joints are not axes (millweb: machine type "arm")
 def axis_rot(i, deg):
@@ -1396,6 +1398,33 @@ class Machine:
                 if m == real or m.startswith(real + os.sep):
                     return o.get("name") or src[6:]
         return None
+
+    def cmd_scene_import(self, name, data, keep_fixtures=False, overwrite=False):
+        """A CAM scene (a zip, scene.py): its models into scenes/<name>/ in the program folder and the
+        3D setup made of them (the stock as the workpiece, the parts as finished parts; the fixtures
+        kept when keep_fixtures). Returns {folder, objects, summary, warnings, work_zero, units}."""
+        name = re.sub(r"[^\w.\- ]", "_", str(name or "")).strip(" .")[:60] or "scene"
+        sc = scene_mod.read_scene(data)
+        folder = "scenes/" + name
+        root = self._safe(folder, folder=True)
+        if os.path.exists(root):
+            if not overwrite:
+                raise ValueError("%s is there already (import it again to replace it)" % folder)
+            shutil.rmtree(root)  # the old scene's files, not mixed with the new
+        for rel, b in sc["files"].items():
+            p = self._safe(folder + "/" + rel, kind="model")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p + ".tmp", "wb") as f:
+                f.write(b)
+            os.replace(p + ".tmp", p)
+        with open(os.path.join(root, "scene.json"), "w") as f:  # what it came with, for reference
+            json.dump(sc["scene"], f, indent=1)
+        objects = scene_mod.scene_objects(sc["scene"], folder)
+        if keep_fixtures:
+            objects = [o for o in self.setup() if o.get("role") == "fixture"] + objects
+        self.cmd_setup_save(objects)
+        return {"folder": folder, "objects": len(objects), "summary": scene_mod.summary(sc["scene"]), "warnings": sc["warnings"],
+                "work_zero": sc["scene"]["work_zero"], "units": sc["scene"]["units"]}
 
     def cmd_folder_create(self, name):
         p = self._safe(name, folder=True)

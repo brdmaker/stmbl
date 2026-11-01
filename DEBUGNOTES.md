@@ -3532,3 +3532,24 @@ Entry format:
   every chapter-9 file checked for the other edition's row format (none
   left). Next time: give each reader its own scratch folder.
 
+## 2026-11-01  LinuxCNC runs DISPLAY's first word with "-ini FILE" right after it
+- Area:    `hwtest/timing/servo_load.py` (its own DISPLAY), any `[DISPLAY] DISPLAY = prog args`
+- Status:  Workaround
+- Symptom: `DISPLAY = python3 /path/servo_load.py --display`: LinuxCNC exited
+  at once, "Unknown option: -n" from python3, nothing in linuxcnc.log (the
+  script redirects its output to /tmp/linuxcnc.debug.* when there's no tty).
+- Cause:   the linuxcnc script starts `$DISPLAY_PROGRAM -ini $INIFILE <the
+  rest>`: python3 got `-ini` (= -i -n ...) before the script's path.
+- Fix:     a wrapper script (`display.sh: exec python3 servo_load.py --display "$@"`)
+  as DISPLAY. To see a silent failure: `script -qc 'linuxcnc x.ini' /dev/null`.
+
+## 2026-11-01  millweb: the server's event replaces the page's own message
+- Area:    `webui/mill/js/sceneui.js`, `server/millweb.py` (op_scene_import), test/gui/live_suite.js
+- Status:  Fixed
+- Symptom: live suite "CAM scene": `msgHas("Imported scenes/...")` failed
+  although the import worked; the footer showed "Imported the scene ...".
+- Cause:   millweb's event (broadcast before the reply) and the page's own
+  message both go to the footer line; the reply's came second and lost to
+  the event, or the other way round, depending on timing.
+- Fix:     both start "Imported <folder>: ..." (one text either way).
+

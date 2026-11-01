@@ -432,6 +432,41 @@ test("file page: programs, preflight, load, edit", async (t) => {
   t.check(await t.until(() => st.page === "file") && (await t.text("#fl-name")) === "HOUSING-7075_OP2.ngc", "Edit: the file page on it");
 });
 
+test("file page: CAM scene import (zip): the stock and the placed parts into the 3D setup", async (t) => {
+  await t.nav("file");
+  t.check((await t.text("#sc-info")).includes("No CAM scene"), "no scene yet");
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  t.check(await t.until(() => !document.getElementById("sc-dlg").hidden), "the dialog");
+  const dlg = await t.text("#sc-dlg-b");
+  t.check(dlg.includes("500 x 400 x 10 mm") && dlg.includes("aluminium 5083") && dlg.includes("top center"), "dialog: stock, material, work zero");
+  t.check(dlg.includes("nema23-flange") && dlg.includes("slot-plate-upside-down") && dlg.includes("scenes/cnc-scene-example/"), "dialog: parts, folder");
+  await t.click("#sc-cancel");
+  t.check(await t.ev(() => document.getElementById("sc-dlg").hidden && !setup.objects.some((o) => o.id === "scene-stock")), "cancel: nothing changes");
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  await t.until(() => !document.getElementById("sc-dlg").hidden);
+  await t.click("#sc-ok");
+  t.check(await t.until(() => setup.objects.length === 6 && setup.nodes.size === 6), "the setup: the stock and 5 parts, all drawn");
+  t.check(await t.ev(() => setup.objects[0].role === "workpiece" && setup.objects.slice(1).every((o) => o.role === "part" && o.look === "glass")), "roles and looks");
+  t.check(await t.ev(() => { const b = new THREE.Box3().setFromObject(setup.nodes.get("scene-stock").node); const s = b.getSize(new THREE.Vector3()); return Math.abs(s.x - 500) < 0.01 && Math.abs(s.y - 400) < 0.01 && Math.abs(s.z - 10) < 0.01; }), "the stock drawn 500 x 400 x 10");
+  t.check(await t.msgHas("Imported scenes/cnc-scene-example"), "message: imported");
+  const info = await t.text("#sc-info");
+  t.check(info.includes("Stock 500 x 400 x 10 aluminium 5083") && info.includes("work zero top center") && info.includes("odd-slots #1"), "the panel: stock, zero, parts");
+  t.check((await t.text("#sc-name")) === "scenes/cnc-scene-example", "the panel's title: the folder");
+  await t.click('[data-scobj="scene-p2-1"]');
+  t.check(await t.ev(() => setup.sel === "scene-p2-1") && !(await t.hidden("#objpanel")), "a part's button selects it in the view");
+  t.check(await t.until(() => typeof millRemOpts === "function" && millRemOpts().part.length === 5 && millRemOpts().tris.length === 1), "the material removal: the stock model, 5 parts to compare");
+  // again, keeping the fixtures: none left after the first import
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  await t.until(() => !document.getElementById("sc-dlg").hidden);
+  t.check((await t.text("#sc-dlg-b")).includes("replaces what is there"), "again: replaces");
+  await t.page.check("#sc-keep");
+  await t.click("#sc-ok");
+  t.check(await t.until(() => setup.objects.length === 6), "keep fixtures: still 6 (the import replaced the vise)");
+  // a broken zip: refused with the reason
+  await t.page.setInputFiles("#sc-input", { name: "bad.zip", mimeType: "application/zip", buffer: Buffer.from("not a zip") });
+  t.check(await t.msgHas("not a zip file"), "a broken zip: refused");
+});
+
 test("wizards: facing, bolt circle, circular pocket", async (t) => {
   await t.nav("wiz");
   const opts = await t.ev(() => [...document.querySelectorAll("#fz-t option")].map((o) => o.value));

@@ -390,6 +390,12 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 .dialog { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
 .dialog .box { background: var(--panel); border: 1px solid var(--line-hi); border-radius: 8px; padding: 16px; width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; }
 .dialog h3 { margin: 0; font: 12px var(--f-display); letter-spacing: .1em; }
+.sc-box { width: min(560px, 100%); max-height: 90vh; overflow: auto; }
+.sc-box p, #sc-info p { margin: 0 0 6px; }
+.sc-parts { border-collapse: collapse; width: 100%; font-size: 13px; }
+.sc-parts th, .sc-parts td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+.sc-warn { margin: 4px 0; padding-left: 18px; color: var(--warn, #f2b84b); font-size: 13px; }
+.sc-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .dialog input { background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 8px; font: 16px var(--f-mono); }
 /* a warning or an error: a large card over the page; it never takes clicks (a tap anywhere closes it) */
 .popmsg { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); z-index: 30; pointer-events: none; width: min(760px, calc(100vw - 32px)); }
@@ -683,13 +689,18 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
         <div class="row file-tools" id="fl-tools" hidden>
           <nav class="crumbs" id="fl-crumbs" aria-label="Folder"></nav>
           <span class="grow"></span>
-          <button class="btn sm accent" id="fl-upload" title="G-code programs and 3D models (STL, OBJ) from this computer into this folder (or drop them on the list)">Upload</button>
-          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode,.stl,.obj" hidden>
+          <button class="btn sm accent" id="fl-upload" title="G-code programs and 3D models (STL, OBJ) from this computer into this folder, or a CAM scene (.zip) into the 3D setup (or drop them on the list)">Upload</button>
+          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode,.stl,.obj,.zip" hidden>
           <button class="btn sm" id="fl-mkdir">New folder</button>
           <button class="btn sm" id="fl-rename" disabled>Rename / move</button>
           <button class="btn sm" id="fl-delete" disabled>Delete</button>
         </div>
         <div class="files" id="files"></div>
+      </div>
+      <div class="panel" id="sc-panel">
+        <h2>CAM scene <small id="sc-name">—</small></h2>
+        <div class="row"><button class="btn sm accent" id="sc-import" title="A CAM setup's dump (a .zip: scene.json, the stock's and the placed parts' STL files) into the 3D setup">Import scene…</button><input type="file" id="sc-input" accept=".zip" hidden><span class="muted">scene.json with the stock and the placed parts, zipped</span></div>
+        <div id="sc-info"></div>
       </div>
       <div class="panel">
         <h2>Preflight <small id="fl-name">—</small></h2>
@@ -1100,12 +1111,15 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
   <div class="pp-list" id="pp-list" role="listbox"></div>
   <div class="row" style="justify-content:space-between"><span class="muted" id="pp-count"></span><span class="row"><button class="btn" type="button" id="pp-clear">None</button><button class="btn" type="button" id="pp-cancel">Cancel</button></span></div></div></div>
 <div class="popmsg" id="popmsg" role="alert" hidden><div class="pm-card"><span class="pm-k" id="pm-k">WARNING</span><p class="pm-t" id="pm-t"></p><span class="pm-f" id="pm-f">tap anywhere to close</span></div></div>
+<div class="dialog" id="sc-dlg" hidden><div class="box sc-box"><h3>Import the CAM scene</h3><div id="sc-dlg-b"></div><label class="row"><input type="checkbox" id="sc-keep"> Keep the fixtures (the vise, plates…) in the setup</label><div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="sc-cancel">Cancel</button><button class="btn accent" type="button" id="sc-ok">Import</button></div></div></div>
 <div class="dialog" id="dlg" hidden><form class="box" id="dlg-form"><h3 id="dlg-t">—</h3><p class="note" id="dlg-n"></p><input id="dlg-in" type="number" step="0.001" autocomplete="off" aria-label="Value"><div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="dlg-cancel">Cancel</button><button class="btn accent" type="submit">OK</button></div></form></div>
 
 <script src="vendor/three/three.min.js"></script>
 <script src="vendor/three/OrbitControls.js"></script>
 <script src="js/app.js"></script>
 <script src="js/setup3d.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/sceneui.js"></script>
 <script src="js/machmodel.js"></script>
 <script src="js/armmodel.js"></script>
 <script src="js/arm_demo.js"></script>

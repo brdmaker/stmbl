@@ -440,6 +440,19 @@ class Hub:
             self.broadcast(self.files_msg())
         return err
 
+    async def op_scene_import(self, c, m):
+        """A CAM scene (zip, base64) into the program folder and the 3D setup: {name, data, keep_fixtures, overwrite}."""
+        try:
+            data = base64.b64decode(str(m.get("data", "")), validate=True)
+        except (ValueError, binascii.Error):
+            return "the scene's data isn't base64"
+        res = await self.run(self.m.cmd_scene_import, m.get("name"), data, bool(m.get("keep_fixtures")), bool(m.get("overwrite")))
+        if isinstance(res, dict):
+            self.event("ok", "Imported %s: %s" % (res["folder"], res["summary"]))
+            self.broadcast(self.files_msg())
+            self.broadcast(self.setup_msg())
+        return res
+
     async def op_arm_model(self, c, m):
         """An arm's 3D model files (machine.arm_model): the browser draws the arm from them."""
         loop = asyncio.get_event_loop()
