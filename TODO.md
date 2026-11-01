@@ -79,8 +79,8 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       modules, log servo-thread tmax for an hour under load.
 - [ ] Bench: 2 kHz (SERVO_PERIOD 500000, vel_int0.cmd_freq 2000); drive rt
       max and sserial errors.
-- [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
-      (needed above 2 kHz).
+- [ ] Drive firmware: bench `sserial0.reply_mode` and `adc0.fast` (branch
+      claude/drive-rt-speedup, docs/drive-rt-speedup.md); then make them default.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81
       (SPI), Pi 5 / CM4 + PCIe Mesa card (hm2_pci), Zynq EBAZ4205
       (hm2_soc_ol). Pick by the largest servo time; 4 kHz needs < ~90 us.

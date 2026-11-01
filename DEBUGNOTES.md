@@ -3520,3 +3520,25 @@ Entry format:
   (need_off) never completes.
 - Fix:     - (5 kHz doesn't fit the hardware budget either: docs/servo-timing.md)
 
+## 2026-11-01  sserial0.reply_mode: answer packets from the USART idle interrupt
+- Area:    `src/comps/sserial.c`, `shared/sserial_sync.h` (branch claude/drive-rt-speedup)
+- Status:  Open (built and unit-tested; not yet on hardware)
+- Symptom: rt worst case 168.5 us of 200 under LinuxCNC, ~28 us of it the
+  frt busy-waiting for a process-data packet's last bytes.
+- Cause:   see "rt worst case 168.5 us" above.
+- Fix:     `sserial0.reply_mode = 1`: the USART1 idle-line interrupt
+  (priority 1) parses and answers each packet at its end; the frt keeps
+  the timeout and the clock lock (a packet answered within the last frt
+  period counts as late). Default 0 = as before. Bench plan:
+  docs/drive-rt-speedup.md.
+
+## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
+- Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)
+- Status:  Open (built and unit-tested; not yet on hardware)
+- Symptom: adc0 ~44 us of the 200 us rt cycle.
+- Cause:   per group two masked loops and 6 vdiv.f32 (14 cycles each) from
+  V_DIFF's divisions.
+- Fix:     `adc0.fast = 1`: sums bit-exact (uadd16, <= 16 samples a group),
+  the voltage within 2e-6 V (host/tests/test_adc_sum.c); estimated 10-15 us
+  less (the earlier ~30 us guess was high). Default 0 until benched.
+

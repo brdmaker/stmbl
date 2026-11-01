@@ -122,10 +122,15 @@ test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp
 test_vibproto: tests/test_vibproto.c ../shared/vibproto.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_vibproto.c -lm
 
+# shared/adc_sum.h (adc.c's fast sums) and shared/sserial_sync.h (sserial reply_mode 1)
+test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_adc_sum.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto
+check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_adc_sum
 	@./test_ssq
+	@./test_adc_sum
 	@./test_sscon
 	@./test_cur_offset
 	@./test_bootloader
