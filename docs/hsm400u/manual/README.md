@@ -63,3 +63,15 @@ Back up from the iTNC 530 before removing anything:
 
 A paper copy and a backup floppy set are reported to be in the electrical
 cabinet.
+
+## The owner's settings
+
+- **Spindle limited to 8000 rpm** (the Step-Tec HVC 140 is built for 30-42k
+  rpm). The retrofit keeps that limit in two places: LinuxCNC's
+  `[SPINDLE_0] MAX_FORWARD_VELOCITY = 8000`, and the spindle drive's own
+  maximum.
+  - **Warm-up:** the manual's warm-up (6 min at 21,000 rpm) is above the
+    limit. Run it at the 8000 rpm cap or below.
+  - **Tools:** at 8000 rpm, small tools reach less cutting speed, so plan
+    feeds for it. The 3000 rpm cold-spindle limit below 20 °C coolant still
+    applies.
