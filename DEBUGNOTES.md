@@ -3520,3 +3520,15 @@ Entry format:
   (need_off) never completes.
 - Fix:     - (5 kHz doesn't fit the hardware budget either: docs/servo-timing.md)
 
+## 2026-11-01  Parallel scan readers: shared scratch file names mixed two editions
+- Area:    docs/ctxtwin (text versions of the scanned manuals), agent tooling
+- Status:  Fixed
+- Symptom: `docs/ctxtwin/operating/09d_parameters_mcodes_plc.md` (German
+  edition) had the English edition's AG1 rows 7107-7250 (and some AG2 rows)
+  in place of its own 6850-7250, in the English table layout.
+- Cause:   parallel readers wrote page notes to the same scratch names
+  (p1.md ... p4.md) and picked up each other's.
+- Fix:     rows 6850-7250 re-transcribed from the German PDF pages 1-6;
+  every chapter-9 file checked for the other edition's row format (none
+  left). Next time: give each reader its own scratch folder.
+

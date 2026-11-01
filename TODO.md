@@ -59,7 +59,17 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 - [ ] Material removal: compare against a finished-part model (pick the
       model, align its axis with Z).
 - [ ] C axis and live tools.
-- [ ] CTX TWIN: twin-lathe synchronisation.
+- [x] CTX TWIN: manuals as text (`docs/ctxtwin/`: mechanical, operating
+      German + English, Sauter turret).
+- [ ] CTX TWIN: twin-lathe synchronisation. The original transfers with the
+      spindles angle-synchronous (M803/M804/M800, expert programs %XTWI1U2);
+      the handshake, the partition wall (M46/M47) and a two-lathe simulation
+      (README "Two lathes in one machine").
+- [ ] CTX TWIN: turret as an stmbl servo axis (Sauter: servo indexing, one
+      lock/engage valve, S1/S4/S5); turret manual part b and the electrical
+      documentation are missing.
+- [ ] CTX TWIN: read the feed-motor nameplates (MAC 93 vs MDD 093) and the
+      ISM spindle drives.
 - [ ] EBAZ4205 template (`machines/emco_compact5/machine-stmbl.json`): fill the
       placeholders — board name, stepgen/GPIO pins, X/Z screw leads.
 - [ ] Run the stmbl spindle and the EBAZ4205 config in LinuxCNC (needs the
