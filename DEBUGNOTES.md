@@ -3554,6 +3554,8 @@ Entry format:
   CPACR CP10/CP11 before `_start`; m4.ld is the toolchain's default script
   relinked at 0 with `.vectors` first. `make -C host/m4 check` (in host
   check; skips without qemu-system-arm). QEMU is not cycle-accurate: it
-  checks correctness, not timing. Its STM32F405 boards don't model RCC/DMA
-  well enough to boot the real firmware.
+  checks correctness, not timing. The real firmware doesn't boot on QEMU's
+  STM32F405 (`olimex-stm32-h405`, blboot.elf + `-device loader` stmbl.elf):
+  RCC is unimplemented, so SystemInit spins reading RCC_CR for HSE/PLL ready
+  (tried: 20,000 reads in 8 s).
 
