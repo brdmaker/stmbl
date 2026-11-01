@@ -41,6 +41,8 @@ host/test_bip
 host/test_stmblcan
 host/test_vibproto
 host/test_adc_sum
+host/m4/*.elf
+host/m4/m4.ld
 brdstepper/obj
 vibsensor/obj
 host/servoterm

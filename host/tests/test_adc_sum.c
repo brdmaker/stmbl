@@ -51,7 +51,7 @@ int main(void) {
       }
       uint32_t lo, hi;
       adc_sum2(buf, n, &lo, &hi);
-      CHECK(lo == lo0 && hi == hi0, "adc_sum2 n %d rep %d: %u %u, expected %u %u", n, rep, lo, hi, lo0, hi0);
+      CHECK(lo == lo0 && hi == hi0, "adc_sum2 n %d rep %d: %u %u, expected %u %u", n, rep, (unsigned)lo, (unsigned)hi, (unsigned)lo0, (unsigned)hi0);
     }
   }
   // adc_lin against V_DIFF

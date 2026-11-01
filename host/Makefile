@@ -137,6 +137,7 @@ check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_
 	@./test_bip
 	@./test_stmblcan
 	@./test_vibproto
+	@$(MAKE) -s -C m4 check
 	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
 	@$(PYTHON) ../tools/vibmon/test_vibmon.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py

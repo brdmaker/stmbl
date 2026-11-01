@@ -39,7 +39,9 @@ before until you turn one on. The smart-serial protocol, the F3 firmware and
   checks the hardware's 9 or 10).
 - **Voltage:** the conversion is within 2e-6 V of the old one
   (`host/tests/test_adc_sum.c` checks every possible sum on both boards'
-  op-amp values).
+  op-amp values). `make -C host/m4 check` runs the same test as Cortex-M4F
+  code in QEMU (`mps2-an386`): the real `uadd16` and the M4's single-precision
+  FPU; it is part of `make -C host check`.
 - **Expected saving:** about 10-15 us per rt cycle (from the compiled code:
   6 `vdiv` of 14 cycles and a shorter inner loop, x24 groups at 168 MHz).
   That is less than the ~30 us guessed earlier.

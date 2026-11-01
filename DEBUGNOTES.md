@@ -3542,3 +3542,18 @@ Entry format:
   the voltage within 2e-6 V (host/tests/test_adc_sum.c); estimated 10-15 us
   less (the earlier ~30 us guess was high). Default 0 until benched.
 
+## 2026-11-01  QEMU runs unit tests as Cortex-M4F code (host/m4)
+- Area:    `host/m4` (Makefile, start.c), QEMU 8.2 `mps2-an386`
+- Status:  Note
+- Symptom: the host build of test_adc_sum takes adc_sum.h's portable C
+  path; the firmware's uadd16 and single-precision FPU went untested. The
+  first QEMU run hard-faulted at the first float instruction.
+- Cause:   newlib's rdimon crt0 has no vector table and leaves the FPU off
+  (CPACR); QEMU's M-profile boards take SP and PC from address 0.
+- Fix:     start.c: a 2-entry vector table at 0 and a reset that sets
+  CPACR CP10/CP11 before `_start`; m4.ld is the toolchain's default script
+  relinked at 0 with `.vectors` first. `make -C host/m4 check` (in host
+  check; skips without qemu-system-arm). QEMU is not cycle-accurate: it
+  checks correctness, not timing. Its STM32F405 boards don't model RCC/DMA
+  well enough to boot the real firmware.
+
