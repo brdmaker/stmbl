@@ -176,6 +176,9 @@ scales over 0.5 s); 1 or 2 kHz servo; the stmbl bus or a stiff 380 V one.
    drives on 600 V would reach the motors' 3000 rpm (48 m/min). For a 400U
    that mostly cuts at moderate feeds this may be acceptable; it is the
    first thing to check against the real kE.
+   **The owner limits feed and rapids to 8000 mm/min**, well under the
+   ~28 m/min the ~325 V bus allows: the bus is no obstacle then, and a
+   380 V bus isn't needed. The acceleration limit still matters.
 2. **C (and A) too:** C's 90 deg in 1 s (169 deg/s peak) already needs
    2250 motor rpm through 1:80 and trips; C's rapid is about 150 deg/s.
 3. **The glass scales are worth keeping.** A 5 K warm X screw puts the tool

@@ -38,8 +38,9 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       the encoders' order code.
 - [ ] Glass scales into LinuxCNC / the drive: 1 Vpp (interpolator) or
       absolute EnDat (LC).
-- [ ] Spindle capped at 8000 rpm (the owner): set it in LinuxCNC and in the
-      spindle drive; warm-up at the cap, not the manual's 21,000 rpm.
+- [ ] Feed and rapids capped at 8000 mm/min (the owner): in the sim's
+      `hsm.ini`; carry it into the real config. Spindle: the 42k HVC 140,
+      warm-up as the manual says.
 - [ ] The spindle: is its drive a stand-alone VFD or a module of the
       Heidenhain inverter rack (then it needs its own)?
 - [ ] Console: a trunnion machine type (Configure: xyzac-trt-kins and its

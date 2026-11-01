@@ -66,12 +66,14 @@ cabinet.
 
 ## The owner's settings
 
-- **Spindle limited to 8000 rpm** (the Step-Tec HVC 140 is built for 30-42k
-  rpm). The retrofit keeps that limit in two places: LinuxCNC's
-  `[SPINDLE_0] MAX_FORWARD_VELOCITY = 8000`, and the spindle drive's own
-  maximum.
-  - **Warm-up:** the manual's warm-up (6 min at 21,000 rpm) is above the
-    limit. Run it at the 8000 rpm cap or below.
-  - **Tools:** at 8000 rpm, small tools reach less cutting speed, so plan
-    feeds for it. The 3000 rpm cold-spindle limit below 20 °C coolant still
-    applies.
+- **Feed and rapids limited to 8000 mm/min** (the manual's rapids are
+  40 m/min). The retrofit keeps that limit in LinuxCNC (`[TRAJ]` and
+  `[DISPLAY] MAX_LINEAR_VELOCITY = 133.333` mm/s, already in
+  `hwtest/hsm400u-sim/hsm.ini`). The axes' own `MAX_VELOCITY` stay higher,
+  because a five-axis move can need more joint speed than the tool tip's.
+  - The SET-UP mode limit (2000 mm/min, doors open) still applies on top.
+  - On stmbl's ~325 V bus the simulated rapids reach ~28 m/min, so 8000
+    mm/min leaves a wide margin; a 380 V bus isn't needed.
+- **Spindle:** the 42,000 rpm Step-Tec HVC 140, kept at its full speed.
+  The manual's pre-lubrication and warm-up (6 min at 21,000 rpm; 3000 rpm
+  limit below 20 °C coolant) apply as written.

@@ -14,8 +14,10 @@ A's unbalance.
   the work's coordinates.
 - **Homing:** absolute encoders, `HOME_ABSOLUTE_ENCODER`, so homing needs no
   motion.
-- **Limits:** joint speeds stay within the bus's limit: X Y Z 470 mm/s
-  (28 m/min), A 85 deg/s, C 125 deg/s.
+- **Limits:** feed and rapids at most 8000 mm/min (`MAX_LINEAR_VELOCITY =
+  133.333`), the owner's limit. The joints keep the bus's limit (X Y Z
+  470 mm/s = 28 m/min, A 85 deg/s, C 125 deg/s), which five-axis moves
+  can need for the tip's 8000 mm/min.
 
 ```
 make test       # rtcp, wline, circle at 1 and 2 kHz (hsm_test.py)
