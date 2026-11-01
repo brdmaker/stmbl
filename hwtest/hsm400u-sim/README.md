@@ -22,6 +22,7 @@ A's unbalance.
 ```
 make test       # rtcp, wline, circle at 1 and 2 kHz (hsm_test.py)
 make test-all   # also with the scales blended: results.md
+make blocks     # block rate and accuracy against the iTNC 530: blocks.md
 make run        # AXIS
 ```
 

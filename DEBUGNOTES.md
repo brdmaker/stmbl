@@ -3476,3 +3476,24 @@ Entry format:
 - Symptom: new tests compared the wrong printed value.
 - Cause:   PIN[1] is the first value printed, PIN (no index) the last.
 - Fix:     wrote them 1-based.
+
+## 2026-11-01  LinuxCNC: G64 P without Q joins short lines (block-rate tests)
+- Area:    `hwtest/hsm400u-sim/hsm_blocks.py`, any block-rate benchmark
+- Status:  Note
+- Symptom: 0.01 mm lines ran at the full 8000 mm/min, 13,333 lines/s at a
+  1 kHz servo, faster than the planner can take segments.
+- Cause:   with Q not given, Q equals P, so the naive CAM detector joins
+  lines that lie within Q of one straight line before planning.
+- Fix:     use `G64 P.. Q0` to measure the planner's own rate (about one
+  segment per servo cycle: ~980 lines/s at 1 kHz, 1000-1500 at 2 kHz).
+
+## 2026-11-01  LinuxCNC: 0.1 mm lines at 1 kHz run slower than shorter ones
+- Area:    LinuxCNC 2.9 trajectory planner, `hwtest/hsm400u-sim/hsm_blocks.py`
+- Status:  Open
+- Symptom: a circle R 20 of 0.1 mm lines at F8000, `G64 P0.01 Q0`, 1 kHz
+  servo: 564 lines/s (3383 mm/min) and 21 um off the path. 0.05 mm lines
+  reach 980 lines/s; at 2 kHz, 0.1 mm lines run at full feed.
+- Cause:   not found; probably where a segment lasts about one servo cycle
+  and the planner's blending stops working.
+- Fix:     -
+

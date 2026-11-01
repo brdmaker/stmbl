@@ -6,6 +6,8 @@
 #   make test       three five-axis programs at 1 and 2 kHz on the motors'
 #                   EnDat (~2 min), checked against bounds (hsm_test.py)
 #   make test-all   the same with the glass scales blended in too: results.md
+#   make blocks     block rate and contour accuracy at 8000 mm/min (hsm_blocks.py,
+#                   ~5 min; compared with the iTNC 530 in blocks.md)
 #   make run        LinuxCNC with AXIS
 #
 # Needs host/arm/libstmbl_drive.so and stmbl_mill.so installed:
@@ -22,7 +24,11 @@ test:
 test-all:
 	@LINUXCNC=$(LINUXCNC) $(PY) hsm_test.py --servo 1,0.5 --machine hsm400u,hsm400u_blend --out .
 
+blocks:
+	@LINUXCNC=$(LINUXCNC) $(PY) hsm_blocks.py --servo 1,0.5 --tol 0.01 --q 0
+	@LINUXCNC=$(LINUXCNC) $(PY) hsm_blocks.py --servo 1,0.5 --tol 0.01
+
 run:
 	@. $(LINUXCNC)/scripts/rip-environment >/dev/null && linuxcnc hsm.ini
 
-.PHONY: test test-all run
+.PHONY: test test-all blocks run
