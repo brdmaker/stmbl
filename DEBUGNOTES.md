@@ -3590,3 +3590,34 @@ Entry format:
 - Fix:     run it inside `test/harness.py --ini-set EMCIO.TOOL_TABLE=<a table
   with the program's tools> -- python3 script.py`, polling linuxcnc.stat()
   once before gcode.parse.
+
+## 2026-11-02  KiCad 7's kicad-cli can't read KiCad 5 schematics (stmbl v4.0)
+- Area:    `hw/kicad/v4.0/*.sch`, `hardware/kigen/legacy.py`, `hardware/stman`
+- Status:  Workaround
+- Symptom: `kicad-cli sch export netlist|pdf stmbl_4.0.sch`: "Failed to load
+  schematic file" (also with a fixed sym-lib-table); only the GUI imports them.
+- Fix:     `hardware/kigen/legacy.py` converts a legacy hierarchy + its cache
+  library to .kicad_sch with the drawing kept; checked by comparing the
+  exported netlist with stmbl's own (hw/kicad/v4.0/stmbl_4.0.net).
+
+## 2026-11-02  Legacy schematics: field positions are before the symbol's transform
+- Area:    `hardware/kigen/legacy.py` (sheet_sexp)
+- Status:  Fixed
+- Symptom: converted sheets: references and values of rotated or mirrored
+  parts on the wrong side (e.g. above instead of below an SN65176B).
+- Cause:   a KiCad 5 file stores a field's offset from its symbol before the
+  symbol's transform: on the sheet it is T x offset with T the "1 0 0 -1"
+  matrix (measured on stmbl v4.0's plots); KiCad 7 stores it on the sheet and
+  turns and justifies the text itself.
+- Fix:     the converter applies T to the offset, keeps the H/V angle and
+  justification as stored.
+
+## 2026-11-02  Multi-unit symbols: KiCad 7 lists a shared pin once per placed unit
+- Area:    `hardware/kigen/legacy.py` (COMMON_UNIT), stmbl's LM358 (U6, U7)
+- Status:  Workaround
+- Symptom: KiCad 7's netlist had "unconnected-(U6A-V+-Pad8)" beside the real
+  V+ net: unit A's copy of the op-amp's supply pins (unit 0 in KiCad 5), not
+  wired on the sheet.
+- Fix:     COMMON_UNIT puts the shared pins on the unit the drawing wires them
+  on (LM358: unit 2). stmbl's 2018 netlist has the same pins twice too
+  (gen/check.py KNOWN).
