@@ -4369,6 +4369,12 @@ Entry format:
   moved) reset it (sserial_link_alive, shared/sserial_sync.h): 24 of 24.
   Tests: host test_adc_sum (the rule), hwtest/timing/sserial_discovery.sh
   (fails 8/24 without).
+  2 kHz (servo_rate.py, Pi 4 + 7C81 SPI, both switches on): 500 us fits
+  (servo max 223 us + 150 us exchange = 75 %), 333 us doesn't (115 %), no
+  sserial errors at any rate. A 15 min soak at 500 us (SOAK_SERVO_US=500,
+  vel_int0.cmd_freq 2000) PASS, but the ferror per cycle median 0.084 mm
+  against 0.059 at 1 kHz: sserial0.pos_advance (0.0006 s) is 1 kHz's;
+  tune it for 2 kHz before judging the rate.
 
 ## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
 - Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)
