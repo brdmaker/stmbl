@@ -288,6 +288,30 @@ def edit_cmd(libs):
     sh.save()
 
 
+def edit_supply():
+    """Reverse polarity: D200 in series from P3's +UI to the +24V rail, in place of the wire up from P3
+    (the TVS D22, the LED and the bulk capacitor sit after it, on +24V)."""
+    sh = sheet("supply")
+    sh.remove_wire((27.94, 67.31), (27.94, 74.93))
+    d = kicad_sym("Device", "D_Schottky")
+    sh.place("Device:D_Schottky", d, "D200", "SS34A", 27.94, 71.12, [root_paths()["supply"]], angle=270,
+             footprint="stmbl:SMA_Standard", fields={"Note": "stman: reverse polarity, +UI (P3) -> +24V"})
+    sh.text("stman: D200 reverse polarity", 30.48, 64.77, size=1.27)
+    sh.save()
+
+
+def edit_fb():
+    """A polyfuse in each port's supply: F200 (FB0) / F201 (FB1) between the connector's pin 7 and the
+    port supply (JP2 / JP5, C114 / C117), in place of the wire from the connector."""
+    sh = sheet("fb")
+    sh.remove_wire((55.88, 92.71), (63.5, 92.71))
+    f = kicad_sym("Device", "Polyfuse")
+    rp = root_paths()
+    sh.place("Device:Polyfuse", f, "F200", "0.5A hold", 59.69, 92.71, [(rp["FB0"], "F200"), (rp["FB1"], "F201")], angle=90,
+             footprint="Fuse:Fuse_1206_3216Metric", fields={"Note": "stman: port supply polyfuse (5 V or 12 V by JP2/JP5)"})
+    sh.save()
+
+
 def edit_io():
     sh = sheet("io")
     sh.remove_ref(*REMOVE["io"])
@@ -328,6 +352,8 @@ def main():
     edit_f4()
     edit_cmd(libs)
     edit_io()
+    edit_supply()
+    edit_fb()
     import newsheets
     newsheets.build(OUT, PROJECT, libs, root_paths, sheet)
     edit_root()

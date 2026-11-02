@@ -928,7 +928,56 @@
           (at 0 10.16 270)
           (length 2.54)
           (name "VCC" (effects (font (size 1.27 1.27))))
-          (number "8" (effects (font (size 1.27 1.27))))))))
+          (number "8" (effects (font (size 1.27 1.27)))))))
+    (symbol
+      "Device:Polyfuse"
+      (pin_numbers hide)
+      (pin_names (offset 0))
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "F" (at -2.54 0 90) (effects (font (size 1.27 1.27))))
+      (property "Value" "Polyfuse" (at 2.54 0 90) (effects (font (size 1.27 1.27))))
+      (property "Footprint" "" (at 1.27 -5.08 0) (effects (font (size 1.27 1.27)) (justify left) hide))
+      (property "Datasheet" "~" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property
+        "ki_keywords"
+        "resettable fuse PTC PPTC polyfuse polyswitch"
+        (at 0 0 0)
+        (effects (font (size 1.27 1.27)) hide))
+      (property
+        "ki_description"
+        "Resettable fuse, polymeric positive temperature coefficient"
+        (at 0 0 0)
+        (effects (font (size 1.27 1.27)) hide))
+      (property "ki_fp_filters" "*polyfuse* *PTC*" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (symbol
+        "Polyfuse_0_1"
+        (rectangle
+          (start -0.762 2.54)
+          (end 0.762 -2.54)
+          (stroke (width 0.254) (type default))
+          (fill (type none)))
+        (polyline (pts (xy 0 2.54) (xy 0 -2.54)) (stroke (width 0) (type default)) (fill (type none)))
+        (polyline
+          (pts (xy -1.524 2.54) (xy -1.524 1.524) (xy 1.524 -1.524) (xy 1.524 -2.54))
+          (stroke (width 0) (type default))
+          (fill (type none))))
+      (symbol
+        "Polyfuse_1_1"
+        (pin
+          passive
+          line
+          (at 0 3.81 270)
+          (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "1" (effects (font (size 1.27 1.27)))))
+        (pin
+          passive
+          line
+          (at 0 -3.81 90)
+          (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "2" (effects (font (size 1.27 1.27))))))))
   (symbol
     (lib_id "stmbl:LM358")
     (at 127 114.3 0)
@@ -3779,10 +3828,6 @@
     (stroke (width 0) (type default))
     (uuid "b3775e89-ba15-519c-b3b4-2065452ca307"))
   (wire
-    (pts (xy 55.88 92.71) (xy 63.5 92.71))
-    (stroke (width 0) (type default))
-    (uuid "b141d493-b6e3-5aa8-b9e6-f81f02aba595"))
-  (wire
     (pts (xy 58.42 95.25) (xy 58.42 105.41))
     (stroke (width 0) (type default))
     (uuid "95db9c38-a67e-5b80-84ee-e8ed3920543e"))
@@ -4506,4 +4551,38 @@
     "4.94V / (120 + 120 + 120 + 22) * (120 + 22) = 1.83V"
     (at 81.28 165.1 0)
     (effects (font (size 1.524 1.524)) (justify left bottom))
-    (uuid "d22e53a5-594d-55e6-84e3-72d1eb8db3ea")))
+    (uuid "d22e53a5-594d-55e6-84e3-72d1eb8db3ea"))
+  (symbol
+    (lib_id "Device:Polyfuse")
+    (at 59.69 92.71 90)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "138c7391-9764-5ea9-81f7-e670579d1238")
+    (property "Reference" "F200" (at 59.69 87.1 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "0.5A hold" (at 59.69 98.32 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "Fuse:Fuse_1206_3216Metric"
+      (at 59.69 92.71 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 59.69 92.71 0) (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Note"
+      "stman: port supply polyfuse (5 V or 12 V by JP2/JP5)"
+      (at 59.69 92.71 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "87b4c67f-84fa-50d9-bedd-f7d5b95bc6d1"))
+    (pin "2" (uuid "b34273a2-1814-5983-9be9-b6a461e5ee6f"))
+    (instances
+      (project
+        "stman"
+        (path
+          "/b2fa32de-c480-5131-94f3-5535f61b0a45/9855ae68-0271-541f-86b2-c68654069d27"
+          (reference "F200")
+          (unit 1))
+        (path
+          "/b2fa32de-c480-5131-94f3-5535f61b0a45/e17703e7-de31-5cdd-aeb5-afefc9ce6839"
+          (reference "F201")
+          (unit 1))))))

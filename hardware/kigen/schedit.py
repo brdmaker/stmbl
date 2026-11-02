@@ -125,6 +125,15 @@ class Sheet:
         return out
 
     # ------------------------------------------------------------ edits
+    def remove_wire(self, p1, p2):
+        """the wire from p1 to p2 (either way round); SystemExit if there is none"""
+        for w in self.items("wire"):
+            a, b = self.wire_ends(w)
+            if {key(*a), key(*b)} == {key(*p1), key(*p2)}:
+                self.remove(w)
+                return
+        raise SystemExit("%s: no wire %s-%s" % (self.path, p1, p2))
+
     def remove(self, e):
         self.t[:] = [x for x in self.t if x is not e]
 
@@ -290,7 +299,9 @@ class Sheet:
             e.append(S("property", k, v, S("at", r4(x), r4(y), 0), legacy.eff(50, hide=True)))
         for n in pins:
             e.append(S("pin", n, S("uuid", uid(u, "pin", n))))
-        e.append(S("instances", [Sym("project"), self.project] + [S("path", p, S("reference", ref), S("unit", unit)) for p in inst_paths]))
+        # inst_paths: [path] (one reference everywhere) or [(path, reference)] (a sheet used twice)
+        inst = [(p, ref) if isinstance(p, str) else p for p in inst_paths]
+        e.append(S("instances", [Sym("project"), self.project] + [S("path", p, S("reference", r), S("unit", unit)) for p, r in inst]))
         self.add(e)
         return e
 

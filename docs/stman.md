@@ -165,10 +165,11 @@ configuration work as on any stmbl.
 | servo + linear scale | the scale (TTL, or 1 Vpp via sin/cos) | drive encoder output |
 | spindle | HGV 1.1 fine output (C axis) | HGV coarse output or KDA X6 |
 
-**Port supply:** as stmbl. The drive's encoder output (X14/12), the HGV and a
-scale take their 5 V from the port, through its 5 V / 12 V jumper (JP2,
-JP5). The port supply (+5F) is stmbl's 1.5 A buck, switched by the MCU
-(EN_5V).
+**Port supply:** the drive's encoder output (X14/12), the HGV and a scale
+take their 5 V from the port, through its 5 V / 12 V jumper (JP2, JP5) and
+a polyfuse (F200 FB0, F201 FB1; 0.5 A hold) between the port supply and the
+connector's pin 7. The port supply (+5F) is stmbl's 1.5 A buck, switched by
+the MCU (EN_5V).
 
 **Adapter cables:** 8P8C to the 15-pin D-sub of the DDS X14 and to the
 HGV / KDA X6. The shield lands on the D-sub housing.
@@ -231,7 +232,7 @@ started each loop cycle (CONVST from the MCU).
 
 | rail | from | for |
 |---|---|---|
-| +24V | P3 (+UI / 0VI), SMAJ24A, 22 µF (as stmbl) | everything; ITS724G VBB; the inputs' contact supply |
+| +24V | P3 (+UI / 0VI), reverse-polarity diode D200 (SS34A), SMAJ24A, 22 µF | everything; ITS724G VBB; the inputs' contact supply |
 | +5V | ACT4088 (stmbl U13) | LDO, AD7606 AVCC |
 | +3V3 | zldo1117 (stmbl U2) | MCU, DAC logic, AD7606 VDRIVE, ISO7331FC side 1 |
 | +12V | ACT4088 (stmbl U27) | NMA1215, FB port option |
@@ -327,8 +328,6 @@ tested before the board exists.
 - Check the AD5761R pin numbers against the datasheet (the schematic's
   symbol is drawn from the pin names).
 - Check Mesa's smart-serial RJ45 pinout for the supply pairs (JP200/JP201).
-- Reverse-polarity protection on P3 and polyfuses on the FB ports: stmbl has
-  neither; worth adding at layout.
 - Check the AD7606 serial mode: DOUTA tri-state with /CS high, so it can
   share MISO with the DACs.
 - Read the line counts and volts-per-rpm from each drive (keypad on the

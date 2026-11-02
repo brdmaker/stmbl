@@ -661,7 +661,57 @@
           (at -10.16 1.27 0)
           (length 5.08)
           (name "VI" (effects (font (size 1.016 1.016))))
-          (number "3" (effects (font (size 1.016 1.016))))))))
+          (number "3" (effects (font (size 1.016 1.016)))))))
+    (symbol
+      "Device:D_Schottky"
+      (pin_numbers hide)
+      (pin_names (offset 1.016) hide)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "D" (at 0 2.54 0) (effects (font (size 1.27 1.27))))
+      (property "Value" "D_Schottky" (at 0 -2.54 0) (effects (font (size 1.27 1.27))))
+      (property "Footprint" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "Datasheet" "~" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "ki_keywords" "diode Schottky" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "ki_description" "Schottky diode" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property
+        "ki_fp_filters"
+        "TO-???* *_Diode_* *SingleDiode* D_*"
+        (at 0 0 0)
+        (effects (font (size 1.27 1.27)) hide))
+      (symbol
+        "D_Schottky_0_1"
+        (polyline (pts (xy 1.27 0) (xy -1.27 0)) (stroke (width 0) (type default)) (fill (type none)))
+        (polyline
+          (pts (xy 1.27 1.27) (xy 1.27 -1.27) (xy -1.27 0) (xy 1.27 1.27))
+          (stroke (width 0.254) (type default))
+          (fill (type none)))
+        (polyline
+          (pts
+            (xy -1.905 0.635)
+            (xy -1.905 1.27)
+            (xy -1.27 1.27)
+            (xy -1.27 -1.27)
+            (xy -0.635 -1.27)
+            (xy -0.635 -0.635))
+          (stroke (width 0.254) (type default))
+          (fill (type none))))
+      (symbol
+        "D_Schottky_1_1"
+        (pin
+          passive
+          line
+          (at -3.81 0 0)
+          (length 2.54)
+          (name "K" (effects (font (size 1.27 1.27))))
+          (number "1" (effects (font (size 1.27 1.27)))))
+        (pin
+          passive
+          line
+          (at 3.81 0 180)
+          (length 2.54)
+          (name "A" (effects (font (size 1.27 1.27))))
+          (number "2" (effects (font (size 1.27 1.27))))))))
   (symbol
     (lib_id "stmbl:zldo1117")
     (at 50.8 130.81 0)
@@ -3167,10 +3217,6 @@
     (stroke (width 0) (type default))
     (uuid "b627b2b1-d274-5d4e-b70a-cddeb31d7b18"))
   (wire
-    (pts (xy 27.94 67.31) (xy 27.94 74.93))
-    (stroke (width 0) (type default))
-    (uuid "9d45db9e-2fed-547f-bbd0-967c44aab309"))
-  (wire
     (pts (xy 25.4 77.47) (xy 27.94 77.47))
     (stroke (width 0) (type default))
     (uuid "7da1814f-bde3-5ef7-9cf0-188deb89112e"))
@@ -4593,4 +4639,39 @@
     "0.81V * (51k + 1k + 10k) / 10k = 5.02V"
     (at 231.14 66.04 0)
     (effects (font (size 1.524 1.524)) (justify left bottom))
-    (uuid "8603a8c9-1947-56a7-bbe2-ff425260e97f")))
+    (uuid "8603a8c9-1947-56a7-bbe2-ff425260e97f"))
+  (symbol
+    (lib_id "Device:D_Schottky")
+    (at 27.94 71.12 270)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "61b70699-1d1c-5c4e-a76e-2764379f8c48")
+    (property "Reference" "D200" (at 27.94 69.32 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "SS34A" (at 27.94 72.92 0) (effects (font (size 1.27 1.27))))
+    (property
+      "Footprint"
+      "stmbl:SMA_Standard"
+      (at 27.94 71.12 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 27.94 71.12 0) (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Note"
+      "stman: reverse polarity, +UI (P3) -> +24V"
+      (at 27.94 71.12 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "b037c152-ef74-544a-85da-ed725703742f"))
+    (pin "2" (uuid "c1f81cdb-d9a4-52d0-9476-66ca4e038a50"))
+    (instances
+      (project
+        "stman"
+        (path
+          "/b2fa32de-c480-5131-94f3-5535f61b0a45/2c63b4cc-737d-5471-ad80-05faa6f3545d"
+          (reference "D200")
+          (unit 1)))))
+  (text
+    "stman: D200 reverse polarity"
+    (at 30.48 64.77 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid "1a40e50d-3a48-5269-94f1-743c9c838d49")))

@@ -35,6 +35,12 @@ CMD_NETS = {
     "SS_VCC": [("L7", "1"), ("U8", "8"), ("U9", "8")],
     "SS_GND": [("U200", "9"), ("U200", "15"), ("U8", "5"), ("U9", "5"), ("JP201", "2")],
 }
+# reverse polarity and the FB port polyfuses (in series where stmbl had a wire)
+SERIES = {
+    "UI_IN": [("P3", "1"), ("D200", "2")], "+24V": [("D200", "1"), ("D22", "1"), ("C143", "1")],
+    "FB0_PIN7": [("J2", "7"), ("F200", "1")], "FB0_SUP": [("F200", "2"), ("C114", "1"), ("JP2", "2")],
+    "FB1_PIN7": [("J1", "7"), ("F201", "1")], "FB1_SUP": [("F201", "2"), ("C117", "1"), ("JP5", "2")],
+}
 # 2018 netlist quirks: a net there that is two in the drawing, or an op-amp's supply pin listed per unit
 # stmbl nets stman splits on purpose: the CMD port's +5F and shield become the cable side's SS_5V and SS_SHIELD
 SPLIT = {"+5F", "GNDD"}
@@ -83,7 +89,7 @@ def main():
                     want.setdefault(net, set()).add((ref, pin))
     for pin, net in build.MCU.items():
         want.setdefault(net, set()).add(("U26", pin))
-    for net, pins in CMD_NETS.items():
+    for net, pins in list(CMD_NETS.items()) + list(SERIES.items()):
         want.setdefault(net, set()).update(pins)
     power = {"GND": "GND", "+3V3": "+3V3", "+5V": "+5V", "+12V": "+12V", "+24V": "+24V"}
     got_of = {}
@@ -106,7 +112,7 @@ def main():
     kept = {}
     for r, p in where:
         kept.setdefault(r, set()).add(p)
-    changed = {("U26", p) for p in build.MCU} | {x for pins in CMD_NETS.values() for x in pins}
+    changed = {("U26", p) for p in build.MCU} | {x for pins in list(CMD_NETS.values()) + list(SERIES.values()) for x in pins}
     for net, pins in legacy_nets(lambda r: r in kept).items():
         if net in KNOWN or net in SPLIT:
             continue
