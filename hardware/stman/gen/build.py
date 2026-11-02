@@ -297,7 +297,73 @@ def edit_supply():
     sh.place("Device:D_Schottky", d, "D200", "SS34A", 27.94, 71.12, [root_paths()["supply"]], angle=270,
              footprint="stmbl:SMA_Standard", fields={"Note": "stman: reverse polarity, +UI (P3) -> +24V"})
     sh.text("stman: D200 reverse polarity", 30.48, 64.77, size=1.27)
+    regulators(sh)
     sh.save()
+
+
+# the ACT4088 (end of life, 30 V) -> TI LMR51420Y (4.5-36 V, 2 A, 1.1 MHz, SOT-23-6, VFB 0.6 V *):
+# stmbl's ACT4088 symbol with the LMR514x0's pin numbers, so stmbl's wiring stays as drawn
+LMR_PINS = {"SW": ("2", "SW"), "IN": ("3", "VIN"), "EN": ("5", "EN"), "FB": ("4", "FB"), "GND": ("1", "GND"), "BST": ("6", "CB")}
+LMR_VALUE = "LMR51420YDDCR"
+# the feedback dividers for VFB 0.6 V: the top resistors stay, the bottom ones change
+DIVIDERS = {"R35": "6.98k", "R59": "2.87k", "R132": "7.15k"}
+NOTES = {"(51k + 3.9k + 10k) / 10k": "0.6V * (51k + 3.9k + 7.15k) / 7.15k = 5.21V   (stman: LMR51420, VFB 0.6 V *)",
+         "(51k + 3.9k + 3.9k) / 3.9k": "0.6V * (51k + 3.9k + 2.87k) / 2.87k = 12.08V",
+         "(51k + 1k + 10k) / 10k": "0.6V * (51k + 1k + 6.98k) / 6.98k = 5.07V"}
+
+
+def lmr_symbol(act):
+    s = parse(dump(act))
+    s[1] = "stman:LMR514x0"
+    for pr in findall(s, "property"):
+        if pr[1] == "Value":
+            pr[2] = LMR_VALUE
+    for u in findall(s, "symbol"):
+        u[1] = u[1].replace("ACT4088", "LMR514x0")
+        for p in findall(u, "pin"):
+            num, name = LMR_PINS[find(p, "name")[1]]
+            find(p, "name")[1] = name
+            find(p, "number")[1] = num
+    return s
+
+
+def regulators(sh):
+    sh.ensure_lib("stman:LMR514x0", lmr_symbol(sh.libs["stmbl:ACT4088"]))
+    for ref in ("U13", "U27", "U28"):
+        sym = sh.by_ref(ref)[0]
+        find(sym, "lib_id")[1] = "stman:LMR514x0"
+        for pr in findall(sym, "property"):
+            if pr[1] == "Value":
+                pr[2] = LMR_VALUE
+    for ref, v in DIVIDERS.items():
+        for pr in findall(sh.by_ref(ref)[0], "property"):
+            if pr[1] == "Value":
+                pr[2] = v
+    for t in sh.items("text"):
+        for k, v in NOTES.items():
+            if k in t[1]:
+                t[1] = v
+    # EN: the ACT4088's floated (enabled); the LMR514x0's is pulled up to the input here (U28's is the MCU's EN_5V)
+    path = root_paths()["supply"]
+    rsym = kicad_sym("Device", "R")
+    for i, ref in enumerate(("U13", "U27")):
+        en = sh.pin_points(sh.by_ref(ref)[0])["5"]
+        for nc in list(sh.items("no_connect")):
+            at = find(nc, "at")
+            if abs(float(at[1]) - en[0]) < 1e-3 and abs(float(at[2]) - en[1]) < 1e-3:
+                sh.remove(nc)
+        sh.wire(en[0], en[1], en[0] - 2 * G, en[1])
+        sh.label("EN_" + ref, en[0] - 2 * G, en[1], 180)
+        x, y = 30.48 + 12.7 * i, 160.02
+        r = sh.place("Device:R", rsym, "R%d" % (212 + i), "100k", x, y, [path], footprint="stmbl:R_0603",
+                     fields={"Note": "stman: %s enable pull-up (LMR514x0 EN)" % ref})
+        p1, p2 = sh.pin_points(r)["1"], sh.pin_points(r)["2"]
+        sh.wire(p1[0], p1[1], p1[0], p1[1] - G)
+        sh.place("stmbl:+24V", sh.libs["stmbl:+24V"], "#PWR95%d" % i, "+24V", p1[0], p1[1] - G, [path])
+        sh.wire(p2[0], p2[1], p2[0], p2[1] + G)
+        sh.label("EN_" + ref, p2[0], p2[1] + G, 270)
+    sh.text("stman: U13, U27, U28 are LMR51420Y (ACT4088 end of life); R35, R59, R132 for VFB 0.6 V; EN pull-ups R212, R213",
+            25.4, 152.4, size=1.27)
 
 
 def edit_fb():

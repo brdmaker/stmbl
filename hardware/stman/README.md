@@ -13,7 +13,7 @@ it edits them in place.
 | sheet | what |
 |---|---|
 | `stman.kicad_sch` | root, stmbl's `ctrl.sch`: P14 (the HV board link) removed; the new sheets added |
-| `supply.kicad_sch` | stmbl's: P3 24 V in (+UI / 0VI), D200 reverse polarity in the wire up from P3, bucks 5 V / 12 V / port 5 V, LDO 3.3 V |
+| `supply.kicad_sch` | stmbl's: P3 24 V in (+UI / 0VI), D200 reverse polarity in the wire up from P3, bucks 5 V / 12 V / port 5 V now LMR51420Y (ACT4088 is EOL; stmbl's drawing, pins renumbered, dividers for VFB 0.6 V, EN pull-ups R212/R213), LDO 3.3 V |
 | `f4.kicad_sch` | stmbl's MCU sheet. U22 (ESD on the CMD lines) removed. The MCU pins stman uses carry their new nets as global labels where stmbl's labels were, or at the pin when it was tied to something else (`build.MCU`) |
 | `cmd.kicad_sch` | stmbl's CMD port, isolated. U8/U9 stay on the cable side (SS_5V, SS_GND, SS_SHIELD); U10, U11 and their parts are removed; U200 ISO7331FC joins them to the MCU; JP200/JP201 pick the cable's +5 V and GND pairs |
 | `fb.kicad_sch` (FB0, FB1) | stmbl's, with a polyfuse (F200 / F201) between the port supply and the connector's pin 7 |
@@ -66,7 +66,7 @@ and how many stmbl v4.0 has among its own parts (20, unchanged).
   isolator is on the net the design gives it, and no two of those nets are
   joined.
 
-At the time of writing it reports 229 nets, 335 parts, OK.
+At the time of writing it reports 229 nets, 337 parts, OK.
 
 Edit the generator (`gen/build.py`, `gen/newsheets.py`) rather than the
 sheets while the design is moving. Once layout starts, edit in KiCad.
@@ -79,5 +79,7 @@ sheets while the design is moving. Once layout starts, edit in KiCad.
   (it shares MISO with the DACs).
 - **MAX6369:** the SET0-2 timeout table.
 - **ITS724G:** the status logic.
+- **LMR51420Y:** VFB, switching frequency, EN threshold; the SMAJ24A clamp
+  against its 36 V maximum.
 - **Mesa's smart-serial RJ45 pinout:** which pairs carry +5 V and GND
   (JP200/JP201).

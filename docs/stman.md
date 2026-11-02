@@ -233,12 +233,20 @@ started each loop cycle (CONVST from the MCU).
 | rail | from | for |
 |---|---|---|
 | +24V | P3 (+UI / 0VI), reverse-polarity diode D200 (SS34A), SMAJ24A, 22 µF | everything; ITS724G VBB; the inputs' contact supply |
-| +5V | ACT4088 (stmbl U13) | LDO, AD7606 AVCC |
+| +5V | LMR51420Y buck (stmbl U13's place) | LDO, AD7606 AVCC |
 | +3V3 | zldo1117 (stmbl U2) | MCU, DAC logic, AD7606 VDRIVE, ISO7331FC side 1 |
-| +12V | ACT4088 (stmbl U27) | NMA1215, FB port option |
-| +5F | ACT4088 (stmbl U28), EN_5V | FB0/FB1 port supply |
+| +12V | LMR51420Y (U27) | NMA1215, FB port option |
+| +5F | LMR51420Y (U28), EN_5V | FB0/FB1 port supply |
 | +15VA / −15VA | NMA1215 + LC | AD5761R AVDD/AVSS, OPA2197 |
 | SS_5V / SS_GND | the smart-serial cable (RJ45 4/5 and 7/8, by JP200/JP201) | U8, U9 and ISO7331FC side 2 only |
+
+The three bucks are TI LMR51420YDDCR (4.5–36 V in, 2 A, 1.1 MHz,
+SOT-23-6) in place of stmbl's ACT4088, which is end-of-life and only
+rated to 30 V. Same package, same drawing: only the pin numbers (the
+symbol keeps stmbl's pin positions), the feedback dividers (VFB 0.6 V:
+R35 6.98k for +5V, R59 2.87k for +12V, R132 7.15k for +5F) and two 100k EN
+pull-ups to +24V (R212, R213; U28's EN stays on the MCU's EN_5V) change.
+stmbl's inductors, diodes and capacitors stay.
 
 ### Connectors
 
@@ -421,5 +429,8 @@ tested before the board exists.
   share MISO with the DACs.
 - Read the line counts and volts-per-rpm from each drive (keypad on the
   KDA, setup program on the DDS) before the first run.
+- LMR51420Y: check VFB (0.6 V), the switching frequency of the Y
+  variant, the EN threshold, and that the SMAJ24A clamp keeps a surge on
+  +UI below its 36 V (or use a lower-clamping TVS).
 - Enclosure: DIN-rail case near the drive, with the 8P8C ports and the
   3.5 mm terminals on one face.

@@ -41,6 +41,17 @@ SERIES = {
     "FB0_PIN7": [("J2", "7"), ("F200", "1")], "FB0_SUP": [("F200", "2"), ("C114", "1"), ("JP2", "2")],
     "FB1_PIN7": [("J1", "7"), ("F201", "1")], "FB1_SUP": [("F201", "2"), ("C117", "1"), ("JP5", "2")],
 }
+# the bucks, now LMR514x0 (other pin numbers than stmbl's ACT4088)
+REGS = {
+    "U13_SW": [("U13", "2"), ("L5", "1"), ("D9", "1"), ("C105", "2")], "U13_CB": [("U13", "6"), ("C105", "1")],
+    "U13_FB": [("U13", "4"), ("R35", "1"), ("R60", "2")], "U13_EN": [("U13", "5"), ("R212", "2")],
+    "U27_SW": [("U27", "2"), ("L6", "1"), ("D12", "1"), ("C106", "2")], "U27_CB": [("U27", "6"), ("C106", "1")],
+    "U27_FB": [("U27", "4"), ("R59", "1"), ("R97", "2")], "U27_EN": [("U27", "5"), ("R213", "2")],
+    "U28_SW": [("U28", "2"), ("L12", "1"), ("D13", "1"), ("C121", "2")], "U28_CB": [("U28", "6"), ("C121", "1")],
+    "U28_FB": [("U28", "4"), ("R132", "1"), ("R133", "2")], "U28_EN": [("U28", "5"), ("U26", "7")],
+    "+24V": [("U13", "3"), ("U27", "3"), ("U28", "3"), ("R212", "1"), ("R213", "1")],
+    "GND": [("U13", "1"), ("U27", "1"), ("U28", "1")],
+}
 # 2018 netlist quirks: a net there that is two in the drawing, or an op-amp's supply pin listed per unit
 # stmbl nets stman splits on purpose: the CMD port's +5F and shield become the cable side's SS_5V and SS_SHIELD
 SPLIT = {"+5F", "GNDD"}
@@ -89,7 +100,7 @@ def main():
                     want.setdefault(net, set()).add((ref, pin))
     for pin, net in build.MCU.items():
         want.setdefault(net, set()).add(("U26", pin))
-    for net, pins in list(CMD_NETS.items()) + list(SERIES.items()):
+    for net, pins in list(CMD_NETS.items()) + list(SERIES.items()) + list(REGS.items()):
         want.setdefault(net, set()).update(pins)
     power = {"GND": "GND", "+3V3": "+3V3", "+5V": "+5V", "+12V": "+12V", "+24V": "+24V"}
     got_of = {}
@@ -112,7 +123,7 @@ def main():
     kept = {}
     for r, p in where:
         kept.setdefault(r, set()).add(p)
-    changed = {("U26", p) for p in build.MCU} | {x for pins in list(CMD_NETS.values()) + list(SERIES.values()) for x in pins}
+    changed = {("U26", p) for p in build.MCU} | {x for pins in list(CMD_NETS.values()) + list(SERIES.values()) + list(REGS.values()) for x in pins}
     for net, pins in legacy_nets(lambda r: r in kept).items():
         if net in KNOWN or net in SPLIT:
             continue
