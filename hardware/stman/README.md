@@ -30,13 +30,33 @@ Refs from 200 up are stman's. The others are stmbl v4.0's, with the same
 values and footprints (stmbl's footprint library, `fp-lib-table` ->
 `hw/kicad/lib/stmbl.pretty`).
 
+## The board
+
+`stman.kicad_pcb` comes from `gen/pcb.py`. It is placed, not routed; see
+docs/stman.md, *The board*.
+- **Outline:** stmbl v4.0's (the v4 case fits), with the HV/LV slots
+  removed.
+- **stmbl's parts:** each is stmbl's footprint, copied from
+  `hw/kicad/v4.0/stmbl_4.0.kicad_pcb` where stmbl placed it.
+- **New parts:** the connectors and main ICs at fixed positions (`FIXED`,
+  `FLUSH`); their passives beside the parts they connect to.
+- **Isolation barrier:** a copper-free rule area for the smart-serial cable
+  side.
+- **Ground plane:** on In1, not filled.
+
+`gen/pcb.py` prints the courtyard overlaps that involve new parts (none),
+and how many stmbl v4.0 has among its own parts (20, unchanged).
+
+![top](doc/stman-placement-top.png)
+
 ## Make
 
 | target | does |
 |---|---|
 | `make sch` | `gen/build.py`: convert, edit, add the new sheets |
 | `make check` | `gen/check.py`: the netlist kicad-cli exports against two references (below) |
-| `make doc` | the PDF |
+| `make pcb` | `gen/pcb.py`: the board (placement redone; hand edits to it are lost) |
+| `make doc` | the PDF and the placement renders |
 
 `gen/check.py` checks:
 - **stmbl's own nets:** every net of stmbl's 2018 netlist

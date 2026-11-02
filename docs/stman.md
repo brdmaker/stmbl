@@ -273,6 +273,95 @@ the HV link, the IO sheet and pins stmbl tied to ground.
 | IN1-IN8 | PC4, PC5, PB0, PE15, PC9, PD2, PC0, PC1 |
 | LEDs, FB0/FB1, USB, SWD, 24 V / 5 V monitors, EN_5V | as stmbl |
 
+## The board
+
+`hardware/stman/stman.kicad_pcb`, made by `gen/pcb.py`. It is placed, not routed.
+
+- **Outline:** stmbl v4.0's (100 × 100 mm), so the v4 case fits. The slots
+  that isolated the HV half are gone, because stman's lower half is on the
+  drive's ground like the rest. The case needs new cut-outs for the
+  terminals on the lower-left and bottom edges.
+- **Upper half:** stmbl's LV board, every kept part where stmbl placed it,
+  with stmbl's own footprints.
+- **Lower half (stmbl's HV area):**
+  - lower left: the analog terminals J5 (AO) and J6 (AI) on the left edge
+    (where stmbl's motor terminals were), with the DACs, the filter op-amp
+    and the AD7606 beside them;
+  - bottom: J7 (OUT) and J8 (IN) along the bottom edge, with the ITS724G
+    drivers, the watchdog and the NMA1215 above them.
+- **Isolation barrier:** a copper-free strip from the top edge down past
+  U200 (in stmbl's U10 place), then across to the right edge above FB0.
+  - **Cable side:** J3, U8, U9 and their parts, and JP200/JP201 (top right).
+  - **Tight spot:** the barrier passes about 1 mm from the FB0 parts that
+    start at y ≈ 67.8. The isolation is functional, not for safety: both
+    sides are low voltage. Move the FB0 top row down 1-2 mm at layout if you
+    want more distance.
+- **Layers:** 4, where stmbl's LV board has 2. In1 is a ground plane on the
+  board side, drawn but not filled (press B in KiCad). The precision analog
+  wants it.
+
+## Safety and enables (CTX twin)
+
+The drives stop themselves: the KDV supply and the X1 bus do it. stman
+only takes part in restarting the machine. There is no safety relay; the
+E-stop drops the main contactor K1 directly.
+
+**K1 chain:**
+
+    E-stop (NC, positive opening) ─ hood switches ─ end limits ─ KDV Bb1 (X10/6-7, via K3)
+      ─ (stman SAFE contacts, when added) ─ OFF ─ ON / K1 self-hold ─ K1 coil
+
+Monitor K1 with its NC mirror contact, read before every restart (a welded
+contactor), or use two contactors in series.
+
+**How the drives stop:**
+1. K1 drops (or the mains fails).
+2. The KDV signals every drive over the X1 bus (UD, X1.1). This works only
+   with the **NCB link (X10/13-14) open**.
+3. The drives zero their commands and brake at full torque, whatever RF and
+   the ±10 V command are.
+4. The braking energy goes into the KDV's braking resistor (100 kWs per
+   5 min; one stop of a spindle plus the axes is roughly 10-20 kJ).
+5. The DC-link short-circuit contactor K2, if fitted, also brakes the feed
+   motors when a drive's electronics have failed.
+
+**RF and AH/RUN:**
+- **Wiring:** stman OUT1 (and OUT2), gated by the watchdog, to the drive's
+  RF (and AH, or RUN on the KDA). An optional K1 auxiliary NO contact in
+  series is a hardware backup.
+- **Drop RF:** stman drops it when the chain opens (its input tap), when
+  the link to LinuxCNC is lost, or on a fault.
+- **Re-enable:** only after K1 is in and the drives report ready; start
+  commanding 100 ms later (200 ms on the KDA).
+
+**Bb:**
+- **KDV Bb1:** in the K1 chain.
+- **Each drive's Bb:** to its stman input: +24 V (J8) ─ Bb ─ IN1 on a DDS,
+  IN6 on the KDA.
+- **Error reaction 0** on every DDS, so a faulting drive tells the KDV and
+  the KDV cuts power. If a drive isn't on reaction 0, put its Bb in the
+  chain as well.
+
+**AS:**
+- **DDS (X3/8-9):** not connected. 24 V would lock the drive out; left
+  open, the drive runs normally.
+- **KDA (X2/3):** must be at 24 V for the spindle to run. Wire it
+  `+24V ─ hood closed contact ─ X2/3`.
+  - **Hood open:** the spindle can't start.
+  - **Hood closed again:** stman re-applies RF (0 → 1).
+  - **What stman sees:** READY low with Bb closed means "locked out by the
+    hood", not a fault.
+  - **Not personnel-safe:** Indramat says so. Keep the hood locked until the
+    spindle is at standstill (DINA monitor, or a coast-down delay).
+
+**Commissioning checks:**
+- **KDV:** the NCB link is open (nothing between X10/13 and X10/14). The X1
+  bus cable and end connector are in place.
+- **Each DDS:** error reaction 0.
+- **K1:** the mirror contact is wired into the restart.
+- **E-stop test:** with the drives running slowly, press E-stop. Every axis
+  and the spindle must brake, with no fault at the braking resistor.
+
 ## Firmware
 
 A new stmbl target `stman` reuses:

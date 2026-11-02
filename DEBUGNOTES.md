@@ -3621,3 +3621,16 @@ Entry format:
 - Fix:     COMMON_UNIT puts the shared pins on the unit the drawing wires them
   on (LM358: unit 2). stmbl's 2018 netlist has the same pins twice too
   (gen/check.py KNOWN).
+
+## 2026-11-02  pcbnew 7 Python: copying from one board into another corrupts the heap
+- Area:    `hardware/stman/gen/pcb.py` (stmbl v4.0's footprints into stman's board)
+- Status:  Workaround
+- Symptom: "malloc(): unaligned tcache chunk detected" / abort, reported at an
+  unrelated later call (KIID_PATH's constructor).
+- Cause:   any of: `Duplicate()` of an item of the loaded board added to a new
+  board; `BOX2I.Merge()` in a loop over a footprint's courtyard items; pads of
+  a copied footprint still pointing at the other board's nets.
+- Fix:     `pcbnew.FOOTPRINT(other)` (the copy constructor), new PCB_SHAPEs
+  of the same geometry for the outline, courtyards from plain min/max of
+  the items' boxes, pad nets set after `board.Add(fp)` (`SetNetCode(0)`
+  where there is none).
