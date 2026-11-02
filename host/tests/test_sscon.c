@@ -46,6 +46,24 @@ static int xfer(const char *msg, int len, double loss, int max_periods, sscon_t 
   return k;
 }
 
+// sscon_out, the drive's _write: a clock, a link that takes a byte every
+// ms (or none: dead), the watchdog feed it must call while it waits
+static uint32_t clk, last_feed, max_gap, link_dead;
+static uint32_t now_ms(void) {
+  return clk;
+}
+static void idle(void) {  // the main loop waits a ms: the link moves a byte, the watchdog is fed
+  clk++;
+  if(!link_dead && drive.tx_tail != drive.tx_head) {
+    drive.tx_tail++;
+  }
+  if(clk - last_feed > max_gap) {
+    max_gap = clk - last_feed;
+  }
+  last_feed = clk;
+}
+static const sscon_out_t out = {now_ms, idle, sscon_write};
+
 int main(void) {
   srand(1203);
   char msg[1200], got[1300];
@@ -124,6 +142,24 @@ int main(void) {
   while((d = sscon_getline(&drive, dl, sizeof(dl))) == 0) {
   }
   ok(drive.active && d == 5, "  ...and active again once the host sends", d);
+  {  // a scopedump through the console: ~10 kB at a byte a ms, > the watchdog's 2 s
+    static char dump[10000];
+    memset(dump, 'x', sizeof(dump));
+    sscon_reset(&drive);
+    clk = last_feed = max_gap = link_dead = 0;
+    uint32_t q = sscon_out(&drive, &out, dump, sizeof(dump), 100);
+    ok(q == sizeof(dump), "sscon_out: a 10 kB dump over a 1 kB/s link comes through whole", q);
+    ok(clk > 2000 && max_gap <= 2, "sscon_out: feeds the watchdog while it waits (a scopedump took > 2 s)", max_gap);
+    sscon_reset(&drive);
+    clk = last_feed = max_gap = 0;
+    link_dead = 1;
+    q = sscon_out(&drive, &out, dump, sizeof(dump), 100);
+    ok(clk <= 101 && q == SSCON_TXSIZE, "sscon_out: a dead link waits one timeout, then drops the rest", clk);
+    clk = 0;
+    q = sscon_out(&drive, &out, dump, 100, 0);
+    ok(clk == 0 && q == 0, "sscon_out: in an interrupt (wait 0) never waits", clk);
+  }
+
   printf("1..%d\n# %d/%d passed\n", n, n - fails, n);
   return fails ? 1 : 0;
 }

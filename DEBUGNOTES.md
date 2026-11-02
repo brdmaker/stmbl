@@ -16,6 +16,23 @@ Entry format:
 
 ---
 
+## 2026-11-02  scopedump over the smart-serial console: watchdog reset
+- Area:    `src/syscalls.c` (`_write`), `shared/sscon.c` (`sscon_out`)
+- Status:  Fixed
+- Symptom: hwtest suite (SEW drive, speed-ups on): "capture scope over
+  smart-serial" got a bad scopedump; the drive reset mid-dump (errlog:
+  "HANG: watchdog reset cmd scopedump nrt term0"), so "power field" and the
+  end state failed after it.
+- Cause:   `_write` waits in the main loop for room in the sscon tx ring
+  (~1 kB/s), up to 100 ms a chunk, without feeding the watchdog. A scopedump
+  is several kB: > 2 s in one command, and the 2 s IWDG (added after the
+  last passing suite run, 10-28) reset the drive. Not the speed-ups.
+- Fix:     The wait loop moved to `sscon_out` (shared), which calls
+  `wdog_poll` while it waits; a chunk that timed out (link gone) drops the
+  rest at once instead of 100 ms per chunk. Test: `host/tests/test_sscon.c`
+  "sscon_out: feeds the watchdog while it waits", "a dead link waits one
+  timeout"; on the bench the suite's "capture scope over smart-serial".
+
 ## 2026-10-29  Wizard over smart-serial: getf missed answers on the slow console
 - Area:    `servoterm-cli/setup/su_link.c` (`su_link_get`)
 - Status:  Fixed
@@ -75,6 +92,12 @@ Entry format:
   Tests: hwtest/suite `usb: 1000 port closes...`, servoterm-cli "reconnect:
   ..." (fails without). Tuning over USB came out lower (pos_bw 11.3 vs 35.4
   over smart-serial); the smart-serial config stays on the drive.
+  2026-11-02, hwtest suite on the SEW drive (speed-ups on): stalled in
+  "enable cycles" (cycle 2), every USB check after it failed. usbdiag over
+  smart-serial: dtr 0, tx state 1, dieptsiz 1 packet / 9 bytes armed, the
+  drive otherwise fine. A host-side re-enumeration (usb authorized 0/1)
+  revived it for one command, then it stalled again at rest; a 24 V cycle
+  recovered it and the rerun passed (5 enable cycles, motion, all USB).
   `usbdiag` puts the state in `errlog`. `tools/ssflash.sh` finds the drive
   by its by-id link (it came back as ttyACM1, ssburn failed on ttyACM0).
 

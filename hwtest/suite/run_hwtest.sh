@@ -9,8 +9,8 @@
 #
 # Options for hwtest.py: --only NAMES, --dc-volt V, --dumps N, ... (see
 # hwtest.py --help). Results: hwtest/suite/runs/<target>-<time>/summary.md.
-# On hw the motor moves (X +-300 mm at up to 500 mm/s): the machine must be
-# safe to move. LinuxCNC and halrun must not be running.
+# On hw the motor moves (X +-300 mm at up to 500 mm/s; HWTEST_MAX_VEL=N caps
+# it): the machine must be safe to move. LinuxCNC and halrun must not be running.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -64,6 +64,13 @@ if [ -n "$LPHASE" ]; then
   mkdir -p "$RUN/lcnc"
   cp "$SRC"/* "$RUN/lcnc/" 2>/dev/null || true
   INI=$RUN/lcnc/stmbl.ini
+  # HWTEST_MAX_VEL=N: the machine's top speed (mm/s) in this copy, for a motor
+  # slower than 500 mm/s (the SEW CMP40M at 202 V: 300), as run_soak.sh's
+  # SOAK_MAX_VEL
+  if [ -n "$HWTEST_MAX_VEL" ]; then
+    sed -i "s|^\(MAX_VELOCITY *= *\)500 *$|\1$HWTEST_MAX_VEL|" "$INI"
+    ARGS="$ARGS --vel $HWTEST_MAX_VEL"  # the top speed the motion tests expect
+  fi
   cat > "$RUN/lcnc/display.sh" <<EOS
 #!/bin/sh
 # as a GUI would: the POSTGUI_HALFILEs (e.g. phasing_ferror.hal)
