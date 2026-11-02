@@ -96,7 +96,12 @@ async function mm3dLoad() {
   if (!r.ok) return;
   let m = {};
   try { m = JSON.parse(r.text); } catch (e) { return; }
-  if (!LIVE) mm3dTravel(m.axes);  // the simulation: the travel the example machine has (live: LinuxCNC's limits)
+  if (!LIVE) {  // the simulation: the travel and the rack the example machine has (live: LinuxCNC's limits, millweb's rack)
+    mm3dTravel(m.axes);
+    const a = m.atc || {};
+    if (R && m.type === "router") R.type = null;  // drawn again with this rack
+    RACK = a.type === "rack" ? { pockets: +a.pockets || 1, x: +a.x || 0, y: +a.y || 0, dx: +a.dx || 0, dy: +a.dy || 0, z_clear: +a.z_clear || 0, z_pocket: +a.z_pocket || -100, slide: +a.slide || 0 } : null;
+  }
   const info = LIVE ? LIVE.info() : null, la = LIVE ? info.lathe || {} : m.lathe || {};
   mm3dApply(m.model, src.modelGet, LIVE ? info.type : m.type || "gantry", { post: la.post, dia: la.diameter !== false });
 }

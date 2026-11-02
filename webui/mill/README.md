@@ -27,6 +27,7 @@ Nothing to build and nothing to install beyond LinuxCNC:
 | `index.html` | the console's markup and style |
 | `js/app.js` | the console: pages, DRO, 3D machine, plots, and the built-in simulated machine |
 | `js/setup3d.js` | the 3D setup: fixtures and workpieces, STL/OBJ reading, selecting in the view, the object panel |
+| `js/scene.js`, `js/sceneui.js` | a CAM setup's scene dump (zip) read in the browser; the import dialog and the File page's CAM scene panel (`server/scene.py` checks and stores it on the machine) |
 | `js/hal.js` | the Debug page's HAL tab: pins, signals and parameters, the watch list |
 | `js/drives.js` | the Debug page's Drives tab: a card per stmbl drive and its console |
 | `js/machmodel.js` | the machine's own 3D model in the view: parts that move with the axes |
@@ -104,8 +105,8 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
-| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
-| `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …` |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `router` (a moving gantry over a spoilboard, drawn as a wood router with its rack of forks along the back; a Y pair allowed: the Excitech, `machines/excitech`; see *Routers*). Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
+| `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …`. `turret` (see *Lathes*): `type` `none`, `sim`, `stepper` (`stepgen`: its HAL prefix, `steps` a turret turn, `index`: the once-a-turn pulse's pin, `index_invert`), `stations`, and its moves in turret turns: `offset` (station 1 after the index), `overtravel`, `lock`, `speed`, `lock_speed`, `acc`, `dwell`, `timeout`, `slip` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
@@ -113,7 +114,7 @@ it):
 | `can` | `spi` (a device a bus, or `sim`), `discover`, `spi_hz` |
 | `estop` | `input` (a HAL pin, true while the chain is closed), `invert`; a Mesa board's watchdog also trips it; no input and no board: a loop |
 | `probe` | `type`: `none`, `input` (`input`, `invert`), `sim`: a simulated probe that touches the stock (the 3D setup's workpieces, as the view places them; before millweb sets it, the whole travel at `sim_z`) and the tool setter (within 10 mm of its X Y, at `z_ref`), in machine coordinates, with each tool's true length (`sim_tools`: `{"1": 62.4}`; the others their table length when first used): Measure finds it |
-| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once), and its encoder for threading and G95: `revs` (spindle.0.revs, turns), `index` (index-enable), `speed_in` (turns/s)); `max_rpm`, `min_rpm`. A simulated spindle on a lathe gets a simulated encoder (`sim_spindle`), so G33 and G76 run |
+| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once), and its encoder for threading and G95: `revs` (spindle.0.revs, turns), `index` (index-enable), `speed_in` (turns/s)); `max_rpm`, `min_rpm`. A simulated spindle on a lathe gets a simulated encoder (`sim_spindle`), so G33 and G76 run. Or `stmbl_sserial` (`port`, `channel`) / `stmbl_can` (`bus`, `node`): an stmbl drive in velocity mode through `lathe.spindle` (linuxcnc/lathe), `ratio` motor turns a spindle turn, `index_sensor` (a once-a-turn sensor's pin; blank: the motor's zero angle), `console`; its fault opens the E-STOP chain; on the Drives page as `S` |
 | `atc` | `type`: `none` or `rack`: M6 is remapped to `run/toolchange.ngc`, made from these: tool n in pocket n (`pockets`), pocket 1 at `x`, `y`, the others `dx`, `dy` apart; `z_clear`, `z_pocket`, `slide` (the holder enters its fork along +Y; 0: from above), `feed`; pins `unclamp` (the drawbar, motion's digital out 0), `air` (out 1), `clamped`, `released` (sensors, in 0 and 1: waited for up to `timeout` s; blank: `dwell`). A tool beyond the pockets is changed by hand (a message and a pause) |
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
@@ -194,6 +195,9 @@ the INI is configured by hand):
 | `DEBUG_VIEWS` | `debug-views.json` beside the INI | the Debug page's saved views |
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
+| `PREVIEW_FULL_SEGS` | 2000000 | the full simulation's path: every move up to this many, none merged |
+| `PREVIEW_FULL_TIMEOUT` | 600 | seconds of interpreting for the full simulation's path |
+| `MARKS` | `millweb-marks.json` beside the INI | the programs' Checked and Simulated ticks |
 
 ## Backup and restore of the machine folder
 
@@ -272,7 +276,7 @@ JSON over the WebSocket at `/ws`.
 |---|---|---|
 | `hello` | on connect | `you` (this browser's id), `machine` (name, coordinates, limits, units, program folder, drives, pins, token required), `control` (the holder), recent `events` |
 | `st` | at `POLL_HZ`, only the fields that changed | estop, on, homed, mode, interp, run (idle / run / hold / mdi / done), line, file, `pos` (the tool tip in the active work offset), `mach`, wcs, g5x, g92, tool, tlo, following error per joint, velocity, spindle, overrides, coolant, M1 / block delete, G- and M-codes, probe |
-| `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key |
+| `slow` | 2 Hz | HAL pins, drives, load, bus, yaw, contour, pcomp's switches, the remote-enable key; an arm's `arm`: its components' pins (see *Arms*) |
 | `program` | when a program is loaded | name; `nlines` and the first 2000 `lines` (from `line0`); `path`: `[kind, x, y, z, feed, line, tool]` per segment, each from where the one before ended (`start`), from LinuxCNC's interpreter (kind 0 rapid, 1 feed, 2 probe, 3 tool change), in the active work coordinates; `stats` over every move: `moves`, `shown`, `stride` (past `PREVIEW_SEGS` the drawn path merges neighbouring moves), `ext` (travel), `cut` and `rapid` lengths, `time`, `tools`; `error`, `truncated` |
 | `tools`, `offsets`, `files` | on change | the tool table, G54…G59.3 and G92, the program folder (`files` with their paths and `kind`: program or model, `dirs`) |
 | `setup` | on connect, on change | the 3D setup's `objects` |
@@ -283,14 +287,17 @@ JSON over the WebSocket at `/ws`.
 **From the browser:** `{"op": ..., "id": n, ...}`:
 - `control` {take, force, token};
 - `estop` {on} (any browser), `power` {on};
-- `home` / `unhome` {axis | all};
-- `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop`;
+- `home` / `unhome` {axis | all | J<n> (a joint)};
+- `jog` {axis, dir, inc (0: continuous), rate}, `jog_stop` {axis}: an axis (X..W the machine has: world mode) or a joint `J<n>` (joint mode, before homing too), rate in units (mm or °) a minute;
+- `teach_record` {rate}: an arm's Record point (see *Arms*);
+- `arm_model`: an arm's 3D model files (see *Arms*; any browser);
 - `mdi` {cmd, wait} (wait: the reply when the line is done);
 - `cycle` {action: start | pause | resume | step | stop, line};
 - `override` {k: feed | rapid | spin | maxv, v}, `spindle` {dir, speed}, `coolant` {k, on}, `opt` {m1, bd};
 - `zero` {axis, value}, `wcs` {index}, `offset` {index, x, y, z}, `g92_clear`;
 - `tool_load` {t}, `tools_save` {tools}, `tool_measure`, `probe` {kind: z | plate, travel, feed, plate, clearance};
-- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`);
+- `files`, `program_get` / `program_save` / `program_delete` / `program_load` {name[, text, overwrite]}: names are paths in the program folder (`jobs/acme/op1.ngc`). `program_get` {name, full: true}: every move, none merged (`PREVIEW_FULL_SEGS`), for the full simulation (not cached). A program in `files` has `marks` {check, sim} when it has been checked or simulated in full since it last changed;
+- `program_mark` {name, kind: check | sim, level: ok | warn | bad, sig, summary, full}: a program checked or simulated in full in a browser (no control needed). Kept with the file's size and mtime (an edited program loses its marks), moved with a rename; then a `files` message to every browser;
 - `program_rename` {name, to}: a program, model or folder renamed or moved; `folder_create` / `folder_delete` {name} (only an empty folder);
 - `model_save` {name, data (base64), overwrite}, `model_get` {name}: 3D models (`.stl`, `.obj`);
 - `hal_list`, `hal_values` {names}, `hal_watch` {names} (then `hal` messages `{v: {name: value}}` at `HAL_HZ`), `hal_set` {name, value, kind: pin | param | sig} (with `HAL_WRITE`);
@@ -298,10 +305,63 @@ JSON over the WebSocket at `/ws`.
 - `drive_watch` {name | null}: a drive's console in this browser (the reply has what it said so far, `scroll`; then `dout` messages `{n, text}`); `drive_cmd` {name, cmd, sure}: a line to its console (reading for everyone; the rest with control and `DRIVE_WRITE`, and what moves, restarts or rewrites the drive with `sure`); `drive_detach` {name, on, seconds}: the tty left to other programs for a while (with control). `drive_conf` {name, action: backups | backup | plan | patch | restore | reset, backup, to, sure}: a drive's flash config (driveconf.py). A card has `ver` {fw, hv, hv_image, conf}, `fw_want`, `problems` [{level, block, action, text}], `job`. `drv` messages (2 Hz, when changed): each drive's card, `{n, link: ok | silent | missing | detached, state, fault, last, last_at, dc, hv_t, mot_t, ac, perr, sat, fw, rx, tx, age, pd: {enable, fault, pos_fb, vel_fb, current, power}}`;
 - `config_get`, `config_check` {text, custom}, `config_save` {text, custom, note, restart}, `config_version` {version}, `bitstream_save` {name, data}, `bitstream_delete` {name}, `mmodel_save` {name, data}, `mmodel_get` {name}, `mmodel_delete` {name} (the 3D model's files), `log_get` {which, n}, `sup_status`, `lcnc_restart`, `lcnc_stop` (with millweb-supervisor; `sup` messages carry its state). While LinuxCNC is down the supervisor answers these (`lcnc_start` for Start; its hello has `machine: null` and `supervisor`);
 - `views_save` {views}: the Debug page's views for every browser (then a `views` message to all; also sent at hello). A view is `{name, watch: [{kind, name}], scope: {ch, rate, tdiv, mode, trig}}`;
+- `scene_import` {name, data (the zip, base64), keep_fixtures, overwrite}: a CAM scene into `scenes/<name>/` and the 3D setup (replies {folder, objects, summary, warnings, work_zero, units});
 - `setup_save` {objects}: the 3D setup (each `{id, name, role, src: builtin:vise | builtin:stock | model:<path>, frame: work | machine, pos, rot, scale, look: solid | glass | hidden}`);
 - `program_lines` {name, start, count ≤ 5000}: a window of a long program's listing;
 - `ping`, `events` {n} (the last n events);
 - `pcomp` {k, v}.
+
+## Arms
+
+A LinuxCNC config whose kinematics are an arm's (`genserkins`, `armkins`, `pumakins`, ...; or `[MILLWEB] MACHINE_TYPE = arm`)
+is an arm to millweb (`hwtest/arcmate-sim`: the ARC Mate with its guard, gripper and tool changer). Its joints are not axes:
+- **`hello`:** `machine.type` `arm`, and `machine.arm`:
+  - `joints`, `axes` (`XYZABC`);
+  - `jlim`: each joint's min, max, vel (per minute), acc, type, from `[JOINT_n]`; `alim`: the axes';
+  - `teach`: the teach file's name; `grip` {open, close}: the gripper's MDI (`[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`, default `M65 P0` / `M64 P0`); `tool_ready` (`[ARM6HMI] TOOL_READY`);
+  - `home`: the Go home pose (`[ARM6HMI] HOME_JOINTS`, a value a joint, or null); `enable_switch`: the machine has an enabling switch (`[MILLWEB] ENABLE_PIN`).
+- **`st`:** `homed` (all three: all joints homed), and:
+  - `ax`, `axm`: every axis in the work offset and in machine coordinates;
+  - `j`, `jh`, `jfe`: each joint's position (LinuxCNC's joint `input`, °), homed, following error;
+  - `jmode`: `joint`, `world` (teleop) or `coord` (a program or MDI move).
+- **Jog:** `J<n>` jogs a joint in joint mode (before homing too), X..C the axes in world mode (homed); millweb switches LinuxCNC's mode first and waits for motion to take it (up to 1 s). Home a joint with `home` `J<n>`.
+  - **The tool frame** (`TX`..`TC`): along and about the mounted tool's own axes. LinuxCNC has no such jog, so millweb works the target out from the commanded pose (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F<rate>`: an increment that far, held to the `[AXIS_*]` limits along the line (a turn: 45°), aborted on release or by the deadman. A turn keeps the tool point; LinuxCNC moves A B C linearly between the ends.
+  - **The enabling switch** (`[MILLWEB] ENABLE_PIN`, set while released: the generated config's `motion.jog-inhibit`): released, a jog is refused, and a running one stops (LinuxCNC's own `jog-stop`; millweb aborts a tool-frame move).
+- **`teach_record` {rate}:** the arm's position in the work coordinates as `G1 X.. Y.. Z.. A.. B.. C.. F<rate>` after the teach file's last point (`[MILLWEB] TEACH_FILE`, else `[ARM6HMI] TEACH_FILE`, else `teach.ngc` in the program folder). The file is a program: a header, the points, `M2`. The reply has the line and the number of points, and the file list is sent again.
+- **`teach` {action, index}:** the points: `list` (any browser), `delete`, `up`, `down` (an index), `clear`.
+- **`arm_home` {rate}:** Go home: every joint to `[ARM6HMI] HOME_JOINTS` at once in joint mode, one increment each, their speeds such that they arrive together (at most the rate in °/min and each joint's `MAX_VELOCITY`). Joint space: the mounted tool doesn't matter.
+- **`arm_model`:** `{files: {name: text | {b64: STL}}, model, cell, tools}`: the 3D model (`[MILLWEB] ARM_MODEL`, else `[ARM6HMI] MODEL`, else linuxcnc/vis3d's `arm6_changer.vis` with a tool changer, `arm6_lcnc.vis` without), every file it `include`s or loads (`part … mesh FILE.stl`), armguard's cell (`[ARMGUARD] CELL`) and the tool table (`[STMBL_ARM] TOOLS`) with theirs. Names are paths from the model's folder; in the texts each include and mesh names its file as `@<name>` (the files vis3d resolves from the including file's folder).
+- **`slow`'s `arm`:** each loaded component's pins, `-` as `_`:
+  - `guard` (armguard.0: state, reason, clearance);
+  - `collide` (armcollide.0: collision);
+  - `grip` (armgrip.0: state, gap_fb, payload_mass, close);
+  - `tool` (armtool.0: mounted, fault, reason, valve);
+  - `changer` (stmbl-arm.0.changer: locked, unlocked, present, id);
+  - `quota` (powerquota.0: total_power, feed_scale, limiting);
+  - `kins_tool` (armkins.tool).
+
+**The console on an arm** (`js/arm.js`, `js/armmodel.js`; linuxcnc/arm6hmi is the same as a QtVCP screen):
+- **The 3D view:** the arm from its model files, posed from LinuxCNC's joints (Craig DH as genserkins: the browser's forward kinematics give LinuxCNC's own X Y Z A B C, `test/armmodel_test.js`). The tools on the flange or in their docks (with their stands), the cell's obstacles see-through, green while the guard is clear, amber under twice its limit, red stopped. The tool point marked; the program's path and the trail as a mill's.
+- **The DRO:** X Y Z A B C (the tool point).
+- **Joints panel** (in place of the spindle's): each joint within its limits (LinuxCNC's `[JOINT_n]`), its angle, following error, homed, REF homes it. Below:
+  - the guard: ARMED / NEAR / STOP and why, the clearance against its limit;
+  - the gripper: its state and gap, Open / Close (the MDI of `[ARM6HMI] GRIP_OPEN` / `GRIP_CLOSE`);
+  - the power quota;
+  - the enabling switch: HELD / RELEASED (the jog pad dims while released);
+  - **Record point** (`teach_record`), **Go home** (`arm_home`; the simulation: the ARC Mate's home pose);
+  - **Teach points:** the list, each with Go (its line as MDI), ↑ ↓ (its place), ×; Clear; **Load as program** (LinuxCNC opens the teach file; the simulation makes its moves).
+- **JOG:** JOINT (J1..J6, joint mode, before homing too), WORLD (X..C, homed) or TOOL (along and about the tool's axes), the increments or CONT (hold the key).
+- **Tools page:** the tool changer's tools, IN DOCK / ON FLANGE, **Mount** (`T<n> M6`, after `[ARM6HMI] TOOL_READY` when set), **Put the tool back** (`T0 M6`); the lock, its sensors, the kinematics' tool point, a fault and its reason.
+- **The simulation:** machine.json's `type: arm` gives the ARC Mate with its tool changer (`js/arm_demo.js`, made by `tools/gen_arm_demo.js` from linuxcnc/vis3d and hwtest/arcmate-sim), a pick-and-place program that also tilts the tool (B, then C); its joints follow the program's tool point and A B C by IK (A B C interpolated as LinuxCNC's rotary axes), the jog pad's joints by forward kinematics. MDI runs G0/G1 with X..C (a target out of reach is refused), `T<n> M6` and the gripper's `M64`/`M65 P0`.
+- **Configure:** machine type **arm** (`machines/arcmate_sim/machine.json`: the simulated ARC Mate as hwtest/arcmate-sim's HMI config). The `arm` section names the files (in the machine folder, absolute, or `{repo}/…`):
+  - `model`: arm_sim's `.arm` (dh, limits, bodies, masses) for `armkins` (always the kinematics: `armkins model=… [tools=…]`), armtool and, unless `collide_model`, armguard, armcollide and armgrip;
+  - `vis`: the console's 3D model (blank: `run/arm.vis`, the model's bodies with `joints theta`);
+  - `cell` (armguard; blank: no guard), `collide` (armcollide, its residuals into the guard), `quota` (powerquota, its feed scale into adaptive feed);
+  - `tools` (the changer: armtool, M6 = `run/toolchange.ngc` and `dockread.ngc`; the changer's tools become the first `tool.tbl`), `changer` (its pins; `ready`: the MDI before a change);
+  - `gripper` (armgrip on a drive, mm of finger gap), `enable` (the enabling switch: `jog-inhibit` and `jog-stop`, `hold_all` also `feed-inhibit`), `home` (Go home's joint values), `sim` (stmbl_arm's arm file and drive library).
+  - Each joint: a drive (`stmbl_sserial`, `stmbl_can`: motor radians by its `gear`, motor turns a joint turn, through scale comps; `stmbl_arm`: the simulated arm; `sim`), its travel and speeds in degrees, homed by an absolute encoder or where it is.
+  - The E-STOP chain: the input (or the GUI's loop) → armguard (a collision, a protective stop) → powerquota → armgrip → armtool → LinuxCNC (through estop_latch with an input or a board's watchdog).
+- **Tests:** `make test-gui-arm` runs `test/gui/arm_suite.js` against LinuxCNC with hwtest/arcmate-sim and its tool changer (`harness.py --arm`); `make test-gui-arm-machine` against the config millweb-supervisor makes from `machines/arcmate_sim/machine.json`, with test/machine's G54 offset (`harness.py --arm-machine`). Both: the model and panels, homing, a joint, a world and two tool-frame jogs, MDI, the guard, Record point and the points list, Load as program, Go home (where configured), three tool changes with armtool, LinuxCNC and the kinematics agreeing, the gripper.
 
 ## Programs
 
@@ -391,12 +451,63 @@ the event log.
 - **DRO:** X as a diameter (Ø, the radius below it) in G7, as a radius in G8, following LinuxCNC's modal state; Z; no Y. Positions stay radii, as LinuxCNC keeps them.
 - **The view:** the spindle's axis along the screen, the chuck turning with the stock in it, the saddle and cross slide following the tool. XZ is the operator's view (+X down for a front post, up for a back one). The path is drawn over the stock and mirrored across the axis, faint: the part's section.
 - **Jog:** left/right Z, up/down X (up: away from the operator on a front post).
-- **Tools:** the turret's tools with X and Z offsets, nose radius, orientation (Q 1–9, LinuxCNC's), drawn as an insert and its holder. tool.tbl keeps X, Q, I, J.
+- **Tools:** the turret's tools with X and Z offsets, nose radius, orientation (Q 1–9, LinuxCNC's: Q2 an outside turning tool, Q3 a boring bar, Q6 a thread or parting tool across, Q7 a drill on the axis, as AXIS draws them), the insert's shape, a grooving insert's width and the cutting edge's length (the tool database), drawn as the insert and its holder. tool.tbl keeps X, Q, I, J.
 - **Wizards:** facing, turning (roughing passes to an allowance, then a finish), threading (G76), grooving and parting off. The programs are G18 G7 G95, at constant cutting speed (G96) where it fits.
 - **Preview:** LinuxCNC's interpreter with the INI's startup code (X words as diameters), its time at the spindle's rpm in G95, from the cutting speed at the diameter in G96, and at the pitch on G33/G76 lines.
 - **Probe and Dynamics:** not on a lathe.
 
-`machines/emco_compact5` is an example: simulated joints and spindle (with an encoder: G76 threads).
+**The tool database.** LinuxCNC's tool table has no place for a tool's flutes or its insert, so millweb keeps them in a tag at the end of the tool's comment, `;6 mm endmill {fl=3 cl=18}` (LinuxCNC keeps comments when it writes the table, a touch-off too). The Tools page edits them:
+- **`fl`:** flutes (a mill's Tools page; the spectrum's tooth-pass line uses it).
+- **`ins`:** a lathe insert's shape: `80`, `55`, `35` (rhombus), `60` (a thread), `groove`, `round`, `drill`.
+- **`w`:** a grooving insert's width.
+- **`cl`:** the cutting edge's length (a mill's: the flute length).
+- **A mill's:** `ty` its type (`flat`, `ball`, `bull`, `drill`, `vee` (a chamfer or engraving cutter), `probe`; blank: guessed from the comment), `cr` a bull nose's corner radius, `ang` a drill's or a vee's point angle (118°, 90° when blank), `so` its stick-out (the tip to the holder), `hd` the holder's Ø. Blank: flutes 2–4 × Ø long, the stick-out the flutes and a Ø more, a holder 20 mm wider than the tool.
+
+**Material removal** (`js/stock.js`, the browser's; no load on the board):
+- **The stock:** Ø, a tube's bore, the length out of the chuck, its face's Z in the work's coordinates, the chuck's Ø. Set on the File page's Preflight card and kept with the 3D setup (`lathe` in millweb-setup.json).
+- **The model:** the stock in 0.05 mm slices along Z, each a ring. Each move sweeps the tool's insert outline through it, from the tool table as AXIS draws it: orientation, nose radius, front and back angles (I, J), else the insert's shape. Exact for turned shapes, nose radius and fillets included. A thread can't be cut into a turned section: a 60° insert's passes along Z keep the major Ø and note the thread's depth (drawn as a saw).
+- **The view:** the stock cut as the program runs (and as LinuxCNC runs it, line by line), coloured by the tool that cut each surface. A part cut off stays where it was. "Show the finished part" runs it all.
+- **The check** (Preflight, every program shown on the File page, and each program loaded: a warning when it finds a crash risk):
+  - G0 into the stock;
+  - the tool or its holder into the chuck;
+  - the holder in the part (a cut deeper than the insert reaches);
+  - a cut deeper than 70 % of the insert's edge;
+  - an outside tool past the axis;
+  - a part off (where, and how long).
+
+  Each finding gives its line (a tap shows it in the listing) and a mark in the view. Also shown: the volume taken, cutting against air time, each tool's material removal rate and deepest cut, the threads, the part.
+- **Not modelled:** the jaws' shape (the chuck is a cylinder from its face), a holder other than a 12 mm shank (a Ø10 bar for an inside tool), tool deflection, chip load. A program the preview draws with merged moves (past 100 000) is checked on the merged path.
+
+**The turret** (`lathe.turret`, linuxcnc/lathe): a stepper on step/dir (a stepgen in position mode), one index pulse a turret turn, locked by running backwards onto its pawl, as on the Emco Compact 5. M6 turns it; T only names the tool:
+- **Homing:** the first change after a start or an E-STOP turns forward up to 1.5 turns to find the index (station 1 is `offset` after it).
+- **A change:** forward to the station (never backwards: that is the lock) and `overtravel` past it, back by `overtravel + lock` at `lock_speed` onto the pawl, a `dwell`, done. Tool *n* is on station (*n* − 1) mod `stations` + 1. Every tool used needs a line in tool.tbl: LinuxCNC refuses a T it doesn't have.
+- **Faults:** the index seen elsewhere than it should be (`slip`: lost steps, a stall), no index while homing, a change longer than `timeout`. Any of these opens the E-STOP chain; the reset after it homes the turret again on the next change.
+- **The console:** the Tools page says the station, homed or not, and the fault.
+
+**AC servos everywhere** (`machines/emco_compact5/machine-stmbl.json`): stmbl drives on X, Z and the spindle on smart-serial, the turret's stepper on a stepgen, and an EBAZ4205 (Zynq) card running hostmot2 (`hm2_soc_ol`, its bitstream through `fpga_manager`). The board's name, its stepgen and GPIO numbers, and the X/Z leads in the file are placeholders: set them to the card's bitstream and the machine. The spindle drive's config is velocity mode, as `conf/haas_spindle.txt` (`pid0.pos_en = 0`).
+
+## Routers
+
+`machines/excitech` is an Excitech-style router: 1200 × 1200 mm on a moving gantry (two Y
+motors on racks), Z 215 mm, an ISO30 electrospindle to 24 000 min⁻¹ and a rack of six forks
+along the back of the bed. Its drives are simulated (`sim`, no board): it runs as it is, and
+becomes the real machine by giving the joints their drives and the rack its drawbar pins.
+- **The 3D view** (type `router`): the welded bed on its feet, the vacuum table with its MDF
+  spoilboard (top at Z 0 of the table), the side beams with their racks, the gantry and its
+  pinion motors, the X carriage, the Z slide, the square electrospindle, the tool setter, and
+  the rack from machine.json's `atc` (each fork with its holder; the spindle's own fork empty).
+  Sized from the travels: another router is the same machine.json with other numbers.
+- **The rack:** `atc` type `rack`, 6 pockets from X 150 at Y 1290, 150 mm apart, the forks open
+  towards the front (the holder slides in along +Y, 80 mm), Z −150 in the fork. M6 runs the
+  generated `run/toolchange.ngc`: the tool back into its fork, then the new one out of its fork;
+  a tool beyond pocket 6 is changed by hand. The first tool.tbl has a tool in each pocket (to be
+  measured and named). Y travels to 1320, past the 1200 of the work area, to reach the rack.
+- **Without LinuxCNC:** `index.html?machine=router` (or `?sim&machine=router` over HTTP) is the
+  simulation as this router; M6 (the Tools page's Load, MDI) runs through the rack in the view.
+- **Guessed:** the travels' exact ends, the rack's place and pitch, Z of the forks, the speeds
+  (667 mm/s, 3 m/s²): measure them on the machine.
+
+`machines/emco_compact5` is an example: simulated joints, spindle (with an encoder: G76 threads) and turret.
 Its 3D model comes from the machine's STEP file through `tools/step2parts.py`; see its README.
 
 **Two lathes in one machine** (a twin-spindle lathe such as the CTX TWIN, a controller each side) are
@@ -413,6 +524,39 @@ M-code subroutines on both sides:
 - **Uploading and loading a program** show a bar: reading the file, sending it (from the socket's buffer), LinuxCNC loading it and making the preview, then drawing it. A long path is turned into the 3D view in slices, the page staying alive between them.
 - **STATS** takes the MDI / JOG place while a cycle runs and gives it back after: run time (and on hold), pace against the estimate, G-code lines a second and lines run, maximum and mean velocity, contour error, the largest following error of each joint (and the gantry's Y1−Y2 skew), spindle load. The last run's numbers stay under STATS until the next run or Reset.
 
+## Material removal (a mill)
+
+`js/mstock.js`, in the browser (no load on the board), the lathe's (`js/stock.js`) counterpart:
+- **The stock:** the 3D setup's workpiece: the built-in block, or a model's triangles (between their highest and lowest point at each place). A height map over it, 0.25 mm cells (coarser past 250 000 cells). The fixtures (the vise's base and jaws, models) as a height map of their own.
+- **The cut:** each move lowers the cells under the tool to its lowest point over them. It is exact for a flat end mill on any straight move, ramps included, and sampled for ball, bull nose, drill and vee profiles. Arcs come as short moves.
+- **The view:** the stock cut as the program runs (the simulation's and LinuxCNC's), coloured by the tool that cut each place. It replaces the block while there is something cut (a click on it selects the workpiece). It is drawn coarser than it is cut (at most 40 000 points, fewer on a device that draws slowly); "Show the finished part" runs it all.
+- **The check:** on the File page's Preflight (Material removal), for every program shown, and with a warning when a loaded program has a crash risk:
+  - G0 into the stock;
+  - a cut deeper than the flutes (the shank in the material);
+  - the holder in the stock (the stick-out too short);
+  - the cutter or holder into a fixture;
+  - a probe into the stock off a probing move;
+  - cutting after M5 (the simulation's programs; LinuxCNC's preview doesn't say);
+  - through the stock's bottom (a note).
+
+  Repeats are one finding with their count; a tap shows the line, and marks sit in the view. Also shown: the volume, cutting against air time, each tool's removal rate, deepest cut and chip load (from its flutes and the spindle's speed, when the program gives it).
+- **Against the finished part:** a model in the setup with the role *finished part* (the File page's **+ part**, or the object's panel), placed like the stock, see-through. After the whole run its top is compared with the stock's, cell by cell:
+  - a **gouge** (the stock below the part by more than ±0.05 mm) is a crash risk, given with the line and tool that cut it;
+  - **stock left** is its volume and thickness;
+  - the share within ±0.05.
+
+  A wall inside a cell counts as neither: a gouge is measured from the part's lowest point among a cell and its neighbours, stock left from the highest. **Colour against the part** shows the run's result red where it gouges (deeper red to 0.5 mm), blue where stock is left (to 2 mm), green within the tolerance.
+- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path, where a merged arc's chord can cut across the part: its crash risks show as possible ("N TO VERIFY", amber), and the full simulation below, which doesn't merge, gives the verdict.
+- **The full simulation:** **Run the full simulation** on the Material removal card. It takes every move from the machine (`program_get` with `full`; up to `PREVIEW_FULL_SEGS`), on 0.25 mm cells (up to 4 million), against the setup's stock, fixtures and parts, and shows its findings and the comparison under the quick check. A 6 MB CAM program of about 500 000 moves on a 500 × 400 mm plate takes about half a minute and 350 MB in a desktop browser; a tablet may run out of memory.
+
+### Checked and Simulated ticks
+
+Each program in the File list has two ticks:
+- **Checked:** its Preflight has run (shown when the program is selected): travel, tools in the table, reading it, the material removal's quick check.
+- **Simulated:** the full simulation has run on it.
+
+A tick is green when that run was clean, amber with warnings (or a full simulation that couldn't read every move), red with a crash risk, a gouge, a travel outside the limits or a missing tool. It is grey and dashed when it was made for another setup (stock, parts, fixtures, offsets or tools changed since: `sig`, a hash of those), and gone once the file changes. Hover it for when, by which browser, and what it found. On a machine millweb keeps them (`MARKS`), so every browser shows them; in the simulation they stay in the page.
+
 ## The 3D setup
 
 What stands on the table in the 3D view: the built-in vise and stock by default, and
@@ -423,8 +567,29 @@ needs control.
 - **Top at work zero** puts its top at work Z0 and its front-left corner at X0 Y0; **On the table** sets its bottom on the table; **Turn 90°**, **Tip 90°**; **Remove**.
 - Each object is solid, see-through or hidden; the **fixtures** and **workpiece** buttons above the view do the same for all of them at once.
 - A new workpiece goes to the work zero, a new fixture onto the table under it.
+- **A CAM scene:** see below.
 - **Tools:** on the Tools page each tool can have its own model (the tool and its holder in one STL or OBJ, its origin at the cutting tip, the spindle along +Z), uploaded there or chosen from the program folder's models, shifted, turned and scaled; the 3D view draws it in place of the plain cylinder. Kept with the setup (`tools`).
 
+### Importing a CAM scene
+
+A CAM setup's dump: a zip with `scene.json` (the stock's box and material, the work zero,
+each part and its copies) and the STL files of the stock and of every placed copy, all
+in the work's coordinates. On the File page, **CAM scene → Import scene…** (or a .zip
+dropped on the program list or chosen with Upload):
+- **The dialog** shows the stock (size, material), the work zero, the parts and their copies,
+  and notes: a copy outside the stock, two copies overlapping, parts the CAM left unplaced,
+  files in the zip that scene.json doesn't name.
+- **Import** makes the 3D setup the scene: the stock as the workpiece, each copy a
+  see-through finished part, placed as they are (position 0, the work frame; a scene in
+  inches scaled 25.4). **Keep the fixtures** keeps the vise and plates in the setup.
+- **On a machine** millweb stores the models under `scenes/<zip name>/` in the program
+  folder (with its scene.json), checks them again (names, sizes, a zip bomb, real
+  STL/OBJ: `server/scene.py`) and every browser gets the new setup; importing the same
+  name again replaces it. In the simulation the scene stays in the page.
+- **Then:** set the work offset at the scene's zero on the real stock (the panel says
+  which: e.g. the top centre). The material removal cuts the scene's stock and compares
+  the result with the parts. The panel lists the parts; a click selects one in the view.
+- **Limits:** a zip up to 6 MB, 5 MB a model, 60 part copies.
 
 ## On a tablet
 
@@ -440,6 +605,7 @@ round (`make test-gui-tablet`):
 - **The E-STOP chain is hardware**: stmbl's fault inputs and the drives' quick stop. The page's E-STOP only asks LinuxCNC for `STATE_ESTOP`, and any browser, watching or not, may press it.
 - **One browser has control** at a time, the others watch. Control goes away when its browser disconnects. `REMOTE_ENABLE_PIN` forbids remote control at the machine, and `TOKEN` asks for a password.
 - **Continuous jogging needs a keep-alive:** a message at least every 300 ms, or millweb stops the jog. A lost connection stops it at once.
+- **An arm's jog is not safety-rated.** The browser's keys and the keep-alive are conveniences, not a safety function. Wire the arm's enabling switch (`arm.enable`: LinuxCNC's own `jog-inhibit`/`jog-stop`, so a released switch stops jogs without millweb), a hardware E-STOP chain into the drives, and keep people out of the cell while it moves; the cell guard (armguard) and the collision detector protect the machine, not people.
 - **E-STOP, Stop and jog stop never wait** behind another command (a tool measurement takes 30 s): they go to LinuxCNC from their own thread on their own command channel. After a Stop or an E-STOP, a running sequence (tool setter, probe, a multi-point move) sends nothing more.
 - **Checks before LinuxCNC:** commands are checked (E-STOP, machine on, homed, idle) first, and LinuxCNC checks everything again.
 - **A program can't take millweb down.** The preview interprets in a child process (killed after `PREVIEW_TIMEOUT`); the server keeps answering while it works.
@@ -469,6 +635,7 @@ round (`make test-gui-tablet`):
 | `make test-gui-live` | the console on real LinuxCNC through its own controls | 3 min | all of the above |
 | `make test-live` | one end-to-end scenario: the protocol, then the page | 1 min | all of the above |
 | `make test-stress` | large programs: a million lines, 2 million moves, 20 000 peck cycles, arcs, real CAM output (inches) | 10 min | all of the above |
+| `make test-router` | `machines/excitech` made and run by millweb-supervisor: the router's hello, M6 through the rack's forks (`test/router_live.py`) | 1 min | LinuxCNC |
 | `make test-config` | the Configure page and restarts: test/machine run by millweb-supervisor (backend cases and the page) | 2 min | all of the above |
 | `make test-drive` | the Drives tab on LinuxCNC with a simulated stmbl drive on X (`harness.py --drive`: `stmbl_sim` closing joint 0's loop, `sserialterm`) | 1 min | all of the above, `stmbl_sim.so` and `sserialterm.so` installed |
 | `make check-all` | unit, simulated, tablet, backend and live GUI suites | 17 min | |

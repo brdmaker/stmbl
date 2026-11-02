@@ -5,6 +5,7 @@ module (`linuxcnc`, and `hal` for pins); tests pass a stand-in.
 Machines in mm (linear units 1). Axes X Y Z; a gantry's second Y joint is
 shown as Y2 (from [TRAJ] COORDINATES / [KINS]).
 """
+import base64
 import json
 import math
 import os
@@ -14,7 +15,50 @@ import subprocess
 import threading
 import time
 
+import scene as scene_mod  # the CAM scene import (server/scene.py)
+
 AXES = "XYZABCUVW"
+# kinematics of an arm: its joints are not axes (millweb: machine type "arm")
+def axis_rot(i, deg):
+    """3x3 rotation about x (0), y (1) or z (2) by deg"""
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    return [[[1, 0, 0], [0, c, -s], [0, s, c]], [[c, 0, s], [0, 1, 0], [-s, 0, c]], [[c, -s, 0], [s, c, 0], [0, 0, 1]]][i]
+
+
+def mat_mul(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(3)) for c in range(3)] for r in range(3)]
+
+
+def rpy_matrix(a, b, c):
+    """an arm's A B C [deg] as genserkins: R = Rz(C) Ry(B) Rx(A)"""
+    return mat_mul(axis_rot(2, c), mat_mul(axis_rot(1, b), axis_rot(0, a)))
+
+
+def rpy_of(R):
+    """R's A B C [deg] (shared/robot/kin.c rb_rpy_from_R)"""
+    cb = math.hypot(R[0][0], R[1][0])
+    b = math.atan2(-R[2][0], cb)
+    if cb > 1e-9:
+        a, c = math.atan2(R[2][1], R[2][2]), math.atan2(R[1][0], R[0][0])
+    else:
+        a, c = 0.0, math.atan2(-R[0][1], R[1][1])
+    return [math.degrees(a), math.degrees(b), math.degrees(c)]
+
+
+def unwrap_deg(x, ref):
+    """x moved by whole turns to within 180° of ref (LinuxCNC moves A B C the way the numbers go)"""
+    return x + 360.0 * round((ref - x) / 360.0)
+
+
+ARM_KINS = ("genserkins", "armkins", "pumakins", "scarakins", "genhexkins", "pentakins", "rosekins", "5axiskins")
+ARM_PINS = {  # what the console shows of an arm, if loaded (linuxcnc/armguard, armcollide, armgrip, armtool, powerquota)
+    "guard": ("armguard.0.", ("state", "reason", "clearance")),
+    "collide": ("armcollide.0.", ("collision",)),
+    "grip": ("armgrip.0.", ("state", "gap-fb", "payload-mass", "close")),
+    "tool": ("armtool.0.", ("mounted", "fault", "reason", "valve")),
+    "changer": ("stmbl-arm.0.changer.", ("locked", "unlocked", "present", "id")),
+    "quota": ("powerquota.0.", ("total-power", "feed-scale", "limiting")),
+}
 
 
 def read_ini(path):
@@ -61,9 +105,58 @@ class Config:
         return os.path.normpath(os.path.join(self.dir, os.path.expanduser(v)))
 
 
+# millweb's own tool data, a tag at the end of tool.tbl's comment (LinuxCNC keeps comments when it writes the
+# table): fl flutes; a lathe's ins (the insert: 80, 55, 35, 60 a thread, groove, round, drill), w its width
+# (a grooving insert's), cl its cutting edge length (a mill's: the flute length); a mill's ty (its type: flat, ball,
+# bull, drill, vee, probe), cr (a bull nose's corner radius), ang (a drill's or a vee's point angle), so (its
+# stick-out: the tip to the holder), hd (the holder's Ø)
+TOOL_TAG = {"fl": int, "ins": str, "w": float, "cl": float, "ty": str, "cr": float, "ang": float, "so": float, "hd": float}
+INSERTS = ("80", "55", "35", "60", "groove", "round", "drill")
+MILL_TYPES = ("flat", "ball", "bull", "drill", "vee", "probe")
+
+
+def split_comment(comment):
+    """'6 mm endmill {fl=3}' -> ('6 mm endmill', {'fl': 3}); unknown or bad keys dropped."""
+    m = re.search(r"\s*\{([^{}]*)\}\s*$", comment)
+    if not m:
+        return comment.strip(), {}
+    out = {}
+    for k, _, v in (x.partition("=") for x in m.group(1).split()):
+        try:
+            if k in TOOL_TAG and v:
+                out[k] = TOOL_TAG[k](float(v)) if TOOL_TAG[k] is int else TOOL_TAG[k](v)
+        except ValueError:
+            pass
+    return comment[:m.start()].strip(), out
+
+
+def join_comment(c, t):
+    tag = " ".join("%s=%s" % (k, ("%g" % t[k]) if isinstance(t[k], float) else t[k]) for k in TOOL_TAG if t.get(k) not in (None, ""))
+    return (c + " {%s}" % tag) if tag else c
+
+
+LATHE_STOCK = {"d": (0.5, 2000), "bore": (0, 2000), "stick": (1, 3000), "face": (-500, 500), "chuckD": (10, 3000)}
+
+
+def lathe_check(o):
+    """A lathe's stock in the setup: d (Ø), bore, stick (out of the chuck), face (its Z), chuckD; ValueError else."""
+    if not isinstance(o, dict):
+        raise ValueError("a lathe's stock: d, bore, stick, face, chuckD")
+    out = {}
+    for k, (lo, hi) in LATHE_STOCK.items():
+        if k in o:
+            v = o[k]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ValueError("the stock's %s: %g to %g" % (k, lo, hi))
+            out[k] = float(v)
+    if out.get("bore", 0) >= out.get("d", 32):
+        raise ValueError("the stock's bore: less than its diameter")
+    return out
+
+
 def parse_tool_table(path):
     """tool.tbl: T P D Z ;comment -> [{t, p, d, z, c}]; a lathe's also X (its X offset), Q (the
-    orientation, 1-9), I and J (the front and back angles): x, q, i, j"""
+    orientation, 1-9), I and J (the front and back angles): x, q, i, j; the comment's tag: fl, ins, w, cl"""
     tools = []
     try:
         with open(path, errors="replace") as f:
@@ -72,8 +165,10 @@ def parse_tool_table(path):
                 w = dict(re.findall(r"([TPDZXYRQIJ])\s*([-+]?\d*\.?\d+)", body.upper()))
                 if "T" not in w:
                     continue
+                c, tag = split_comment(comment)
                 t = {"t": int(float(w["T"])), "p": int(float(w.get("P", w["T"]))),
-                     "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": comment.strip()}
+                     "d": float(w.get("D", 0)), "z": float(w.get("Z", 0)), "c": c}
+                t.update(tag)
                 for k in "XQIJ":
                     if k in w:
                         t[k.lower()] = int(float(w[k])) if k == "Q" else float(w[k])
@@ -90,7 +185,7 @@ def write_tool_table(path, tools):
         for t in sorted(tools, key=lambda t: t["t"]):
             lathe = "".join((" X%+.4f" % t["x"] if "x" in t else "") + (" Q%d" % t["q"] if t.get("q") else "") +
                             (" I%.1f" % t["i"] if "i" in t else "") + (" J%.1f" % t["j"] if "j" in t else ""))
-            f.write("T%d P%d%s D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], lathe, t["d"], t["z"], t.get("c", "").replace("\n", " ")))
+            f.write("T%d P%d%s D%.4f Z%+.4f ;%s\n" % (t["t"], t["p"], lathe, t["d"], t["z"], join_comment(t.get("c", "").replace("\n", " "), t)))
     os.replace(path + ".tmp", path)
 
 
@@ -165,7 +260,7 @@ def setup_check(objects, model_path):
             raise ValueError("an object's src: builtin:vise, builtin:stock or model:<path>")
         num = lambda v, lim: max(-lim, min(lim, float(v))) if math.isfinite(float(v)) else 0.0  # noqa: E731
         c = {"id": str(o.get("id", ""))[:40] or "o%d" % len(out), "name": str(o.get("name", ""))[:80],
-             "role": o.get("role") if o.get("role") in ("fixture", "workpiece") else "fixture", "src": src,
+             "role": o.get("role") if o.get("role") in ("fixture", "workpiece", "part") else "fixture", "src": src,
              "frame": o.get("frame") if o.get("frame") in ("work", "machine") else "work",
              "pos": [num(v, 10000) for v in list(o.get("pos", (0, 0, 0)))[:3]],
              "rot": [num(v, 360) for v in list(o.get("rot", (0, 0, 0)))[:3]],
@@ -257,9 +352,18 @@ class Machine:
         self.joints = {}
         for j, a in enumerate(coords):
             self.joints.setdefault(a, []).append(j)
+        # an arm (genserkins, armkins, ...): joints that are not axes; the axes it has (X Y Z A B C), in AXES order
+        kins = ((cfg.get("KINS", "KINEMATICS", "") or "").split() or [""])[0]
+        self.arm = (cfg.get("MILLWEB", "MACHINE_TYPE", "") or "").lower() == "arm" or kins in ARM_KINS
+        self.axes = "".join(a for a in AXES if a in coords)
+        self.njoints = int(cfg.num("KINS", "JOINTS", len(coords)))
+        if self.arm:
+            self.joints = {}  # no joint is an axis
+        self.teach_file = cfg.file("MILLWEB", "TEACH_FILE") or cfg.file("ARM6HMI", "TEACH_FILE") or os.path.join(self.nc_dir_guess(cfg), "teach.ngc")
         self.nc_dir = cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
         self.setup_file = cfg.file("MILLWEB", "SETUP") or os.path.join(cfg.dir, "millweb-setup.json")
         self.views_file = cfg.file("MILLWEB", "DEBUG_VIEWS") or os.path.join(cfg.dir, "debug-views.json")
+        self.marks_file = cfg.file("MILLWEB", "MARKS") or os.path.join(cfg.dir, "millweb-marks.json")
         self.tool_file = cfg.file("EMCIO", "TOOL_TABLE") or os.path.join(cfg.dir, "tool.tbl")
         self.var_file = cfg.file("RS274NGC", "PARAMETER_FILE") or os.path.join(cfg.dir, "linuxcnc.var")
         self.offsets = parse_var_offsets(self.var_file)
@@ -294,11 +398,194 @@ class Machine:
             if len(v) == 2:
                 lo, hi = sorted(float(x) for x in v)
                 self.workspace[a] = (lo, hi)
+        self.enable_pin = cfg.get("MILLWEB", "ENABLE_PIN", "") or ""  # an arm's enabling switch: set while released (motion.jog-inhibit)
         self.last_run = "idle"
         self.wcs_unknown = False
         self.notes = []                 # for the event log, from the worker thread
         self.done_flag = False
         self.jog_active = {}
+
+    @staticmethod
+    def nc_dir_guess(cfg):
+        return cfg.file("MILLWEB", "NC_DIR") or cfg.file("DISPLAY", "PROGRAM_PREFIX") or os.path.join(cfg.dir, "nc_files")
+
+    # -------------------------------------------------------------- an arm
+    def arm_info(self):
+        """An arm's joints and axes (their limits from the INI), the files the console draws it from."""
+        cfg = self.cfg
+        jl = []
+        for j in range(self.njoints):
+            sec = "JOINT_%d" % j
+            jl.append({"min": cfg.num(sec, "MIN_LIMIT", -180.0), "max": cfg.num(sec, "MAX_LIMIT", 180.0),
+                       "vel": cfg.num(sec, "MAX_VELOCITY", 0.0) * 60, "acc": cfg.num(sec, "MAX_ACCELERATION", 0.0),
+                       "type": (cfg.get(sec, "TYPE", "ANGULAR") or "ANGULAR").upper()})
+        al = {a: {"min": cfg.num("AXIS_" + a, "MIN_LIMIT", 0.0), "max": cfg.num("AXIS_" + a, "MAX_LIMIT", 0.0),
+                  "vel": cfg.num("AXIS_" + a, "MAX_VELOCITY", 0.0) * 60} for a in self.axes}
+        return {"joints": self.njoints, "axes": self.axes, "jlim": jl, "alim": al, "teach": os.path.basename(self.teach_file),
+                "grip": {"open": cfg.get("ARM6HMI", "GRIP_OPEN", "M65 P0"), "close": cfg.get("ARM6HMI", "GRIP_CLOSE", "M64 P0")},
+                "tool_ready": cfg.get("ARM6HMI", "TOOL_READY", "") or "", "enable_switch": bool(self.enable_pin),
+                "home": self.home_joints(),
+                "angular_vel": cfg.num("DISPLAY", "DEFAULT_ANGULAR_VELOCITY", 20.0) * 60}
+
+    def arm_model_paths(self):
+        """(the 3D model, armguard's cell, the tool table): [MILLWEB] ARM_MODEL (else [ARM6HMI] MODEL, else
+        linuxcnc/vis3d's arm6_changer.vis with a tool changer, arm6_lcnc.vis without), [ARMGUARD] CELL,
+        [STMBL_ARM] TOOLS."""
+        cfg = self.cfg
+        model = cfg.file("MILLWEB", "ARM_MODEL") or cfg.file("ARM6HMI", "MODEL")
+        tools = cfg.file("STMBL_ARM", "TOOLS")
+        if not model:
+            repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            vis = cfg.file("ARM6HMI", "VIS3D") or os.path.join(repo, "linuxcnc", "vis3d")
+            model = os.path.join(vis, "models", "arm6_changer.vis" if self._pin_exists("armtool.0.mounted") or tools else "arm6_lcnc.vis")
+        return model, cfg.file("ARMGUARD", "CELL"), tools
+
+    def arm_model(self):
+        """The arm's model files for the browser: {"files": {name: text, or {"b64": STL}}, "model", "cell", "tools"},
+        each name its path relative to the model's folder; in the texts, each include and mesh names its file as
+        @<name> (vis3d resolves them from the including file's folder: the same files). Only what the INI names and
+        what those files include or load."""
+        model, cell, tools = self.arm_model_paths()
+        if not model or not os.path.isfile(model):
+            raise ValueError("no arm model: %s ([MILLWEB] ARM_MODEL)" % model)
+        root = os.path.dirname(os.path.realpath(model))
+        files, total = {}, [0]
+        rel = lambda p: os.path.relpath(os.path.realpath(p), root).replace(os.sep, "/")  # noqa: E731
+
+        def add(path, depth=0):
+            name = rel(path)
+            if name in files or depth > 8:
+                return
+            if path.lower().endswith(".stl"):
+                data = open(path, "rb").read()
+                total[0] += len(data)
+                if total[0] > 40 * 1024 * 1024:
+                    raise ValueError("the arm's model files: over 40 MB")
+                files[name] = {"b64": base64.b64encode(data).decode()}
+                return
+            text = open(path, errors="replace").read()
+            if len(text) > 2 * 1024 * 1024:
+                raise ValueError("%s: over 2 MB" % name)
+            out, refs = [], []
+            for line in text.splitlines():
+                w = line.split("#", 1)[0].split()
+                ref = w[1] if len(w) >= 2 and w[0] == "include" else w[3] if len(w) >= 4 and w[0] == "part" and w[2] == "mesh" else None
+                if ref:
+                    p = ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref)
+                    if os.path.isfile(p):  # the browser has names, not paths: @ and the file's name
+                        line = line.replace(ref, "@" + rel(p), 1)
+                        refs.append(p)
+                out.append(line)
+            files[name] = "\n".join(out) + "\n"
+            for p in refs:
+                add(p, depth + 1)
+        add(model)
+        for p in (cell, tools):
+            if p and os.path.isfile(p):
+                add(p)
+        return {"files": files, "model": rel(model), "cell": rel(cell) if cell and os.path.isfile(cell) else None,
+                "tools": rel(tools) if tools and os.path.isfile(tools) else None}
+
+    def arm_slow(self):
+        """The arm's components' pins (those loaded)."""
+        out = {}
+        for k, (pre, pins) in ARM_PINS.items():
+            if self._pin_exists(pre + pins[0]):
+                out[k] = {p.replace("-", "_"): self._pin(pre + p) for p in pins}
+        kt = self._pin("armkins.tool")
+        if kt is not None:
+            out["kins_tool"] = kt
+        if self.enable_pin:
+            out["enable"] = {"held": not self.enable_released()}
+        return out
+
+    def enable_released(self):
+        """an arm's enabling switch: released (no switch: never)"""
+        return bool(self.enable_pin) and bool(self._pin(self.enable_pin))
+
+    TEACH_HEAD = "(the teach points: the console's Record point adds a G1 line before the M2)\nG21 G90\n"
+
+    def teach_points(self):
+        """the teach file's points (its G0/G1 lines), in order"""
+        try:
+            with open(self.teach_file) as fh:
+                return [x.strip() for x in fh if re.match(r"^G[01] ", x)]
+        except FileNotFoundError:
+            return []
+
+    def _teach_write(self, pts):
+        """the teach file as a program: its header, the points, M2"""
+        os.makedirs(os.path.dirname(self.teach_file) or ".", exist_ok=True)
+        tmp = self.teach_file + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(self.TEACH_HEAD + "".join(p + "\n" for p in pts) + "M2\n")
+        os.replace(tmp, self.teach_file)
+
+    def cmd_teach_record(self, rate=None):
+        """Record point: the arm's position (X Y Z A B C in the work coordinates, as a program runs it) as a G1
+        line after the teach file's last point."""
+        self.ws.poll()
+        s = self.ws
+        p = [s.actual_position[i] - s.g5x_offset[i] - s.g92_offset[i] for i in range(len(AXES))]
+        f = int(rate or self.cfg.num("DISPLAY", "DEFAULT_LINEAR_VELOCITY", 50.0) * 60)
+        line = "G1 " + " ".join("%s%.3f" % (a, p[AXES.index(a)]) for a in self.axes) + " F%d" % f
+        pts = self.teach_points() + [line]
+        self._teach_write(pts)
+        return {"line": line, "points": len(pts), "file": os.path.basename(self.teach_file)}
+
+    def cmd_teach(self, action, index=None):
+        """the teach points: list, delete (index), up / down (index: moved one place), clear"""
+        pts = self.teach_points()
+        if action != "list":
+            if action == "clear":
+                pts = []
+            elif action in ("delete", "up", "down"):
+                if not isinstance(index, int) or not 0 <= index < len(pts):
+                    raise ValueError("no point %r" % (index,))
+                if action == "delete":
+                    del pts[index]
+                else:
+                    k = index + (-1 if action == "up" else 1)
+                    if 0 <= k < len(pts):
+                        pts[index], pts[k] = pts[k], pts[index]
+            else:
+                raise ValueError("teach: list, delete, up, down or clear")
+            self._teach_write(pts)
+        return {"points": pts, "file": os.path.basename(self.teach_file)}
+
+    def home_joints(self):
+        """the arm's home pose (joint values) for Go home: [ARM6HMI] HOME_JOINTS, else none"""
+        v = (self.cfg.get("ARM6HMI", "HOME_JOINTS", "") or "").split()
+        try:
+            q = [float(x) for x in v]
+        except ValueError:
+            return None
+        return q if len(q) == self.njoints else None
+
+    def cmd_arm_home(self, rate=None):
+        """Go home: every joint to its home value at once (joint mode, one increment each, their speeds such that
+        they arrive together, at most the jog rate [°/min] and each joint's MAX_VELOCITY)"""
+        q = self.home_joints()
+        if q is None:
+            return "no home pose ([ARM6HMI] HOME_JOINTS, a value a joint)"
+        if self.enable_released():
+            return "the enabling switch is released: hold it to move"
+        err = self._ready()
+        if err:
+            return err
+        self._mode(self.lc.MODE_MANUAL)
+        err = self._motion_mode(True)
+        if err:
+            return err
+        self.ws.poll()
+        cur = [self.ws.joint[j]["input"] for j in range(self.njoints)]
+        d = [q[j] - cur[j] for j in range(self.njoints)]
+        vmax = [min(abs(rate or 1e9) / 60.0, self.cfg.num("JOINT_%d" % j, "MAX_VELOCITY", 30.0)) for j in range(self.njoints)]
+        t = max([abs(d[j]) / max(vmax[j], 1e-6) for j in range(self.njoints)] + [1e-6])
+        for j in range(self.njoints):
+            if abs(d[j]) > 1e-4:
+                self.c.jog(self.lc.JOG_INCREMENT, True, j, max(abs(d[j]) / t, 1e-3) * (1 if d[j] > 0 else -1), abs(d[j]))
+        return None
 
     # -------------------------------------------------------------- info
     def info(self):
@@ -311,8 +598,12 @@ class Machine:
         mtype = (cfg.get("MILLWEB", "MACHINE_TYPE", "gantry") or "gantry").lower()
         if (cfg.get("DISPLAY", "LATHE", "0") or "0").strip().lower() in ("1", "yes", "true"):
             mtype = "lathe"
+        if self.arm:
+            mtype = "arm"
         return {"name": cfg.get("EMC", "MACHINE", "LinuxCNC"), "coords": self.coords, "limits": lim,
-                "type": mtype if mtype in ("gantry", "bridge", "lathe") else "gantry",
+                "type": mtype if mtype in ("gantry", "bridge", "router", "lathe", "arm") else "gantry",
+                "rack": self.rack_info(),
+                "arm": self.arm_info() if self.arm else None,
                 "lathe": {"post": "back" if (cfg.get("DISPLAY", "BACK_TOOL_LATHE", "0") or "0").strip().lower() in ("1", "yes", "true") else "front"}
                 if mtype == "lathe" else None,
                 "maxv": self.maxv * 60, "units": "mm", "nc_dir": self.nc_dir,
@@ -322,6 +613,17 @@ class Machine:
                 "drives": [d[0] for d in self.drives], "pins": self.pins, "wcs": self.WCS, "ovr_max": self.ovr_max,
                 "hal_write": (cfg.get("MILLWEB", "HAL_WRITE", "no") or "no").lower() in ("yes", "1", "true"),
                 "workspace": {a: {"min": lo, "max": hi} for a, (lo, hi) in self.workspace.items()}}
+
+    def rack_info(self):
+        """[MILLWEB] ATC_RACK (machineconf writes it from machine.json's atc): the rack for the 3D view, or None."""
+        v = (self.cfg.get("MILLWEB", "ATC_RACK") or "").split()
+        try:
+            n = [float(x) for x in v]
+        except ValueError:
+            return None
+        if len(n) != 8:
+            return None
+        return dict(zip(("pockets", "x", "y", "dx", "dy", "z_clear", "z_pocket", "slide"), [int(n[0])] + n[1:]))
 
     def _pin_exists(self, name):
         if not self.hal or not name:
@@ -347,7 +649,10 @@ class Machine:
         s.poll()
         on = s.task_state == lc.STATE_ON
         estop = s.task_state == lc.STATE_ESTOP
-        homed = [bool(all(s.homed[j] for j in self.joints.get(a, [0]))) for a in "XYZ"]
+        if self.arm:  # its joints aren't axes: homed when all are
+            homed = [bool(all(s.homed[j] for j in range(self.njoints)))] * 3
+        else:
+            homed = [bool(all(s.homed[j] for j in self.joints.get(a, [0]))) for a in "XYZ"]
         g5x, g92, tlo = s.g5x_offset, s.g92_offset, s.tool_offset
         act = s.actual_position
         if not all(s.homed[j] for j in range(s.joints)):
@@ -410,7 +715,19 @@ class Machine:
             "mcodes": " ".join("M%d" % m for m in s.mcodes[1:] if m >= 0),
             "probe": {"tripped": bool(s.probe_tripped), "pos": [round(v, 4) for v in s.probed_position[:3]]},
             "queue": s.queue,
+            **(self.arm_status(s) if self.arm else {}),
         }
+
+    def arm_status(self, s):
+        """An arm's: every axis (work and machine), every joint (position, homed, following error), the jog mode."""
+        g5x, g92 = s.g5x_offset, s.g92_offset
+        ix = [AXES.index(a) for a in self.axes]
+        js = s.joint[:self.njoints]
+        return {"ax": [round(s.actual_position[i] - g5x[i] - g92[i], 4) for i in ix],
+                "axm": [round(s.actual_position[i], 4) for i in ix],
+                "j": [round(j["input"], 4) for j in js], "jh": [bool(j["homed"]) for j in js],
+                "jfe": [round(j["ferror_current"], 5) for j in js],
+                "jmode": {self.lc.TRAJ_MODE_TELEOP: "world", self.lc.TRAJ_MODE_FREE: "joint"}.get(s.motion_mode, "coord")}
 
     def slow(self):
         out = {"pins": {p: self._pin(p) for p in self.pins}}
@@ -420,6 +737,10 @@ class Machine:
             out[k] = self._pin(self.sig[key])
         if out["pins"] == {}:
             del out["pins"]
+        if self._pin_exists("lathe.turret.station"):  # a lathe's turret (linuxcnc/lathe): where it is, its fault
+            out["turret"] = {k: self._pin("lathe.turret." + k) for k in ("station", "stations", "homed", "busy", "fault", "error")}
+        if self.arm:
+            out["arm"] = self.arm_slow()
         if self.info_pcomp():
             out["pcomp"] = {k: self._pin("%s.%s" % (self.pcomp, k)) for k in ("shaper", "defl", "shrink", "servo", "jerk-ms", "fx", "fy-end", "fy-mid", "delay")}
         return out
@@ -581,6 +902,17 @@ class Machine:
             self.c.mode(m)
             self.c.wait_complete(2.0)
 
+    def _wait(self, pred, timeout):
+        """the worker's status until pred(it) holds (True), or timeout [s] (False)"""
+        t = time.time() + timeout
+        while True:
+            self.ws.poll()
+            if pred(self.ws):
+                return True
+            if time.time() > t:
+                return False
+            time.sleep(0.02)
+
     def _ready(self, need_homed=True, need_idle=True):
         lc = self.lc
         self.ws.poll()
@@ -683,6 +1015,11 @@ class Machine:
         self.c.wait_complete(1.0)
         if axis in (None, "all"):
             self.c.home(-1)
+        elif re.match(r"^[Jj]\d+$", str(axis)):  # a joint (an arm's)
+            j = int(str(axis)[1:])
+            if not 0 <= j < self.njoints:
+                return "no joint %s" % axis
+            self.c.home(j)
         else:
             for j in self.joints.get(axis.upper(), []):
                 self.c.home(j)
@@ -699,19 +1036,60 @@ class Machine:
             self.c.unhome(j)
         return None
 
+    def _jog_target(self, axis):
+        """(joint jog, index): "J3" a joint (joint mode: an arm's, or any machine's before homing); "X".."W" an
+        axis the machine has (world mode); "TX".."TC" an arm's tool frame ("tool", 0..5)."""
+        a = str(axis).upper()
+        if re.match(r"^T[XYZABC]$", a):
+            if not self.arm:
+                raise ValueError("no tool frame: not an arm")
+            return "tool", "XYZABC".index(a[1])
+        if re.match(r"^J\d+$", a):
+            j = int(a[1:])
+            if not 0 <= j < self.njoints:
+                raise ValueError("no joint %s" % axis)
+            return True, j
+        if a not in self.axes or len(a) != 1:
+            raise ValueError("no axis %s" % axis)
+        return False, AXES.index(a)
+
+    def _motion_mode(self, joint):
+        """joint mode (free) or world (teleop), and wait for motion to take it (up to 1 s; teleop needs the joints homed)"""
+        lc = self.lc
+        want = lc.TRAJ_MODE_FREE if joint else lc.TRAJ_MODE_TELEOP
+        self.ws.poll()
+        if self.ws.motion_mode == want:
+            return None
+        self.c.teleop_enable(0 if joint else 1)
+        self.c.wait_complete(1.0)
+        if not self._wait(lambda s: s.motion_mode == want, 1.0):
+            return "no %s mode%s" % ("joint" if joint else "world", "" if joint else " (home first)")
+        return None
+
     def cmd_jog(self, axis, direction, inc, rate):
         """inc > 0: one increment; inc == 0: continuous (stopped by jog_stop
-        or by millweb's deadman)."""
+        or by millweb's deadman). axis: X..W (world), J0.. (a joint: joint mode)."""
         lc = self.lc
-        err = self._ready()
+        try:
+            joint, a = self._jog_target(axis)
+        except ValueError as e:
+            return str(e)
+        if self.arm and self.enable_released():
+            return "the enabling switch is released: hold it to jog"
+        if joint == "tool":
+            return self._jog_tool(a, direction, inc, rate)
+        err = self._ready(need_homed=not joint)
         if err:
             return err
-        a = "XYZ".index(axis.upper())
         self._mode(lc.MODE_MANUAL)
-        self.ws.poll()
-        if self.ws.motion_mode != lc.TRAJ_MODE_TELEOP:
-            self.c.teleop_enable(1)
-            self.c.wait_complete(1.0)
+        err = self._motion_mode(joint) if (joint or self.arm) else None
+        if err:
+            return err
+        if not joint and not self.arm:
+            self.ws.poll()
+            if self.ws.motion_mode != lc.TRAJ_MODE_TELEOP:
+                self.c.teleop_enable(1)
+                self.c.wait_complete(1.0)
         vel = abs(rate) / 60.0
         box = self.workspace.get(axis.upper())
         if box:
@@ -727,17 +1105,67 @@ class Machine:
                 self.jog_active[a] = True
             return None
         if inc > 0:
-            self.c.jog(lc.JOG_INCREMENT, False, a, vel * (1 if direction > 0 else -1), inc)
+            self.c.jog(lc.JOG_INCREMENT, joint, a, vel * (1 if direction > 0 else -1), inc)
         else:
-            self.c.jog(lc.JOG_CONTINUOUS, False, a, vel * (1 if direction > 0 else -1))
-            self.jog_active[a] = True
+            self.c.jog(lc.JOG_CONTINUOUS, joint, a, vel * (1 if direction > 0 else -1))
+            self.jog_active[(joint, a)] = True
         return None
 
     def cmd_jog_stop(self, axis=None):
-        for a in ([("XYZ".index(axis.upper()))] if axis else list(self.jog_active)):
-            self.cu.jog(self.lc.JOG_STOP, False, a)
-            self.jog_active.pop(a, None)
+        try:
+            keys = [self._jog_target(axis)] if axis else list(self.jog_active)
+        except ValueError as e:
+            return str(e)
+        for joint, a in keys:
+            if joint == "tool":  # a tool-frame jog is an MDI move: abort it
+                if self.jog_active.pop((joint, a), None):
+                    self.cu.abort()
+                continue
+            self.cu.jog(self.lc.JOG_STOP, joint, a)
+            self.jog_active.pop((joint, a), None)
         return None
+
+    TOOL_JOG_TURN = 45.0  # a held tool-frame rotation: at most this far [deg] in one move
+
+    def _jog_tool(self, k, direction, inc, rate):
+        """An arm's jog in its tool frame (k: 0..2 along the tool's X Y Z, 3..5 about them), as one G53 G1 MDI move
+        from the commanded pose: inc > 0 that far [mm or deg]; inc == 0 (held) to the axes' limits along the line
+        (a rotation: TOOL_JOG_TURN), stopped by jog_stop (abort) or the deadman. LinuxCNC interpolates A B C
+        linearly: a rotation keeps the tool point, its path between the ends is the A B C line's."""
+        err = self._ready()
+        if err:
+            return err
+        self.ws.poll()
+        p = list(self.ws.position[:6])
+        R = rpy_matrix(*p[3:6])
+        s = 1.0 if direction > 0 else -1.0
+        xyz, abc = p[:3], p[3:6]
+        if k < 3:
+            u = [R[r][k] * s for r in range(3)]
+            d = float(inc) if inc > 0 else self._reach_along(xyz, u)
+            if d <= 1e-6:
+                return "the tool %s%s: at the axes' limits" % ("+" if s > 0 else "-", "XYZ"[k])
+            xyz = [xyz[r] + u[r] * d for r in range(3)]
+        else:
+            ang = float(inc) if inc > 0 else self.TOOL_JOG_TURN
+            R2 = mat_mul(R, axis_rot(k - 3, s * ang))
+            abc = [unwrap_deg(x, ref) for x, ref in zip(rpy_of(R2), abc)]
+        words = dict(zip("XYZABC", xyz + abc))
+        line = "G53 G1 " + " ".join("%s%.4f" % (a, words[a]) for a in self.axes if a in words) + " F%.1f" % max(1.0, abs(rate))
+        err = self.mdi(line)
+        if not err and inc <= 0:
+            self.jog_active[("tool", k)] = True
+        return err
+
+    def _reach_along(self, xyz, u, cap=2000.0):
+        """how far [mm] from xyz along the unit vector u the [AXIS_*] limits allow (at most cap)"""
+        d = cap
+        for r, a in enumerate("XYZ"):
+            if abs(u[r]) < 1e-9 or a not in self.axes:
+                continue
+            lo, hi = self.cfg.num("AXIS_" + a, "MIN_LIMIT", -1e9), self.cfg.num("AXIS_" + a, "MAX_LIMIT", 1e9)
+            d = min(d, ((hi if u[r] > 0 else lo) - xyz[r]) / u[r])
+        return max(0.0, d - 0.01)
 
     def cmd_cycle(self, action, line=0):
         lc = self.lc
@@ -842,7 +1270,29 @@ class Machine:
         clean = []
         for t in tools:
             c = {"t": int(t["t"]), "p": int(t.get("p", t["t"])), "d": float(t.get("d", 0)), "z": float(t.get("z", 0)),
-                 "c": str(t.get("c", ""))[:120]}
+                 "c": str(t.get("c", ""))[:120].replace("{", "(").replace("}", ")")}
+            if t.get("fl") not in (None, "", 0):
+                if not 1 <= int(t["fl"]) <= 64:
+                    return "a tool's flutes: 1 to 64"
+                c["fl"] = int(t["fl"])
+            if t.get("ins"):
+                if str(t["ins"]) not in INSERTS:
+                    return "a tool's insert: " + ", ".join(INSERTS)
+                c["ins"] = str(t["ins"])
+            if t.get("ty"):
+                if str(t["ty"]) not in MILL_TYPES:
+                    return "a tool's type: " + ", ".join(MILL_TYPES)
+                c["ty"] = str(t["ty"])
+            for k in ("w", "cl", "cr", "so", "hd"):
+                if t.get(k) not in (None, "", 0):
+                    if not 0 < float(t[k]) <= 500:
+                        return "a tool's %s: above 0, at most 500 mm" % {"w": "width", "cl": "cutting length", "cr": "corner radius",
+                                                                        "so": "stick-out", "hd": "holder diameter"}[k]
+                    c[k] = float(t[k])
+            if t.get("ang") not in (None, "", 0):
+                if not 1 <= float(t["ang"]) <= 179:
+                    return "a tool's point angle: 1 to 179°"
+                c["ang"] = float(t["ang"])
             for k in ("x", "i", "j"):  # a lathe's
                 if t.get(k) is not None:
                     c[k] = float(t[k])
@@ -979,7 +1429,81 @@ class Machine:
                     files.append({"name": rel + n, "size": st.st_size, "mtime": int(st.st_mtime), "kind": kind})
             if len(files) + len(dirs) > self.MAX_ENTRIES:
                 break
+        marks = self.marks()
+        for f in files:
+            m = self._marks_of(f["name"], marks)
+            if m:
+                f["marks"] = m
         return files, dirs
+
+    # a program's marks: its checks run, its full simulation run (the File page's ticks), for every browser
+    MARK_KINDS = ("check", "sim")
+    MARK_LEVELS = ("ok", "warn", "bad")
+    MAX_MARKS = 2000
+
+    def marks(self):
+        """{program name: {"check" | "sim": record}} as stored (records of files changed since included)."""
+        try:
+            with open(self.marks_file) as f:
+                m = json.load(f)
+            return m if isinstance(m, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _marks_of(self, name, marks):
+        """A program's marks that still hold: those made on the file as it is now (its size and mtime)."""
+        recs = marks.get(name)
+        if not isinstance(recs, dict):
+            return None
+        try:
+            st = os.stat(self._safe(name))
+        except (OSError, ValueError):
+            return None
+        out = {k: {x: r.get(x) for x in ("level", "sig", "summary", "full", "at", "by")}
+               for k, r in recs.items() if k in self.MARK_KINDS and isinstance(r, dict)
+               and r.get("size") == st.st_size and r.get("mtime") == st.st_mtime}
+        return out or None
+
+    def _marks_write(self, marks):
+        with open(self.marks_file + ".tmp", "w") as f:
+            json.dump(marks, f, indent=1)
+        os.replace(self.marks_file + ".tmp", self.marks_file)
+
+    def cmd_program_mark(self, name, kind, level, sig="", summary="", full=False, by=""):
+        """A program checked (kind "check") or simulated in full ("sim"), with its result (level ok | warn | bad).
+        Kept with the file's size and mtime: an edited program loses its marks. sig is the setup's
+        signature (stock, parts, fixtures, offsets, tools) the browser compares: another setup, an old mark."""
+        if kind not in self.MARK_KINDS:
+            raise ValueError("kind: check or sim")
+        if level not in self.MARK_LEVELS:
+            raise ValueError("level: ok, warn or bad")
+        p = self._safe(name)
+        st = os.stat(p)
+        rel = self.relpath(p)
+        marks = self.marks()
+        marks.setdefault(rel, {})[kind] = {"level": level, "sig": str(sig)[:64], "summary": str(summary)[:300],
+                                           "full": bool(full), "at": int(time.time()), "by": str(by)[:40],
+                                           "size": st.st_size, "mtime": st.st_mtime}
+        if len(marks) > self.MAX_MARKS:  # those of files gone or changed first, then the oldest
+            for n in [n for n in marks if n != rel and not self._marks_of(n, marks)]:
+                del marks[n]
+            for n in sorted(marks, key=lambda n: max(r.get("at", 0) for r in marks[n].values()))[:max(0, len(marks) - self.MAX_MARKS)]:
+                del marks[n]
+        self._marks_write(marks)
+        return None
+
+    def _marks_move(self, src, dst, folder):
+        """Renamed or deleted (dst None): the marks go with the files."""
+        marks, moved, hit = self.marks(), {}, False
+        for n in list(marks):
+            if n == src or (folder and n.startswith(src + "/")):
+                hit = True
+                recs = marks.pop(n)
+                if dst is not None:
+                    moved[dst + n[len(src):]] = recs
+        if hit:
+            marks.update(moved)
+            self._marks_write(marks)
 
     def program_text(self, name):
         with open(self._safe(name), errors="replace") as f:
@@ -1013,6 +1537,7 @@ class Machine:
         if used:
             return "the 3D setup uses it (%s): remove it there first" % used
         os.remove(p)
+        self._marks_move(self.relpath(p), None, False)
         return None
 
     def cmd_rename(self, name, to):
@@ -1038,7 +1563,9 @@ class Machine:
         loaded = self._loaded()
         if loaded and (loaded == os.path.realpath(src) or loaded.startswith(os.path.realpath(src) + os.sep)):
             return "the loaded program is " + ("in it" if folder else "that one")
+        rs, rd = self.relpath(src), self.relpath(dst)
         os.rename(src, dst)
+        self._marks_move(rs, rd, folder)
         return None
 
     # 3D models and the setup (what stands on the table, for the 3D view)
@@ -1072,6 +1599,14 @@ class Machine:
         except (OSError, ValueError, KeyError, TypeError):
             return [dict(o) for o in DEFAULT_SETUP]
 
+    def setup_lathe(self):
+        """A lathe's stock (lathe_check's form), or None."""
+        try:
+            with open(self.setup_file) as f:
+                return json.load(f).get("lathe")
+        except (OSError, ValueError, AttributeError):
+            return None
+
     def setup_tools(self):
         """The tools' 3D models (tools_check's form); none when there is no setup file."""
         try:
@@ -1081,12 +1616,13 @@ class Machine:
         except (OSError, ValueError, AttributeError):
             return {}
 
-    def cmd_setup_save(self, objects, tools=None):
-        """objects: the setup's; tools: the tools' models (None: as they are)."""
+    def cmd_setup_save(self, objects, tools=None, lathe=None):
+        """objects: the setup's; tools: the tools' models (None: as they are); lathe: a lathe's stock (None: as it is)."""
         objects = setup_check(objects, lambda n: self._safe(n, kind="model"))
         tools = self.setup_tools() if tools is None else tools_check(tools, lambda n: self._safe(n, kind="model"))
+        lathe = self.setup_lathe() if lathe is None else lathe_check(lathe)
         with open(self.setup_file + ".tmp", "w") as f:
-            json.dump({"objects": objects, "tools": tools}, f, indent=1)
+            json.dump({"objects": objects, "tools": tools, "lathe": lathe}, f, indent=1)
         os.replace(self.setup_file + ".tmp", self.setup_file)
         return None
 
@@ -1103,6 +1639,33 @@ class Machine:
                 if m == real or m.startswith(real + os.sep):
                     return o.get("name") or src[6:]
         return None
+
+    def cmd_scene_import(self, name, data, keep_fixtures=False, overwrite=False):
+        """A CAM scene (a zip, scene.py): its models into scenes/<name>/ in the program folder and the
+        3D setup made of them (the stock as the workpiece, the parts as finished parts; the fixtures
+        kept when keep_fixtures). Returns {folder, objects, summary, warnings, work_zero, units}."""
+        name = re.sub(r"[^\w.\- ]", "_", str(name or "")).strip(" .")[:60] or "scene"
+        sc = scene_mod.read_scene(data)
+        folder = "scenes/" + name
+        root = self._safe(folder, folder=True)
+        if os.path.exists(root):
+            if not overwrite:
+                raise ValueError("%s is there already (import it again to replace it)" % folder)
+            shutil.rmtree(root)  # the old scene's files, not mixed with the new
+        for rel, b in sc["files"].items():
+            p = self._safe(folder + "/" + rel, kind="model")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p + ".tmp", "wb") as f:
+                f.write(b)
+            os.replace(p + ".tmp", p)
+        with open(os.path.join(root, "scene.json"), "w") as f:  # what it came with, for reference
+            json.dump(sc["scene"], f, indent=1)
+        objects = scene_mod.scene_objects(sc["scene"], folder)
+        if keep_fixtures:
+            objects = [o for o in self.setup() if o.get("role") == "fixture"] + objects
+        self.cmd_setup_save(objects)
+        return {"folder": folder, "objects": len(objects), "summary": scene_mod.summary(sc["scene"]), "warnings": sc["warnings"],
+                "work_zero": sc["scene"]["work_zero"], "units": sc["scene"]["units"]}
 
     def cmd_folder_create(self, name):
         p = self._safe(name, folder=True)

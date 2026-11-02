@@ -28,7 +28,7 @@ const Live = (() => {
     };
   }
   // onSent(frac): how much of a large message has left the browser (the socket's buffer drains)
-  function send(op, args = {}, onSent) {
+  function send(op, args = {}, onSent, wait = 130000) {
     return new Promise((resolve) => {
       if (!ws || ws.readyState !== 1) { resolve({ ok: false, err: "not connected" }); return; }
       const id = ++nid;
@@ -44,7 +44,7 @@ const Live = (() => {
         };
         tick();
       }
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve({ ok: false, err: "no answer" }); } }, 130000);
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve({ ok: false, err: "no answer" }); } }, wait);
     });
   }
   async function act(op, args, label, onSent) {
@@ -63,7 +63,7 @@ const Live = (() => {
       case "tools": return tools(m.tools);
       case "offsets": return offsets(m);
       case "files": files = m.files; dirs = m.dirs || []; if (st.page === "file") L.renderFiles(); return;
-      case "setup": lastSetup = m.objects; lastTools = m.tools; return setupLoad(m.objects, m.tools);
+      case "setup": lastSetup = m.objects; lastTools = m.tools; return setupLoad(m.objects, m.tools, m.lathe);
       case "hal": if (st.page === "debug") halShow(m.v); return;
       case "scope": return scopeIn(m);
       case "views": return viewsLoad(m.views);
@@ -92,6 +92,8 @@ const Live = (() => {
     TRAVEL.x = [lim.X.min, lim.X.max]; TRAVEL.y = [lim.Y.min, lim.Y.max]; TRAVEL.z = [lim.Z.min, lim.Z.max];
     const ts = info.toolsetter && typeof info.toolsetter === "object" ? info.toolsetter : null, tsMoved = JSON.stringify(ts) !== JSON.stringify(TSET);
     TSET = ts;  // the 3D view's tool setter where the Measure routine goes
+    RACK = info.rack || null;
+    if (R && info.type === "router") R.type = null;  // a router is drawn with its rack: again, as the rack may have changed
     if (R) { if (R.type !== (info.type || "gantry") || tsMoved) buildBuiltin(info.type || "gantry"); else sizeLimits(); }  // a gantry or a fixed bridge ([MILLWEB] MACHINE_TYPE)
     document.querySelector(".brand b").textContent = info.name.toUpperCase();
     document.querySelector(".brand span").textContent = `${info.coords} · LinuxCNC · millweb ${info.version}`;
@@ -157,6 +159,13 @@ const Live = (() => {
     if (m.fe) st.fe = [m.fe.X || 0, m.fe.Y1 ?? m.fe.Y ?? 0, m.fe.Y2 ?? m.fe.Y ?? 0, m.fe.Z || 0];
     if ("vel" in m) { st.velNow = m.vel; st.feedNow = m.vel; }
     if ("mode" in m) st.lmode = m.mode;
+    // an arm's: every axis, every joint, the jog mode (arm.js)
+    if (m.j) st.armJ = m.j;
+    if (m.jh) st.armJH = m.jh;
+    if (m.jfe) st.armJfe = m.jfe;
+    if (m.ax) st.armAx = m.ax;
+    if (m.axm) st.armAxm = m.axm;
+    if (m.jmode) st.armJmode = m.jmode;
     if ("run" in m) {
       st.run = m.run === "mdi" ? "run" : m.run;
       st.motion = (m.run === "run" || m.run === "hold") ? prog : null;
@@ -175,6 +184,10 @@ const Live = (() => {
   }
   function slow() {
     if (slowSt.load != null) st.spindle.load = slowSt.load;
+    st.turret = slowSt.turret || null;
+    st.arm = slowSt.arm || null;  // an arm's components (arm.js)
+    if (typeof ARM !== "undefined" && ARM && st.page === "tool") armRenderTools();
+    if (typeof LATHE !== "undefined" && LATHE) latheTurret();
     if (slowSt.bus != null) st.bus = slowSt.bus;
     if (slowSt.yaw != null) st.yaw = Math.abs(slowSt.yaw);
     if (slowSt.contour != null) st.err = slowSt.contour;
@@ -231,7 +244,8 @@ const Live = (() => {
     else if (m.truncated) msg(`${m.name}: ${m.truncated}`, "warn");
   }
   function tools(list) {
-    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, wear: 0, life: 100, c: t.c }));
+    st.tools = list.map((t) => ({ t: t.t, p: t.p, d: t.d, l: t.z, x: t.x, q: t.q, i: t.i, j: t.j, fl: t.fl, ins: t.ins, w: t.w, cl: t.cl, ty: t.ty, cr: t.cr, ang: t.ang, so: t.so, hd: t.hd, wear: 0, life: 100, c: t.c }));
+    if (typeof latheVer !== "undefined") latheVer++;  // the lathe's checks with these tools
     if (st.page === "tool") renderTools();
     fillToolSelects(); buildTool();
   }
@@ -355,11 +369,11 @@ const Live = (() => {
   };
   L.opt = (k, v) => act("opt", { [k]: v }, k === "m1" ? "Optional stop" : "Block delete");
   L.pcomp = (k, on) => act("pcomp", { k: k === "jerk" ? "jerk-ms" : k, v: k === "jerk" ? (on ? 20 : 0) : on ? 1 : 0 }, "pcomp");
-  L.mdi = (c) => act("mdi", { cmd: c }, "MDI");
+  L.mdi = (c, wait) => act("mdi", wait ? { cmd: c, wait: true } : { cmd: c }, "MDI");  // wait: the reply once it is done
   L.toolLoad = (t) => act("tool_load", { t }, `T${t} M6`);
   L.toolsSave = () => {  // after edits settle
     clearTimeout(toolsTimer);
-    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j"].filter((k) => t[k] != null).map((k) => [k, t[k]]));  // a lathe's
+    const lathe = (t) => Object.fromEntries(["x", "q", "i", "j", "fl", "ins", "w", "cl", "ty", "cr", "ang", "so", "hd"].filter((k) => t[k] != null && t[k] !== "").map((k) => [k, t[k]]));  // a lathe's; the tag's
     toolsTimer = setTimeout(() => act("tools_save", { tools: st.tools.map((t) => ({ t: t.t, p: t.p, d: t.d, z: t.l, c: t.c, ...lathe(t) })) }, "Tool table"), 400);
   };
   L.toolAdd = () => {
@@ -382,8 +396,9 @@ const Live = (() => {
     return buf.buffer;
   };
   let lastSetup = null, lastTools = null;  // the machine's: back to them when a change can't be saved
-  L.setupSave = (objects, tools) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
+  L.setupSave = (objects, tools, lathe) => act("setup_save", { objects: objects.map(({ fresh, ...o }) => o), tools, lathe }, "3D setup").then((r) => { if (!r.ok && lastSetup) setupLoad(lastSetup, lastTools); });
   L.modelFiles = () => files.filter((f) => f.kind === "model").map((f) => f.name);
+  L.sceneImport = (name, buf, keep, overwrite, onSent) => act("scene_import", { name, data: b64(buf), keep_fixtures: !!keep, overwrite: !!overwrite }, "Import " + name, onSent);
   L.modelUpload = async (name, buf) => { const r = await act("model_save", { name, data: b64(buf) }, "Upload " + name); if (r.ok) modelBufs.delete(name); return r.ok; };
   // the Debug page's HAL tab: the machine's HAL
   L.hal = {
@@ -491,6 +506,21 @@ const Live = (() => {
     jogAxis = null;
   }
   L.jogEnd = () => stopJog(true);
+  // an arm's jog: a joint ("j0".., joint mode) or an axis ("x".."c", world mode)
+  L.jogAxis = (axis, s) => {
+    if (st.jogInc === 0) {
+      jogHeld = { a: axis, s }; jogAxis = axis;
+      const go = () => send("jog", { axis, dir: s, inc: 0, rate: st.jogRate * st.ovr.maxv });
+      act("jog", { axis, dir: s, inc: 0, rate: st.jogRate * st.ovr.maxv }, "Jog");
+      clearInterval(jogTimer); jogTimer = setInterval(go, 100);
+      return;
+    }
+    act("jog", { axis, dir: s, inc: st.jogInc, rate: st.jogRate }, "Jog");
+  };
+  L.armModel = () => send("arm_model");
+  L.teach = (rate) => act("teach_record", { rate }, "Record point");
+  L.teachOp = (action, index) => (action === "list" ? send("teach", { action }) : act("teach", { action, index }, "Teach points"));
+  L.armHome = (rate) => act("arm_home", { rate }, "Go home");
 
   // programs: the server's files; preflight from the server's preview
   L.loadProgram = async (p) => {
@@ -527,8 +557,8 @@ const Live = (() => {
       sub.map((x) => { const n = files.filter((f) => f.name.startsWith(x + "/")).length;
         return `<button class="file dir" data-dir="${esc(x)}" aria-pressed="${sel("dir", x)}"><span><b>${esc(baseName(x))}/</b><br><span class="muted">${n} program${n === 1 ? "" : "s"}</span></span><span></span><span class="btn sm" data-open="1">Open</span></button>`; }).join("") +
       here.map(([f, i]) => f.kind === "model"
-        ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${fmtSize(f.size)}${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span></span></button>`
-        : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${fmtSize(f.size)} · ${new Date(f.mtime * 1000).toLocaleString()}</span></span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
+        ? `<button class="file model" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">3D model · ${f.name.split(".").pop().toUpperCase()} · ${fmtSize(f.size)}${inSetup(f.name) ? " · in the setup" : ""}</span></span><span class="num muted"></span><span class="adds"><span class="btn sm" data-add="fixture">+ fixture</span><span class="btn sm" data-add="workpiece">+ workpiece</span><span class="btn sm" data-add="part">+ part</span></span></button>`
+        : `<button class="file" data-i="${i}" aria-pressed="${sel("file", f.name)}"><span><b>${esc(baseName(f.name))}</b><br><span class="muted">${fmtSize(f.size)} · ${new Date(f.mtime * 1000).toLocaleString()}</span>${fileTicks(f.marks)}</span><span class="num muted"></span><span class="btn sm ${f.name === prog.name ? "accent" : ""}">${f.name === prog.name ? "Loaded" : "Load"}</span></button>`).join("") ||
       `<p class="note">No programs in ${d ? esc(d) : esc(info ? info.nc_dir : "the program folder")}. Upload some, or drop them here.</p>`;
     if (L.sel && !(L.sel.kind === "dir" ? dirs.includes(L.sel.path) : files.some((f) => f.name === L.sel.path))) L.sel = null;
     if (!L.sel && inDir(prog.name, d) && files.some((f) => f.name === prog.name)) L.sel = { kind: "file", path: prog.name, auto: true };  // the loaded one
@@ -552,6 +582,20 @@ const Live = (() => {
     const p = r.ok && await toProgram(r.program, (f) => busyShow(`${name}: preparing the preview`, f, "preflight"));
     busyHide("preflight");
     if (p && files[fileSel] && files[fileSel].name === name) renderPreflight(p);
+  };
+  // a program checked or simulated in full here: on the machine for every browser (unless it says so already)
+  L.mark = (name, kind, rec) => {
+    const f = files.find((x) => x.name === name), o = f && f.marks && f.marks[kind];
+    if (!f || (o && markSame(o, rec))) return;
+    (f.marks || (f.marks = {}))[kind] = { ...rec, by: "this browser" };  // at once; the server's list follows
+    send("program_mark", { name, kind, ...rec });
+  };
+  L.marksOf = (name) => { const f = files.find((x) => x.name === name); return f && f.marks; };
+  // every move of a program (none merged), for the full simulation: null when it didn't come (said why)
+  L.programFull = async (name, onFrac) => {
+    const r = await send("program_get", { name, full: true }, null, 900000);
+    if (!r.ok) { msg(`${name}: ${r.err}`, "warn"); return null; }
+    return toProgram(r.program, onFrac);
   };
   const openDir = (d) => { L.dir = d; L.sel = null; L.renderFiles(); };
   // the File page's clicks: the server's programs, not the simulation's library
@@ -584,7 +628,7 @@ const Live = (() => {
     $("fl-cards").innerHTML = `<div class="card"><h3>3D model <span class="pill ${inSetup(name) ? "ok" : "info"}">${inSetup(name) ? "IN THE SETUP" : "NOT IN THE SETUP"}</span></h3><dl class="kv">
       <dt>Size X × Y × Z</dt><dd>${m.size.map((v) => v.toFixed(1)).join(" × ")} mm</dd><dt>Triangles</dt><dd>${m.tris.toLocaleString("en-US")}</dd></dl>
       ${big < 5 ? `<p class="note">Under 5 mm across: drawn in inches? Set its scale to 25.4 in the 3D view.</p>` : ""}
-      <div class="row"><button class="btn sm" data-addsel="fixture">Add as fixture</button><button class="btn sm" data-addsel="workpiece">Add as workpiece</button></div></div>`;
+      <div class="row"><button class="btn sm" data-addsel="fixture">Add as fixture</button><button class="btn sm" data-addsel="workpiece">Add as workpiece</button><button class="btn sm" data-addsel="part" title="The finished part: the program's result is compared with it">Add as the finished part</button></div></div>`;
     $("fl-code").textContent = "Added to the setup it appears in the 3D view: a workpiece with its top at work Z0 and its front-left corner at X0 Y0, a fixture on the table under the work zero. Click it there to move, turn, scale or hide it.";
   }
   $("fl-cards").addEventListener("click", (e) => { const b = e.target.closest("[data-addsel]"); if (b && LIVE && L.sel) addModel(L.sel.path, b.dataset.addsel); });
@@ -627,6 +671,7 @@ const Live = (() => {
   const confirmP = (title, note) => new Promise((res) => ask(title, note, "", () => res(true), "confirm", () => res(false)));
   async function upload(list) {
     for (const f of list) {
+      if (/\.zip$/i.test(f.name)) { await sceneImportFile(f); continue; }  // a CAM scene (sceneui.js)
       const model = /\.(stl|obj)$/i.test(f.name);
       if (!model && !/\.(ngc|nc|tap|gcode)$/i.test(f.name)) { msg(`${f.name}: not a G-code program (.ngc .nc .tap .gcode) or a 3D model (.stl .obj)`, "warn"); continue; }
       const lim = model ? 5 : 6;

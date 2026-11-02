@@ -234,6 +234,30 @@ table.t input.txt { text-align: left; font-family: var(--f-body); min-width: 180
 .form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); }
 .form input, .form select { background: var(--panel); border: 1px solid var(--line-hi); border-radius: 4px; padding: 5px 7px; font-family: var(--f-mono); color: var(--ink); min-width: 0; }
 .note { font-size: 11.5px; color: var(--ink-dim); margin: 0; }
+.rem-find { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.rem-find li { padding: 4px 6px; border-left: 3px solid var(--line-hi); background: var(--panel); cursor: pointer; }
+.rem-find li.bad { border-color: #ff4d5e; } .rem-find li.warn { border-color: var(--warn); } .rem-find li.info { border-color: #4cc9ff; }
+.rem-find li b { font-family: var(--f-mono); font-weight: 600; margin-right: 4px; }
+body.arm #spin-panel, body.arm #tm-panel, body.arm #jogpad, body.arm #sp-jog .note, body.arm #b-zeroall, body.arm #b-gotozero, body.arm #b-park { display: none; }
+.armj { display: flex; flex-direction: column; gap: 3px; }
+.armjrow { display: grid; grid-template-columns: 22px 10px 1fr 66px 52px auto; align-items: center; gap: 6px; font-size: 12px; }
+.armjrow .h { width: 8px; height: 8px; border-radius: 50%; background: var(--line-hi); } .armjrow .h.on { background: var(--ok, #5fe0a0); }
+.armjrow .bar { position: relative; height: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
+.armjrow .bar i { position: absolute; top: -2px; width: 3px; height: 8px; margin-left: -1px; background: var(--accent, #4cc9ff); }
+.armjrow .bar.warn i { background: var(--warn); }
+.armjrow .num { font-family: var(--f-mono); text-align: right; }
+.armkv { margin-top: 6px; }
+.armpts { margin-top: 6px; } .armpts summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.armpts ol { margin: 4px 0; padding-left: 22px; max-height: 220px; overflow: auto; font-size: 12px; }
+.armpts li { display: flex; gap: 6px; align-items: center; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid var(--line); }
+.armpts li .num { font-family: var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.armpts li .b { display: flex; gap: 3px; flex: none; } .armpts li .b .btn { min-width: 30px; padding: 0 6px; }
+.armpad { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.armpad .armrow { display: grid; grid-template-columns: 30px 1fr 1fr; gap: 4px; align-items: center; }
+.armpad .armrow button { min-height: 40px; font: 600 13px var(--f-mono); background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 5px; color: var(--ink); touch-action: none; }
+.armpad .armrow button:active { background: var(--accent, #4cc9ff); color: #000; }
+.armpad.inhibit .armrow button { opacity: .45; }
+#tl-turret { display: none; margin-top: 4px; } body.lathe #tl-turret { display: block; } #tl-turret.bad { color: var(--warn); font-weight: 600; }
 .ops { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
 .op { border: 1px solid var(--line-hi); background: var(--panel-2); border-radius: 5px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-dim); }
 .op svg { width: 64px; height: 44px; }
@@ -341,6 +365,14 @@ canvas.spark { width: 140px; height: 26px; display: block; }
 .file.dir b { color: var(--accent); }
 .file .adds { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .file-tools { margin-bottom: 8px; }
+.ticks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.tick { font: 600 10px var(--f-body); letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-hi); color: var(--ink-faint); white-space: nowrap; }
+.tick.ok { color: var(--ok); border-color: currentColor; background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.tick.warn { color: var(--warn); border-color: currentColor; }
+.tick.bad { color: var(--stop); border-color: currentColor; }
+.tick.old { color: var(--ink-faint); border-style: dashed; }
+.fs { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.fs-head { margin: 0 0 6px; font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .file-tools .grow { flex: 1; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-family: var(--f-mono); font-size: 12px; }
 .crumbs button { background: none; border: 0; color: var(--accent); padding: 2px 4px; cursor: pointer; font: inherit; }
@@ -366,6 +398,12 @@ canvas.plot { width: 100%; height: 120px; display: block; background: var(--pane
 .dialog { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
 .dialog .box { background: var(--panel); border: 1px solid var(--line-hi); border-radius: 8px; padding: 16px; width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; }
 .dialog h3 { margin: 0; font: 12px var(--f-display); letter-spacing: .1em; }
+.sc-box { width: min(560px, 100%); max-height: 90vh; overflow: auto; }
+.sc-box p, #sc-info p { margin: 0 0 6px; }
+.sc-parts { border-collapse: collapse; width: 100%; font-size: 13px; }
+.sc-parts th, .sc-parts td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+.sc-warn { margin: 4px 0; padding-left: 18px; color: var(--warn, #f2b84b); font-size: 13px; }
+.sc-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .dialog input { background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 4px; padding: 8px; font: 16px var(--f-mono); }
 /* a warning or an error: a large card over the page; it never takes clicks (a tap anywhere closes it) */
 .popmsg { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); z-index: 30; pointer-events: none; width: min(760px, calc(100vw - 32px)); }
@@ -610,7 +648,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
           <div class="ob-head"><b id="ob-name">—</b><button class="btn sm" id="ob-close" title="Deselect">×</button></div>
           <div class="muted ob-src" id="ob-src"></div>
           <div class="ob-grid">
-            <label>Role<select id="ob-role"><option value="fixture">fixture</option><option value="workpiece">workpiece</option></select></label>
+            <label>Role<select id="ob-role"><option value="fixture">fixture</option><option value="workpiece">workpiece</option><option value="part">finished part (to compare)</option></select></label>
             <label>Placed in<select id="ob-frame"><option value="work">work offset</option><option value="machine">machine</option></select></label>
             <label>X<input id="ob-x" type="number" step="1"></label><label>Y<input id="ob-y" type="number" step="1"></label><label>Z<input id="ob-z" type="number" step="1"></label>
             <label>Rot X°<input id="ob-rx" type="number" step="90"></label><label>Rot Y°<input id="ob-ry" type="number" step="90"></label><label>Rot Z°<input id="ob-rz" type="number" step="15"></label>
@@ -673,13 +711,18 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
         <div class="row file-tools" id="fl-tools" hidden>
           <nav class="crumbs" id="fl-crumbs" aria-label="Folder"></nav>
           <span class="grow"></span>
-          <button class="btn sm accent" id="fl-upload" title="G-code programs and 3D models (STL, OBJ) from this computer into this folder (or drop them on the list)">Upload</button>
-          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode,.stl,.obj" hidden>
+          <button class="btn sm accent" id="fl-upload" title="G-code programs and 3D models (STL, OBJ) from this computer into this folder, or a CAM scene (.zip) into the 3D setup (or drop them on the list)">Upload</button>
+          <input type="file" id="fl-input" multiple accept=".ngc,.nc,.tap,.gcode,.stl,.obj,.zip" hidden>
           <button class="btn sm" id="fl-mkdir">New folder</button>
           <button class="btn sm" id="fl-rename" disabled>Rename / move</button>
           <button class="btn sm" id="fl-delete" disabled>Delete</button>
         </div>
         <div class="files" id="files"></div>
+      </div>
+      <div class="panel" id="sc-panel">
+        <h2>CAM scene <small id="sc-name">—</small></h2>
+        <div class="row"><button class="btn sm accent" id="sc-import" title="A CAM setup's dump (a .zip: scene.json, the stock's and the placed parts' STL files) into the 3D setup">Import scene…</button><input type="file" id="sc-input" accept=".zip" hidden><span class="muted">scene.json with the stock and the placed parts, zipped</span></div>
+        <div id="sc-info"></div>
       </div>
       <div class="panel">
         <h2>Preflight <small id="fl-name">—</small></h2>
@@ -756,10 +799,11 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       <div class="panel">
         <h2>Tool table <small>tool.tbl · loaded tool highlighted, click a row to select</small></h2>
         <div class="wrapx"><table class="t" id="tool-t"></table></div>
+        <div class="form" id="tl-geo" hidden></div>
         <div class="row"><button class="btn accent" id="tl-load">Load selected (M6)</button><button class="btn" id="tl-meas">Measure on the tool setter</button><button class="btn" id="tl-add">Add tool</button><button class="btn" id="tl-del">Delete selected</button></div>
         <p class="note" id="tl-note">Tool setter at machine X 980 Y 20. Lengths are from the spindle's gauge line.</p>
       </div>
-      <div class="panel">
+      <div class="panel" id="tm-panel">
         <h2>3D model <small id="tm-t">T3</small></h2>
         <div class="form">
           <label>Model<select id="tm-src"></select></label>
@@ -1044,7 +1088,7 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
       <div class="row"><button class="btn sm" id="b-homeall">Home all</button><button class="btn sm" id="b-zeroall">Zero XYZ</button><button class="btn sm" id="b-gotozero">Go to 0</button><button class="btn sm" id="b-park">Park</button></div>
       <div class="modal" id="modal">—</div>
     </div>
-    <div class="panel">
+    <div class="panel" id="spin-panel">
       <h2>Spindle · coolant <small id="sp-tool">—</small></h2>
       <div class="gauges">
         <div class="gauge"><span class="label"><span class="led" id="sp-led"></span>Spindle</span><span class="num" id="sp-rpm">0</span><span class="label" id="sp-cmd">S0 · stopped</span></div>
@@ -1089,18 +1133,28 @@ input, textarea, pre, code, .gcode, .events, .hal-detail, .kv dd, .drv-out, .sco
   <div class="pp-list" id="pp-list" role="listbox"></div>
   <div class="row" style="justify-content:space-between"><span class="muted" id="pp-count"></span><span class="row"><button class="btn" type="button" id="pp-clear">None</button><button class="btn" type="button" id="pp-cancel">Cancel</button></span></div></div></div>
 <div class="popmsg" id="popmsg" role="alert" hidden><div class="pm-card"><span class="pm-k" id="pm-k">WARNING</span><p class="pm-t" id="pm-t"></p><span class="pm-f" id="pm-f">tap anywhere to close</span></div></div>
+<div class="dialog" id="sc-dlg" hidden><div class="box sc-box"><h3>Import the CAM scene</h3><div id="sc-dlg-b"></div><label class="row"><input type="checkbox" id="sc-keep"> Keep the fixtures (the vise, plates…) in the setup</label><div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="sc-cancel">Cancel</button><button class="btn accent" type="button" id="sc-ok">Import</button></div></div></div>
 <div class="dialog" id="dlg" hidden><form class="box" id="dlg-form"><h3 id="dlg-t">—</h3><p class="note" id="dlg-n"></p><input id="dlg-in" type="number" step="0.001" autocomplete="off" aria-label="Value"><div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="dlg-cancel">Cancel</button><button class="btn accent" type="submit">OK</button></div></form></div>
 
 <script src="vendor/three/three.min.js"></script>
 <script src="vendor/three/OrbitControls.js"></script>
 <script src="js/app.js"></script>
 <script src="js/setup3d.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/sceneui.js"></script>
 <script src="js/machmodel.js"></script>
+<script src="js/armmodel.js"></script>
+<script src="js/arm_demo.js"></script>
+<script src="js/mstock.js"></script>
+<script src="js/millrem.js"></script>
+<script src="js/stock.js"></script>
 <script src="js/lathe.js"></script>
+<script src="js/arm.js"></script>
 <script src="js/hal.js"></script>
 <script src="js/scope.js"></script>
 <script src="js/drives.js"></script>
 <script src="js/measure.js"></script>
+<script src="js/demo_machines.js"></script>
 <script src="js/config.js"></script>
 <script src="js/sysupdate.js"></script>
 <script src="js/live.js"></script>

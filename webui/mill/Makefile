@@ -31,6 +31,11 @@ SEL = $(if $(K),-k "$(K)",) $(if $(SHOTS),--shots $(SHOTS),)
 
 test:
 	cd server && python3 -m unittest discover -s tests
+	node test/stock_test.js
+	node test/mstock_test.js
+	node test/armmodel_test.js
+	node test/scene_test.js
+	node test/demo_machines_test.js
 
 test-gui-sim:
 	node test/gui/sim_suite.js $(SEL)
@@ -47,6 +52,19 @@ ifdef REMOTE
 else
 	python3 test/harness.py -- node test/gui/live_suite.js $(SEL)
 endif
+
+# the console on an arm: hwtest/arcmate-sim with its tool changer (needs host/arm and the arm's LinuxCNC modules built
+# and installed: hwtest/arcmate-sim/Makefile)
+test-gui-arm:
+	python3 test/harness.py --arm -- node test/gui/arm_suite.js $(SEL)
+
+# the same suite against the config millweb-supervisor makes from machines/arcmate_sim/machine.json
+# machines/excitech (the router) in LinuxCNC by millweb-supervisor: its rack's M6 (test/router_live.py)
+test-router:
+	python3 test/harness.py --machine excitech -- python3 test/router_live.py
+
+test-gui-arm-machine:
+	python3 test/harness.py --arm-machine -- node test/gui/arm_suite.js $(SEL)
 
 # the Debug page's drives against LinuxCNC with a simulated stmbl drive on X (harness.py --drive)
 test-drive:
@@ -81,4 +99,4 @@ sim:
 demo:
 	python3 -m http.server -d . 8000
 
-.PHONY: test test-gui-sim test-backend test-gui-live test-live test-stress serve-test check-all sim demo
+.PHONY: test test-gui-arm test-gui-arm-machine test-gui-sim test-backend test-gui-live test-live test-stress serve-test check-all sim demo test-router

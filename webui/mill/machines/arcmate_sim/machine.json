@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "ARC Mate (simulated)",
+  "type": "arm",
+  "units": "mm",
+  "servo_period_ns": 1000000,
+  "board": {"type": "none"},
+  "bitstream": {"loader": "none"},
+  "axes": {
+    "X": {"min": -2000, "max": 2000, "max_vel": 250, "max_acc": 1000},
+    "Y": {"min": -2000, "max": 2000, "max_vel": 250, "max_acc": 1000},
+    "Z": {"min": -2000, "max": 2000, "max_vel": 250, "max_acc": 1000},
+    "A": {"min": -720, "max": 720, "max_vel": 90, "max_acc": 360},
+    "B": {"min": -720, "max": 720, "max_vel": 90, "max_acc": 360},
+    "C": {"min": -720, "max": 720, "max_vel": 90, "max_acc": 360}
+  },
+  "joints": [
+    {"drive": {"type": "stmbl_arm"}, "min": -170, "max": 170, "max_vel": 100, "max_acc": 300, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}},
+    {"drive": {"type": "stmbl_arm"}, "min": -150, "max": 0, "max_vel": 100, "max_acc": 300, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}},
+    {"drive": {"type": "stmbl_arm"}, "min": -90, "max": 160, "max_vel": 110, "max_acc": 300, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}},
+    {"drive": {"type": "stmbl_arm"}, "min": -190, "max": 190, "max_vel": 200, "max_acc": 600, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}},
+    {"drive": {"type": "stmbl_arm"}, "min": -130, "max": 130, "max_vel": 200, "max_acc": 600, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}},
+    {"drive": {"type": "stmbl_arm"}, "min": -180, "max": 540, "max_vel": 300, "max_acc": 900, "ferror": 2, "min_ferror": 1, "home": {"method": "absolute", "pos": 0, "sequence": 0}}
+  ],
+  "arm": {
+    "model": "{repo}/host/arm/arcmate/model_perturbed.arm",
+    "vis": "{repo}/linuxcnc/vis3d/models/arm6_changer.vis",
+    "cell": "{repo}/hwtest/arcmate-sim/cell_changer.txt",
+    "collide": true,
+    "tools": "{repo}/host/arm/arcmate/tools.txt",
+    "quota": "{repo}/hwtest/arcmate-sim/quota.txt",
+    "home": [0, -90, 0, 0, -90, 180],
+    "gripper": {"type": "stmbl_arm"},
+    "changer": {"ready": "G53 G1 X900 Y300 Z1150 A0 B45 C0 F6000"},
+    "enable": {"input": "", "invert": false, "hold_all": false},
+    "sim": {"arm": "{repo}/host/arm/arcmate/arcmate_changer.arm", "lib": "{repo}/host/arm/libstmbl_drive.so"}
+  },
+  "estop": {"input": "", "invert": false},
+  "console": {"port": 8080, "host": "0.0.0.0"}
+}

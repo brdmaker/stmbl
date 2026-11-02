@@ -31,7 +31,7 @@ SRCS = $(DRIVE_SRCS) $(CORE_SRCS) $(COMP_SRCS) $(GEN)/hal_tbl.c $(GEN)/conf_temp
 OBJS = $(addprefix $(OBJ)/,$(notdir $(SRCS:.c=.o)))
 
 INCLUDES = -I$(HOST)/shim -I$(HOST) -I$(HOST)/lcnc -I$(GEN) -I$(ROOT)/inc -I$(ROOT)/shared -I$(ROOT)/linuxcnc/stmblcan
-CORE_CFLAGS = -O2 -g -fPIC -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv \
+CORE_CFLAGS = -O2 -g -fPIC -DSSCON_TXSIZE=32768 -std=gnu11 -Wall -Wno-format -fno-strict-aliasing -fwrapv \
               -D_GNU_SOURCE -include host_compat.h $(INCLUDES)
 API = stmbl_sim_open stmbl_sim_close stmbl_sim_update stmbl_sim_boot stmbl_sim_tick \
       stmbl_sim_pin stmbl_sim_cmd stmbl_sim_time

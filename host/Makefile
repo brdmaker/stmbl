@@ -89,6 +89,11 @@ QUOTA_DIR = ../linuxcnc/powerquota
 test_quota: tests/test_quota.c $(QUOTA_DIR)/quota.c $(QUOTA_DIR)/quota.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(QUOTA_DIR) -o $@ tests/test_quota.c $(QUOTA_DIR)/quota.c -lm
 
+# linuxcnc/lathe's turret and spindle logic (unit tests)
+LATHE_DIR = ../linuxcnc/lathe
+test_lathe: tests/test_lathe.c $(LATHE_DIR)/lathe_logic.c $(LATHE_DIR)/lathe_logic.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I$(LATHE_DIR) -o $@ tests/test_lathe.c $(LATHE_DIR)/lathe_logic.c -lm
+
 # shared/sserial_q.h: noise-shaped process data (unit tests)
 test_ssq: tests/test_ssq.c ../shared/sserial_q.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_ssq.c -lm
@@ -127,7 +132,7 @@ test_errlog: tests/test_errlog.c ../shared/errlog.c ../shared/errlog.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog
+check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog
 	@./test_ssq
 	@./test_sscon
 	@./test_cur_offset
@@ -147,6 +152,7 @@ check: stmbl_host test_robot test_quota test_ssq test_sscon test_cur_offset test
 	@$(MAKE) -s -C ../servoterm-cli
 	@$(PYTHON) tests/test_servoterm_ident.py
 	@./test_quota
+	@./test_lathe
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all

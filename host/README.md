@@ -360,7 +360,7 @@ use the same component and pin names as `src/comps/`:
 
 | Stand-in | Simulates |
 |---|---|
-| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply (below, "DC bus"). `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). `sim_abs_pos` is the unwrapped position from the start; `sim_min_pos`/`sim_max_pos` (both 0 = off) are hard end stops on it for a linear axis, counted in `sim_stop_hits`. |
+| `hw/hv.c` | HV board (F3) and motor: the curpid current loop at 20 kHz and a PMSM model at 80 kHz. The `sim_*` pins hold the motor (r, l, psi, pole pairs, j, d, f, load, brake) and the supply (below, "DC bus"). `sim_fault` raises an HV board fault (the bridge off); `sim_dist` is the unwrapped position (how far a stop went, `tests/estop_*.test`). `sim_abs_pos` is the unwrapped position from 0 at the start; `sim_min_pos`/`sim_max_pos` (both 0 = off) are hard end stops for a linear axis on it, counted in `sim_stop_hits`. |
 | `hw/enc_fb.c` | quadrature encoder on the simulated shaft, with an index pulse: state 1 (incremental) until the index, then 3; `sim_fail = 1` breaks it (position frozen, error). `sim_ref_mode` 1 puts a single reference mark at `sim_ref_pos` on `sim_abs_pos` (a linear scale), 2 repeats it every `sim_ref_period` |
 | `hw/sserial.c` | smart-serial link to LinuxCNC; process data in `sim_io.h`, with timeout to `CMD error` as on the drive |
 | `hw/adc.c`, `hw/io.c` | pins only |

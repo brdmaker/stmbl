@@ -25,8 +25,10 @@ mark
 move 0.6 500 700
 print max_cur_y1 max_cur_y2 max_rack fault jammed
 @expect portal.max_cur_y1[1] > 1.25
-@expect portal.max_cur_y2[1] < 1.05
-@expect portal.max_cur_y1[2] < 1.05
+# the far side well under the near one (> 1.25): 1.05 on the portal branch's
+# HV-board model, ~1.06 on the merged one (DEBUGNOTES 2026-10-31)
+@expect portal.max_cur_y2[1] < 1.1
+@expect portal.max_cur_y1[2] < 1.1
 @expect portal.max_cur_y2[2] > 1.25
 @expect portal.max_cur_y1[3] ~ 1.29 4%
 @expect portal.max_cur_y2[3] ~ 1.29 4%

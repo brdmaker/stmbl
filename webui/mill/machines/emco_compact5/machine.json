@@ -2,7 +2,7 @@
   "version": 1,
   "name": "Emco Compact 5 CNC",
   "type": "lathe",
-  "lathe": {"post": "front", "diameter": true},
+  "lathe": {"post": "front", "diameter": true, "turret": {"type": "sim", "stations": 6}},
   "units": "mm",
   "servo_period_ns": 1000000,
   "board": {"type": "none"},

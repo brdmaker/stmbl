@@ -3939,3 +3939,407 @@ Entry format:
   3.13) and the XCAF tree for names and placements: 1 min, no failures.
   Leaving out fasteners and what is inside covers took the parts from 17 MB
   to 5.7 MB (in under millweb's 5-6 MB a file).
+
+## 2026-10-29  millweb machine.hal: a stock comp loaded twice
+- Area:    webui/mill/server/machineconf.py (generate)
+- Status:  Fixed
+- Symptom: a machine with an inverted E-STOP input and an inverted probe (or
+  now an stmbl spindle, an inverted turret index) wrote `loadrt not names=…`
+  twice; LinuxCNC refuses the second load of a module.
+- Cause:   each feature loaded its own `not` / `and2` instance.
+- Fix:     generate() collects the names= comps and loads each module once,
+  with all its names, before the first net.
+
+## 2026-10-29  Lathe turret: M6 to a tool not in tool.tbl waits forever
+- Area:    linuxcnc/lathe (lathe.turret), LinuxCNC iocontrol
+- Status:  Known
+- Symptom: `T2 M6` with no T2 line in tool.tbl: the turret doesn't move, the
+  MDI never finishes (the rest of the changes work).
+- Cause:   LinuxCNC's tool table: a T it doesn't have is not prepared.
+- Fix:     every station's tool needs a line in tool.tbl (the lathe's Tools
+  page writes them).
+
+## 2026-10-29  stmbl spindle: the index without a sensor
+- Area:    linuxcnc/lathe (lathe.spindle)
+- Status:  Note
+- Symptom: threading passes would not line up with a belt ratio like 1.5.
+- Cause:   without an index sensor the index is the motor's zero angle,
+  which is a fixed spindle angle only when the ratio is a whole number.
+- Fix:     set `spindle.index_sensor` (one pulse a spindle turn) for other
+  ratios.
+
+## 2026-10-30  Lathe tool orientation Q drawn mirrored
+- Area:    webui/mill/js/lathe.js (the tool's drawing), the simulated tools
+- Status:  Fixed
+- Symptom: an outside turning tool needed Q3 to look right in millweb;
+  LinuxCNC (G41/G42, AXIS) means Q2 for it.
+- Cause:   my orientation table swapped X and Z against LinuxCNC's.
+  glcanon.py lathe_shapes is the reference: the nose's centre is at
+  r·(dx, dz) from the controlled point (Q2: (1, 1)).
+- Fix:     stock.js's toolShape follows glcanon.py (the edges from I, J as
+  AXIS draws them); the view draws its outline; the demo tools are Q2 (turning,
+  grooving), Q6 (thread), Q3 (boring bar), Q7 (drill).
+
+## 2026-10-30  Material removal: a thread in a turned section
+- Area:    webui/mill/js/stock.js
+- Status:  Workaround
+- Symptom: threading passes turned the thread down to its minor Ø; pulling
+  the insert straight out of the groove read as a G0 into the stock.
+- Cause:   the stock is axisymmetric (rings along Z): a helix isn't.
+- Fix:     a 60° insert's passes along Z keep the major Ø and record the
+  depth (half the groove's volume taken); moving out over a thread cuts
+  nothing. Programs threading with another insert are cut as turning.
+
+## 2026-10-30  Live preview before the first status: machine coordinates
+- Area:    webui/mill/server/millweb.py (preview)
+- Status:  Known
+- Symptom: a program asked for before millweb has LinuxCNC's first status
+  came back with the work offset in it (X440 Z-195 for X15 Z0).
+- Cause:   the preview takes out the G5x + G92 from millweb's state, empty
+  until the first poll.
+- Fix:     none needed for the console (it asks after it has the status);
+  a test client waits for g5x first.
+
+## 2026-10-30  GUI sim suite: "the footer's line opens the last again"
+- Area:    webui/mill/test/gui/sim_suite.js (messages case)
+- Status:  Fixed
+- Symptom: fails alone and in the full run (51/52), also on the commit
+  before the material removal work: during its 10.5 s wait an "M1
+  optional stop" message becomes the last one, so the footer opens that.
+- Cause:   the simulation starts with its demo program running; it reached
+  its M1 while the case waited, and that became the last message.
+- Fix:     the case stops the program first (stop(t)).
+
+## 2026-10-30  Mill material removal: a fixture as its bounding box
+- Area:    webui/mill/js/mstock.js, millrem.js (fixtures)
+- Status:  Fixed
+- Symptom: every drilled hole in the demo bracket hit "the vise".
+- Cause:   the vise's bounding box spans the gap between its jaws, where
+  the stock sits.
+- Fix:     fixtures as a height map (a built-in's boxes one by one, a model
+  from its triangles); a move's tool (from its tip) and holder (from the
+  stick-out) checked against the cells under them, at the lowest the tool
+  is over each (a plunge: its bottom, not its start).
+
+## 2026-10-30  Mill material removal: the holder's ring made short moves slow
+- Area:    webui/mill/js/mstock.js (cut)
+- Status:  Fixed
+- Symptom: 60 000 0.1 mm moves took 7.5 s to check.
+- Cause:   every move scanned the holder's radius (Ø6 tool, Ø26 holder: 19x
+  the cells) for the holder's check.
+- Fix:     the holder's ring only when its bottom can be below the stock's
+  top: 0.8 s.
+
+## 2026-10-30  Mill material removal: the cut stock slowed the view to 4 fps
+- Area:    webui/mill/js/millrem.js (millRemMesh)
+- Status:  Fixed
+- Symptom: with the cut stock shown, the headless browser (software
+  rendering) drew 4.5 frames a second; the simulation's clock (dt capped
+  at 0.1 s a frame) fell behind and timing tests failed (single block).
+- Cause:   the surface drawn at the check's 0.25 mm cells: 150 000 points,
+  300 000 triangles, re-uploaded and its normals recomputed whole.
+- Fix:     drawn coarser than cut (a point the lowest of the cells under
+  it, at most 40 000), halved while frames take over 50 ms; only the rows a
+  cut changed are updated, normals from the heights. 20 fps there, 40
+  without it.
+
+## 2026-10-30  LinuxCNC 2.9's joint status has no actual_position
+- Area:    webui/mill/server/machine.py (an arm's status)
+- Status:  Fixed
+- Symptom: with an arm, millweb sent no status at all (the poll raised).
+- Cause:   stat.joint[n] has `input` (the joint's feedback) and `output`,
+  not `actual_position` (that is stat's, the axes').
+- Fix:     `input`; the test stand-in (fake_linuxcnc) has the real keys.
+
+## 2026-10-30  Merging the robot branch: two copies of the drive's build
+- Area:    host/arm/Makefile, host/lcnc/Makefile
+- Status:  Note
+- Symptom: after the merge host/arm (the arm's drive library) didn't build:
+  stmblcan_bus.h not found.
+- Cause:   the arm builds the drive from its own source list, a copy of
+  host/lcnc's; this branch had added the CAN bus, firmware staging and the
+  console to host/lcnc's (sim_api.c needs them).
+- Fix:     host/arm/Makefile has host/lcnc's sources and flags again. A
+  change to one wants the other (or one shared list).
+
+## 2026-10-31  An arm's model limits are offsets from theta0
+- Area:    webui/mill/js/arm.js (the simulation's joint limits)
+- Status:  Fixed
+- Symptom: the simulated arm refused every pose of the demo program: "out
+  of the arm's reach or its joints' limits"; J2 at -86 deg read as below
+  its -60 limit.
+- Cause:   arm_sim's .arm `limits` are on its q (offsets from theta0);
+  with `joints theta` (vis3d, LinuxCNC) the joint values include theta0
+  (J2's -90).
+- Fix:     the model's limits moved by theta0 when the joints are the DH
+  theta; live, LinuxCNC's own [JOINT_n] limits.
+
+## 2026-10-31  An arm's model files: two names for one file
+- Area:    webui/mill/server/machine.py (arm_model), js/armmodel.js
+- Status:  Fixed
+- Symptom: with the cell elsewhere than the model (hwtest/arcmate-sim's,
+  a copy in /tmp), the browser missed the tool table: "not in the model's
+  files".
+- Cause:   files are named by their path from the model's folder; an
+  include resolved from another folder gives another, equally valid,
+  relative path (../../../../../../home/... against ../../../host/...),
+  and the browser can't tell without the server's absolute paths.
+- Fix:     the server writes every include and mesh in the texts as
+  @<name>, the bundle's own name for the file; the browser takes @names
+  as they are.
+
+## 2026-10-31  An arm's Tools page: Mount buttons stayed disabled
+- Area:    webui/mill/js/arm.js (armRenderTools)
+- Status:  Fixed
+- Symptom: test-gui-arm failed now and then: clicking "Mount T2" timed
+  out after T1 M6 although the machine was idle again.
+- Cause:   the changer table was drawn when the Tools page opened or the
+  tool table changed; drawn while T1 M6 ran, its buttons stayed disabled.
+- Fix:     the joints panel's 20 Hz update draws the table again when
+  busy/idle, the mounted tool or the changer's fault changes.
+
+## 2026-10-31  An arm's TOOL-frame jog is an MDI move
+- Area:    webui/mill/server/machine.py (_jog_tool)
+- Status:  Note
+- Symptom: LinuxCNC has no tool-frame jog: teleop jogs X..C in the
+  world frame only.
+- Cause:   by design (motion's teleop).
+- Fix:     the server works the target out from the commanded pose
+  (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F`; held, it
+  goes to the [AXIS_*] limits along the line (a turn: 45°) and jog_stop or
+  the deadman aborts it. A turn keeps the tool point, but LinuxCNC moves
+  A B C linearly, so between the ends the orientation is the A B C line's,
+  not an exact turn about the tool axis. A B C wrap to within 180° of the
+  current values.
+
+## 2026-10-31  The arm's M6 went to the docks in work coordinates
+- Area:    hwtest/arcmate-sim/toolchange.ngc (and the generated run/toolchange.ngc)
+- Status:  Fixed
+- Symptom: with a G54 offset active (test/machine's linuxcnc.var: Z -195),
+  T1 M6 moved to the wrong place and never locked the tool.
+- Cause:   the dock and approach moves were `G90 G1 X#<_dk..>`: work
+  coordinates, while armtool's dock positions are machine positions.
+- Fix:     `G53 G1` for every dock move; the example's TOOL_READY too.
+
+## 2026-10-31  Record point wrote machine coordinates as a plain G1
+- Area:    webui/mill/server/machine.py (cmd_teach_record)
+- Status:  Fixed
+- Symptom: a taught point replayed from teach.ngc landed off by the work
+  offset.
+- Cause:   it wrote stat.actual_position (machine) into a G1 line, which a
+  program reads in the work coordinates.
+- Fix:     it records actual - G5x - G92. The file is now a program (header,
+  points, M2): LinuxCNC refuses a file without M2 or %.
+
+## 2026-10-31  Mount with TOOL_READY: "a program or MDI is running"
+- Area:    webui/mill/js/arm.js (armMount)
+- Status:  Fixed
+- Symptom: with [ARM6HMI] TOOL_READY set, Mount moved to the ready pose
+  and never changed the tool.
+- Cause:   the console sent the ready move and T<n> M6 back to back; millweb
+  refuses MDI while one runs.
+- Fix:     the ready move with wait (op mdi {wait: true}), then M6.
+
+## 2026-10-31  machine.json → arm: the first tool.tbl was a mill's
+- Area:    webui/mill/server/machineconf.py (write_run, init)
+- Status:  Fixed
+- Symptom: a new arm machine had `T1 P1 D6.0 ;6 mm endmill` only, so T2 M6
+  failed ("tool not found").
+- Cause:   init() wrote the default tool.tbl before any configuration was
+  made.
+- Fix:     tool.tbl is written with the first generated configuration; an
+  arm's is its changer's tools (generate's `tool.tbl.init`). An existing
+  tool.tbl is kept (switching a mill to an arm keeps the mill's: edit it).
+
+## 2026-10-31  An arm's enabling switch: jog-inhibit, and MDI jogs
+- Area:    webui/mill/server/machineconf.py (generate_arm), millweb.py
+- Status:  Note
+- Symptom: LinuxCNC 2.9's motion.jog-inhibit / jog-stop stop teleop and
+  joint jogs, but not the console's TOOL-frame jog (an MDI move).
+- Cause:   by design: jog pins act on jogs only.
+- Fix:     released, millweb aborts its tool-frame move and refuses new
+  jogs; `arm.enable.hold_all` adds motion.feed-inhibit for every move.
+
+## 2026-10-31  Merge of claude/portal-dynamics: pos_advance one rt cycle too long
+- Area:    conf/template/sserial.txt, can.txt, sserial_dummy.txt (sserial0/can0.pos_advance)
+- Status:  Fixed (simulated; to be confirmed on a real drive)
+- Symptom: after the merge, LinuxCNC's following error on host/mill's
+  CN 720 grew from ~5 to ~36 um on a 0.6 s move, the feedback *ahead* of
+  the command by ~0.2 ms x the speed.
+- Cause:   pos_advance (0.8 ms) was tuned while idx_home0 ran after linrev0,
+  which made the reported position one rt cycle (0.2 ms) old. The index
+  homing fix (2026-10-17: idx_home0.rt_prio 2.05, before linrev0) made it
+  fresh, so the same advance over-compensates.
+- Fix:     pos_advance 0.0006 on both links. mill_move is back at 6 / 9 / 3 um
+  (the portal branch had 4.7 / 7.1 / 2.5).
+
+## 2026-10-31  Merge: probe autophasing takes ~2 s on the ironless linear axis
+- Area:    host/tests/linear_ref_mark, linear_periodic_marks, acc_ff_linear (examples/linear_axis.conf)
+- Status:  Fixed (tests)
+- Symptom: the linear-axis tests from the portal branch jogged while the
+  drive was still phasing (fb_switch0.current_com_pos 6): the carriage went
+  the wrong way and missed the reference mark by 50 mm.
+- Cause:   they were written for align phasing; this branch's default is
+  probe phasing (fb_switch0.phase_mode 1), which needs ~1.9 s here. The
+  drive takes motion commands while still phasing and loses them.
+- Fix:     the tests wait 2.5 s after enable. The drive accepting moves
+  while phasing is a known behaviour (LinuxCNC trips its following error).
+
+## 2026-10-31  Merge: the acceleration feed-forward bypassed the quick stop
+- Area:    conf/template/sserial.txt
+- Status:  Fixed
+- Symptom: bus_regen_chopper: the bus reached 360 V (limit 356) on a stop.
+- Cause:   the portal branch's `pid0.acc_ext_cmd = rev0.out_dd` overrode
+  pid.txt's `pid0.acc_ext_cmd = qstop0.acc_out`: a quick stop's
+  deceleration plan lost its acceleration term.
+- Fix:     `qstop0.acc_in = rev0.out_dd`; qstop passes it through when idle.
+
+## 2026-10-31  Merge: portal tests on this branch's HV-board model
+- Area:    host/hw/hv.c (simulation), host/portal/tests
+- Status:  Open (the portal tests' limits widened)
+- Symptom: portal_move's contour error 127 um (portal branch: 60), the
+  racking test's far-rail current 1.06 (1.05); portal_momentum faulted.
+- Cause:   (momentum) the second 0.5 s move trips a drive's position error on
+  the portal branch too; there the carriage then coasted and the test
+  passed anyway, here the dynamic brake stops it. (move, racking) the
+  difference is all in the simulated HV board: the portal branch's
+  host/hw/hv.c reproduces its numbers exactly with this branch's firmware.
+  Not isolated further (current mode, so not the voltage-mode clamp).
+- Fix:     momentum: 0.6 s moves, and it now checks for no fault. move:
+  econt < 150; racking: far rail < 1.1 (the near rail > 1.25 unchanged).
+
+## 2026-10-31  HSM 400U sim: 600 V motors on stmbl's bus run out of voltage
+- Area:    host/mill (machine/hsm400u*), hwtest/hsm400u-sim
+- Status:  Note (simulated, guessed motor data)
+- Symptom: the simulated HSM 400U's X rapid follows at 28 m/min, lags a
+  quarter millimetre at 30 and trips (position error) from 32 m/min; C's
+  90 deg in 1 s (169 deg/s peak) trips too.
+- Cause:   its Siemens servos are wound for a 600 V DC link (kE ~330 V at
+  3000 rpm, guessed); stmbl's bus is ~325 V (230 V mains rectified), so the
+  voltage runs out at ~1750 rpm.
+- Fix:     none in software: plan the rapids for it (28 m/min, A 85 / C
+  125 deg/s as hwtest/hsm400u-sim's joint limits) or a 380 V bus (~36 m/min;
+  the drive's conf0.high_dc_volt / max_dc_volt must be raised, else it
+  scales its current to nothing: hsm400u/bus380.conf). The real kE (motor
+  nameplate) decides.
+
+## 2026-10-31  mill_sim scripts: the test runner's indexes are 1-based
+- Area:    host/tests/run_tests.py (PIN[n] in @expect)
+- Status:  Note
+- Symptom: new tests compared the wrong printed value.
+- Cause:   PIN[1] is the first value printed, PIN (no index) the last.
+- Fix:     wrote them 1-based.
+
+## 2026-11-01  LinuxCNC: G64 P without Q joins short lines (block-rate tests)
+- Area:    `hwtest/hsm400u-sim/hsm_blocks.py`, any block-rate benchmark
+- Status:  Note
+- Symptom: 0.01 mm lines ran at the full 8000 mm/min, 13,333 lines/s at a
+  1 kHz servo, faster than the planner can take segments.
+- Cause:   with Q not given, Q equals P, so the naive CAM detector joins
+  lines that lie within Q of one straight line before planning.
+- Fix:     use `G64 P.. Q0` to measure the planner's own rate (about one
+  segment per servo cycle: ~980 lines/s at 1 kHz, 1000-1500 at 2 kHz).
+
+## 2026-11-01  LinuxCNC: 0.1 mm lines at 1 kHz run slower than shorter ones
+- Area:    LinuxCNC 2.9 trajectory planner, `hwtest/hsm400u-sim/hsm_blocks.py`
+- Status:  Open
+- Symptom: a circle R 20 of 0.1 mm lines at F8000, `G64 P0.01 Q0`, 1 kHz
+  servo: 564 lines/s (3383 mm/min) and 21 um off the path. 0.05 mm lines
+  reach 980 lines/s; at 2 kHz, 0.1 mm lines run at full feed.
+- Cause:   not found; probably where a segment lasts about one servo cycle
+  and the planner's blending stops working.
+- Fix:     -
+
+## 2026-11-01  xyzbc-trt-kins: world Z is the gauge line; z-offset is below the rot point
+- Area:    `hwtest/hsm400u-sim/hsm.hal`, `host/mill/millcore.c` (trtbc)
+- Status:  Note
+- Symptom: with `tool-offset` 100, B 0 C 0, world X Y Z equal the joints:
+  the tool length does not show in the world position.
+- Cause:   trtfuncs.c adds tool-offset to z-offset on both sides of the
+  transform, so it only moves the B pivot (to z-rot-point + z-offset +
+  tool-offset in world coordinates). x/y-rot-point place the C axis,
+  x/z-offset the B axis relative to it.
+- Fix:     the HSM sim uses `trtbc 200 160 -450 0 -80 100`: the pallet face
+  at world Z -350 for the 100 mm tool. A real config feeds tool-offset from
+  the tool length and programs with G43.
+
+## 2026-11-01  mill_sim: a 5 kHz servo period faults before the drives sync
+- Area:    `host/mill/millcore.c` (mccore_servo), the simulated drives' sserial
+- Status:  Open
+- Symptom: `servo 0.2` (with vel_int0.cmd_freq 5000): `lcnc 1; run 0.3`
+  ends at t = 98 s with fault 1, fault_code 1; 4 kHz (0.25 ms) works.
+- Cause:   not found. 5 kHz puts one packet in every simulated rt cycle;
+  probably the simulated sserial's new-packet detection or the offset sync
+  (need_off) never completes.
+- Fix:     - (5 kHz doesn't fit the hardware budget either: docs/servo-timing.md)
+
+## 2026-11-01  Parallel scan readers: shared scratch file names mixed two editions
+- Area:    docs/ctxtwin (text versions of the scanned manuals), agent tooling
+- Status:  Fixed
+- Symptom: `docs/ctxtwin/operating/09d_parameters_mcodes_plc.md` (German
+  edition) had the English edition's AG1 rows 7107-7250 (and some AG2 rows)
+  in place of its own 6850-7250, in the English table layout.
+- Cause:   parallel readers wrote page notes to the same scratch names
+  (p1.md ... p4.md) and picked up each other's.
+- Fix:     rows 6850-7250 re-transcribed from the German PDF pages 1-6;
+  every chapter-9 file checked for the other edition's row format (none
+  left). Next time: give each reader its own scratch folder.
+
+## 2026-11-01  LinuxCNC runs DISPLAY's first word with "-ini FILE" right after it
+- Area:    `hwtest/timing/servo_load.py` (its own DISPLAY), any `[DISPLAY] DISPLAY = prog args`
+- Status:  Workaround
+- Symptom: `DISPLAY = python3 /path/servo_load.py --display`: LinuxCNC exited
+  at once, "Unknown option: -n" from python3, nothing in linuxcnc.log (the
+  script redirects its output to /tmp/linuxcnc.debug.* when there's no tty).
+- Cause:   the linuxcnc script starts `$DISPLAY_PROGRAM -ini $INIFILE <the
+  rest>`: python3 got `-ini` (= -i -n ...) before the script's path.
+- Fix:     a wrapper script (`display.sh: exec python3 servo_load.py --display "$@"`)
+  as DISPLAY. To see a silent failure: `script -qc 'linuxcnc x.ini' /dev/null`.
+
+## 2026-11-01  millweb: the server's event replaces the page's own message
+- Area:    `webui/mill/js/sceneui.js`, `server/millweb.py` (op_scene_import), test/gui/live_suite.js
+- Status:  Fixed
+- Symptom: live suite "CAM scene": `msgHas("Imported scenes/...")` failed
+  although the import worked; the footer showed "Imported the scene ...".
+- Cause:   millweb's event (broadcast before the reply) and the page's own
+  message both go to the footer line; the reply's came second and lost to
+  the event, or the other way round, depending on timing.
+- Fix:     both start "Imported <folder>: ..." (one text either way).
+
+## 2026-11-01  Sim GUI suite: two timing cases fail when the live suite runs beside it
+- Area:    `webui/mill/test/gui/sim_suite.js` ("cycle: stop, start, feed hold...", "feed hold lifts Z 5 mm")
+- Status:  Note
+- Symptom: 55/57 with LinuxCNC + the live suite running in parallel on the same
+  machine; both pass alone (and the whole suite passed 56/56 earlier).
+- Cause:   they check where the simulated tool is a set time after a hold or a
+  single block: a loaded CPU drops the page's frames and the sim lags.
+- Fix:     run the GUI suites one at a time (as make check-all does).
+
+
+## 2026-11-01  Material removal: the quick check on a merged path differs from every move
+- Area:    `webui/mill/js/millrem.js` (millCheck vs millFullSim), `server/preview.py` (PREVIEW_SEGS)
+- Status:  Fixed
+- Symptom: a 6.2 MB CAM program (507 726 moves): the Preflight's quick check
+  said 2 crash risks; the full simulation, every move on 0.25 mm cells, 1
+  (six G0 moves into uncut stock at slot ends, odd-slots floors).
+- Cause:   past PREVIEW_SEGS the preview merges neighbouring moves (stride 8
+  here), so a rapid and the feed after it become one straight segment, and
+  the quick check runs on 0.9 mm cells (250 000 over a 500 x 400 plate).
+- Fix:     "Run the full simulation" (program_get full: no merging, up to
+  PREVIEW_FULL_SEGS) for the verdict; the Simulated tick marks a program
+  that had it. 2026-11-02: the relieved export (334 146 moves, stride 4)
+  gave 4 false "cuts into the part": a merged arc's chord (countersink
+  helices) straight across the part; every move: clean. On a merged path
+  the quick check's crash risks are now "possibly: ..." (warn, "N TO
+  VERIFY", the Checked tick amber for them), pointing to the full simulation.
+
+## 2026-11-01  A standalone preview script needs LinuxCNC running and no `python3 -I`
+- Area:    `webui/mill/server/preview.py` used outside millweb
+- Status:  Note
+- Symptom: `python3 -I parse.py`: "the preview needs LinuxCNC's python";
+  without -I but with no LinuxCNC running: SIGSEGV on the first T word.
+- Cause:   -I ignores PYTHONPATH (rip-environment puts gcode.so there); the
+  tool data is LinuxCNC's shared memory (see the entries of 2026-10-21).
+- Fix:     run it inside `test/harness.py --ini-set EMCIO.TOOL_TABLE=<a table
+  with the program's tools> -- python3 script.py`, polling linuxcnc.stat()
+  once before gcode.parse.

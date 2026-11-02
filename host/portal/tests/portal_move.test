@@ -21,7 +21,9 @@ print x y1 y2 tx ty etool fault jammed hits
 @expect max portal.max_hy > 100
 @expect max portal.max_frame_y > 50
 @expect max portal.max_feet_y > 200
-@expect max portal.max_econt < 100
+# 100 on the portal branch's simpler HV-board model; host/hw/hv.c as merged
+# (the ebrake work's F3 model) gives 127 (DEBUGNOTES 2026-10-31)
+@expect max portal.max_econt < 150
 @expect max portal.max_rack < 200
 @expect portal.x ~ 750 0.005
 @expect portal.y1 ~ 750 0.005

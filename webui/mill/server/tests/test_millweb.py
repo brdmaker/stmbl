@@ -2,6 +2,7 @@
 control lease, the jog deadman, offsets, tools and programs.
 python3 -m unittest discover -s webui/mill/server/tests"""
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -81,6 +82,25 @@ class LatheToolTable(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_tag(self):
+        """The tool database's tag at the comment's end: flutes, a lathe insert's shape, width and edge; kept
+        through a write, bad keys dropped, braces in a comment not taken for one."""
+        d = tempfile.mkdtemp(prefix="tooltbl.")
+        try:
+            p = os.path.join(d, "tool.tbl")
+            open(p, "w").write("T3 P3 D6 Z48.1 ;6 mm endmill {fl=3 cl=18}\nT4 P4 X0.4 Z3 D0.2 Q2 ;2 mm parting {ins=groove w=2 cl=20 zz=1 fl=x}\n"
+                               "T5 P5 D5 Z71 ;drill {not a tag} here\n")
+            t = machine.parse_tool_table(p)
+            self.assertEqual((t[0]["c"], t[0]["fl"], t[0]["cl"]), ("6 mm endmill", 3, 18.0))
+            self.assertEqual((t[1]["c"], t[1]["ins"], t[1]["w"], t[1]["cl"]), ("2 mm parting", "groove", 2.0, 20.0))
+            self.assertNotIn("fl", t[1])
+            self.assertEqual(t[2]["c"], "drill {not a tag} here")
+            machine.write_tool_table(p, t)
+            self.assertIn(";6 mm endmill {fl=3 cl=18}", open(p).read())
+            self.assertEqual(machine.parse_tool_table(p), t)
+        finally:
+            shutil.rmtree(d)
+
 
 class LatheFeed(unittest.TestCase):
     def test_feed_per_turn(self):
@@ -102,14 +122,19 @@ class LatheFeed(unittest.TestCase):
 
 
 class Base(unittest.IsolatedAsyncioTestCase):
+    INI_TEXT = INI   # the machine
     INI_EXTRA = ""   # more [MILLWEB] keys
     HAL = None
+
+    def files(self):
+        """more files in the config folder, before millweb starts"""
 
     async def asyncSetUp(self):
         lc.M.reset()
         lc.M.g5x[:3] = [440.0, 460.0, -195.0]  # what LinuxCNC read from sim.var
         self.d = tempfile.mkdtemp(prefix="millweb-test.")
-        open(os.path.join(self.d, "m.ini"), "w").write(INI + self.INI_EXTRA)
+        open(os.path.join(self.d, "m.ini"), "w").write(self.INI_TEXT + self.INI_EXTRA)
+        self.files()
         open(os.path.join(self.d, "tool.tbl"), "w").write("T3 P3 D6.0 Z+48.13 ;6 mm endmill\nT5 P5 D5 Z71.9 ;drill\n")
         open(os.path.join(self.d, "sim.var"), "w").write("5221 440.0\n5222 460.0\n5223 -195.0\n")
         os.makedirs(os.path.join(self.d, "nc"))
@@ -261,6 +286,45 @@ class Protocol(Base):
         self.assertAlmostEqual(lc.M.pos[1], -0.1)
         await ws.close()
 
+    async def test_program_marks(self):
+        """The File list's ticks: a program checked / simulated in full, kept with the file for every browser."""
+        ws, other = await self.client(), await self.client()
+        files = lambda r: {f["name"]: f for f in r["files"]}  # noqa: E731
+        r = await self.call(ws, "program_mark", name="a.ngc", kind="check", level="ok", sig="abc12345", summary="travel fits")
+        self.assertTrue(r["ok"], r)  # no control needed
+        m = await self.until(other, lambda m: m["t"] == "files" and "marks" in files(m).get("a.ngc", {}))
+        rec = files(m)["a.ngc"]["marks"]["check"]
+        self.assertEqual((rec["level"], rec["sig"], rec["summary"], rec["full"]), ("ok", "abc12345", "travel fits", False))
+        self.assertTrue(rec["by"] and rec["at"] > 0)
+        self.assertNotIn("sim", files(m)["a.ngc"]["marks"])
+        r = await self.call(ws, "program_mark", name="a.ngc", kind="sim", level="bad", sig="abc12345", summary="6 crash risks", full=True)
+        self.assertTrue(r["ok"])
+        self.assertEqual(files(await self.call(other, "files"))["a.ngc"]["marks"]["sim"]["level"], "bad")
+        for bad in ({"kind": "run"}, {"level": "great"}, {"name": "../x.ngc"}, {"name": "nope.ngc"}):
+            r = await self.call(ws, "program_mark", **dict({"name": "a.ngc", "kind": "check", "level": "ok"}, **bad))
+            self.assertFalse(r["ok"], bad)
+        # renamed: the marks go with it; edited: gone
+        await self.call(ws, "control", take=True)
+        self.assertTrue((await self.call(ws, "folder_create", name="sub"))["ok"])
+        self.assertTrue((await self.call(ws, "program_rename", name="a.ngc", to="sub/a.ngc"))["ok"])
+        fl = files(await self.call(ws, "files"))
+        self.assertEqual(set(fl["sub/a.ngc"]["marks"]), {"check", "sim"})
+        self.assertTrue((await self.call(ws, "program_rename", name="sub", to="sub2"))["ok"])
+        self.assertEqual(set(files(await self.call(ws, "files"))["sub2/a.ngc"]["marks"]), {"check", "sim"})
+        self.assertTrue((await self.call(ws, "program_save", name="sub2/a.ngc", text="G0 X2\nM2"))["ok"])
+        self.assertNotIn("marks", files(await self.call(ws, "files"))["sub2/a.ngc"])
+        stored = lambda: json.loads(open(os.path.join(self.d, "millweb-marks.json")).read())  # noqa: E731
+        self.assertIn("sub2/a.ngc", stored())  # kept, but not shown: made on the file as it was
+        self.assertTrue((await self.call(ws, "program_mark", name="sub2/a.ngc", kind="check", level="warn"))["ok"])
+        self.assertTrue((await self.call(ws, "program_delete", name="sub2/a.ngc"))["ok"])
+        self.assertNotIn("sub2/a.ngc", stored())
+        # the full preview asked for: said so in the program message
+        self.assertTrue((await self.call(ws, "program_save", name="c.ngc", text="G0 X5\nM2"))["ok"])
+        r = await self.call(ws, "program_get", name="c.ngc", full=True)
+        self.assertTrue(r["ok"])
+        self.assertTrue(r["program"]["full"])
+        self.assertFalse((await self.call(ws, "program_get", name="c.ngc"))["program"]["full"])
+
     async def test_tools_programs_probe(self):
         ws = await self.client()
         await self.call(ws, "control", take=True)
@@ -273,6 +337,19 @@ class Protocol(Base):
         self.assertTrue(os.path.exists(os.path.join(self.d, "tool.tbl.bak")))
         r = await self.call(ws, "tools_save", tools=tools + [tools[0]])
         self.assertFalse(r["ok"])
+        # the tool database's fields: into the comment's tag, checked
+        tools[0].update(fl=3, cl=18)
+        tools[1].update(c="a {brace}", ins="groove", w=2.5)
+        self.assertTrue((await self.call(ws, "tools_save", tools=tools))["ok"])
+        txt = open(os.path.join(self.d, "tool.tbl")).read()
+        self.assertIn(";endmill {fl=3 cl=18}", txt)
+        self.assertIn(";a (brace) {ins=groove w=2.5}", txt)
+        tools[0].update(ty="bull", cr=0.5, so=25, hd=32)
+        self.assertTrue((await self.call(ws, "tools_save", tools=tools))["ok"])
+        self.assertIn(";endmill {fl=3 cl=18 ty=bull cr=0.5 so=25 hd=32}", open(os.path.join(self.d, "tool.tbl")).read())
+        for bad in ({"fl": 99}, {"ins": "hex"}, {"w": -1}, {"ty": "saw"}, {"ang": 200}, {"so": 0.0001 - 1}):
+            r = await self.call(ws, "tools_save", tools=[dict(tools[0], **bad)])
+            self.assertFalse(r["ok"], bad)
         # programs
         r = await self.call(ws, "program_save", name="../evil.ngc", text="M2")
         self.assertFalse(r["ok"])  # no way out of NC_DIR
@@ -457,6 +534,14 @@ class Protocol(Base):
         self.assertNotIn("extra", st["objects"][2])
         saved = json.load(open(os.path.join(self.d, "millweb-setup.json")))
         self.assertEqual(saved["objects"][2]["src"], "model:fixtures/plate.stl")
+        # the finished part (the material removal compares with it); an unknown role: a fixture
+        ok(await self.call(ws, "setup_save", objects=objs + [{"id": "q", "name": "part", "role": "part", "src": "model:a.stl", "frame": "work",
+                                                               "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1, "look": "glass"},
+                                                              {"id": "r", "role": "toy", "src": "model:b.obj"}]))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 5)
+        self.assertEqual([o["role"] for o in st["objects"][3:]], ["part", "fixture"])
+        ok(await self.call(ws, "setup_save", objects=objs))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 3)
         for bad, why in (([{"src": "model:nope.stl"}], "no such model"), ([{"src": "file:/etc/passwd"}], "src"),
                          ([{"src": "model:../x.stl"}], "names"), ([{"src": "builtin:vise", "id": "a"}, {"src": "builtin:stock", "id": "a"}], "unique"),
                          ("x", "a list"), ([{"src": "builtin:vise", "pos": [1, 2]}], "three numbers")):
@@ -487,6 +572,39 @@ class Protocol(Base):
         b = await self.client()
         self.assertTrue((await self.call(b, "model_get", name="fixtures/a2.stl"))["ok"])
         self.assertIn("control", (await self.call(b, "setup_save", objects=[]))["err"])
+        await b.close()
+        await ws.close()
+
+    async def test_scene_import(self):
+        """a CAM setup's scene (zip): its models into scenes/<name>/, the setup made of them, every browser told"""
+        import test_scene
+        ws = await self.client()
+        await self.ready(ws)
+        ok = lambda r: self.assertTrue(r["ok"], r)  # noqa: E731
+        data = base64.b64encode(open(test_scene.EXAMPLE, "rb").read()).decode()
+        r = await self.call(ws, "scene_import", name="cnc-scene-example", data=data)
+        ok(r)
+        self.assertEqual((r["folder"], r["objects"], r["work_zero"], r["units"]), ("scenes/cnc-scene-example", 6, "top_center", "mm"))
+        st = await self.until(ws, lambda m: m["t"] == "setup" and len(m["objects"]) == 6)
+        self.assertEqual(st["objects"][0]["src"], "model:scenes/cnc-scene-example/stock.stl")
+        self.assertEqual([o["role"] for o in st["objects"]], ["workpiece"] + ["part"] * 5)
+        nc = os.path.join(self.d, "nc", "scenes", "cnc-scene-example")
+        self.assertTrue(os.path.isfile(os.path.join(nc, "parts", "3-odd-slots-1.stl")))
+        self.assertEqual(json.load(open(os.path.join(nc, "scene.json")))["stock"]["material"], "aluminium 5083")
+        files = (await self.call(ws, "files"))["files"]
+        self.assertIn("scenes/cnc-scene-example/stock.stl", [f["name"] for f in files])
+        # again: refused unless replacing; replacing keeps the fixtures when asked
+        self.assertIn("there already", (await self.call(ws, "scene_import", name="cnc-scene-example", data=data))["err"])
+        ok(await self.call(ws, "setup_save", objects=[{"id": "vise", "name": "Vise", "role": "fixture", "src": "builtin:vise"}] + st["objects"]))
+        r = await self.call(ws, "scene_import", name="cnc-scene-example", data=data, overwrite=True, keep_fixtures=True)
+        ok(r)
+        self.assertEqual(r["objects"], 7)
+        # a model the setup uses can't be deleted; bad data is refused; a watching browser can't import
+        self.assertIn("3D setup", (await self.call(ws, "program_delete", name="scenes/cnc-scene-example/stock.stl"))["err"])
+        self.assertIn("not a zip", (await self.call(ws, "scene_import", name="x", data=base64.b64encode(b"hello").decode()))["err"])
+        self.assertIn("base64", (await self.call(ws, "scene_import", name="x", data="!!"))["err"])
+        b = await self.client()
+        self.assertIn("control", (await self.call(b, "scene_import", name="y", data=data))["err"])
         await b.close()
         await ws.close()
 
@@ -644,6 +762,219 @@ class HalShow(unittest.TestCase):
         self.assertEqual(d["pins"][3][5], "")  # unconnected
         self.assertEqual(d["sigs"][1], ["estop-loop", "bit", "FALSE", "iocontrol.0.user-enable-out", ["iocontrol.0.emc-enable-in"]])
         self.assertEqual(d["params"][0], ["motion-command-handler.tmax", "s32", "RW", "motmod", "66844"])
+
+
+class Router(Base):
+    """a router (machineconf: MACHINE_TYPE router, ATC_RACK): the console draws it with its rack"""
+    INI_EXTRA = "MACHINE_TYPE = router\nATC_RACK = 6 150 1290 150 0 0 -150 80\n"
+
+    async def test_hello(self):
+        ws = await self.client()
+        info = ws.hello["machine"]
+        self.assertEqual(info["type"], "router")
+        self.assertEqual(info["rack"], {"pockets": 6, "x": 150.0, "y": 1290.0, "dx": 150.0, "dy": 0.0, "z_clear": 0.0, "z_pocket": -150.0, "slide": 80.0})
+        await ws.close()
+
+
+class NoRack(Base):
+    INI_EXTRA = "ATC_RACK = 6 150 x\n"  # unreadable: no rack
+
+    async def test_hello(self):
+        ws = await self.client()
+        self.assertIsNone(ws.hello["machine"]["rack"])
+        self.assertEqual(ws.hello["machine"]["type"], "gantry")
+        await ws.close()
+
+
+class TurretStatus(Base):
+    async def asyncSetUp(self):
+        self.HAL = FakeHal({"lathe.turret.station": 3, "lathe.turret.stations": 6, "lathe.turret.homed": True,
+                            "lathe.turret.busy": False, "lathe.turret.fault": False, "lathe.turret.error": 0})
+        await super().asyncSetUp()
+
+    async def test_slow(self):
+        """A lathe's turret (lathe.turret's pins) in the slow status: its station, homed, its fault."""
+        self.assertEqual(self.m.slow()["turret"], {"station": 3, "stations": 6, "homed": True, "busy": False, "fault": False, "error": 0})
+        self.HAL.pins.update({"lathe.turret.fault": True, "lathe.turret.error": 2})
+        self.assertEqual(self.m.slow()["turret"]["error"], 2)
+        del self.HAL.pins["lathe.turret.station"]
+        self.assertNotIn("turret", self.m.slow())
+
+
+ARM_INI = """[EMC]
+MACHINE = test-arm
+[DISPLAY]
+DEFAULT_LINEAR_VELOCITY = 50
+DEFAULT_ANGULAR_VELOCITY = 20
+[TRAJ]
+COORDINATES = X Y Z A B C
+MAX_LINEAR_VELOCITY = 250
+[KINS]
+KINEMATICS = genserkins
+JOINTS = 6
+[JOINT_1]
+TYPE = ANGULAR
+MIN_LIMIT = -100
+MAX_LIMIT = 80
+MAX_VELOCITY = 90
+[AXIS_X]
+MIN_LIMIT = -2000
+MAX_LIMIT = 2000
+[EMCIO]
+TOOL_TABLE = tool.tbl
+[RS274NGC]
+PARAMETER_FILE = sim.var
+[ARMGUARD]
+CELL = cell/cell.txt
+[STMBL_ARM]
+TOOLS = arm/tools.txt
+[MILLWEB]
+NC_DIR = nc
+ARM_MODEL = vis/arm.vis
+ENABLE_PIN = motion.jog-inhibit
+[ARM6HMI]
+HOME_JOINTS = 0 -90 0 0 -90 180
+"""
+
+
+class Arm(Base):
+    """An arm (genserkins, six joints): its joints and axes, joint and world jog, Record point, its model files,
+    its components' pins."""
+    INI_TEXT = ARM_INI
+    HAL = FakeHal({"armguard.0.state": 0, "armguard.0.reason": 0, "armguard.0.clearance": 123.4, "powerquota.0.total-power": 850.0,
+                   "powerquota.0.feed-scale": 1.0, "powerquota.0.limiting": False, "armkins.tool": 2, "motion.jog-inhibit": False})
+
+    def files(self):
+        for d in ("vis", "arm", "cell"):
+            os.makedirs(os.path.join(self.d, d), exist_ok=True)
+        open(os.path.join(self.d, "vis", "arm.vis"), "w").write("include ../arm/base.arm\nunits m\npart 6 mesh flange.stl material dark\n# include nope.vis\n")
+        open(os.path.join(self.d, "vis", "flange.stl"), "wb").write(b"\0" * 84)
+        open(os.path.join(self.d, "arm", "base.arm"), "w").write("dh 1 0 0 0.45 0\ndh 2 0.15 -90 0 -90\n")
+        open(os.path.join(self.d, "arm", "tools.txt"), "w").write("tool 1 torch\n")
+        open(os.path.join(self.d, "cell", "cell.txt"), "w").write("include base_cell.txt\ninclude %s\nobstacle plate box 0.8 -0.4 1 0.3 0.05 0.3\n" % os.path.join(self.d, "arm", "tools.txt"))
+        open(os.path.join(self.d, "cell", "base_cell.txt"), "w").write("prevent 10\n")
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        lc.M.njoints = 6
+        lc.M.homed = [0] * 6
+        lc.M.g5x[:3] = [0.0, 0.0, 0.0]
+
+    async def test_arm(self):
+        ws = await self.client()
+        info = ws.hello["machine"]
+        self.assertEqual((info["type"], info["arm"]["joints"], info["arm"]["axes"]), ("arm", 6, "XYZABC"))
+        self.assertEqual((info["arm"]["jlim"][1]["min"], info["arm"]["jlim"][1]["max"], info["arm"]["jlim"][1]["vel"]), (-100.0, 80.0, 5400.0))
+        await self.call(ws, "control", take=True)
+        for op, kw in (("estop", {"on": False}), ("power", {"on": True})):
+            self.assertTrue((await self.call(ws, op, **kw))["ok"], op)
+        # before homing: a joint jogs (joint mode), an axis doesn't
+        r = await self.call(ws, "jog", axis="j2", dir=1, inc=5, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((lc.M.jpos[2], lc.M.motion_mode), (5.0, lc.TRAJ_MODE_FREE))
+        r = await self.call(ws, "jog", axis="x", dir=1, inc=1, rate=600)
+        self.assertIn("not homed", r["err"])
+        self.assertIn("no joint", (await self.call(ws, "jog", axis="j6", dir=1, inc=1, rate=600))["err"])
+        self.assertIn("no axis", (await self.call(ws, "jog", axis="u", dir=1, inc=1, rate=600))["err"])
+        # a joint homed on its own, then all
+        self.assertTrue((await self.call(ws, "home", axis="J3"))["ok"])
+        self.assertEqual(lc.M.homed, [0, 0, 0, 1, 0, 0])
+        self.assertTrue((await self.call(ws, "home", axis="all"))["ok"])
+        st = await self.until(ws, lambda m: m["t"] == "st" and m.get("jh") == [True] * 6)
+        # world: the axes in teleop; A..C too
+        r = await self.call(ws, "jog", axis="a", dir=-1, inc=2, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((lc.M.pos[3], lc.M.motion_mode), (-2.0, lc.TRAJ_MODE_TELEOP))
+        # continuous joint jog, stopped (back to joint mode for it)
+        self.assertTrue((await self.call(ws, "jog", axis="j1", dir=1, inc=0, rate=600))["ok"])
+        self.assertIn("j1", lc.M.jogging)
+        self.assertTrue((await self.call(ws, "jog_stop", axis="j1"))["ok"])
+        self.assertNotIn("j1", lc.M.jogging)
+        # the status: every axis and joint
+        lc.M.pos[:6] = [900.0, 300.0, 1150.0, 0.0, 45.0, 0.0]
+        st = await self.until(ws, lambda m: m["t"] == "st" and m.get("ax", [0])[0] == 900.0)
+        self.assertEqual(len(st.get("ax")), 6)
+        st = await self.until(ws, lambda m: m["t"] == "st" and "j" in m and "jmode" in m)
+        self.assertEqual(len(st["j"]), 6)
+        # Record point: a G1 line in nc/teach.ngc, the file list again
+        r = await self.call(ws, "teach_record", rate=3000)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((r["line"], r["points"]), ("G1 X900.000 Y300.000 Z1150.000 A0.000 B45.000 C0.000 F3000", 1))
+        # the tool frame: +Z 10 along the tool (tilted B 45: X and Z 7.071 each), as a G53 MDI move
+        r = await self.call(ws, "jog", axis="tz", dir=1, inc=10, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(lc.M.mdi_log[-1], "G53 G1 X907.0711 Y300.0000 Z1157.0711 A0.0000 B45.0000 C0.0000 F600.0")
+        # about the tool's Z by 90: the tool point stays, R = Ry(45) Rz(90)
+        r = await self.call(ws, "jog", axis="tc", dir=1, inc=90, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual([round(v, 3) for v in lc.M.pos[:3]], [907.071, 300.0, 1157.071])
+        from machine import rpy_matrix, mat_mul, axis_rot
+        want, got = mat_mul(axis_rot(1, 45), axis_rot(2, 90)), rpy_matrix(*lc.M.pos[3:6])
+        self.assertTrue(all(abs(want[i][k] - got[i][k]) < 1e-4 for i in range(3) for k in range(3)), (lc.M.pos[3:6], got))
+        # held: one move to the axes' limits along the line, stopped by jog_stop (an abort)
+        lc.M.slow = True
+        r = await self.call(ws, "jog", axis="tx", dir=-1, inc=0, rate=600)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(lc.M.interp_state, lc.INTERP_READING)
+        self.assertTrue((await self.call(ws, "jog_stop", axis="tx"))["ok"])
+        self.assertEqual(lc.M.interp_state, lc.INTERP_IDLE)
+        lc.M.slow = False
+        lc.M.pos[:6] = [900.0, 300.0, 1150.0, 0.0, 45.0, 0.0]
+        r = await self.call(ws, "teach_record")
+        self.assertEqual(r["points"], 2)
+        text = open(os.path.join(self.d, "nc", "teach.ngc")).read()
+        self.assertEqual((sum(x.startswith("G1 ") for x in text.splitlines()), text.splitlines()[-1]), (2, "M2"))  # a program: it ends with M2
+        # the points: listed (another browser may read them), moved, deleted, cleared
+        self.assertTrue((await self.call(ws, "teach_record", rate=1200))["ok"])
+        r = await self.call(ws, "teach", action="list")
+        self.assertEqual((len(r["points"]), r["points"][2][-5:], r["file"]), (3, "F1200", "teach.ngc"))
+        r = await self.call(ws, "teach", action="up", index=2)
+        self.assertTrue(r["points"][1].endswith("F1200"))
+        r = await self.call(ws, "teach", action="delete", index=0)
+        self.assertEqual(len(r["points"]), 2)
+        self.assertIn("no point", (await self.call(ws, "teach", action="delete", index=7))["err"])
+        r = await self.call(ws, "teach", action="clear")
+        self.assertEqual((r["points"], open(os.path.join(self.d, "nc", "teach.ngc")).read().splitlines()[-1]), ([], "M2"))
+        self.assertTrue((await self.call(ws, "teach_record"))["ok"])
+        self.assertEqual(len((await self.call(ws, "teach", action="list"))["points"]), 1)
+        # Go home: every joint to [ARM6HMI] HOME_JOINTS at once, in joint mode
+        self.assertEqual(ws.hello["machine"]["arm"]["home"], [0, -90, 0, 0, -90, 180])
+        lc.M.jpos[:6] = [10.0, -60.0, 5.0, 0.0, -80.0, 170.0]
+        r = await self.call(ws, "arm_home", rate=6000)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(([round(x, 6) for x in lc.M.jpos[:6]], lc.M.motion_mode), ([0, -90, 0, 0, -90, 180], lc.TRAJ_MODE_FREE))
+        await self.until(ws, lambda m: m["t"] == "files")
+        # its model: the .vis, what it includes and loads, the cell and the tool table; a watching browser may read it
+        ws2 = await self.client()
+        r = await self.call(ws2, "arm_model")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["model"], "arm.vis")
+        self.assertEqual(sorted(r["files"]), ["../arm/base.arm", "../arm/tools.txt", "../cell/base_cell.txt", "../cell/cell.txt", "arm.vis", "flange.stl"])
+        self.assertEqual((r["cell"], r["tools"]), ("../cell/cell.txt", "../arm/tools.txt"))
+        self.assertEqual(r["files"]["flange.stl"], {"b64": base64.b64encode(b"\0" * 84).decode()})
+        self.assertIn("include @../arm/tools.txt\n", r["files"]["../cell/cell.txt"])  # every include: @ its file's name
+        self.assertIn("include @../arm/base.arm\n", r["files"]["arm.vis"])
+        self.assertIn("part 6 mesh @flange.stl material dark", r["files"]["arm.vis"])
+        # its components (those loaded)
+        sl = await self.until(ws, lambda m: m["t"] == "slow" and "arm" in m)
+        self.assertEqual(sl["arm"]["guard"], {"state": 0, "reason": 0, "clearance": 123.4})
+        self.assertEqual((sl["arm"]["quota"]["total_power"], sl["arm"]["kins_tool"]), (850.0, 2))
+        self.assertNotIn("grip", sl["arm"])
+        # the enabling switch: held, jogs run; let go, a running jog stops and no new one starts
+        self.assertTrue(ws.hello["machine"]["arm"]["enable_switch"])
+        self.assertEqual(sl["arm"]["enable"], {"held": True})
+        lc.M.slow = True
+        self.assertTrue((await self.call(ws, "jog", axis="tz", dir=1, inc=0, rate=600))["ok"])
+        self.assertEqual(lc.M.interp_state, lc.INTERP_READING)
+        self.HAL.pins["motion.jog-inhibit"] = True
+        await self.until(ws, lambda m: m["t"] == "ev" and "enabling switch was released" in m.get("text", ""))
+        self.assertEqual(lc.M.interp_state, lc.INTERP_IDLE)  # the tool-frame move aborted
+        sl = await self.until(ws, lambda m: m["t"] == "slow" and "arm" in m and m["arm"].get("enable") == {"held": False})
+        r = await self.call(ws, "jog", axis="j0", dir=1, inc=1, rate=600)
+        self.assertIn("enabling switch is released", r["err"])
+        lc.M.slow = False
+        self.HAL.pins["motion.jog-inhibit"] = False
+        await ws.close(); await ws2.close()
 
 
 class HalPage(Base):

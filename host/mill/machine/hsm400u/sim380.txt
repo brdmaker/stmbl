@@ -1,0 +1,5 @@
+# a stiff 380 V bus: about the most an stmbl HV board takes (it trips above 410 V)
+hv0.sim_supply = 0
+hv0.sim_udc = 380
+enc_fb0.sim_absolute = 1
+enc_fb1.sim_absolute = 1

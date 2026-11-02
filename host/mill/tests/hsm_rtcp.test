@@ -1,0 +1,44 @@
+# The Mikron HSM 400U retrofit (machine/hsm400u.mill: five simulated drives,
+# the B/C trunnion through xyzbc-trt-kins): a tool-centre-point move turns
+# the table (B 0 -> 30, C 0 -> 90) while X Y Z keep the tool tip on its
+# point of the work, 50 mm above the pallet; then a five-axis line. The tip,
+# judged in the work's frame (the inverse kinematics of the simulated table
+# angles and tool), stays within a few um; B holds against its unbalance at
+# 90 deg.
+@program mill/mill_sim
+@args mill/machine/hsm400u.mill
+@timeout 300
+lcnc 1
+run 0.3
+move 2.5 230 180 -300 0 0
+run 0.4
+print wx wy wz
+mark
+rtcp 3 30 90
+run 0.3
+print fault hits max_ework max_econtw ework tb tc wx wy wz
+mark
+wmove 2 250 180 -300 20 150
+run 0.3
+print fault max_econtw ework wx
+move 4 200 160 -150 90 150
+run 0.5
+mark
+run 1
+print fault max_ferr_b tb
+@expect mill.wx[1] ~ 230 0.01
+@expect mill.wy[1] ~ 180 0.01
+@expect max mill.fault == 0
+@expect mill.hits == 0
+@expect mill.max_ework[1] < 10
+@expect mill.max_econtw[1] < 10
+@expect mill.ework[1] < 3
+@expect mill.tb[1] ~ 30 0.01
+@expect mill.tc[1] ~ 90 0.01
+@expect mill.wx[2] ~ 230 0.005
+@expect mill.wy[2] ~ 180 0.005
+@expect mill.wz[2] ~ -300 0.005
+@expect mill.max_econtw[2] < 15
+@expect mill.wx[3] ~ 250 0.005
+@expect mill.max_ferr_b < 5
+@expect mill.tb[2] ~ 90 0.01

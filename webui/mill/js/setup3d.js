@@ -12,7 +12,8 @@ const SETUP_DEFAULT = [
 ];
 // tools: each tool's 3D model {"<T>": {src: "model:<path>", z, rot, scale}} (buildTool draws it)
 const setup = { objects: SETUP_DEFAULT.map((o) => JSON.parse(JSON.stringify(o))), sel: null, nodes: new Map(), geoms: new Map(), tools: {} };
-const ROLE_COLOR = { fixture: 0x56677b, workpiece: 0xd2d9e0 };
+// part: the finished part's model, the material removal's result compared with it (millrem.js); see-through
+const ROLE_COLOR = { fixture: 0x56677b, workpiece: 0xd2d9e0, part: 0x5fe0a0 };
 
 // ------------------------------------------------------------ 3D model files
 // STL (binary or ASCII) and OBJ to a BufferGeometry, in the file's units (mm)
@@ -91,7 +92,7 @@ function buildObjects() {
   // a model just added: placed once its size is known, then saved
   for (const ob of setup.objects.filter((o) => o.fresh && setup.nodes.has(o.id))) {
     delete ob.fresh;
-    if (ob.role === "workpiece") placeAtZero(ob);
+    if (ob.role === "workpiece" || ob.role === "part") placeAtZero(ob);
     else {  // a fixture: centred under the work zero, on the table
       const b = objExtent(ob), w0 = [off().x + st.g92.x, off().y + st.g92.y];
       if (b) ob.pos = [w0[0] - (b.min.x + b.max.x) / 2, w0[1] - (b.min.y + b.max.y) / 2, 0];
@@ -205,18 +206,20 @@ let saveTimer = null;
 function saveSetup() {  // the machine's setup after edits settle; the simulation's stays in the page
   if (!LIVE) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects, setup.tools), 300);
+  saveTimer = setTimeout(() => LIVE.setupSave(setup.objects, setup.tools, setup.lathe), 300);
 }
-function setupLoad(objects, tools) {  // from the machine
+function setupLoad(objects, tools, lathe) {  // from the machine
   setup.objects = JSON.parse(JSON.stringify(objects));
+  if (lathe !== undefined) { setup.lathe = lathe || null; if (typeof latheStock === "function") latheStock(); }
   if (tools) { setup.tools = JSON.parse(JSON.stringify(tools)); buildTool(); if (st.page === "tool") renderToolModel(); }
   if (setup.sel && !objOf(setup.sel)) setup.sel = null;
   buildObjects(); selectObject(setup.sel);
+  if (typeof sceneRender === "function") sceneRender();
 }
 // a model from the File page into the setup
 function setupAddModel(path, role) {
   const id = "m" + Date.now().toString(36);
-  const ob = { id, name: path.slice(path.lastIndexOf("/") + 1), role, src: "model:" + path, frame: role === "workpiece" ? "work" : "machine", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, look: "solid", fresh: true };
+  const ob = { id, name: path.slice(path.lastIndexOf("/") + 1), role, src: "model:" + path, frame: role === "fixture" ? "machine" : "work", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, look: role === "part" ? "glass" : "solid", fresh: true };
   setup.objects.push(ob);
   buildObjects();
   return id;
@@ -259,7 +262,8 @@ $("ob-del").addEventListener("click", () => {
     down = null;
     const r = cv.getBoundingClientRect(), ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), R.cam);
-    const hit = ray.intersectObjects(R.objGroup.children, true).find((h) => h.object.isMesh && visibleUp(h.object));
+    const pick = R.objGroup.children.concat(typeof MREM !== "undefined" && MREM.mesh ? [MREM.mesh] : []);  // the cut stock stands for its workpiece
+    const hit = ray.intersectObjects(pick, true).find((h) => h.object.isMesh && visibleUp(h.object));
     let n = hit && hit.object; while (n && n.userData.objId === undefined) n = n.parent;
     selectObject(n ? n.userData.objId : null);
   });

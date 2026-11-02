@@ -210,7 +210,7 @@ class Machine(unittest.TestCase):
             mc.validate(two)
         self.assertIn(("axes.Y", "a fixed-bridge machine moves Y with one joint (2 here: that's a gantry)"), e.exception.errors)
         bad = copy.deepcopy(mc.DEFAULT)
-        bad["type"] = "router"
+        bad["type"] = "planer"
         with self.assertRaises(mc.Invalid) as e:
             mc.validate(bad)
         self.assertEqual([w for w, _ in e.exception.errors], ["type"])
@@ -268,7 +268,8 @@ class Machine(unittest.TestCase):
         m["spindle"] = {"type": "hal"}
         with self.assertRaises(mc.Invalid) as cm:
             mc.validate(m, self.d)
-        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.unclamp", "atc.z_pocket", "spindle.on"})
+        # (this machine has no board: simulated, no drawbar pin needed; test_router checks one with a board)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"atc.z_pocket", "spindle.on"})
 
     def test_example_machines(self):
         """machines/*: each valid and made; the test stand's racks scale its drives, its switches home it."""
@@ -282,6 +283,30 @@ class Machine(unittest.TestCase):
         self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["bridge"])
         self.assertEqual((ini["JOINT_1"]["HOME_OFFSET"], ini["JOINT_1"]["HOME_SEARCH_VEL"]), (["66"], ["10"]))   # Y homes at its +65 end
         self.assertIn("net j2-home-sw hm2_7i96s.0.inm.00.input-04 => joint.2.home-sw-in", f["machine.hal"])
+
+    def test_router(self):
+        """machines/excitech: a router (moving gantry, Y1/Y2), the 6-fork rack at the back; simulated (no board): no drawbar pin"""
+        m = json.load(open(os.path.join(MILL, "machines", "excitech", "machine.json")))
+        f = self.gen(m)
+        ini, hal, ngc = ini_sections(f["mill.ini"]), f["machine.hal"], f["toolchange.ngc"]
+        self.assertEqual(ini["MILLWEB"]["MACHINE_TYPE"], ["router"])
+        self.assertEqual(ini["MILLWEB"]["ATC_RACK"], ["6 150 1290 150 0 0 -150 80"])
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["trivkins coordinates=XYYZ kinstype=BOTH"])
+        self.assertEqual(ini["SPINDLE_0"]["MAX_FORWARD_VELOCITY"], ["24000"])
+        self.assertIn("net atc-unclamp motion.digital-out-00  # simulated: no drawbar", hal)
+        self.assertIn("[#<_current_tool> LE 6]", ngc)
+        self.assertIn("G53 G0 X[150 + [#<_pk> - 1] * 150] Y[[1290 + [#<_pk> - 1] * 0] - 80]", ngc)
+        self.assertEqual(len(f[mc.TOOL_TBL_INIT].splitlines()), 6)  # the first tool.tbl: a tool in each fork
+        self.assertTrue(f[mc.TOOL_TBL_INIT].startswith("T1 P1 D12 "))
+        # with a board, the drawbar's pin is needed again
+        m["board"] = {"type": "hm2_eth", "name": "7i96s", "params": "board_ip=10.10.10.10", "config": ""}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(m, self.d)
+        self.assertIn("atc.unclamp", {w for w, _ in cm.exception.errors})
+        # no rack: no ATC_RACK
+        m = json.load(open(os.path.join(MILL, "machines", "excitech", "machine.json")))
+        m["atc"] = {"type": "none"}
+        self.assertNotIn("ATC_RACK", ini_sections(self.gen(m)["mill.ini"])["MILLWEB"])
 
     def test_lathe(self):
         """machines/emco_compact5: X Z, G18 G7 at the start, LATHE in [DISPLAY], a simulated spindle encoder."""
@@ -314,6 +339,52 @@ class Machine(unittest.TestCase):
             mc.validate(bad, self.d)
         self.assertEqual({w for w, _ in cm.exception.errors}, {"axes.Y", "lathe.post", "spindle.index", "toolsetter"})
 
+    def test_turret_spindle(self):
+        """A lathe's turret (sim: the command its feedback; stepper: a stepgen and its index) on M6, its fault in
+        the E-STOP chain; an stmbl spindle drive in velocity mode through lathe.spindle."""
+        m = json.load(open(os.path.join(MILL, "machines", "emco_compact5", "machine.json")))
+        hal = self.gen(m)["machine.hal"]
+        self.assertIn("loadrt lathe turret=1 spindle=0", hal)
+        self.assertIn("net tool-change iocontrol.0.tool-change => lathe.turret.change", hal)
+        self.assertIn("net tool-changed lathe.turret.changed => iocontrol.0.tool-changed", hal)
+        self.assertIn("net turret-pos lathe.turret.pos-cmd => lathe.turret.pos-fb", hal)
+        self.assertIn("net turret-index lathe.turret.sim-index => lathe.turret.index", hal)
+        self.assertIn("net estop-loop-turret lathe.turret.chain-out => iocontrol.0.emc-enable-in", hal)
+        self.assertIn("addf lathe.turret servo-thread", hal)
+        self.assertNotIn("iocontrol.0.tool-change => iocontrol.0.tool-changed", hal)
+        os.makedirs(os.path.join(self.d, "bitstreams"), exist_ok=True)
+        open(os.path.join(self.d, "bitstreams", "ebaz4205.bin"), "wb").close()
+        m = json.load(open(os.path.join(MILL, "machines", "emco_compact5", "machine-stmbl.json")))
+        m["estop"] = {"input": "hm2_ebaz4205.0.gpio.011.in", "invert": True}
+        m["lathe"]["turret"]["index_invert"] = True
+        f = self.gen(m)
+        hal, ini = f["machine.hal"], ini_sections(f["mill.ini"])
+        self.assertIn("loadrt lathe turret=1 spindle=1", hal)
+        self.assertIn("loadrt not names=estop-not,spindle-fault-not,turret-index-not", hal)  # one load for each module
+        self.assertEqual(hal.count("loadrt not "), 1)
+        self.assertIn("setp hm2_ebaz4205.0.stepgen.00.position-scale 3200", hal)
+        self.assertIn("net turret-pos-cmd lathe.turret.pos-cmd => hm2_ebaz4205.0.stepgen.00.position-cmd", hal)
+        self.assertIn("net turret-index-raw hm2_ebaz4205.0.gpio.010.in => turret-index-not.in", hal)
+        self.assertIn("net estop-in estop-not.out => lathe.turret.chain-in", hal)
+        self.assertIn("net estop-in-turret lathe.turret.chain-out => spindle-ok-and.in0", hal)
+        self.assertIn("net estop-in-turret-spindle spindle-ok-and.out => estop-latch.0.ok-in", hal)
+        self.assertIn("net spindle-fault hm2_ebaz4205.0.stbl.0.2.fault => spindle-fault-not.in", hal)
+        self.assertIn("net spindle-vel-cmd lathe.spindle.vel-cmd => hm2_ebaz4205.0.stbl.0.2.vel_cmd", hal)
+        self.assertIn("net spindle-revs lathe.spindle.revs => spindle.0.revs", hal)
+        self.assertIn("net spindle-index spindle.0.index-enable <=> lathe.spindle.index-enable", hal)
+        self.assertIn("net spindle-con-fb hm2_ebaz4205.0.stbl.0.2.con_fb => sserialterm.2.con-fb", hal)
+        a = hal.index("addf hm2_ebaz4205.0.read"); b = hal.index("addf lathe.spindle"); c = hal.index("addf motion-controller")
+        self.assertTrue(a < b < c)  # the drive's feedback into revs before motion
+        self.assertTrue(hal.index("addf lathe.turret") < hal.index("addf hm2_ebaz4205.0.write"))
+        self.assertTrue(hal.index("loadrt not ") < hal.index("net "))
+        self.assertIn("S hm2_ebaz4205.0.stbl.0.2.current", " ".join(ini["MILLWEB"]["DRIVE"]))
+        bad = copy.deepcopy(m)
+        bad["lathe"]["turret"].update(stepgen="", index="", stations=40)
+        bad["spindle"]["channel"] = 1  # joint 1's drive
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(bad, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors}, {"lathe.turret.stepgen", "lathe.turret.index", "lathe.turret.stations", "spindle.type"})
+
     def test_can_drives(self):
         m = copy.deepcopy(mc.DEFAULT)
         m["can"] = {"spi": ["/dev/spidev0.0", "/dev/spidev0.1"], "discover": True, "spi_hz": 8000000}
@@ -323,6 +394,90 @@ class Machine(unittest.TestCase):
         self.assertIn("loadrt stmblcan spi=/dev/spidev0.0,/dev/spidev0.1 nodes=1,2:3 discover=1 spi_hz=8000000", hal)
         self.assertIn("net j2-pos-cmd joint.2.motor-pos-cmd => stmblcan.1.3.pos-cmd", hal)
         self.assertIn("net j0-con-fb stmblcan.0.1.con-fb => sserialterm.0.con-fb", hal)
+
+    def test_arm(self):
+        """machines/arcmate_sim (as hwtest/arcmate-sim's HMI config): armkins on the model and the changer's tools,
+        each joint through armguard to the simulated arm, armcollide's residuals, the gripper, the changer (M6, its
+        tools as the first tool.tbl), the power quota, the E-STOP chain through each. Real drives: motor radians by
+        each joint's gear. The enabling switch: jog-inhibit."""
+        m = json.load(open(os.path.join(MILL, "machines", "arcmate_sim", "machine.json")))
+        f = self.gen(m)
+        ini, hal = ini_sections(f["mill.ini"]), f["machine.hal"]
+        repo = mc.REPO
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["armkins model=%s/host/arm/arcmate/model_perturbed.arm tools=%s/host/arm/arcmate/tools.txt" % (repo, repo)])
+        self.assertEqual((ini["TRAJ"]["COORDINATES"], ini["DISPLAY"]["GEOMETRY"], ini["MILLWEB"]["MACHINE_TYPE"]), (["X Y Z A B C"], ["XYZABC"], ["arm"]))
+        self.assertEqual(ini["JOINT_1"]["TYPE"], ["ANGULAR"])
+        self.assertEqual((ini["JOINT_1"]["MIN_LIMIT"], ini["JOINT_1"]["HOME_ABSOLUTE_ENCODER"]), (["-150"], ["2"]))
+        self.assertEqual(ini["RS274NGC"]["REMAP"], ["M6 modalgroup=6 ngc=toolchange"])
+        self.assertEqual(ini["ARM6HMI"]["TOOL_READY"], ["G53 G1 X900 Y300 Z1150 A0 B45 C0 F6000"])
+        self.assertEqual(ini["ARM6HMI"]["HOME_JOINTS"], ["0 -90 0 0 -90 180"])
+        self.assertIn("loadrt stmbl_arm arm=[STMBL_ARM]ARM lib=[STMBL_ARM]LIB cell=[ARMGUARD]CELL", hal)
+        self.assertIn("net j2-drv-cmd armguard.0.2.cmd => stmbl-arm.0.2.pos-cmd", hal)
+        self.assertIn("net j2-drv-fb stmbl-arm.0.2.pos-fb => armguard.0.2.drive-fb armcollide.0.2.pos armgrip.0.2.pos armtool.0.2.pos", hal)
+        self.assertIn("net j2-pos-fb joint.2.motor-pos-fb <= armguard.0.2.fb", hal)
+        self.assertIn("net j2-residual armcollide.0.2.residual => armguard.0.2.residual armgrip.0.2.residual", hal)
+        self.assertIn("net grip-gap-cmd armgrip.0.gap-cmd => stmbl-arm.0.grip.pos-cmd", hal)
+        self.assertIn("net tool-locked stmbl-arm.0.changer.locked => armtool.0.locked motion.digital-in-02", hal)
+        self.assertIn("net feed-scale powerquota.0.feed-scale => motion.adaptive-feed", hal)
+        self.assertIn("net estop-chain-guard-powerquota-armgrip-armtool armtool.0.chain-out => iocontrol.0.emc-enable-in", hal)
+        a, b, c = hal.index("addf motion-controller"), hal.index("addf armguard.0"), hal.index("addf stmbl-arm.0")
+        self.assertTrue(a < b < c < hal.index("addf armcollide.0"))
+        self.assertEqual(f["tool.tbl.init"], "T1 P1 ; torch (tool changer tool 1)\nT2 P2 ; gripper (tool changer tool 2)\n")
+        self.assertIn("G53 G1 X#<_dk0>", f["toolchange.ngc"])
+        mc.write_run(self.d, f)  # the changer's tools as the first tool.tbl; not in run/
+        self.assertEqual(open(os.path.join(self.d, "tool.tbl")).read(), f["tool.tbl.init"])
+        self.assertFalse(os.path.exists(os.path.join(self.d, "run", "tool.tbl.init")))
+        # real drives over smart-serial: motor radians by the gear (J2 reversed); a cell without collide; the switch
+        r = copy.deepcopy(m)
+        r["board"] = {"type": "hm2_eth", "name": "7i92", "config": "", "params": "board_ip=10.10.10.10"}
+        for i, j in enumerate(r["joints"]):
+            j["drive"] = {"type": "stmbl_sserial", "port": i // 4, "channel": i % 4}
+            j["gear"] = -121 if i == 1 else 100
+        r["arm"].update(collide=False, gripper={"type": "none"}, tools="", quota="", vis="",
+                        changer={}, enable={"input": "hm2_7i92.0.gpio.010.in", "invert": False, "hold_all": True})
+        r["estop"] = {"input": "hm2_7i92.0.gpio.011.in", "invert": False}
+        f = self.gen(r)
+        ini, hal = ini_sections(f["mill.ini"]), f["machine.hal"]
+        self.assertEqual(ini["KINS"]["KINEMATICS"], ["armkins model=%s/host/arm/arcmate/model_perturbed.arm" % repo])
+        self.assertEqual(ini["MILLWEB"]["ARM_MODEL"], [os.path.join(self.d, "run", "arm.vis")])
+        self.assertIn("joints theta\ninclude %s/host/arm/arcmate/model_perturbed.arm" % repo, f["arm.vis"])
+        self.assertEqual(ini["MILLWEB"]["ENABLE_PIN"], ["motion.jog-inhibit"])
+        self.assertNotIn("REMAP", ini["RS274NGC"])
+        k = -121 * 3.141592653589793 / 180
+        self.assertIn("setp j1-cmd.gain %r" % k, hal)
+        self.assertIn("setp j1-fb.gain %r" % (1 / k), hal)
+        self.assertIn("net j1-drv-cmd-rad j1-cmd.out => hm2_7i92.0.stbl.0.1.pos_cmd", hal)
+        self.assertIn("net j5-drv-fb j5-fb.out => armguard.0.5.drive-fb", hal)
+        self.assertNotIn("armcollide", hal)
+        self.assertIn("net arm-released arm-enable-not.out => motion.jog-inhibit motion.jog-stop motion.feed-inhibit", hal)
+        self.assertIn("net estop-chain hm2_7i92.0.gpio.011.in => guard-and.in0", hal)
+        self.assertIn("net estop-chain-guard guard-and.out => estop-latch.0.ok-in", hal)
+        self.assertIn("net watchdog hm2_7i92.0.watchdog.has_bit => estop-latch.0.fault-in", hal)
+        self.assertIn("DRIVE_LINK = J1 %s/run/drive-j1 hm2_7i92.0.stbl.0.0" % self.d, f["mill.ini"])
+        self.assertTrue(hal.index("addf j1-fb") < hal.index("addf motion-controller") < hal.index("addf j1-cmd") < hal.index("addf hm2_7i92.0.write"))
+        # what an arm can't have, all at once
+        bad = copy.deepcopy(m)
+        del bad["axes"]["C"]
+        bad["joints"] = bad["joints"][:5]
+        bad["joints"][0]["drive"] = {"type": "sim"}
+        bad["joints"][1]["home"] = {"method": "switch", "switch": "x.y", "search_vel": 1, "latch_vel": 1}
+        bad["arm"].update(model="", gripper={"type": "stmbl_can"}, enable={"input": "bad pin"})
+        bad["probe"] = {"type": "sim"}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(bad, self.d)
+        self.assertEqual({w for w, _ in cm.exception.errors},
+                         {"axes", "probe.type", "arm.model", "joints", "joints.1.home.method", "arm.collide", "arm.enable.input", "can.spi", "arm.home"})
+        bad2 = copy.deepcopy(m)
+        bad2["joints"] = bad2["joints"][:5]  # the model has six dh lines
+        bad2["arm"]["home"] = []
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(bad2, self.d)
+        self.assertEqual(cm.exception.errors, [("joints", "5: the model has 6 dh lines")])
+        g = copy.deepcopy(mc.DEFAULT)
+        g["joints"][0]["drive"] = {"type": "stmbl_arm"}
+        with self.assertRaises(mc.Invalid) as cm:
+            mc.validate(g, self.d)
+        self.assertIn(("joints.0.drive.type", "stmbl_arm (the simulated arm) on an arm only"), cm.exception.errors)
 
     def test_save_history_diff(self):
         mc.init(self.d)

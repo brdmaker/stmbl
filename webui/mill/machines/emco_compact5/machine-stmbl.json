@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "name": "Emco Compact 5 CNC (stmbl, EBAZ4205)",
+  "type": "lathe",
+  "lathe": {
+    "post": "front",
+    "diameter": true,
+    "turret": {
+      "type": "stepper",
+      "stations": 6,
+      "stepgen": "hm2_ebaz4205.0.stepgen.00",
+      "steps": 3200,
+      "index": "hm2_ebaz4205.0.gpio.010.in",
+      "offset": 0.05
+    }
+  },
+  "units": "mm",
+  "servo_period_ns": 1000000,
+  "board": {
+    "type": "hm2_soc_ol",
+    "name": "ebaz4205",
+    "params": "",
+    "config": "num_encoders=0 num_pwmgens=0 num_stepgens=1 sserial_port_0=000xxxxx",
+    "watchdog_ms": 50
+  },
+  "bitstream": {
+    "loader": "fpga_manager",
+    "file": "ebaz4205.bin",
+    "fpga": "fpga0",
+    "reload": "changed"
+  },
+  "axes": {
+    "X": {
+      "min": -2,
+      "max": 50,
+      "max_vel": 40,
+      "max_acc": 400
+    },
+    "Z": {
+      "min": -260,
+      "max": 0,
+      "max_vel": 60,
+      "max_acc": 500
+    }
+  },
+  "joints": [
+    {
+      "axis": "X",
+      "drive": {
+        "type": "stmbl_sserial",
+        "port": 0,
+        "channel": 0
+      },
+      "ferror": 1,
+      "min_ferror": 0.1,
+      "home": {
+        "method": "absolute",
+        "pos": 50,
+        "sequence": 0
+      },
+      "mech": {
+        "lead": 2,
+        "ratio": 1
+      }
+    },
+    {
+      "axis": "Z",
+      "drive": {
+        "type": "stmbl_sserial",
+        "port": 0,
+        "channel": 1
+      },
+      "ferror": 1,
+      "min_ferror": 0.1,
+      "home": {
+        "method": "absolute",
+        "pos": 0,
+        "sequence": 1
+      },
+      "mech": {
+        "lead": 2,
+        "ratio": 1
+      }
+    }
+  ],
+  "estop": {
+    "input": ""
+  },
+  "probe": {
+    "type": "none"
+  },
+  "spindle": {
+    "type": "stmbl_sserial",
+    "max_rpm": 3000,
+    "port": 0,
+    "channel": 2,
+    "ratio": 1
+  },
+  "model": {
+    "builtin": true,
+    "tip": [
+      136.3,
+      0,
+      0
+    ],
+    "parts": []
+  },
+  "console": {
+    "port": 8080
+  }
+}

@@ -432,6 +432,64 @@ test("file page: programs, preflight, load, edit", async (t) => {
   t.check(await t.until(() => st.page === "file") && (await t.text("#fl-name")) === "HOUSING-7075_OP2.ngc", "Edit: the file page on it");
 });
 
+test("file page: CAM scene import (zip): the stock and the placed parts into the 3D setup", async (t) => {
+  await t.nav("file");
+  t.check((await t.text("#sc-info")).includes("No CAM scene"), "no scene yet");
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  t.check(await t.until(() => !document.getElementById("sc-dlg").hidden), "the dialog");
+  const dlg = await t.text("#sc-dlg-b");
+  t.check(dlg.includes("500 x 400 x 10 mm") && dlg.includes("aluminium 5083") && dlg.includes("top center"), "dialog: stock, material, work zero");
+  t.check(dlg.includes("nema23-flange") && dlg.includes("slot-plate-upside-down") && dlg.includes("scenes/cnc-scene-example/"), "dialog: parts, folder");
+  await t.click("#sc-cancel");
+  t.check(await t.ev(() => document.getElementById("sc-dlg").hidden && !setup.objects.some((o) => o.id === "scene-stock")), "cancel: nothing changes");
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  await t.until(() => !document.getElementById("sc-dlg").hidden);
+  await t.click("#sc-ok");
+  t.check(await t.until(() => setup.objects.length === 6 && setup.nodes.size === 6), "the setup: the stock and 5 parts, all drawn");
+  t.check(await t.ev(() => setup.objects[0].role === "workpiece" && setup.objects.slice(1).every((o) => o.role === "part" && o.look === "glass")), "roles and looks");
+  t.check(await t.ev(() => { const b = new THREE.Box3().setFromObject(setup.nodes.get("scene-stock").node); const s = b.getSize(new THREE.Vector3()); return Math.abs(s.x - 500) < 0.01 && Math.abs(s.y - 400) < 0.01 && Math.abs(s.z - 10) < 0.01; }), "the stock drawn 500 x 400 x 10");
+  t.check(await t.msgHas("Imported scenes/cnc-scene-example"), "message: imported");
+  const info = await t.text("#sc-info");
+  t.check(info.includes("Stock 500 x 400 x 10 aluminium 5083") && info.includes("work zero top center") && info.includes("odd-slots #1"), "the panel: stock, zero, parts");
+  t.check((await t.text("#sc-name")) === "scenes/cnc-scene-example", "the panel's title: the folder");
+  await t.click('[data-scobj="scene-p2-1"]');
+  t.check(await t.ev(() => setup.sel === "scene-p2-1") && !(await t.hidden("#objpanel")), "a part's button selects it in the view");
+  t.check(await t.until(() => typeof millRemOpts === "function" && millRemOpts().part.length === 5 && millRemOpts().tris.length === 1), "the material removal: the stock model, 5 parts to compare");
+  // again, keeping the fixtures: none left after the first import
+  await t.page.setInputFiles("#sc-input", path.join(MILL, "test", "scenes", "cnc-scene-example.zip"));
+  await t.until(() => !document.getElementById("sc-dlg").hidden);
+  t.check((await t.text("#sc-dlg-b")).includes("replaces what is there"), "again: replaces");
+  await t.page.check("#sc-keep");
+  await t.click("#sc-ok");
+  t.check(await t.until(() => setup.objects.length === 6), "keep fixtures: still 6 (the import replaced the vise)");
+  // a broken zip: refused with the reason
+  await t.page.setInputFiles("#sc-input", { name: "bad.zip", mimeType: "application/zip", buffer: Buffer.from("not a zip") });
+  t.check(await t.msgHas("not a zip file"), "a broken zip: refused");
+});
+
+test("router (index.html?machine=router): the Excitech, its 6-fork rack, M6 through the rack", async (t) => {
+  await t.page.goto(URL + "?machine=router");
+  await t.page.waitForFunction(() => typeof st !== "undefined" && st.run === "hold" && R && R.type === "router" && R.rackHolders && R.rackHolders.length === 6, null, { timeout: 20000 });
+  t.check((await t.text(".brand b")) === "EXCITECH", "the brand");
+  t.check(await t.ev(() => TRAVEL.x[1] === 1200 && TRAVEL.y[1] === 1320 && RACK.pockets === 6 && RACK.y === 1290), "travel 1200 x 1320, the rack at Y 1290");
+  t.check(await t.ev(() => R.rackHolders.map((h) => h.visible).join() === "true,true,false,true,true,true"), "T3 in the spindle: its fork empty");
+  await stop(t);
+  await t.ev(() => toolChange(5));
+  t.check(await t.until(() => st.motion && st.motion.name === "T3: back to pocket 3"), "T3 goes back to pocket 3 first");
+  t.check(await t.until(() => st.motion && st.motion.name === "T5: from pocket 5", null, 30000), "then T5 from pocket 5");
+  t.check(await t.ev(() => { const m = st.motion.segs, k = RACK, x = k.x + 4 * k.dx; return Math.abs(m[2].x + off().x + st.g92.x - x) < 1e-6 && Math.abs(m[2].z + off().z + st.g92.z - k.z_pocket) < 1e-6; }), "down onto pocket 5 (machine X 750, Z -150)");
+  t.check(await t.until(() => st.tool === 5 && !st.motion, null, 30000), "T5 in the spindle");
+  t.check(await t.ev(() => R.rackHolders.map((h) => h.visible).join() === "true,true,true,true,false,true"), "T3 back in its fork, fork 5 empty");
+  t.check(await t.msgHas("T5 M6 from pocket 5"), "message");
+  // a tool beyond the rack: by hand
+  await t.ev(() => toolChange(12));
+  t.check(await t.until(() => st.tool === 12 && !st.motion, null, 30000) && await t.msgHas("beyond the rack"), "T12: beyond the 6 pockets, by hand");
+  t.check(await t.ev(() => R.rackHolders.every((h) => h.visible)), "all six back in the rack");
+  // the Configure page has the example machine
+  await t.nav("config");
+  t.check(await t.until(() => /"type": "router"/.test(document.body.innerText) || (typeof cfg !== "undefined" && cfg.m && cfg.m.type === "router"), null, 8000), "Configure: the router's machine.json");
+}, { open: false });
+
 test("wizards: facing, bolt circle, circular pocket", async (t) => {
   await t.nav("wiz");
   const opts = await t.ev(() => [...document.querySelectorAll("#fz-t option")].map((o) => o.value));
@@ -495,6 +553,12 @@ test("tools page: select, load, add, delete, edit, measure", async (t) => {
   await t.nav("tool");
   t.check(await t.ev(() => document.querySelectorAll("#tool-t tbody tr").length === 6), "six tools");
   t.check((await t.text("#tool-t tr.active td")).includes("T3 ● in spindle"), "T3 in the spindle");
+  t.check(await t.ev(() => /Flutes/.test($("tool-t").querySelector("thead").textContent) && $("tool-t").querySelector('[data-k="fl"][data-i="0"]').value === "3"), "the flutes column (the tool database)");
+  await t.page.fill('#tool-t [data-k="fl"][data-i="1"]', "4"); await t.page.press('#tool-t [data-k="fl"][data-i="1"]', "Tab");
+  t.check(await t.until(() => st.tools[1].fl === 4), "flutes edited: T3 4");
+  t.check(await t.ev(() => !$("tl-geo").hidden && $("tl-geo").querySelector('[data-k="ty"]').value === "flat"), "the selected tool's shape: T3 a flat end mill");
+  await t.page.fill('#tl-geo [data-k="so"]', "30"); await t.page.press('#tl-geo [data-k="so"]', "Tab");
+  t.check(await t.until(() => st.tools[1].so === 30), "its stick-out edited");
   await t.click('#tool-t tr[data-t="5"] td:first-child');
   t.check((await t.attr('#tool-t tr[data-t="5"]', "class")) === "sel", "select T5");
   await t.click("#tl-load");
@@ -862,7 +926,33 @@ test("Configure (simulation): a fixed-bridge machine (CN 720): the type draws it
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("Configure (simulation): an arm: X Y Z A B C and six joints seeded, its model, changer, gripper and enabling switch; its joints in degrees", async (t) => {
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); localStorage.removeItem("pmc.custom"); });
+  await t.nav("config");
+  await t.page.selectOption('[data-path="type"]', "arm");
+  t.check(await t.until(() => cfg.m.type === "arm" && Object.keys(cfg.m.axes).join("") === "XYZABC" && cfg.m.joints.length === 6 && cfg.m.joints.every((j) => !j.axis) && cfg.m.spindle.type === "none"), "type arm: X Y Z A B C, six joints without an axis, no spindle");
+  t.check(await t.until(() => R.type === "arm" && ARM && document.body.classList.contains("arm")), "the view: an arm");
+  t.check(await t.ev(() => !!document.querySelector('[data-path="arm.model"]') && !!document.querySelector('[data-path="arm.enable.input"]') && !document.querySelector('[data-path="arm.changer.ready"]')), "the Machine tab: the arm's model, its enabling switch (no changer yet)");
+  await t.page.fill('[data-path="arm.tools"]', "{repo}/host/arm/arcmate/tools.txt"); await t.page.press('[data-path="arm.tools"]', "Tab");
+  t.check(await t.until(() => !!document.querySelector('[data-path="arm.changer.ready"]') && !!document.querySelector('[data-path="arm.changer.valve"]')), "a tool table: the changer's ready move and its pins");
+  await t.page.selectOption('[data-path="arm.gripper.type"]', "stmbl_can");
+  t.check(await t.until(() => !!document.querySelector('[data-path="arm.gripper.node"]')), "a gripper on CAN: its node");
+  await t.click('#cf-tabs button[data-t="axes"]');
+  t.check(await t.until(() => /J1/.test(document.querySelector('.cf-joint[data-joint="0"] .h').textContent) && !document.querySelector('[data-path="joints.0.axis"]') && !document.querySelector('[data-path="joints.0.mech.lead"]')), "the joints: J1…, no axis, no screw");
+  await t.page.selectOption('[data-path="joints.1.drive.type"]', "stmbl_sserial");
+  t.check(await t.until(() => !!document.querySelector('[data-path="joints.1.gear"]') && [...document.querySelector('[data-path="joints.1.home.method"]').options].map((o) => o.value).join() === "absolute,immediate"), "a real drive: its gear; homing absolute or here");
+  await t.click('#cf-tabs button[data-t="machine"]');
+  await t.click("#cf-check");
+  t.check(await t.until(() => cfg.errors.some(([w]) => w === "arm.model")), "Check: the model is missing");
+  await t.page.selectOption('[data-path="type"]', "gantry");
+  t.check(await t.until(() => R.type === "gantry" && !ARM && !document.body.classList.contains("arm")), "back to a gantry: the console a mill's");
+  await t.ev(() => { localStorage.removeItem("pmc.machine"); });
+  await t.page.reload();
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("messages: a warning as a large card that goes by itself; a fault stays until a tap; the footer opens the last again", async (t) => {
+  await stop(t);  // the simulation starts mid-program: its M1 would be the last message
   await t.ev(() => msg("Just so you know", "info"));
   t.check(await t.ev(() => document.getElementById("popmsg").hidden), "info: only the footer");
   await t.ev(() => msg("Soft limit: X can't go further", "warn"));
@@ -972,6 +1062,175 @@ test("3D view: see-through objects draw in a fixed order (no flicker); the chips
   t.check(t.errors.length === 0, "no script errors");
 });
 
+test("file list: the Checked and Simulated ticks (the preflight, the full simulation), old for another setup", async (t) => {
+  await stop(t);
+  await t.ev(() => { loadProgram(library[0]); fileSel = 0; });
+  await t.nav("file");
+  const tick = (i, k) => t.ev(([i, k]) => { const e = document.querySelectorAll("#files .file")[i].querySelector(`[data-mark="${k}"]`); return { cls: e.className.replace("tick", "").trim(), text: e.textContent, title: e.title }; }, [i, k]);
+  t.check(await t.until(() => $("fl-rem") && /CLEAN/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the bracket's preflight: CLEAN");
+  let c = await tick(0, "check");
+  t.check(c.cls === "ok" && c.text.includes("✓ Checked") && /travel fits · tools in the table · material removal clean/.test(c.title), `Checked: green, what was checked in its title (${c.cls}: ${c.title})`);
+  let s = await tick(0, "sim");
+  t.check(s.cls === "" && s.text.includes("○ Simulated") && /not yet/.test(s.title), "Simulated: not yet");
+  t.check((await t.text("#ms-full")) === "Run the full simulation", "the Material removal card: Run the full simulation");
+  await t.click("#ms-full");
+  t.check(await t.until(() => MREM.full && $("ms-fs") && /Full simulation/.test($("ms-fs").textContent), null, 30000), "the full simulation's result in the card");
+  t.check(/every one/.test(await t.text("#ms-fs")) && /0\.25 mm/.test(await t.text("#ms-fs")), "every move, 0.25 mm cells");
+  s = await tick(0, "sim");
+  t.check(s.cls === "ok" && s.text.includes("✓ Simulated") && /clean · no parts to compare · [\d,]+ moves · 0\.25 mm cells/.test(s.title), `Simulated: green (${s.cls}: ${s.title})`);
+  // the setup changed (a tool's diameter): Checked again at once, the full simulation's tick old
+  await t.ev(() => { toolOf(3).d += 0.5; latheVer++; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /CLEAN|WARNING|CRASH/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the preflight again");
+  await t.ev(() => renderFiles());
+  s = await tick(0, "sim"); c = await tick(0, "check");
+  t.check(s.cls === "old" && /another setup/.test(s.title), "Simulated: grey, for another setup");
+  t.check(c.cls !== "old", "Checked: made again for this setup");
+  t.check(!/Full simulation/.test(await t.text("#fl-rem")), "the card: no old result shown");
+  await t.ev(() => { toolOf(3).d -= 0.5; latheVer++; renderFiles(); });
+  await t.ev(() => renderFiles());
+  t.check((await tick(0, "sim")).cls === "ok", "the setup back: Simulated green again");
+  // a crash risk: the bolt circle through the stock into the vise
+  await t.ev(() => { loadProgram(plan(genBolt({ x: 60, y: 40, r: 28, n: 8, a: 0, d: -30, p: 3, t: 5 }))); fileSel = library.length - 1; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent), null, 15000), "the bolt circle: crash risks");
+  const last = await t.ev(() => library.length - 1);
+  c = await tick(last, "check");
+  t.check(c.cls === "bad" && /crash risk/.test(c.title), `Checked: red (${c.title})`);
+  await t.click("#ms-full");
+  t.check(await t.until(() => { const e = document.querySelectorAll("#files .file")[library.length - 1].querySelector('[data-mark="sim"]'); return e.classList.contains("bad"); }, null, 30000), "Simulated: red");
+  // a long program's merged path (stride > 1): its findings only possible, amber; the full simulation decides
+  await t.ev(() => { const p = library[library.length - 1]; p.stats = { stride: 4, moves: p.segs.length }; delete p.mremoval; renderPreflight(p); });
+  t.check(await t.until(() => $("fl-rem") && /TO VERIFY/.test($("fl-rem").querySelector("h3").textContent) && /possibly: /.test($("fl-rem").textContent) && /full simulation for the verdict/.test($("fl-rem").textContent), null, 15000), "merged path: TO VERIFY, possibly, the full simulation for the verdict");
+  c = await tick(last, "check");
+  t.check(c.cls === "bad" && /outside the travel/.test(c.title) && /1 possible problem on the merged path/.test(c.title), `Checked: the removal's findings only possible (still red: outside the travel) (${c.title})`);
+  await t.ev(() => { library.pop(); loadProgram(library[0]); fileSel = 0; renderFiles(); });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("material removal (mill): the stock cut as it runs, the Preflight check, a crash caught before the run", async (t) => {
+  await stop(t);
+  await t.ev(() => { loadProgram(library[0]); });
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /CLEAN/.test($("fl-rem").querySelector("h3").textContent), null, 15000), "the bracket: CLEAN");
+  t.check(/T3[\s\S]*fz 0\.0\d\d/.test(await t.text("#fl-rem")), "T3's removal rate and chip load (its flutes)");
+  // T3's flutes 5 mm: the 10 mm deep pocket puts its shank in the stock
+  await t.ev(() => { toolOf(3).cl = 5; latheVer++; renderPreflight(prog); });
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent) && /its flutes 5\.00 long/.test($("fl-rem").textContent), null, 15000), "flutes 5 mm on a 10 mm pocket: a crash risk");
+  await t.ev(() => { toolOf(3).cl = 18; latheVer++; });
+  // a bolt circle 30 deep: through the 25 mm stock into the vise's base
+  await t.ev(() => { loadProgram(plan(genBolt({ x: 60, y: 40, r: 28, n: 8, a: 0, d: -30, p: 3, t: 5 }))); fileSel = library.length - 1; renderFiles(); });
+  t.check(await t.until(() => $("fl-rem") && /cutter into Vise/.test($("fl-rem").textContent) && /through the stock/.test($("fl-rem").textContent), null, 15000), "30 deep: through the stock, into the vise");
+  await t.nav("main");
+  t.check(await t.until(() => R.mfindG && R.mfindG.children.length > 0), "its findings marked in the view");
+  t.check(await t.until(() => /crash risk/.test($("pm-t").textContent) || /crash risk/.test($("msg").textContent)), "a warning on loading it");
+  // the bracket run to its end: the stock cut, coloured, the block hidden
+  await t.ev(() => { loadProgram(library[0]); st.m1 = false; });
+  await t.nav("main");
+  await t.click("#b-start");
+  await t.until(() => st.run === "run");
+  await ffwd(t, await t.ev(() => prog.total - 0.2));
+  t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  t.check(await t.until(() => MREM.R && MREM.R.i === prog.segs.length && MREM.mesh && MREM.mesh.visible && !setup.nodes.get("stock").node.visible), "the cut stock shown in place of the block");
+  t.check(await t.ev(() => { const S = MREM.R.S; let cut = 0; for (let k = 0; k < S.top.length; k++) if (S.top[k] < S.top0[k] - 1) cut++; return cut > 10000; }), "cells cut down");
+  // against the finished part: a block faced to Z-0.5 (the facing program's result); then 0.2 higher: a gouge
+  await t.ev(() => {
+    const q = (o, a, b, c, d) => o.push(...a, ...b, ...c, ...a, ...c, ...d), tr = [];
+    q(tr, [0, 0, -0.5], [120, 0, -0.5], [120, 80, -0.5], [0, 80, -0.5]); q(tr, [0, 0, -25], [0, 80, -25], [120, 80, -25], [120, 0, -25]);
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(tr), 3)); g.computeBoundingBox();
+    setup.geoms.set("part.stl", g);
+    setup.objects.push({ id: "part", name: "part.stl", role: "part", src: "model:part.stl", frame: "work", pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, look: "glass" });
+    buildObjects();
+    const p = library.find((x) => /FACING/.test(x.name)); loadProgram(p); fileSel = library.indexOf(p);
+  });
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /100\.0 % within ±0\.05/.test($("fl-rem").textContent) && /Gouges\s*none/.test($("fl-rem").innerText), null, 15000), "the facing against a part faced to Z-0.5: 100 % within ±0.05");
+  await t.ev(() => { objOf("part").pos = [0, 0, 0.2]; placeObjects(); renderPreflight(prog); });
+  t.check(await t.until(() => $("fl-rem") && /cuts 0\.20 mm into the part/.test($("fl-rem").textContent) && /1 CRASH RISK/.test($("fl-rem").textContent), null, 15000), "the part 0.2 higher: a 0.20 mm gouge, its line, one crash risk");
+  await t.click("#ms-cmp");
+  t.check(await t.until(() => MREM.cmp && MREM.final), "coloured against the part");
+  await t.ev(() => { setup.objects = setup.objects.filter((o) => o.id !== "part"); buildObjects(); MREM.cmp = false; MREM.final = false; });
+  await t.ev(() => { st.m1 = true; });
+  t.check(t.errors.length === 0, "no script errors");
+});
+
+test("arm (simulation, the ARC Mate with its tool changer): the 3D arm, joints, the jog pad, a program by IK, tools, Record point, back to a mill", async (t) => {
+  const mj = { version: 1, name: "ARC Mate (simulated)", type: "arm", axes: { X: { min: -2000, max: 2000, max_vel: 250, max_acc: 1000 }, Y: { min: -2000, max: 2000, max_vel: 250, max_acc: 1000 }, Z: { min: -200, max: 2200, max_vel: 250, max_acc: 1000 } }, joints: [] };
+  await t.ev((x) => localStorage.setItem("pmc.machine", x), JSON.stringify(mj));
+  await t.page.reload();
+  t.check(await t.until(() => typeof R !== "undefined" && R && R.type === "arm" && ARM && ARM.built && document.body.classList.contains("arm"), null, 15000), "machine.json's type arm: the console an arm's, its model built");
+  t.check(await t.ev(() => prog.name === "ARM_PICK_PLACE.ngc" && $("pg-name").textContent === "ARM_PICK_PLACE.ngc"), "the arm's program loaded and shown");
+  t.check(await t.ev(() => Math.abs(st.pos.x - 800) < 0.01 && Math.abs(st.pos.z - 1270) < 0.01 && /0\.000°/.test($("d-b").textContent)), "home: X800 Z1270 A B C 0 (the DH chain)");
+  await stop(t);
+  await t.click("#st-jog");
+  await t.click('#jog-inc button[data-v="10"]');
+  await t.page.locator('#armpad button[data-ax="j0"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => Math.abs(ARM.q[0] - 10) < 1e-9 && Math.abs(st.pos.y - 800 * Math.sin(Math.PI / 18)) < 0.01), "J1 +10°: the tool point swings round (Y 138.9)");
+  await t.click('#armpad-frame button[data-f="world"]');
+  await t.page.locator('#armpad button[data-ax="z"][data-s="-1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q).xyz; return Math.abs(p[2] - 1260) < 0.01; }), "Z −10 in world mode: the joints by IK");
+  // the program: its tool point through IK, to its end
+  await t.ev(() => { ARM.q = ARM_HOME.slice(); armSimPose(); st.m1 = false; });
+  await t.click("#b-start");
+  await t.until(() => st.run === "run");
+  await ffwd(t, await t.ev(() => prog.total * 0.45));
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q).xyz; return Math.hypot(p[0] - st.pos.x, p[1] - st.pos.y, p[2] - st.pos.z) < 0.05 && !ARM.reach; }), "running: the 3D arm's tool point on the program's");
+  // its A B C: the tilt (B 30, then C 45) by IK, the tool point kept
+  await ffwd(t, await t.ev(() => { const s = prog.segs.find((x) => x.abc && x.abc[1] === 30 && x.abc[2] === 45); return s.t0 + s.t * 0.4; }));
+  t.check(await t.until(() => { const p = ARMMODEL.pose(ARM.v, ARM.q); return Math.abs(p.abc[1] - 30) < 0.05 && ARM.abc[2] > 5 && ARM.abc[2] < 45 && Math.abs(p.abc[2] - ARM.abc[2]) < 0.05 && Math.hypot(p.xyz[0] - 700, p.xyz[2] - 1100) < 0.05; }, null, 5000), "the program's B30 then C to 45: the 3D arm tilted, turning, its tool point kept");
+  await ffwd(t, await t.ev(() => prog.total - 0.2));
+  t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  t.check(await t.ev(() => ARM.abc.every((x) => Math.abs(x) < 1e-6) && /0\.000°/.test($("d-b").textContent)), "upright again at its end");
+  // MDI: a move with B; then the TOOL frame: +Z along the tilted tool, a turn about it
+  await t.click("#st-mdi");
+  await t.page.fill("#mdi", "G1 X700 Y0 Z1100 B30 F6000"); await t.page.press("#mdi", "Enter");
+  t.check(await t.until(() => st.run === "idle" && Math.abs(ARM.abc[1] - 30) < 1e-6 && Math.abs(ARMMODEL.pose(ARM.v, ARM.q).abc[1] - 30) < 0.01 && Math.abs(st.pos.z - 1100) < 0.01, null, 15000), "MDI G1 … B30: the arm there, tilted");
+  await t.page.fill("#mdi", "G1 X5000 F6000"); await t.page.press("#mdi", "Enter");
+  t.check(await t.msgHas("out of the arm's reach"), "MDI out of reach: refused");
+  await t.click("#st-jog");
+  await t.click('#armpad-frame button[data-f="tool"]');
+  t.check(await t.until(() => $("arm-jmode").textContent === "tool frame" && !!document.querySelector('#armpad button[data-ax="tz"]')), "the TOOL frame: its pad");
+  await t.page.locator('#armpad button[data-ax="tz"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until(() => Math.abs(st.pos.x - 705) < 0.01 && Math.abs(st.pos.z - 1100 - 10 * Math.cos(Math.PI / 6)) < 0.01), "tool +Z 10: along the tilted tool (X +5, Z +8.66)");
+  const p0 = await t.ev(() => [st.pos.x, st.pos.y, st.pos.z]);
+  await t.page.locator('#armpad button[data-ax="tc"][data-s="1"]').dispatchEvent("pointerdown");
+  t.check(await t.until((p) => { const P = ARMMODEL.pose(ARM.v, ARM.q), want = ARMMODEL.mul(ARMMODEL.rpy(0, Math.PI / 6, 0), ARMMODEL.rpy(0, 0, Math.PI / 18));
+    return Math.hypot(P.xyz[0] - p[0], P.xyz[1] - p[1], P.xyz[2] - p[2]) < 0.01 && [0, 1, 2, 4, 5, 6, 8, 9, 10].every((i) => Math.abs(P.M[i] - want[i]) < 1e-4); }, p0), "tool C +10: a turn about the tool's own Z, the tool point kept");
+  // the tool changer, Record point
+  await t.nav("tool");
+  t.check(await t.until(() => document.querySelectorAll("#tl-arm tr[data-armtool]").length === 2), "the Tools page: the changer's two tools");
+  t.check(await t.ev(() => $("tm-panel").offsetParent === null), "no mill tool's 3D-model card on an arm");
+  await t.click('#tl-arm [data-mount="2"]');
+  t.check(await t.until(() => ARM.mounted === 2 && ARM.mountedShown === 2 && /ON FLANGE/.test(document.querySelector('#tl-arm tr[data-armtool="2"]').textContent)), "T2 mounted: on the flange in the view and its row");
+  await t.nav("main");
+  await t.click("#arm-rec");
+  t.check(await t.until(() => /1 point/.test($("arm-teach").textContent)) && await t.msgHas("Recorded G1 X"), "Record point");
+  // a second point 50 mm lower; the list: swap them, Go to the first, load them as the program and run it
+  await t.click("#st-mdi");
+  const z1 = await t.ev(() => st.pos.z);
+  await t.page.fill("#mdi", `G1 Z${(z1 - 50).toFixed(3)} F6000`); await t.page.press("#mdi", "Enter");
+  await t.until((z) => st.run === "idle" && Math.abs(st.pos.z - z + 50) < 0.01, z1, 15000);
+  await t.click("#arm-rec");
+  await t.page.click("#arm-pts summary");
+  t.check(await t.until(() => document.querySelectorAll("#arm-ptlist li [data-pt]").length === 8 && $("arm-ptn").textContent === "2"), "the teach points: two, each with Go ↑ ↓ ×");
+  await t.click('#arm-ptlist [data-pt="up"][data-i="1"]');
+  t.check(await t.until((z) => ARM.points[0].includes(`Z${(z - 50).toFixed(3)}`), z1), "↑: the lower point first");
+  await t.click('#arm-ptlist [data-pt="go"][data-i="1"]');
+  t.check(await t.until((z) => st.run === "idle" && Math.abs(st.pos.z - z) < 0.01, z1, 15000), "Go: the arm at the other point");
+  await t.click("#arm-ptload");
+  t.check(await t.until(() => prog.name === "teach.ngc" && prog.segs.filter((s) => s.k === "mv").length === 2), "Load as program: teach.ngc, its two moves");
+  await t.click("#b-start");
+  t.check(await t.until((z) => st.run === "done" && Math.abs(st.pos.z - z) < 0.01, z1, 20000), "it runs: ends at its last point");
+  // Go home: the joints back to the home pose, together
+  await t.click("#arm-home");
+  t.check(await t.until(() => !ARM.goal && ARM.q.every((x, j) => Math.abs(x - ARM_HOME[j]) < 1e-6) && Math.abs(st.pos.z - ARMMODEL.pose(ARM.v, ARM_HOME, armTcp()).xyz[2]) < 0.01, null, 20000), "Go home: every joint at home, the DRO on the tool's point there");
+  await t.click('#arm-ptlist [data-pt="delete"][data-i="0"]');
+  t.check(await t.until(() => ARM.points.length === 1 && /1 point/.test($("arm-teach").textContent)), "×: one point left");
+  // back to a mill
+  await t.ev(() => localStorage.removeItem("pmc.machine"));
+  await t.page.reload();
+  t.check(await t.until(() => R && R.type === "gantry" && !ARM && !document.body.classList.contains("arm") && (!$("arm-panel") || !$("arm-panel").offsetParent)), "a gantry again: no arm panel");
+  t.check(t.errors.length === 0, "no script errors");
+});
+
 test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, the turret's tools, wizards, a program to its end, back to a mill", async (t) => {
   const emco = require("fs").readFileSync(path.join(MILL, "machines", "emco_compact5", "machine.json"), "utf8");
   await t.ev((x) => localStorage.setItem("pmc.machine", x), emco);
@@ -997,8 +1256,13 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   t.check(await t.until(() => /X off/.test(document.querySelector("#tool-t thead").textContent) && /Nose R/.test(document.querySelector("#tool-t thead").textContent)), "the tool table: X off, Z off, Nose R, Q");
   await t.page.fill('#tool-t [data-k="d"][data-i="0"]', "0.8"); await t.page.press('#tool-t [data-k="d"][data-i="0"]', "Tab");
   t.check(await t.until(() => st.tools[0].d === 1.6), "nose R 0.8: D 1.6 in the table");
+  await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "3");
+  t.check(await t.until(() => st.tools[0].q === 3), "the orientation");
   await t.page.selectOption('#tool-t [data-k="q"][data-i="0"]', "2");
-  t.check(await t.until(() => st.tools[0].q === 2), "the orientation");
+  await t.page.selectOption('#tool-t [data-k="ins"][data-i="0"]', "55");
+  t.check(await t.until(() => st.tools[0].ins === "55"), "the insert's shape (the tool database)");
+  await t.page.selectOption('#tool-t [data-k="ins"][data-i="0"]', "80");
+  t.check(/^Turret: station \d of 6/.test(await t.text("#tl-turret")) && await t.ev(() => getComputedStyle($("tl-turret")).display !== "none"), "the turret's station");
   // a wizard: turning to Ø20 over 30
   await t.nav("wiz");
   t.check(await t.ev(() => document.querySelector(".lathe-cards") && !document.querySelector(".lathe-cards").hidden && [...document.querySelectorAll("#p-wiz > .cards")].filter((c) => !c.hidden).length === 1), "the lathe's wizards, not the mill's");
@@ -1012,6 +1276,16 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   await t.until(() => st.run === "run");
   await ffwd(t, await t.ev(() => prog.total - 0.3));
   t.check(await t.until(() => st.run === "done", null, 8000), "it runs to its end");
+  // material removal: the stock cut as it ran, the File page's check, the demo's thread and part off
+  t.check(await t.until(() => LREM.R && LREM.R.i === prog.segs.length && LREM.meshes.length >= 1), "the stock followed the run to its end");
+  t.check(await t.ev(async () => { const r = await latheCheck(plan(latheDemo())); return r.S.parts.length === 1 && r.S.thr.some((v) => v > 0.8) && !r.find.some((f) => f.level === "bad"); }), "the demo: a thread, a part off, no crash risk");
+  await t.nav("file");
+  t.check(await t.until(() => $("fl-rem") && /CLEAN|WARNING/.test($("fl-rem").querySelector("h3").textContent)), "Preflight: Material removal checked");
+  await t.page.fill("#ls-stick", "25"); await t.page.press("#ls-stick", "Tab");
+  t.check(await t.until(() => $("fl-rem") && /CRASH RISK/.test($("fl-rem").textContent) && /into the chuck/.test($("fl-rem").textContent)), "25 mm out of the chuck, turned over 30: into the chuck, a crash risk");
+  await t.click(".rem-find li.bad");
+  t.check(await t.until(() => st.page === "main" && st.selLine > 0 && $("gl-" + st.selLine) && $("gl-" + st.selLine).classList.contains("sel")), "a finding's line shown in the listing");
+  await t.ev(() => latheStockSave({ stick: 60 }));
   // back to a mill: the Configure page's type
   await t.nav("config");
   await t.page.selectOption('[data-path="type"]', "gantry");
@@ -1019,6 +1293,16 @@ test("lathe (simulation, the Emco Compact 5's machine.json): Ø DRO, X Z jog, th
   t.check(await t.ev(() => library.some((p) => /BRACKET/.test(p.name)) && st.tools.some((x) => x.t === 12) && !document.getElementById("d-y").closest(".axis").hidden), "its programs, tools and Y back");
   await t.page.selectOption('[data-path="type"]', "lathe");
   t.check(await t.until(() => R.type === "lathe" && LATHE && !!document.querySelector('[data-path="lathe.post"]')), "type lathe in Configure: a lathe, its tool post's field");
+  await t.click('#cf-tabs button[data-t="tools"]');
+  t.check(await t.until(() => !!document.querySelector('[data-path="lathe.turret.type"]') && !document.querySelector('[data-path="atc.type"]')), "a lathe's Tools tab: its turret, no rack changer");
+  await t.page.selectOption('[data-path="lathe.turret.type"]', "stepper");
+  t.check(await t.until(() => ["stepgen", "steps", "index", "overtravel", "lock", "slip"].every((k) => document.querySelector(`[data-path="lathe.turret.${k}"]`))), "a stepper turret: its stepgen, steps, index, its moves");
+  await t.page.selectOption('[data-path="lathe.turret.type"]', "none");
+  await t.click('#cf-tabs button[data-t="spindle"]');
+  await t.page.selectOption('[data-path="spindle.type"]', "stmbl_sserial");
+  t.check(await t.until(() => ["port", "channel", "ratio", "index_sensor"].every((k) => document.querySelector(`[data-path="spindle.${k}"]`))), "an stmbl spindle: its port, channel, ratio, index sensor");
+  await t.page.selectOption('[data-path="spindle.type"]', "sim");
+  await t.click('#cf-tabs button[data-t="machine"]');
   await t.page.selectOption('[data-path="lathe.post"]', "back");
   t.check(await t.until(() => LATHE && LATHE.post === "back" && LATHE.s === 1 && (document.querySelector('#jogpad [data-j="y+"]').textContent === "X+")), "a back post: +X away from the operator, the pad's up arrow X+");
   await t.page.selectOption('[data-path="type"]', "gantry");

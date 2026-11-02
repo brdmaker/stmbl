@@ -23,9 +23,10 @@ class _M:
         self.task_mode = MODE_MANUAL
         self.interp_state = INTERP_IDLE
         self.motion_mode = TRAJ_MODE_FREE
+        self.njoints = 4
         self.homed = [0, 0, 0, 0]
         self.pos = [0.0] * 9
-        self.jpos = None                # joint positions (X Y Y Z); None: from pos
+        self.jpos = None                # joint positions (an arm's: not the axes); None: from pos (X Y Y Z)
         self.g5x = [0.0] * 9
         self.g5x_index = 1
         self.g92 = [0.0] * 9
@@ -57,11 +58,12 @@ class stat:
         self.task_mode = m.task_mode
         self.interp_state = m.interp_state
         self.motion_mode = m.motion_mode
-        self.homed = tuple(m.homed) + (0,) * 5
-        self.joints = 4
-        self.joint = [{"ferror_current": 0.0}] * 4
-        self.actual_position = tuple(m.pos)
+        self.homed = tuple(m.homed) + (0,) * (9 - len(m.homed))
+        self.joints = m.njoints
         jp = m.jpos if m.jpos is not None else [m.pos[0], m.pos[1], m.pos[1], m.pos[2]]
+        self.joint = [{"ferror_current": 0.001 * j, "input": jp[j] if j < len(jp) else 0.0, "homed": m.homed[j]}
+                      for j in range(m.njoints)]
+        self.actual_position = tuple(m.pos)
         self.joint_actual_position = tuple(jp) + (0.0,) * (9 - len(jp))
         self.position = tuple(m.pos)
         self.g5x_offset = tuple(m.g5x)
@@ -114,7 +116,7 @@ class command:
 
     def home(self, j):
         if j < 0:
-            M.homed = [1, 1, 1, 1]
+            M.homed = [1] * M.njoints
         else:
             M.homed[j] = 1
 
@@ -122,12 +124,19 @@ class command:
         M.homed[j] = 0
 
     def jog(self, kind, joint_flag, axis, vel=0.0, inc=0.0):
+        # a joint jog (joint_flag) moves the joint (key "j<n>" while continuous), else the axis (key: its index)
+        if joint_flag and M.motion_mode == TRAJ_MODE_TELEOP or not joint_flag and M.motion_mode != TRAJ_MODE_TELEOP:
+            M.errors.append((NML_ERROR, "jog in the wrong mode"))
+            return
+        key = "j%d" % axis if joint_flag else axis
         if kind == JOG_INCREMENT:
-            M.pos[axis] += inc * (1 if vel > 0 else -1)
+            if joint_flag and M.jpos is None:  # the joints apart from the axes from now on
+                M.jpos = [M.pos[0], M.pos[1], M.pos[1], M.pos[2]] + [0.0] * 5
+            (M.jpos if joint_flag else M.pos)[axis] += inc * (1 if vel > 0 else -1)
         elif kind == JOG_CONTINUOUS:
-            M.jogging[axis] = vel
+            M.jogging[key] = vel
         else:
-            M.jogging.pop(axis, None)
+            M.jogging.pop(key, None)
 
     def mdi(self, text):
         M.mdi_log.append(text)
@@ -135,10 +144,14 @@ class command:
             M.interp_state = INTERP_READING
         import re
         t = text.upper()
+        g53 = t.startswith("G53 ")  # machine coordinates
+        if g53:
+            t = t[4:]
         if re.match(r"^G[01]\b", t):
-            for a, v in re.findall(r"([XYZ])\s*(-?\d*\.?\d+)", t):
-                i = "XYZ".index(a)
-                M.pos[i] = float(v) + M.g5x[i]
+            M.motion_mode = TRAJ_MODE_COORD
+            for a, v in re.findall(r"([XYZABC])\s*(-?\d*\.?\d+)", t):
+                i = "XYZABC".index(a)
+                M.pos[i] = float(v) + (M.g5x[i] if i < 3 and not g53 else 0.0)
         m = re.match(r"^G10 L20 P0 ([XYZ])(-?[\d.]+)", t)
         if m:
             i = "XYZ".index(m.group(1))
