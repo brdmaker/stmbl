@@ -116,7 +116,7 @@ class Hub:
         mdir = cfg.get("MILLWEB", "MACHINE_DIR")
         self.conf = supervisor_mod.ConfigOps(mdir) if mdir else None
         # system updates (sysupdate.py): the controller image's update helper, if it has one
-        self.sys = sysupdate.SysUpdate(self.broadcast, self.event)
+        self.sys = sysupdate.SysUpdate(self.broadcast, self.event, self.restart_refused)
         self.drive_sig = None
 
     # ------------------------------------------------------------ events
@@ -234,7 +234,7 @@ class Hub:
                     return await reply()
             if op in ("files", "program_get", "program_lines", "model_get", "hal_list", "hal_watch", "hal_values",
                       "scope_start", "scope_stop", "views_save", "ping", "events", "drive_watch", "drive_cmd",
-                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get",
+                      "sup_status", "log_get", "config_get", "config_check", "config_version", "mmodel_get", "backup_get",
                       "vib_spectrum", "vib_trend", "vib_console_read", "sys_status", "sys_check"):  # reading, and the Debug page's own (drive_cmd checks its own)
                 pass  # reading needs no control
             elif self.control != c.id:
@@ -319,6 +319,8 @@ class Hub:
 
     async def op_cycle(self, c, m):
         act = m.get("action", "start")
+        if act in ("start", "step") and self.sys.installing():
+            return "a system update is being installed: the controller restarts when it is done"
         if act == "stop":
             err = await self.urgent(self.m.cmd_stop)
         else:
@@ -864,6 +866,23 @@ class Hub:
             self.lcnc_end("restart", c)
         return {"version": hid}
 
+    async def op_backup_get(self, c, m):
+        return await self.run_bg(self.need_conf().backup_get, m.get("programs", True) is not False)
+
+    async def op_restore_upload(self, c, m):
+        return await self.run_bg(self.need_conf().restore_upload, m.get("offset", 0), m.get("data", ""), m.get("total", 0))
+
+    async def op_restore_apply(self, c, m):
+        """the uploaded backup: LinuxCNC ends, the supervisor restores the folder and starts it again"""
+        conf = self.need_conf()
+        err = self.restart_refused()
+        if err:
+            return err
+        await self.run_bg(conf.restore_queue)
+        self.event("warn", "%s restores the machine folder from a backup" % c.name)
+        self.lcnc_end("restart", c)
+        return {}
+
     async def op_bitstream_save(self, c, m):
         conf = self.need_conf()
         err = await self.run_bg(conf.bitstream_save, m.get("name"), m.get("data", ""))
@@ -1048,10 +1067,14 @@ class Hub:
                 fut.exception()  # retrieved: no "never retrieved" warning
 
     async def _preview_child(self, path, active, tl):
+        # the INI's startup code first (a lathe: G18 G7, X words as diameters); a lathe tool's X offset, angles, orientation
         req = {"path": path, "var": self.m.var_file, "unitcode": "G21", "active": active,
-               "tools": {t["t"]: (t["t"], 0.0, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4, 0, 0, 0) for t in tl},
+               "initcode": self.cfg.get("RS274NGC", "RS274NGC_STARTUP_CODE", "") or "",
+               "tools": {t["t"]: (t["t"], t.get("x", 0.0) / 25.4, 0.0, t["z"] / 25.4, 0, 0, 0, 0, 0, 0, t["d"] / 25.4,
+                                  t.get("i", 0.0), t.get("j", 0.0), t.get("q", 0)) for t in tl},
                "pockets": [t["t"] for t in tl], "max_segs": self.pv_segs, "timeout": self.pv_timeout,
-               "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0)}
+               "rapid": self.m.maxv * 60, "acc": self.cfg.num("TRAJ", "MAX_LINEAR_ACCELERATION", 1000.0),
+               "spindle_max": self.cfg.num("SPINDLE_0", "MAX_FORWARD_VELOCITY", 24000.0)}
         head, ptext = {"error": None, "truncated": None, "stats": None, "lines": 0, "start": [0, 0, 0]}, "[]"
         nice = int(self.cfg.num("MILLWEB", "PREVIEW_NICE", 10))
         proc = await asyncio.create_subprocess_exec(sys.executable, preview.__file__, stdin=asyncio.subprocess.PIPE,

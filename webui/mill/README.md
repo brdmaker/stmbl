@@ -104,7 +104,8 @@ it):
 | key | what |
 |---|---|
 | `name`, `units` (mm), `servo_period_ns` | |
-| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. In the INI as `[MILLWEB] MACHINE_TYPE` |
+| `type` | `gantry` (default: the bridge moves in Y over a fixed table; a Y pair allowed) or `bridge` (a fixed bridge, the table moves in Y, one joint an axis: the Scripta CN 720, `machines/cn720/machine.json`). The console draws that machine: its view keeps the bridge still and moves the table, the work and the toolpath with −Y. Or `lathe` (X and Z: the Emco Compact 5, `machines/emco_compact5`; see *Lathes*). In the INI as `[MILLWEB] MACHINE_TYPE` |
+| `lathe` | a lathe's: `post` (`front`: the tools between the operator and the spindle's axis, +X toward the operator; `back`), `diameter` (X in diameter, G7, from the start; default true). In the INI: `[DISPLAY] LATHE`, `BACK_TOOL_LATHE`, `RS274NGC_STARTUP_CODE = G18 G7 …` |
 | `board` | `type`: `none`, `hm2_eth`, `hm2_spix`, `hm2_rpspi`, `hm2_soc_ol`; `name` (in its pins: `7i96s` for `hm2_7i96s.0…`), `params` (the driver's: `board_ip=…`, `spiclk_rate=…`), `config` (`config="…"`), `watchdog_ms` |
 | `bitstream` | `loader`: `none`, `fpga_manager`, `command`; `file` (in `bitstreams/`), `fpga` (`fpga0`), `command` (with `{file}`), `reload`: `changed` or `always` |
 | `axes` | `X`, `Y`, `Z` …: `min`, `max`, `max_vel`, `max_acc` (mm, mm/s, mm/s²) |
@@ -112,12 +113,12 @@ it):
 | `can` | `spi` (a device a bus, or `sim`), `discover`, `spi_hz` |
 | `estop` | `input` (a HAL pin, true while the chain is closed), `invert`; a Mesa board's watchdog also trips it; no input and no board: a loop |
 | `probe` | `type`: `none`, `input` (`input`, `invert`), `sim`: a simulated probe that touches the stock (the 3D setup's workpieces, as the view places them; before millweb sets it, the whole travel at `sim_z`) and the tool setter (within 10 mm of its X Y, at `z_ref`), in machine coordinates, with each tool's true length (`sim_tools`: `{"1": 62.4}`; the others their table length when first used): Measure finds it |
-| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once)); `max_rpm`, `min_rpm` |
+| `spindle` | `type`: `none`, `sim`, `hal` (its pins: `on`, `forward`, `reverse`, `speed` (rpm, `spindle.0.speed-out-abs`), `at_speed` (in; blank: at speed at once), and its encoder for threading and G95: `revs` (spindle.0.revs, turns), `index` (index-enable), `speed_in` (turns/s)); `max_rpm`, `min_rpm`. A simulated spindle on a lathe gets a simulated encoder (`sim_spindle`), so G33 and G76 run |
 | `atc` | `type`: `none` or `rack`: M6 is remapped to `run/toolchange.ngc`, made from these: tool n in pocket n (`pockets`), pocket 1 at `x`, `y`, the others `dx`, `dy` apart; `z_clear`, `z_pocket`, `slide` (the holder enters its fork along +Y; 0: from above), `feed`; pins `unclamp` (the drawbar, motion's digital out 0), `air` (out 1), `clamped`, `released` (sensors, in 0 and 1: waited for up to `timeout` s; blank: `dwell`). A tool beyond the pockets is changed by hand (a message and a pause) |
 | `toolsetter` | `x`, `y`, `z_above`, `z_ref`, `travel` (the Tools page's Measure), or null |
 | `display` | `max_feed_override`, `max_spindle_override`, `min_spindle_override` |
 | `stmbl` | the drives' firmware: `fw` (null: this checkout's `STMBL_FW_VERSION`), `block` (a mismatch keeps the machine off; default true) |
-| `model` | the machine in the 3D view: `builtin` (the built-in machine of `type`, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin |
+| `model` | the machine in the 3D view: `builtin` (the built-in machine of `type`, default on), `parts`: `{name, file (in models/, STL or OBJ), moves ("" fixed, "Y", "XY", "XYZ", "-X" against X for a moving table …), pos, rot (°), scale, color, opacity}`, each placed as it is with the machine at X0 Y0 Z0 and the tool tip at the origin. A lathe's: the spindle's axis along X, the chuck's face at X0, `tip` where the tool's tip is in the files, `moves` `Z`, `XZ` or `S` (turns with the spindle); `tools/step2parts.py` makes them from a STEP assembly |
 | `console` | millweb: `port`, `host`, `token`, `on_control_loss`, `hal_write`, `drive_write`, `cpus`, `pins` (the Status page's), `extra` (more `[MILLWEB]` keys) |
 
 The stmbl drives get their `DRIVE` and `DRIVE_LINK` lines (the Drives tab)
@@ -194,6 +195,47 @@ the INI is configured by hand):
 | `PREVIEW_SEGS` | 100000 | at most this many segments drawn; a longer program's path is merged to fit (its stats still cover every move) |
 | `PREVIEW_TIMEOUT` | 120 | seconds of interpreting for a preview; then it shows what was read and says so |
 
+## Backup and restore of the machine folder
+
+The Configure page's **Backup** tab (`server/backup.py`):
+
+- **Download backup (.zip):** the whole machine folder: machine.json,
+  custom.hal, tool table, linuxcnc.var, `comp/`, `bitstreams/`, `models/`,
+  `history/` and (optional) the G-code in `nc_files/`; never `run/`, `logs/`
+  or `backups/`. `millweb-backup.json` in it names the machine, the date and
+  the system version.
+- **Restore from a backup:** the zip goes up in 3 MB pieces (a WebSocket
+  message is at most 8 MB) to `run/restore.part`; the page shows what would
+  change (changed, new, removed files) and the problems of its machine.json
+  before anything is written. Restore puts it in `run/restore.zip` and
+  restarts LinuxCNC: the supervisor applies it while LinuxCNC is down
+  (LinuxCNC writes linuxcnc.var when it ends), after saving the folder as it
+  was into `backups/` (the last 5). The folder then is the backup's: files it
+  doesn't have are removed, except the programs when it was made without them.
+  A zip of the machine folder itself (`machine/machine.json`) works too.
+- Ops: `backup_get` (`programs`; reading), `restore_upload` (`offset`,
+  `data`, `total`), `restore_apply` (control, no program running).
+
+## The machine's own HAL components
+
+Put `NAME.comp` files (halcompile's format) into the machine folder's
+`comp/`: before every LinuxCNC start the supervisor compiles them with
+`halcompile` and installs them (`server/comps.py`), so `custom.hal` can say
+`loadrt NAME` (a realtime component) or `loadusr NAME` (one with
+`option userspace yes;`, put on LinuxCNC's PATH from `run/comp-bin`).
+
+- Compiled once: `run/comp-cache` keeps each result, keyed by the source and
+  the LinuxCNC it was built for (a system update compiles them again, once).
+- A compile error stops the start like a bad machine.json: the first error in
+  the state line, halcompile's whole output in the log (Configure page).
+- A comp named like one of LinuxCNC's own modules replaces it (the event log
+  says so); taken out of `comp/`, LinuxCNC's own is back.
+- It needs halcompile and a compiler on the controller and a writable modules
+  directory: the EBAZ4205 image has both (a tmpfs of links to LinuxCNC's
+  modules bound over `/usr/lib/linuxcnc/modules`; `MILLWEB_RTLIB_STOCK`
+  names the originals). `MILLWEB_HALCOMPILE` and `MILLWEB_RTLIB_DIR` override
+  the tool and the directory (the tests use `test/fake-halcompile`).
+
 ## System updates
 
 On a controller whose image has an update helper (the EBAZ4205 A/B image:
@@ -208,13 +250,16 @@ down) updates the whole controller system: Linux, LinuxCNC, this console.
   any listed version. The header's **UPDATE** chip says a newer one is there
   (checked at start and every hour).
 - **Installing** goes into the other system slot while this one keeps
-  running (progress on the card); **Restart now** then starts it. If it
-  doesn't come up, the controller goes back to the running version by itself.
-- Installing and restarting need control and no program running; any browser
-  sees the releases.
+  running (progress on the card). Meanwhile the releases are hidden, the
+  buttons off and no program can start; when it is done the controller
+  restarts into it by itself (after a program that was already running has
+  ended). If it doesn't come up, the controller goes back to the running
+  version by itself.
+- Installing needs control and no program running; any browser sees the
+  releases.
 
 The ops: `sys_status`, `sys_check` (reading), `sys_install` (`version`),
-`sys_reboot`; browsers get `{"t": "sys", "status", "check"}`.
+`sys_reboot`; browsers get `{"t": "sys", "status", "check", "restarting"}`.
 `MILLWEB_UPDATE_CMD` names another helper (or, empty, switches it off).
 
 ## The protocol
@@ -339,6 +384,28 @@ the event log.
 - `vibev` {event};
 - `vibspectrum` {node, spectrum: {df, rms}};
 - `vibtrend`, `vibconsole`.
+
+## Lathes
+
+`type: "lathe"` makes the console a lathe's (from LinuxCNC's `[DISPLAY] LATHE` when it runs):
+- **DRO:** X as a diameter (Ø, the radius below it) in G7, as a radius in G8, following LinuxCNC's modal state; Z; no Y. Positions stay radii, as LinuxCNC keeps them.
+- **The view:** the spindle's axis along the screen, the chuck turning with the stock in it, the saddle and cross slide following the tool. XZ is the operator's view (+X down for a front post, up for a back one). The path is drawn over the stock and mirrored across the axis, faint: the part's section.
+- **Jog:** left/right Z, up/down X (up: away from the operator on a front post).
+- **Tools:** the turret's tools with X and Z offsets, nose radius, orientation (Q 1–9, LinuxCNC's), drawn as an insert and its holder. tool.tbl keeps X, Q, I, J.
+- **Wizards:** facing, turning (roughing passes to an allowance, then a finish), threading (G76), grooving and parting off. The programs are G18 G7 G95, at constant cutting speed (G96) where it fits.
+- **Preview:** LinuxCNC's interpreter with the INI's startup code (X words as diameters), its time at the spindle's rpm in G95, from the cutting speed at the diameter in G96, and at the pitch on G33/G76 lines.
+- **Probe and Dynamics:** not on a lathe.
+
+`machines/emco_compact5` is an example: simulated joints and spindle (with an encoder: G76 threads).
+Its 3D model comes from the machine's STEP file through `tools/step2parts.py`; see its README.
+
+**Two lathes in one machine** (a twin-spindle lathe such as the CTX TWIN, a controller each side) are
+not in yet. The plan: each side its own LinuxCNC and millweb. A part's hand-over is a handshake in
+M-code subroutines on both sides:
+- **Signals:** "at transfer position", "clamped", "released", as a few 24 V lines between the two I/O cards, or a network link.
+- **Moves:** each side waits for the other (M66) and moves (M64/M65).
+- **Simplest transfer:** both spindles stopped and oriented (M19).
+- **Synchronous transfer:** the receiving spindle's drive follows the giving one's encoder.
 
 ## Messages, progress, run statistics
 

@@ -24,6 +24,7 @@ before it ended; "start" in the first line is where the first one starts.
 """
 import json
 import math
+import re
 import os
 import shutil
 import sys
@@ -47,7 +48,7 @@ MM = 25.4  # the canon works in inches
 
 class Canon(Translated, ArcsToSegmentsMixin):
     def __init__(self, tools=None, parameter_file="", max_segs=100000, pockets=None, deadline=None,
-                 rapid=6000.0, acc=1000.0):
+                 rapid=6000.0, acc=1000.0, spindle_max=24000.0):
         self.parameter_file = parameter_file
         self.segs = []                # the path to draw (merged past max_segs)
         self.lineno = 0
@@ -73,6 +74,9 @@ class Canon(Translated, ArcsToSegmentsMixin):
         self.cut = self.rapid_len = self.time = 0.0
         self.used = []
         self.rapid, self.acc = float(rapid), float(acc)
+        self.spindle_max = float(spindle_max) or 24000.0
+        self.xoff = 0.0               # the work's X0 in machine X (a lathe's axis: G96's diameter from it)
+        self.pitch = {}               # threading lines (G33 K, G76 P) by their line number: mm a turn
 
     # state the interpreter reports
     def next_line(self, st):
@@ -125,7 +129,7 @@ class Canon(Translated, ArcsToSegmentsMixin):
             x0, y0, z0 = self.lo[0] * MM, self.lo[1] * MM, self.lo[2] * MM
             x, y, z = l[0] * MM, l[1] * MM, l[2] * MM
             self._account(kind, x0, y0, z0, x, y, z)
-            f = self.feedrate if kind else 0.0
+            f = self._feed(x0, x) if kind else 0.0
             last = self.segs[-1] if self.segs else None
             if last is not None and self.acc_n and self.acc_n < self.stride and last[0] in (0, 1) and kind in (0, 1) \
                     and last[9] == self.tool:
@@ -144,6 +148,20 @@ class Canon(Translated, ArcsToSegmentsMixin):
         self.first = False
         self.lo = tuple(l)
 
+    def _feed(self, xa, xb):
+        """The feed in mm/min: G95 (a lathe's mm per turn) at the spindle's rpm; with G96 that from the
+        cutting speed at the move's diameter, the spindle's max at most."""
+        st = self.state
+        pitch = self.pitch.get(self.lineno)
+        if st is None or (getattr(st, "feed_mode", 940) != 950 and pitch is None):
+            return self.feedrate
+        g, speed = getattr(st, "gcodes", ()), float(getattr(st, "speed", 0.0) or 0.0)
+        rpm = speed
+        if len(g) > 13 and g[13] == 960:
+            d = abs(xa + xb - 2 * self.xoff)  # twice the mean radius
+            rpm = min(self.spindle_max, speed * 1000.0 / (math.pi * max(d, 0.5)))
+        return (pitch if pitch is not None else self.feedrate) * max(rpm, 1.0)  # a thread: its pitch a turn
+
     def _account(self, kind, x0, y0, z0, x, y, z):
         self.n += 1
         for i, v in enumerate((x, y, z)):
@@ -156,7 +174,7 @@ class Canon(Translated, ArcsToSegmentsMixin):
                 self.lo_ext[i] = min(self.lo_ext[i], v)
                 self.hi_ext[i] = max(self.hi_ext[i], v)
         d = math.sqrt((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2)
-        f = (self.rapid if kind == 0 else max(self.feedrate, 1e-6)) / 60.0
+        f = (self.rapid if kind == 0 else max(self._feed(x0, x), 1e-6)) / 60.0
         self.time += d / f + min(f / self.acc, math.sqrt(d / self.acc))  # as the console's planner
         if kind == 0:
             self.rapid_len += d
@@ -202,11 +220,22 @@ class Canon(Translated, ArcsToSegmentsMixin):
 
 
 def parse(path, tools=None, parameter_file=None, unitcode="G21", initcode="", active=(0.0, 0.0, 0.0), pockets=None,
-          max_segs=100000, timeout=120.0, rapid=6000.0, acc=1000.0):
+          max_segs=100000, timeout=120.0, rapid=6000.0, acc=1000.0, spindle_max=24000.0):
     out = {"segs": [], "lines": 0, "error": None, "truncated": None, "stats": None}
+    pitch = {}  # the threading lines' pitches (the interpreter doesn't tell its canon of spindle-synced moves)
+    thread = re.compile(rb"G\s*(?:76|33(?:\.1)?)(?![\d.])", re.I)
+    word = re.compile(rb"([PK])\s*([-+]?\d*\.?\d+)", re.I)
     try:
         with open(path, "rb") as f:
-            out["lines"] = sum(1 for _ in f)
+            n = 0
+            for n, line in enumerate(f, 1):
+                code = line.split(b"(")[0].split(b";")[0]
+                if thread.search(code):
+                    w = dict((k.upper(), float(v)) for k, v in word.findall(code))
+                    p = w.get(b"P") if re.search(rb"G\s*76", code, re.I) else w.get(b"K")
+                    if p:
+                        pitch[n] = abs(p)  # as the canon numbers lines: from 1
+            out["lines"] = n
     except OSError as e:
         out["error"] = str(e)
         return out
@@ -215,7 +244,9 @@ def parse(path, tools=None, parameter_file=None, unitcode="G21", initcode="", ac
         return out
     td = tempfile.mkdtemp(prefix="millweb-preview.")
     canon = Canon(tools, "", max_segs=max_segs, pockets=pockets, deadline=time.time() + timeout if timeout else None,
-                  rapid=rapid, acc=acc)
+                  rapid=rapid, acc=acc, spindle_max=spindle_max)
+    canon.xoff = float(active[0])
+    canon.pitch = pitch
     try:
         par = os.path.join(td, os.path.basename(parameter_file or "linuxcnc.var"))
         if parameter_file and os.path.exists(parameter_file):
@@ -260,7 +291,7 @@ def main():
     t0 = time.time()
     pv = parse(req["path"], tools, req.get("var"), req.get("unitcode", "G21"), req.get("initcode", ""),
                tuple(req.get("active", (0, 0, 0))), req.get("pockets"), req.get("max_segs", 100000),
-               req.get("timeout", 120.0), req.get("rapid", 6000.0), req.get("acc", 1000.0))
+               req.get("timeout", 120.0), req.get("rapid", 6000.0), req.get("acc", 1000.0), req.get("spindle_max", 24000.0))
     segs = pv.pop("segs")
     pv["start"] = segs[0][1:4] if segs else [0, 0, 0]
     pv["seconds"] = round(time.time() - t0, 2)

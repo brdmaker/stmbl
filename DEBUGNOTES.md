@@ -114,6 +114,34 @@ Entry format:
   check, flashsaveconf, showconf compare), reset: link up, 202 V, no fault.
   Ideas: confirm `deleteconf` (RAM size 0) before appending; refuse a second
   instance of the hardware comps (hv, adc, io) in `load_comp`. No test yet.
+## 2026-10-29  EBAZ4205: LinuxCNC didn't start, "Too many levels of symbolic links"
+- Area:    the EBAZ4205 image (hostmot2 `ebaz4205/image`: ebaz-lcnc-modules), for millweb comps.py
+- Status:  Fixed (image 2026.10.29.3; .1 and .2 withdrawn)
+- Symptom: every loadrt failed: `hal_lib: dlopen: /usr/lib/linuxcnc/modules/hal_lib.so:
+  ... Too many levels of symbolic links`, LinuxCNC ended at once.
+- Cause:   the writable modules directory is a tmpfs of links to LinuxCNC's own
+  modules, kept at a bind mount /run/ebaz/lcnc-modules-stock. `/` is a shared
+  mount, so that bind was its peer: the tmpfs mounted over the modules directory
+  propagated onto the stock copy too, and the links pointed at themselves. The
+  chroot test of the image (halcompile only) couldn't see it.
+- Fix:     `mount --make-private` on the stock bind; the script checks hal_lib.so
+  resolves. Test on the board: hostmot2 `ebaz4205/tools/test-comps.sh`.
+
+## 2026-10-28  EBAZ4205: LinuxCNC's NML gone after an SSH login as cnc ended
+- Area:    the EBAZ4205 image (hostmot2 repo `ebaz4205/image`), seen in millweb
+- Status:  Fixed (image 2026.10.28.3)
+- Symptom: the console showed "millweb: Error buffer invalid" and "LinuxCNC
+  status: emcStatusBuffer invalid", twice a second, for good; linuxcnc.log:
+  "SHMEM: Can't take semaphore"; `ipcs -s` empty while LinuxCNC ran.
+- Cause:   systemd-logind's default `RemoveIPC=yes`: about 10 s after the last
+  login session of cnc ended (`UserStopDelaySec`), logind deleted every SysV
+  semaphore and shared memory segment cnc owns, LinuxCNC's NML among them
+  (millweb-supervisor runs LinuxCNC as cnc). Any SSH login as cnc did it.
+- Fix:     `etc/systemd/logind.conf.d/ebaz.conf`: `RemoveIPC=no`; the image
+  build refuses a rootfs without it. Test: hostmot2 `ebaz4205/tools/test-removeipc.sh`
+  (on the board; 2026.10.28.2 fails it: 5 semaphores -> 0). Idea: millweb
+  could say "LinuxCNC's connection is broken: restart it" once instead of
+  repeating the two errors.
 
 ## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
 - Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
@@ -138,7 +166,9 @@ Entry format:
   alone (`-k`) the same cases pass, with and without the system-update change
   (the branch without it failed "3D models" alone once, too).
 - Cause:   Not known; timing under load (a slow board and a software-rendering
-  browser) is the likely one.
+  browser) is the likely one. Possibly the RemoveIPC fault above (2026-10-28):
+  an SSH login as cnc during the run (stopping the harness) broke LinuxCNC's
+  NML; re-run on 2026.10.28.3 or later before chasing the waits.
 - Fix:     Open: find the waits that are too short in those cases.
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
@@ -3864,3 +3894,48 @@ Entry format:
 - Fix:     route.py cuts tracks out of the file text before loading (`load_bare`) and imports
   the SES itself (`import_ses`). No test: needs KiCad; `make -C hardware/brdstepper_mesa pcb route`
   exercises it and DRC checks the result.
+## 2026-10-28  OpenSCAD: "may not be a valid 2-manifold" from a tangent counterbore
+- Area:    hardware/teststand/teststand.scad (the motor brackets)
+- Status:  Fixed
+- Symptom: the X and Z motor brackets exported with "Object may not be a
+  valid 2-manifold"; removing the motor's cuts didn't help.
+- Cause:   a bolt's counterbore (Ø16) exactly tangent to another face (a
+  gusset's side, the plate's bottom edge): CGAL leaves an edge shared by
+  two solids.
+- Fix:     moved the bolts so nothing is tangent. Also: OpenSCAD 2021's
+  ASCII STL of printed threads is huge (64 MB for the set); `--export-format
+  binstl` and 12 slices a pitch make it 11 MB.
+
+## 2026-10-29  LinuxCNC lathes: M2 puts the plane back to G17
+- Area:    webui/mill (lathe programs, the wizards)
+- Status:  Note
+- Symptom: after a lathe program's M2 the modal state shows G17, though the
+  INI's RS274NGC_STARTUP_CODE starts with G18 (G7 stays).
+- Cause:   M2/M30 reset the plane (LinuxCNC's documented M2 behaviour).
+- Fix:     every lathe program states G18 (and G7/G8) in its first lines:
+  the wizards and the demo do.
+
+## 2026-10-29  millweb preview: a lathe's program timed at 0.1 mm/min
+- Area:    webui/mill/server/preview.py (Canon._feed)
+- Status:  Fixed
+- Symptom: a lathe program's remaining time read 44 h: its F0.1 (G95, mm a
+  turn) was timed as mm/min; G76's passes, with no F at all, at the last F.
+- Cause:   the canon gets F and the motion, not the feed mode or the spindle
+  sync; the interpreter's line state has feed_mode (950: G95), speed (the S
+  word: rpm, or m/min with G96, gcodes[13] 960), not the block's words.
+- Fix:     G95: F x rpm (G96: from the cutting speed at the move's
+  diameter, the spindle's max at most); G33 / G76 lines: their pitch (K / P,
+  read from the file's text, by line number from 1, as the canon numbers
+  them) x rpm. The test program: 42 s estimated, 50 s run in LinuxCNC.
+
+## 2026-10-29  A STEP assembly as millweb model parts (tools/step2parts.py)
+- Area:    webui/mill/tools/step2parts.py
+- Status:  Note
+- Symptom: gmsh (with OCC) meshed the Emco Compact 5's 19 MB STEP in 8.5 min
+  and then stopped on one bad face ("1D mesh not a closed loop").
+- Cause:   gmsh builds a real FE surface mesh, face by face.
+- Fix:     OpenCASCADE's own tessellator (BRepMesh, the OCP wheel:
+  pip install cadquery-ocp; it installs for the python3 pip runs, here
+  3.13) and the XCAF tree for names and placements: 1 min, no failures.
+  Leaving out fasteners and what is inside covers took the parts from 17 MB
+  to 5.7 MB (in under millweb's 5-6 MB a file).

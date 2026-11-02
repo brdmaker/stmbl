@@ -24,6 +24,9 @@ function cset(o, p, v) {
 }
 const cdef = (p) => cget(cfg.def, p);
 
+// a lathe's options for the 3D view (machmodel.js mm3dApply)
+const cfgLathe = () => { const la = (cfg.m && cfg.m.lathe) || {}; return { post: la.post || "front", dia: la.diameter !== false }; };
+
 // ------------------------------------------------------------ fields
 // kind: text | num | bool | sel | lines (a list, a line each) | kv (KEY = value lines)
 function fld(path, label, kind = "text", o = {}) {
@@ -58,7 +61,9 @@ const HOME_T = [["absolute", "absolute (at once)"], ["immediate", "here (no move
 const TABS = {
   machine: () => `<div class="cf-grid">
       ${fld("name", "Name")}
-      ${fld("type", "Machine", "sel", { def: "gantry", live: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${fld("type", "Machine", "sel", { def: "gantry", live: true, re: true, choices: [["gantry", "gantry: the bridge moves in Y over a fixed table"], ["bridge", "fixed bridge: the table moves in Y (CN 720)"], ["lathe", "lathe: X and Z, the console a lathe's"]], help: "the 3D view's machine; a fixed bridge has one joint an axis" })}
+      ${cfg.m.type === "lathe" ? fld("lathe.post", "Tool post", "sel", { def: "front", re: true, choices: [["front", "in front of the spindle's axis (+X toward the operator)"], ["back", "behind it (+X away from the operator)"]] }) +
+        fld("lathe.diameter", "X as a diameter (G7) from the start", "bool", { def: true }) : ""}
       ${fld("servo_period_ns", "Servo period (ns)", "num", { help: "1000000: 1 kHz, 500000: 2 kHz" })}
       ${fld("display.max_feed_override", "Feed override max", "num", { help: "2: 200 %" })}
       ${fld("display.max_spindle_override", "Spindle override max", "num")}
@@ -74,7 +79,11 @@ const TABS = {
         ${fld("spindle.forward", "Forward (bit)", "pin", { dir: "in", help: "spindle.0.forward" })}
         ${fld("spindle.reverse", "Reverse (bit)", "pin", { dir: "in", help: "spindle.0.reverse" })}
         ${fld("spindle.speed", "Speed (float, rpm)", "pin", { dir: "in", help: "spindle.0.speed-out-abs; scale it in Custom HAL if the drive wants volts or Hz" })}
-        ${fld("spindle.at_speed", "At speed (bit in)", "pin", { dir: "out", help: "blank: at speed at once" })}</div>` : ""}`;
+        ${fld("spindle.at_speed", "At speed (bit in)", "pin", { dir: "out", help: "blank: at speed at once" })}</div>` : ""}
+      ${sp.type === "hal" ? `<h3>Its encoder <small class="muted">(threading G33 / G76 and feed per turn G95 need it; a simulated spindle has one)</small></h3><div class="cf-grid">
+        ${fld("spindle.revs", "Position (float, turns)", "pin", { dir: "out", help: "spindle.0.revs: e.g. an encoder's position, scaled to turns" })}
+        ${fld("spindle.index", "Index enable (bit io)", "pin", { dir: "in", help: "spindle.0.index-enable: the encoder's index" })}
+        ${fld("spindle.speed_in", "Speed (float, turns/s)", "pin", { dir: "out", help: "spindle.0.speed-in" })}</div>` : ""}`;
   },
   tools: () => {
     const pr = cfg.m.probe || {}, t = cfg.m.atc || {}, rack = t.type === "rack";
@@ -186,7 +195,9 @@ const TABS = {
     }).join("");
     return `<div class="cf-model"><div class="cf-body">
         <p class="note">The machine in the 3D view: its parts as STL or OBJ files, each placed as it is with the machine at X0 Y0 Z0 and the <b>tool tip at the origin</b>, moving with the axes it rides on. Changes show in the view at once; Save keeps them.</p>
-        ${fld("model.builtin", "The built-in machine, a gantry or a fixed bridge as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${fld("model.builtin", "The built-in machine, a gantry, a fixed bridge or a lathe as the Machine tab says (hide it when your parts are the whole machine)", "bool", { def: true, wide: true })}
+        ${cfg.m.type === "lathe" ? `<p class="note">A lathe's parts: drawn with the spindle's axis along X through Y0 Z0 and the chuck's face at X0 (tools/step2parts.py makes them from a STEP assembly); a part that rides with Z (the saddle) or X and Z (the cross slide, the turret) moves from where its files have the tool's tip:</p>
+          <div class="cf-grid">${["X", "Y", "Z"].map((a, k) => fld(`model.tip.${k}`, `The tool's tip in the files: ${a}`, "num", { def: 0 })).join("")}</div>` : ""}
         ${cards || `<p class="note">No parts yet: upload a file, then Add part.</p>`}
         <div class="row"><button class="btn sm" id="cf-addpart">Add part</button><input type="file" id="cf-mfile" accept=".stl,.obj" hidden><button class="btn sm" id="cf-mup">Upload a model…</button>
           ${cfg.models.map((x) => `<button class="btn sm" data-mdel="${esc(x.name)}" title="Delete ${esc(x.name)}">× ${esc(x.name)}</button>`).join("")}</div>
@@ -203,6 +214,23 @@ const TABS = {
   hist: () => `<p class="note">Every save, newest first. Show compares a version with the editor; Load puts it in the editor (then Save it to go back to it).</p>
     <ul class="cf-hist">${cfg.history.map((h) => `<li><span>${esc(h.time || h.id)} <span class="muted">${esc(h.who || "")}${h.note ? " · " + esc(h.note) : ""}</span></span><button class="btn sm" data-hshow="${esc(h.id)}">Show</button><button class="btn sm" data-hload="${esc(h.id)}">Load</button></li>`).join("") || "<li class='muted'>No saves yet.</li>"}</ul>
     ${cfg.view ? `<h3>${esc(cfg.view.id)} → the editor</h3><pre class="cf-code cf-diff">${diffHtml(cfg.view.diff) || "(the same)"}</pre>` : ""}`,
+  backup: () => {
+    const r = cfg.restore, up = cfg.upload;
+    const list = (t, xs) => xs.length ? `<details><summary>${xs.length} ${t}</summary><div class="cf-files">${xs.slice(0, 300).map(esc).join("<br>")}${xs.length > 300 ? "<br>…" : ""}</div></details>` : "";
+    return `<h3>Download</h3>
+    <p class="note">The whole machine folder as one .zip: machine.json, custom HAL, tool table, offsets (linuxcnc.var), your comps, bitstreams, 3D models and the save history. Keep it on your PC, or restore it here or onto another controller.</p>
+    <div class="row"><label class="muted"><input type="checkbox" id="cf-bkprog" ${cfg.bkprog ? "checked" : ""}> with the G-code programs (nc_files)</label><button class="btn" id="cf-bkget">Download backup (.zip)</button></div>
+    <h3>Restore</h3>
+    <p class="note">From a backup .zip made here (or a zip of the machine folder). You see what it changes before anything is written. LinuxCNC stops, the folder becomes the backup's, LinuxCNC starts again; the folder as it was goes into backups/ first (the last 5 are kept). A backup without programs leaves the machine's programs as they are.</p>
+    <div class="row"><input type="file" id="cf-rsfile" accept=".zip,application/zip" hidden><button class="btn" id="cf-rsup"${up ? " disabled" : ""}>Restore from a backup…</button>
+      ${up ? `<span class="note">Uploading ${esc(up.name)}: ${Math.round(100 * up.done / up.total)} %</span>` : ""}</div>
+    ${r ? `<div class="cf-restore"><h3>${esc(r.file)}</h3>
+      <p>Machine <b>${esc(r.machine)}</b>${r.made ? `, made ${esc(r.made)}` : ""}${r.system ? ` on system ${esc(r.system)}` : ""} · ${r.files} files, ${(r.size / 1e6).toFixed(1)} MB${r.programs ? "" : " · without programs: the machine's stay"}</p>
+      ${r.problems.length ? `<p class="cf-err">Its machine.json has problems, LinuxCNC won't start with it until they are fixed: ${r.problems.slice(0, 5).map(([w, t]) => `<b>${esc(w || "machine.json")}</b> ${esc(t)}`).join("; ")}</p>` : ""}
+      <p>${r.changed.length + r.new.length + r.removed.length ? `${r.changed.length} changed, ${r.new.length} new, ${r.removed.length} removed, ${r.same} the same` : "The same as the machine folder now: nothing would change."}</p>
+      ${list("changed", r.changed)}${list("new", r.new)}${list("removed", r.removed)}
+      <div class="row"><button class="btn accent" id="cf-rsgo">Restore and restart LinuxCNC</button><button class="btn" id="cf-rsno">Cancel</button></div></div>` : ""}`;
+  },
   log: () => `<div class="row"><div class="seg" id="cf-logw"><button data-w="0" aria-pressed="${cfg.logw === 0}">last start</button><button data-w="1" aria-pressed="${cfg.logw === 1}">the one before</button><button data-w="2" aria-pressed="${cfg.logw === 2}">before that</button></div><button class="btn sm" id="cf-logref">Refresh</button></div>
     <pre class="cf-code" id="cf-log">${esc(cfg.log || "")}</pre>`,
 };
@@ -226,6 +254,37 @@ function diffHtml(d) {
   return esc(d || "").split("\n").map((l) => (/^\+(?!\+\+)/.test(l) ? `<span class="a">${l}</span>` : /^-(?!--)/.test(l) ? `<span class="d">${l}</span>` : /^@@/.test(l) ? `<span class="h">${l}</span>` : l)).join("\n");
 }
 
+// ------------------------------------------------------------ backup and restore of the machine folder (server/backup.py)
+cfg.bkprog = true;
+async function backupGet() {
+  $("cf-bkget").disabled = true;
+  const r = await cfgSrc().backupGet(cfg.bkprog);
+  if ($("cf-bkget")) $("cf-bkget").disabled = false;
+  if (!r.ok) { msg("Backup: " + r.err, "warn"); return; }
+  const bin = atob(r.data), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([u], { type: "application/zip" }));
+  a.download = r.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  msg(`${r.name} (${(r.size / 1e6).toFixed(1)} MB)`, "ok");
+}
+// in pieces: a WebSocket message to millweb is at most 8 MB
+async function restoreUpload(f) {
+  const PIECE = 3 << 20, b64 = (buf) => { let s = ""; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+  cfg.restore = null; cfg.upload = { name: f.name, done: 0, total: f.size }; renderCfg();
+  try {
+    let r = null;
+    for (let off = 0; off < f.size || off === 0; off += PIECE) {
+      r = await cfgSrc().restoreUpload(off, b64(await f.slice(off, off + PIECE).arrayBuffer()), f.size);
+      if (!r.ok) { msg(`${f.name}: ${r.err}`, "warn"); return; }
+      cfg.upload.done = Math.min(f.size, off + PIECE); if (cfg.tab === "backup") renderCfg();
+      if (!f.size) break;
+    }
+    if (r && r.restore) cfg.restore = Object.assign({ file: f.name }, r.restore);
+  } finally { cfg.upload = null; renderCfg(); }
+}
+
 // ------------------------------------------------------------ drawing
 function renderCfg() {
   if (!cfg.loaded) { $("cf-body").innerHTML = `<p class="note">Reading the machine…</p>`; return; }
@@ -233,7 +292,7 @@ function renderCfg() {
   $$("#cf-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === cfg.tab)));
   $("cf-body").innerHTML = TABS[cfg.tab]();
   markErrors();
-  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry"); }
+  if (cfg.tab === "model") { placeViewer("config"); mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry", cfgLathe()); }
   renderCfgBar();
 }
 function cfgText() { return cfg.m ? JSON.stringify(cfg.m, null, 2) + "\n" : cfg.text; }
@@ -343,7 +402,7 @@ $("cf-body").addEventListener("change", (e) => {
   cset(cfg.m, el.dataset.path, readField(el));
   cfg.text = cfgText();
   if (el.dataset.re || el.dataset.path.endsWith(".file")) renderCfg(); else renderCfgBar();
-  if (el.dataset.path.startsWith("model") || el.dataset.path === "type") mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry");  // the view follows the form
+  if (el.dataset.path.startsWith("model") || el.dataset.path === "type" || el.dataset.path.startsWith("lathe")) mm3dApply(cfg.m.model, cfgSrc().modelGet, cfg.m.type || "gantry", cfgLathe());  // the view follows the form
 });
 $("cf-body").addEventListener("input", (e) => { if (e.target.id === "cf-json" || e.target.id === "cf-custom") { syncFromEditors(); renderCfgBar(); } });
 $("cf-body").addEventListener("click", async (e) => {
@@ -367,7 +426,23 @@ $("cf-body").addEventListener("click", async (e) => {
     renderCfg();
   }
   if (t.dataset.w !== undefined && t.closest("#cf-logw")) { cfg.logw = +t.dataset.w; cfgLog(); }
+  if (t.id === "cf-bkget") backupGet();
+  if (t.id === "cf-rsup") $("cf-rsfile").click();
+  if (t.id === "cf-rsno") { cfg.restore = null; renderCfg(); }
+  if (t.id === "cf-rsgo") {
+    const r = cfg.restore;
+    ask(`Restore ${r.file}?`, `LinuxCNC stops and starts again with the backup's machine folder (${r.changed.length} changed, ${r.new.length} new, ${r.removed.length} removed). The folder as it is now is kept in backups/.`, "", async () => {
+      const res = await cfgSrc().restoreApply();
+      if (!res.ok) { msg("Restore: " + res.err, "warn"); return; }
+      cfg.restore = null; msg("Restoring: LinuxCNC restarts with the backup…", "warn"); renderCfg();
+    }, "confirm");
+  }
   if (t.id === "cf-logref") cfgLog();
+});
+$("cf-body").addEventListener("change", (e) => {
+  if (e.target.id === "cf-bkprog") cfg.bkprog = e.target.checked;
+  if (e.target.id !== "cf-rsfile") return;
+  const f = e.target.files[0]; e.target.value = ""; if (f) restoreUpload(f);
 });
 $("cf-body").addEventListener("change", (e) => {
   if (e.target.id !== "cf-bsfile") return;
@@ -520,7 +595,8 @@ const cfgSim = (() => {
       if (!m.name) errs.push(["name", "a name"]);
       for (const [i, j] of (m.joints || []).entries()) if (!(m.axes || {})[j.axis]) errs.push([`joints.${i}.axis`, "one of the axes"]);
       for (const a of Object.keys(m.axes || {})) if (!(m.joints || []).some((j) => j.axis === a)) errs.push([`axes.${a}`, "no joint moves it"]);
-      if (m.type && !["gantry", "bridge"].includes(m.type)) errs.push(["type", "gantry or bridge"]);
+      if (m.type && !["gantry", "bridge", "lathe"].includes(m.type)) errs.push(["type", "gantry, bridge or lathe"]);
+      if (m.type === "lathe") for (const a of Object.keys(m.axes || {})) if (!"XZ".includes(a)) errs.push([`axes.${a}`, "a lathe here has X and Z only"]);
       if (m.type === "bridge") for (const a of ["X", "Y"]) { const n = (m.joints || []).filter((j) => j.axis === a).length; if (n > 1) errs.push([`axes.${a}`, `a fixed-bridge machine moves ${a} with one joint (${n} here: that's a gantry)`]); }
       return ok({ errors: errs, diff: cfgDiff(saved, text) + cfgDiff(custom, c, "custom.hal"), files: errs.length ? {} : { "mill.ini": "(the simulation doesn't make the INI: on a machine, millweb does)", "machine.hal": "(nor the HAL)" } });
     },
@@ -530,5 +606,8 @@ const cfgSim = (() => {
     bitstreamDelete: () => ok({ bitstreams: [] }),
     log: () => ok({ lines: ["(the simulation has no LinuxCNC: on a machine run by millweb-supervisor, its output is here)"] }),
     restart: () => ok({}), start: () => ok({}), stop: () => ok({}), status: () => ok({ status: { state: "simulated" } }),
+    backupGet: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder: on a machine, this downloads it" }),
+    restoreUpload: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder" }),
+    restoreApply: () => Promise.resolve({ ok: false, err: "the simulation has no machine folder" }),
   };
 })();

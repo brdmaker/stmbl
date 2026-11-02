@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+# A stand-in for LinuxCNC's halcompile, for server/tests/test_comps.py: `--compile NAME.comp` in the current
+# directory makes NAME.so (or the program NAME with `option userspace`); a comp containing BROKEN fails like a
+# syntax error. Each call is appended to $FAKE_DIR/halcompile-calls.
+import os, re, sys
+src = sys.argv[-1]
+name = os.path.splitext(src)[0]
+open(os.path.join(os.environ["FAKE_DIR"], "halcompile-calls"), "a").write(src + "\n")
+text = open(src).read()
+if "BROKEN" in text:
+    print("Compiling realtime %s.c" % name)
+    print("%s.comp:3: error: expected ';' before '}' token" % name)
+    sys.exit(1)
+usr = re.search(r"^\s*option\s+userspace", text, re.M)
+out = name if usr else name + ".so"
+open(out, "w").write("built from %s\n" % text.strip().splitlines()[0])
+os.chmod(out, 0o755)
+print("Linking %s" % out)

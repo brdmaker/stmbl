@@ -26,6 +26,7 @@ class SysUpdateOps(unittest.TestCase):
 
     def tearDown(self):
         del os.environ["MILLWEB_UPDATE_CMD"]
+        os.environ.pop("FAKE_INSTALL_DONE", None)
 
     def op(self, op, **m):
         return asyncio.run(self.su.op(op, dict(m, op=op), "tester"))
@@ -54,6 +55,30 @@ class SysUpdateOps(unittest.TestCase):
         self.assertIn("already running", self.op("sys_install", version="1.1"))
         self.assertIn("wait for it", self.op("sys_reboot"))  # no restart in the middle of an install
         self.assertTrue(any("installs system 0.9" in e[1] for e in self.events))
+
+    def test_a_finished_install_restarts_by_itself(self):
+        os.environ["FAKE_INSTALL_DONE"] = "1"
+        self.op("sys_install", version="1.1")
+        self.assertTrue(self.su.installing())                 # installed, not restarted yet: still busy
+        asyncio.run(self.su.announce_install())
+        self.assertIn("reboot", self.calls())
+        self.assertEqual(self.su.restarting, "1.1")
+        self.assertEqual(self.sent[-1]["restarting"], "1.1")  # the page says so
+        asyncio.run(self.su.announce_install())
+        self.assertEqual(self.calls().count("reboot"), 1)      # once
+
+    def test_no_restart_while_a_program_runs(self):
+        os.environ["FAKE_INSTALL_DONE"] = "1"
+        why = ["a program is running"]
+        self.su.busy = lambda: why[0]
+        self.op("sys_install", version="1.1")
+        asyncio.run(self.su.announce_install())
+        asyncio.run(self.su.announce_install())
+        self.assertNotIn("reboot", self.calls())
+        self.assertEqual(sum("when the program has ended" in e[1] for e in self.events), 1)
+        why[0] = None                                         # the program has ended
+        asyncio.run(self.su.announce_install())
+        self.assertIn("reboot", self.calls())
 
     def test_install_of_an_unknown_version_says_why(self):
         self.assertIn("no release 2.0", self.op("sys_install", version="2.0"))
