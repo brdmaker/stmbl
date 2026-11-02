@@ -474,7 +474,7 @@ M-code subroutines on both sides:
   - the share within ±0.05.
 
   A wall inside a cell counts as neither: a gouge is measured from the part's lowest point among a cell and its neighbours, stock left from the highest. **Colour against the part** shows the run's result red where it gouges (deeper red to 0.5 mm), blue where stock is left (to 2 mm), green within the tolerance.
-- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path: the full simulation below doesn't merge.
+- **Not modelled:** undercuts (a height map: 3 axes), the spindle nose and the head above the holder, the setup's rotation (G10 R), tool deflection. A program drawn with merged moves (past 100 000) is checked on the merged path, where a merged arc's chord can cut across the part: its crash risks show as possible ("N TO VERIFY", amber), and the full simulation below, which doesn't merge, gives the verdict.
 - **The full simulation:** **Run the full simulation** on the Material removal card. It takes every move from the machine (`program_get` with `full`; up to `PREVIEW_FULL_SEGS`), on 0.25 mm cells (up to 4 million), against the setup's stock, fixtures and parts, and shows its findings and the comparison under the quick check. A 6 MB CAM program of about 500 000 moves on a 500 × 400 mm plate takes about half a minute and 350 MB in a desktop browser; a tablet may run out of memory.
 
 ### Checked and Simulated ticks

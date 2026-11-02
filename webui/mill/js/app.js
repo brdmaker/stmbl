@@ -590,7 +590,7 @@ function markCheck(p, r) {
   const parts = [...b.notes];
   if (r) {
     const nb = remCount(r.find, "bad"), nw = remCount(r.find, "warn");
-    parts.push(nb ? `${nb} crash risk${nb > 1 ? "s" : ""}` : nw ? `${nw} warning${nw > 1 ? "s" : ""} in the material removal` : "material removal clean");
+    parts.push(nb ? `${nb} crash risk${nb > 1 ? "s" : ""}` : nw ? (r.stride > 1 ? `${nw} possible problem${nw > 1 ? "s" : ""} on the merged path (run the full simulation)` : `${nw} warning${nw > 1 ? "s" : ""} in the material removal`) : `material removal clean${r.stride > 1 ? " on the merged path" : ""}`);
     if (nb) level = "bad"; else if (nw && level === "ok") level = "warn";
   } else if (r === null && !(typeof LATHE !== "undefined" && LATHE)) parts.push("no stock to check against");
   fileMark(p, "check", level, parts.join(" · "), false);

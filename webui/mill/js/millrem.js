@@ -177,6 +177,10 @@ async function millCheck(p) {
     if (i < p.segs.length) await nextFrame();
   }
   if (R2.o.part.length) MSTOCK.against(R2, R2.o.part, R2.o.tol);  // the finished part: gouges, stock left
+  // a long program's path as drawn: moves merged into straight lines (an arc's chord across the part), so what
+  // it finds is possible, not certain: the full simulation (every move) gives the verdict (DEBUGNOTES)
+  R2.stride = p.stats && p.stats.stride > 1 ? p.stats.stride : 1;
+  if (R2.stride > 1) for (const f of R2.find) if (f.level === "bad") { f.level = "warn"; f.text = "possibly: " + f.text; }
   const order = { bad: 0, warn: 1, info: 2 };
   R2.find.sort((a, b) => order[a.level] - order[b.level] || a.line - b.line);
   R2.key = key; p.mremoval = R2;
@@ -225,7 +229,8 @@ function millRemCard(p) {
   const cm3 = (v) => (v / 1000).toFixed(1) + " cm³";
   const tools = Object.entries(r.stat.byTool).filter(([, b]) => b.vol > 0.5).map(([t, b]) => `<dt>T${t}</dt><dd>${cm3(b.vol)} · ${b.mrr.toFixed(1)}/min · ap ${b.ap.toFixed(2)}${b.fz > 0 ? ` · fz ${b.fz.toFixed(3)}` : ""}</dd>`).join("");
   let zl = Infinity; for (let k = 0; k < S.top.length; k++) if (MSTOCK.solid(S, k)) zl = Math.min(zl, S.top[k]);
-  el.innerHTML = head(nb ? `${nb} CRASH RISK${nb > 1 ? "S" : ""}` : nw ? `${nw} WARNING${nw > 1 ? "S" : ""}` : "CLEAN", nb ? "bad" : nw ? "warn" : "ok") +
+  el.innerHTML = head(nb ? `${nb} CRASH RISK${nb > 1 ? "S" : ""}` : nw ? (r.stride > 1 ? `${nw} TO VERIFY` : `${nw} WARNING${nw > 1 ? "S" : ""}`) : "CLEAN", nb ? "bad" : nw ? "warn" : "ok") +
+    (r.stride > 1 ? `<p class="note">Checked on the path as drawn: ${r.stride} moves merged into each line, ${S.cell.toFixed(2)} mm cells. What it finds is possible, not certain (a merged arc's chord cuts across the part); run the full simulation for the verdict.</p>` : "") +
     `<dl class="kv"><dt>Stock</dt><dd>${(S.nx * S.cell).toFixed(0)} × ${(S.ny * S.cell).toFixed(0)} · ${S.cell.toFixed(2)} mm cells</dd><dt>Removed</dt><dd>${cm3(r.stat.vol)} of ${cm3(S.vol0)}</dd><dt>Cut · air</dt><dd>${mmss(r.stat.cutT)} · ${mmss(r.stat.air)}</dd>${tools}
       <dt>Deepest floor</dt><dd>${Number.isFinite(zl) ? "Z" + zl.toFixed(2) : "—"}</dd></dl>` + millCmpBlock(r) +
     (r.find.length ? remFindList(r.find)

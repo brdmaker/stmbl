@@ -3565,7 +3565,7 @@ Entry format:
 
 ## 2026-11-01  Material removal: the quick check on a merged path differs from every move
 - Area:    `webui/mill/js/millrem.js` (millCheck vs millFullSim), `server/preview.py` (PREVIEW_SEGS)
-- Status:  Known
+- Status:  Fixed
 - Symptom: a 6.2 MB CAM program (507 726 moves): the Preflight's quick check
   said 2 crash risks; the full simulation, every move on 0.25 mm cells, 1
   (six G0 moves into uncut stock at slot ends, odd-slots floors).
@@ -3574,7 +3574,11 @@ Entry format:
   the quick check runs on 0.9 mm cells (250 000 over a 500 x 400 plate).
 - Fix:     "Run the full simulation" (program_get full: no merging, up to
   PREVIEW_FULL_SEGS) for the verdict; the Simulated tick marks a program
-  that had it.
+  that had it. 2026-11-02: the relieved export (334 146 moves, stride 4)
+  gave 4 false "cuts into the part": a merged arc's chord (countersink
+  helices) straight across the part; every move: clean. On a merged path
+  the quick check's crash risks are now "possibly: ..." (warn, "N TO
+  VERIFY", the Checked tick amber for them), pointing to the full simulation.
 
 ## 2026-11-01  A standalone preview script needs LinuxCNC running and no `python3 -I`
 - Area:    `webui/mill/server/preview.py` used outside millweb

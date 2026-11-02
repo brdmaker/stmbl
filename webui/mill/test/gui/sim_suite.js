@@ -1097,6 +1097,11 @@ test("file list: the Checked and Simulated ticks (the preflight, the full simula
   t.check(c.cls === "bad" && /crash risk/.test(c.title), `Checked: red (${c.title})`);
   await t.click("#ms-full");
   t.check(await t.until(() => { const e = document.querySelectorAll("#files .file")[library.length - 1].querySelector('[data-mark="sim"]'); return e.classList.contains("bad"); }, null, 30000), "Simulated: red");
+  // a long program's merged path (stride > 1): its findings only possible, amber; the full simulation decides
+  await t.ev(() => { const p = library[library.length - 1]; p.stats = { stride: 4, moves: p.segs.length }; delete p.mremoval; renderPreflight(p); });
+  t.check(await t.until(() => $("fl-rem") && /TO VERIFY/.test($("fl-rem").querySelector("h3").textContent) && /possibly: /.test($("fl-rem").textContent) && /full simulation for the verdict/.test($("fl-rem").textContent), null, 15000), "merged path: TO VERIFY, possibly, the full simulation for the verdict");
+  c = await tick(last, "check");
+  t.check(c.cls === "bad" && /outside the travel/.test(c.title) && /1 possible problem on the merged path/.test(c.title), `Checked: the removal's findings only possible (still red: outside the travel) (${c.title})`);
   await t.ev(() => { library.pop(); loadProgram(library[0]); fileSel = 0; renderFiles(); });
   t.check(t.errors.length === 0, "no script errors");
 });
