@@ -12,13 +12,14 @@ section. Unclear readings are marked [uncertain] or [unreadable].
 | [operating/](operating/) | Betriebsanleitung CTX twin, doc. daaab1d1, Feb 1995: chapters 1-10 | German, translated (screen and message texts kept in German) |
 | [operating_en/](operating_en/) | Operating instructions CTX twin (English edition, doc. daaab1g1, software release 4.4): chapters 1-10 | English original |
 | [turret/](turret/) | Sauter disc-type tool turret 0.5.450.020 with electrical drive, BA-444 e (June 1994), parts a and c | English |
+| [electrical/](electrical/) | Electrical folder, chapters 3-9: cooling unit and safety modules, Indramat KDV 4 supply, KDA spindle drives (with this machine's parameter sheet), DDS 2.1 servo drives, ELTROPILOT hardware, equipment list. [Summary](electrical/README.md) | English |
 
 **Gaps:**
 - **Mechanical, chapters 3 and 5:** blank in the scans.
 - **Mechanical 4.3, the headstock (pages 4-9 to 4-16):** missing.
 - **English chapter 7:** pages 7-3 to 7-12 are missing. The German chapter 7 is complete, including the transfer expert programs.
 - **Turret part b (pages 21-40):** not supplied. It holds the electrics and connection diagram, coolant, the limit-switch setting and the overload clutch.
-- **Electrical documentation:** none yet. It would give drives, I/O and wiring.
+- **Electrical:** see [electrical/README.md](electrical/README.md). It has no cabinet circuit diagrams (-K/-X wiring), and pages P 5-6 of the equipment list are missing.
 - **German vs English editions:** they differ in places. For example, the German chapter 9 has more pages and the German chapter 7 has more content. Where they disagree, both files note it.
 
 ## The machine in short (from these documents)
