@@ -130,10 +130,15 @@ test_wdog: tests/test_wdog.c ../shared/wdog.h
 test_errlog: tests/test_errlog.c ../shared/errlog.c ../shared/errlog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_errlog.c ../shared/errlog.c
 
+# shared/adc_sum.h (adc.c's fast sums) and shared/sserial_sync.h (sserial reply_mode 1)
+test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_adc_sum.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog
+check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum
 	@./test_ssq
+	@./test_adc_sum
 	@./test_sscon
 	@./test_cur_offset
 	@./test_bootloader
@@ -142,6 +147,7 @@ check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_
 	@./test_vibproto
 	@./test_wdog
 	@./test_errlog
+	@$(MAKE) -s -C m4 check
 	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
 	@$(PYTHON) ../tools/vibmon/test_vibmon.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py

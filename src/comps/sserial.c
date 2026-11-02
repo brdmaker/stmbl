@@ -31,6 +31,7 @@
 #include "sserial_q.h"
 #include "sscon.h"
 #include "setup.h"
+#include "sserial_sync.h"
 #include <string.h>
 
 HAL_COMP(sserial);
@@ -68,6 +69,13 @@ HAL_PIN(index_clear);
 HAL_PIN(index_out);
 HAL_PIN(pos_advance);
 
+// 0: the frt (20 kHz) answers packets, busy-waiting up to ~22 us for a
+// process-data packet's last bytes. 1: the USART's idle-line interrupt
+// answers as soon as a packet has ended (~4 us after its last byte), no
+// waiting; the frt only keeps the clock lock and the link timeout.
+HAL_PIN(reply_mode);
+HAL_PIN(irq_count);  // packets answered from the interrupt (reply_mode 1)
+
 //TODO: move to ctx
 struct sserial_ctx_t {
   uint32_t phase;
@@ -83,6 +91,16 @@ static const char name[] = LBPCardName;
 static unit_no_t unit;
 static uint32_t max_waste_ticks;
 static uint32_t block_bytes;
+
+// reply_mode 1: the idle interrupt (USART1_IRQHandler) parses; it runs
+// between the frt (priority 0) and rt (2), so only one of them parses
+extern volatile uint64_t systime;          // ms (main.c)
+static struct sserial_pin_ctx_t *irq_pins;  // the pins, for the interrupt
+static volatile uint32_t reply_irq;         // reply_mode > 0, as the frt last saw it
+static volatile uint64_t frt_ms;            // the frt's last run: the interrupt stops when hal does
+static volatile uint64_t idle_ms;           // the last packet's end (systime, SysTick->VAL)
+static volatile uint32_t idle_val;
+static uint32_t last_bufferpos;
 
 #pragma pack(push, 1)
 //*****************************************************************************
@@ -269,6 +287,16 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   USART_Cmd(USART1, ENABLE);
   USART_Cmd(UART4, ENABLE);
 
+  //idle line: a packet has ended (reply_mode 1). Above rt (2), below the frt (0).
+  irq_pins = pins;
+  USART_ITConfig(USART1, USART_IT_IDLE, ENABLE);
+  NVIC_InitTypeDef NVIC_InitStructure;
+  NVIC_InitStructure.NVIC_IRQChannel                   = USART1_IRQn;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+  NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
+  NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
+  NVIC_Init(&NVIC_InitStructure);
+
   //RX DMA
 
   DMA_Cmd(DMA2_Stream5, DISABLE);
@@ -352,29 +380,13 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 //   PIN(phase) = 0;
 // }
 
-static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  struct sserial_pin_ctx_t *pins = (struct sserial_pin_ctx_t *)pin_ptr;
-  //struct sserial_ctx_t *mem = (struct sserial_ctx_t *)ctx_ptr;
+// one packet (or nothing, if the first is incomplete). spin: wait for a
+// process-data packet's last bytes (reply_mode 0), else leave it for later.
+static void parse(struct sserial_pin_ctx_t *pins, int spin) {
   //next received packet will be written to bufferpos
   uint32_t bufferpos = sizeof(rxbuf) - DMA_GetCurrDataCounter(DMA2_Stream5);
   //how many packets we have the the rx buffer for processing
   uint32_t available = (bufferpos - rxpos + sizeof(rxbuf)) % sizeof(rxbuf);
-
-  PIN(phase) += 1.0;
-  
-  uint32_t goal = 5;
-  PIN(clock_scale) = 1.0;
-  if(PIN(phase) > 3){
-    PIN(phase) = 0;
-    if(available > goal){
-    PIN(clock_scale) = 0.9;
-    }
-    else if(available < goal && available > 0){
-      PIN(clock_scale) = 1.1;
-    }
-  }
-
-  PIN(available) = available;
 
   if(available >= 1) {
     lbp.byte = rxbuf[rxpos];
@@ -425,11 +437,11 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         memcpy((void *)txbuf, ((uint8_t *)&discovery), sizeof(discovery));
         send(sizeof(discovery), 1);
         rxpos += 2;
-      } else if(lbp.byte == ProcessDataRPC && available >= discovery.output + 2 - block_bytes) {  //process data, requires cmd+output bytes+crc
+      } else if(lbp.byte == ProcessDataRPC && available >= discovery.output + 2 - (spin ? block_bytes : 0)) {  //process data, requires cmd+output bytes+crc
         uint32_t t1         = hal_get_systick_value();
         uint32_t wait_ticks = 0;
         //wait with timeout until rest of process data is received
-        do {
+        while(spin && available < discovery.output + 2 && wait_ticks <= max_waste_ticks) {
           uint32_t t2 = hal_get_systick_value();
           if(t1 < t2) {
             t1 += hal_get_systick_reload();
@@ -439,7 +451,7 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
           bufferpos = sizeof(rxbuf) - DMA_GetCurrDataCounter(DMA2_Stream5);
           //how many packets we have the the rx buffer for processing
           available = (bufferpos - rxpos + sizeof(rxbuf)) % sizeof(rxbuf);
-        } while(available < discovery.output + 2 && wait_ticks <= max_waste_ticks);
+        }
         //TODO: fault handling on timeout...
         //set input pins
         data_in.pos_fb  = PIN(pos_fb) + PIN(vel_fb) * PIN(pos_advance);
@@ -555,7 +567,56 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       //TODO: handle unkown packet
     }
   }
+  rxpos = rxpos % sizeof(rxbuf);
+}
 
+// SysTick ticks since the last packet ended, if within the last ms or so (else ~0u)
+static uint32_t since_idle(void) {
+  uint64_t ms  = systime;
+  uint32_t now = SysTick->VAL, load = SysTick->LOAD + 1;
+  if(ms == idle_ms) {
+    return idle_val >= now ? idle_val - now : 0;
+  }
+  if(ms == idle_ms + 1) {
+    return idle_val + load - now;
+  }
+  return ~0u;
+}
+
+static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct sserial_pin_ctx_t *pins = (struct sserial_pin_ctx_t *)pin_ptr;
+  //struct sserial_ctx_t *mem = (struct sserial_ctx_t *)ctx_ptr;
+  irq_pins  = pins;
+  reply_irq = PIN(reply_mode) > 0.0;
+  frt_ms    = systime;
+  //next received packet will be written to bufferpos
+  uint32_t bufferpos = sizeof(rxbuf) - DMA_GetCurrDataCounter(DMA2_Stream5);
+  //how many packets we have the the rx buffer for processing
+  uint32_t available = (bufferpos - rxpos + sizeof(rxbuf)) % sizeof(rxbuf);
+
+  PIN(phase) += 1.0;
+
+  uint32_t goal = 5;
+  PIN(clock_scale) = 1.0;
+  if(PIN(phase) > 3) {
+    PIN(phase) = 0;
+    // reply_mode 1: a packet answered within the last frt period counts as late
+    int recent       = since_idle() < hal_get_systick_freq() / FRT_FREQ;
+    PIN(clock_scale) = sserial_sync_scale(available, goal, reply_irq, recent);
+  }
+
+  PIN(available) = available;
+
+  if(!reply_irq) {
+    parse(pins, 1);
+  } else if(available > 0 && bufferpos == last_bufferpos) {
+    // bytes waiting and nothing new for a whole frt period: a missed idle
+    // interrupt; let it parse (it, not the frt, owns the parser in mode 1)
+    NVIC_SetPendingIRQ(USART1_IRQn);
+  }
+  last_bufferpos = bufferpos;
+
+  bufferpos = sizeof(rxbuf) - DMA_GetCurrDataCounter(DMA2_Stream5);
   if(timeout > PIN(timeout)) {  //TODO: clamping
     if(PIN(connected) > 0) {  //the link went away: the console's other side restarts
       sscon_reset(&sscon0);
@@ -576,6 +637,27 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
   rxpos = rxpos % sizeof(rxbuf);
   timeout++;
+}
+
+// the idle line after a packet (reply_mode 1): answer it now
+void USART1_IRQHandler(void) {
+  if(USART1->SR & USART_SR_IDLE) {
+    (void)USART1->DR;  // SR then DR clears IDLE; the DMA has taken the data
+    idle_ms  = systime;
+    idle_val = SysTick->VAL;
+  }
+  struct sserial_pin_ctx_t *pins = irq_pins;
+  if(!reply_irq || !pins || systime > frt_ms + 2) {  // mode 0, or hal stopped
+    return;
+  }
+  for(int i = 0; i < 4; i++) {  // what has arrived, a packet at a time
+    int before = rxpos;
+    parse(pins, 0);
+    if(rxpos == before) {
+      break;
+    }
+    PIN(irq_count) += 1.0;
+  }
 }
 
 const hal_comp_t sserial_comp_struct = {

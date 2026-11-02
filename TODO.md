@@ -18,8 +18,6 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       `res_fb1` template; FB1 gets 1 of 10 ADC samples, so it is noisier.
 - [ ] **SEW CMP40M:** commissioned (wizard, all steps, `conf/sew_cmp40m.txt`),
       the KTY now on FB0. Run at 314 V for the full 3000 rpm.
-- [ ] **Drive rt speed-up** (docs/drive-rt-speedup.md): bench
-      `sserial0.reply_mode = 1` and `adc0.fast = 1` (both off by default).
 - [ ] **Wizard simulator:** `syn_torque_14p` fails at the torque constant check
       (identified 1.31 vs nameplate 10.4 Nm/A), already before 2026-10-29.
 - [ ] Boot-time fault 11 (HV volt error at 57 ms, before the bus is measured)
@@ -123,8 +121,8 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       modules, log servo-thread tmax for an hour under load.
 - [ ] Bench: 2 kHz (SERVO_PERIOD 500000, vel_int0.cmd_freq 2000); drive rt
       max and sserial errors.
-- [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
-      (needed above 2 kHz).
+- [ ] Drive firmware: bench `sserial0.reply_mode` and `adc0.fast` (branch
+      claude/drive-rt-speedup, docs/drive-rt-speedup.md); then make them default.
 - [ ] Zynq: `docs/zynq-measurement-plan.md` (steps 1-8, servo_rate.py and
       servo_load.py), pick the rate.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81

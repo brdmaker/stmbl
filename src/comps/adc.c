@@ -6,10 +6,15 @@
 #include "angle.h"
 #include "setup.h"
 #include "usbd_cdc_if.h"
+#include "adc_sum.h"
 
 #define INPUT_REF (OP_REF * OP_R_OUT_LOW / (OP_R_OUT_HIGH + OP_R_OUT_LOW))
 #define INPUT_GAIN (OP_R_FEEDBACK / OP_R_INPUT * OP_R_OUT_LOW / (OP_R_OUT_HIGH + OP_R_OUT_LOW))
 #define V_DIFF(ADC, OVER) ((((float)(ADC)) / (float)(OVER) / ADC_RES * ADC_REF - INPUT_REF) / INPUT_GAIN)
+// V_DIFF of a sum of OVER samples as sum * V_K(OVER) - V_K0 (shared/adc_sum.h: adc_lin)
+#define V_K(OVER) ((float)(ADC_REF / ((float)(OVER)*ADC_RES * INPUT_GAIN)))
+#define V_K0 ((float)(INPUT_REF / INPUT_GAIN))
+_Static_assert(ADC_OVER_FB0 <= ADC_SUM_MAX_N && ADC_OVER_FB1 <= ADC_SUM_MAX_N, "adc_sum2: 16-bit lanes overflow");
 
 #define TERM_NUM_WAVES 8
 
@@ -41,6 +46,10 @@ HAL_PIN(cos_offset);
 
 HAL_PIN(send_step);  //15.0;
 
+// 1: both halves summed at once (UADD16), the voltage without divisions
+// (shared/adc_sum.h); 0 (default, for now): the original loops
+HAL_PIN(fast);
+
 HAL_PINA(offset, 8);
 HAL_PINA(gain, 8);
 
@@ -62,6 +71,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PINA(gain, 4)              = 80;
   PIN(sin_gain)              = 1.0;
   PIN(cos_gain)              = 1.0;
+  PIN(fast)                  = 0.0;  // off until tested on the bench
   ctx->txpos                 = 0;
   ctx->send_counter          = 0;
   ctx->send                  = 0;
@@ -103,7 +113,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ADC_DMA_Buffer = ADC_DMA_Buffer1;
   }
   int flip;
-  int n = PIN(res_mode);
+  int n    = PIN(res_mode);
+  int fast = PIN(fast) > 0.0;
 
 
   for(int i = 0; i < ADC_GROUPS; i++) {  //each adc sampling group
@@ -112,25 +123,37 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     } else {
       flip = 1;
     }
-    sii0 = 0;
-    coi0 = 0;
-    for(int j = 0; j < ADC_OVER_FB0; j++) {  //each adc sample of fb0
-      sii0 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] & 0x0000ffff;
-      coi0 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] >> 16;
+    if(fast) {
+      adc_sum2(&ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1)], ADC_OVER_FB0, &sii0, &coi0);
+      si0[i] = flip * s_g * adc_lin(sii0, V_K(ADC_OVER_FB0), V_K0) + s_o;
+      co0[i] = flip * c_g * adc_lin(coi0, V_K(ADC_OVER_FB0), V_K0) + c_o;
+    } else {
+      sii0 = 0;
+      coi0 = 0;
+      for(int j = 0; j < ADC_OVER_FB0; j++) {  //each adc sample of fb0
+        sii0 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] & 0x0000ffff;
+        coi0 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] >> 16;
+      }
+      si0[i] = flip * s_g * V_DIFF(sii0, ADC_OVER_FB0) + s_o;
+      co0[i] = flip * c_g * V_DIFF(coi0, ADC_OVER_FB0) + c_o;
     }
-    si0[i] = flip * s_g * V_DIFF(sii0, ADC_OVER_FB0) + s_o;
-    co0[i] = flip * c_g * V_DIFF(coi0, ADC_OVER_FB0) + c_o;
     sin0all += si0[i];
     cos0all += co0[i];
 #ifdef FB1
-    sii1 = 0;
-    coi1 = 0;
-    for(int j = ADC_OVER_FB0; j < ADC_OVER_FB0 + ADC_OVER_FB1; j++) {  //each adc sample of fb1
-      sii1 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] & 0x0000ffff;
-      coi1 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] >> 16;
+    if(fast) {
+      adc_sum2(&ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + ADC_OVER_FB0], ADC_OVER_FB1, &sii1, &coi1);
+      si1[i] = s_g * adc_lin(sii1, V_K(ADC_OVER_FB1), V_K0) + s_o;
+      co1[i] = c_g * adc_lin(coi1, V_K(ADC_OVER_FB1), V_K0) + c_o;
+    } else {
+      sii1 = 0;
+      coi1 = 0;
+      for(int j = ADC_OVER_FB0; j < ADC_OVER_FB0 + ADC_OVER_FB1; j++) {  //each adc sample of fb1
+        sii1 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] & 0x0000ffff;
+        coi1 += ADC_DMA_Buffer[i * (ADC_OVER_FB0 + ADC_OVER_FB1) + j] >> 16;
+      }
+      si1[i] = s_g * V_DIFF(sii1, ADC_OVER_FB1) + s_o;
+      co1[i] = c_g * V_DIFF(coi1, ADC_OVER_FB1) + c_o;
     }
-    si1[i] = s_g * V_DIFF(sii1, ADC_OVER_FB1) + s_o;
-    co1[i] = c_g * V_DIFF(coi1, ADC_OVER_FB1) + c_o;
     sin1all += si1[i];
     cos1all += co1[i];
 #endif
