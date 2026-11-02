@@ -292,7 +292,9 @@ class Sheet:
         ys = [p[1] for p in pins.values()] or [0]
         top, bot = y - max(ys) - 1.8, y - min(ys) + 1.8
         e.append(S("property", "Reference", ref, S("at", r4(x), r4(top), 0), legacy.eff(50, hide=hide_ref or is_pwr)))
-        e.append(S("property", "Value", value, S("at", r4(x), r4(bot if not is_pwr else y - 3.2), 0), legacy.eff(50)))
+        down = is_pwr and "GND" in lib_id.split(":")[-1]   # a ground symbol hangs below its pin: its name under it
+        e.append(S("property", "Value", value, S("at", r4(x), r4(bot if not is_pwr else (y + 3.8 if down else y - 3.2)), 0),
+                   legacy.eff(50)))
         e.append(S("property", "Footprint", footprint, S("at", r4(x), r4(y), 0), legacy.eff(50, hide=True)))
         e.append(S("property", "Datasheet", "", S("at", r4(x), r4(y), 0), legacy.eff(50, hide=True)))
         for k, v in (fields or {}).items():

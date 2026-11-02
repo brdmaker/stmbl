@@ -718,7 +718,7 @@
       (in_bom yes)
       (on_board yes)
       (property "Reference" "U" (at -3.81 6.35 0) (effects (font (size 1.524 1.524))))
-      (property "Value" "LMR51420YDDCR" (at 0 -6.35 0) (effects (font (size 1.524 1.524))))
+      (property "Value" "LMR51420YFDDCR" (at 0 -6.35 0) (effects (font (size 1.524 1.524))))
       (property "Footprint" "" (at 0 0 0) (effects (font (size 1.524 1.524))))
       (property "Datasheet" "" (at 0 0 0) (effects (font (size 1.524 1.524))))
       (symbol
@@ -1003,7 +1003,7 @@
       "C110"
       (at 208.915 133.35 0)
       (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "10µ" (at 208.915 138.43 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "10µ 25V" (at 208.915 138.43 0) (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "stmbl:C_0805"
@@ -1096,7 +1096,7 @@
     (unit 1)
     (in_bom yes)
     (on_board yes)
-    (dnp no)
+    (dnp yes)
     (uuid "18224afb-5b79-5c42-9db7-ad316d1e62d2")
     (property "Reference" "D12" (at 185.42 135.89 0) (effects (font (size 1.27 1.27))))
     (property "Value" "SS34A" (at 180.34 135.89 0) (effects (font (size 1.27 1.27))))
@@ -1336,7 +1336,7 @@
     (unit 1)
     (in_bom yes)
     (on_board yes)
-    (dnp no)
+    (dnp yes)
     (uuid "4e1d0fd4-f4c6-5082-b55a-7d56cde01953")
     (property "Reference" "D9" (at 185.42 90.17 0) (effects (font (size 1.27 1.27))))
     (property "Value" "SS34A" (at 180.34 90.17 0) (effects (font (size 1.27 1.27))))
@@ -1435,7 +1435,7 @@
     (dnp no)
     (uuid "51b3c877-58fb-57a3-af00-00a8a9195289")
     (property "Reference" "U13" (at 153.67 73.66 0) (effects (font (size 1.524 1.524))))
-    (property "Value" "LMR51420YDDCR" (at 157.48 86.36 0) (effects (font (size 1.524 1.524))))
+    (property "Value" "LMR51420YFDDCR" (at 157.48 86.36 0) (effects (font (size 1.524 1.524))))
     (property
       "Footprint"
       "stmbl:SOT-23-6"
@@ -1831,7 +1831,11 @@
       "C102"
       (at 135.255 133.35 0)
       (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "2.2µ" (at 135.255 138.43 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property
+      "Value"
+      "4.7µ 50V"
+      (at 135.255 138.43 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "stmbl:C_0603"
@@ -1924,7 +1928,7 @@
     (unit 1)
     (in_bom yes)
     (on_board yes)
-    (dnp no)
+    (dnp yes)
     (uuid "5aba82ee-46bb-54eb-a48c-8a4888316172")
     (property "Reference" "D13" (at 185.42 52.07 0) (effects (font (size 1.27 1.27))))
     (property "Value" "SS34A" (at 180.34 52.07 0) (effects (font (size 1.27 1.27))))
@@ -2023,7 +2027,7 @@
     (dnp no)
     (uuid "7bd36667-022a-5d5a-ba40-eecc48ec36ed")
     (property "Reference" "U28" (at 153.67 35.56 0) (effects (font (size 1.524 1.524))))
-    (property "Value" "LMR51420YDDCR" (at 157.48 48.26 0) (effects (font (size 1.524 1.524))))
+    (property "Value" "LMR51420YFDDCR" (at 157.48 48.26 0) (effects (font (size 1.524 1.524))))
     (property
       "Footprint"
       "stmbl:SOT-23-6"
@@ -2219,7 +2223,7 @@
     (dnp no)
     (uuid "ec9175e7-3810-5190-a10c-7376e64c2614")
     (property "Reference" "U27" (at 153.67 119.38 0) (effects (font (size 1.524 1.524))))
-    (property "Value" "LMR51420YDDCR" (at 157.48 132.08 0) (effects (font (size 1.524 1.524))))
+    (property "Value" "LMR51420YFDDCR" (at 157.48 132.08 0) (effects (font (size 1.524 1.524))))
     (property
       "Footprint"
       "stmbl:SOT-23-6"
@@ -2687,7 +2691,7 @@
       "C132"
       (at 215.265 133.35 0)
       (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "10µ" (at 215.265 138.43 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "10µ 25V" (at 215.265 138.43 0) (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "stmbl:C_0805"
@@ -2747,7 +2751,7 @@
     (dnp no)
     (uuid "81b2d8d8-5713-57bd-bc17-a14ef59887d0")
     (property "Reference" "C137" (at 135.255 87.63 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "2.2µ" (at 135.255 92.71 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "4.7µ 50V" (at 135.255 92.71 0) (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "stmbl:C_0603"
@@ -2779,7 +2783,7 @@
     (dnp no)
     (uuid "8a639bd8-1c0f-5d78-9fb8-d58b25a05531")
     (property "Reference" "C133" (at 135.255 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "2.2µ" (at 135.255 54.61 0) (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "4.7µ 50V" (at 135.255 54.61 0) (effects (font (size 1.27 1.27)) (justify left)))
     (property
       "Footprint"
       "stmbl:C_0603"
@@ -4780,23 +4784,23 @@
     (uuid "4263ace5-55f6-5867-9052-d047eb2e92b6"))
   (symbol
     (lib_id "Device:R")
-    (at 30.48 160.02 0)
+    (at 30.48 175.26 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
-    (uuid "0397ff67-406c-59ed-b9f7-8b87855250ce")
-    (property "Reference" "R212" (at 30.48 154.41 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "100k" (at 30.48 165.63 0) (effects (font (size 1.27 1.27))))
-    (property "Footprint" "stmbl:R_0603" (at 30.48 160.02 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "" (at 30.48 160.02 0) (effects (font (size 1.27 1.27)) hide))
+    (uuid "ebeff9d4-b2e1-50ed-8857-bd29e60d2fe6")
+    (property "Reference" "R212" (at 30.48 169.65 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "100k" (at 30.48 180.87 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "stmbl:R_0603" (at 30.48 175.26 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 30.48 175.26 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "stman: U13 enable pull-up (LMR514x0 EN)"
-      (at 30.48 160.02 0)
+      (at 30.48 175.26 0)
       (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "c58f2fbc-fcb9-5809-ab46-8a6fde4c96c7"))
-    (pin "2" (uuid "722d0a94-4ab6-5630-bf7e-953a64670e45"))
+    (pin "1" (uuid "daa8d868-134b-5167-9ae5-c944c3f7dbad"))
+    (pin "2" (uuid "27a091bd-70af-51c9-b8eb-829a4d768e76"))
     (instances
       (project
         "stman"
@@ -4805,22 +4809,22 @@
           (reference "R212")
           (unit 1)))))
   (wire
-    (pts (xy 30.48 156.21) (xy 30.48 153.67))
+    (pts (xy 30.48 171.45) (xy 30.48 168.91))
     (stroke (width 0) (type default))
-    (uuid "27ef1185-10ba-5770-a43b-d2318bc5a78f"))
+    (uuid "a424f2df-cbb1-593e-84dc-cabb821140e2"))
   (symbol
     (lib_id "stmbl:+24V")
-    (at 30.48 153.67 0)
+    (at 30.48 168.91 0)
     (unit 1)
     (in_bom no)
     (on_board no)
     (dnp no)
-    (uuid "61ef580d-76f3-5316-bdd4-f60fc2e59f99")
-    (property "Reference" "#PWR950" (at 30.48 151.87 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Value" "+24V" (at 30.48 150.47 0) (effects (font (size 1.27 1.27))))
-    (property "Footprint" "" (at 30.48 153.67 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "" (at 30.48 153.67 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "7fa32ca3-07ce-5286-b040-8517551cd00e"))
+    (uuid "835bb1f1-0f66-5249-a487-f997b82def0f")
+    (property "Reference" "#PWR950" (at 30.48 167.11 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Value" "+24V" (at 30.48 165.71 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 30.48 168.91 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 30.48 168.91 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "7abfb7ba-d4f1-542e-b6f6-43819bc1862d"))
     (instances
       (project
         "stman"
@@ -4829,14 +4833,14 @@
           (reference "#PWR950")
           (unit 1)))))
   (wire
-    (pts (xy 30.48 163.83) (xy 30.48 166.37))
+    (pts (xy 30.48 179.07) (xy 30.48 181.61))
     (stroke (width 0) (type default))
-    (uuid "4323af26-52c2-5989-afbf-a0fe1cbe376e"))
+    (uuid "cc704092-c581-59cb-a724-cc08f6538deb"))
   (label
     "EN_U13"
-    (at 30.48 166.37 270)
+    (at 30.48 181.61 270)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "456cb5e8-6ee8-5668-a9f2-b2aaddbe9829"))
+    (uuid "2fbc5c93-87b1-557c-96a9-6cd2cddbad15"))
   (wire
     (pts (xy 147.32 125.73) (xy 142.24 125.73))
     (stroke (width 0) (type default))
@@ -4848,23 +4852,23 @@
     (uuid "d4bb2cb7-cbda-55f5-9efb-9e9493bff184"))
   (symbol
     (lib_id "Device:R")
-    (at 43.18 160.02 0)
+    (at 43.18 175.26 0)
     (unit 1)
     (in_bom yes)
     (on_board yes)
     (dnp no)
-    (uuid "358cc5d2-bdd0-557d-a558-fd4cd1182749")
-    (property "Reference" "R213" (at 43.18 154.41 0) (effects (font (size 1.27 1.27))))
-    (property "Value" "100k" (at 43.18 165.63 0) (effects (font (size 1.27 1.27))))
-    (property "Footprint" "stmbl:R_0603" (at 43.18 160.02 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "" (at 43.18 160.02 0) (effects (font (size 1.27 1.27)) hide))
+    (uuid "746f5f8e-6712-50a5-ad52-3fbd5b9f8848")
+    (property "Reference" "R213" (at 43.18 169.65 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "100k" (at 43.18 180.87 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "stmbl:R_0603" (at 43.18 175.26 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 43.18 175.26 0) (effects (font (size 1.27 1.27)) hide))
     (property
       "Note"
       "stman: U27 enable pull-up (LMR514x0 EN)"
-      (at 43.18 160.02 0)
+      (at 43.18 175.26 0)
       (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "c8990e00-45c0-5c31-93b3-272abb4d0618"))
-    (pin "2" (uuid "424c5c9d-dbfe-5220-839f-c7f225d47ab0"))
+    (pin "1" (uuid "70b4e553-ef1d-5a52-87cd-d5a2cdf157ac"))
+    (pin "2" (uuid "d8e7d5bf-b545-5c2f-855c-b1091f491d9a"))
     (instances
       (project
         "stman"
@@ -4873,22 +4877,22 @@
           (reference "R213")
           (unit 1)))))
   (wire
-    (pts (xy 43.18 156.21) (xy 43.18 153.67))
+    (pts (xy 43.18 171.45) (xy 43.18 168.91))
     (stroke (width 0) (type default))
-    (uuid "6828a57d-d008-501e-8d25-adab0ffd90f1"))
+    (uuid "4c7d5734-8575-55a1-8682-bb7df50a84b7"))
   (symbol
     (lib_id "stmbl:+24V")
-    (at 43.18 153.67 0)
+    (at 43.18 168.91 0)
     (unit 1)
     (in_bom no)
     (on_board no)
     (dnp no)
-    (uuid "d72aeadd-6d60-55c8-a397-123ed5a66581")
-    (property "Reference" "#PWR951" (at 43.18 151.87 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Value" "+24V" (at 43.18 150.47 0) (effects (font (size 1.27 1.27))))
-    (property "Footprint" "" (at 43.18 153.67 0) (effects (font (size 1.27 1.27)) hide))
-    (property "Datasheet" "" (at 43.18 153.67 0) (effects (font (size 1.27 1.27)) hide))
-    (pin "1" (uuid "abd18033-1ddc-59b8-b62f-53310b60d721"))
+    (uuid "31ae14e1-a2f0-52c8-b873-42d0696a0efb")
+    (property "Reference" "#PWR951" (at 43.18 167.11 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Value" "+24V" (at 43.18 165.71 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 43.18 168.91 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 43.18 168.91 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "e1c5e414-db54-5551-ae89-19083e5ce0f9"))
     (instances
       (project
         "stman"
@@ -4897,16 +4901,85 @@
           (reference "#PWR951")
           (unit 1)))))
   (wire
-    (pts (xy 43.18 163.83) (xy 43.18 166.37))
+    (pts (xy 43.18 179.07) (xy 43.18 181.61))
     (stroke (width 0) (type default))
-    (uuid "286b0837-43bb-5d6c-bfec-59f3b98c3071"))
+    (uuid "64ad3193-ed6c-5552-8778-386a50cec519"))
   (label
     "EN_U27"
-    (at 43.18 166.37 270)
+    (at 43.18 181.61 270)
     (effects (font (size 1.27 1.27)) (justify right bottom))
-    (uuid "9b29409a-9ea8-50bc-82a8-acb5874243e8"))
+    (uuid "d5ff46af-c8d4-57e4-a07b-7ff8dca2be3e"))
+  (symbol
+    (lib_id "Device:R")
+    (at 55.88 175.26 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "38a6d34f-43ed-53cc-a9ec-c879317e3a73")
+    (property "Reference" "R214" (at 55.88 169.65 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "100k" (at 55.88 180.87 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "stmbl:R_0603" (at 55.88 175.26 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 55.88 175.26 0) (effects (font (size 1.27 1.27)) hide))
+    (property
+      "Note"
+      "stman: U28 EN pull-down (LMR514x0 EN must not float)"
+      (at 55.88 175.26 0)
+      (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "bb3971f5-f382-5212-b266-d1919f21cae8"))
+    (pin "2" (uuid "b6d955d3-81f1-53a9-9295-d42ae8dbf32a"))
+    (instances
+      (project
+        "stman"
+        (path
+          "/b2fa32de-c480-5131-94f3-5535f61b0a45/2c63b4cc-737d-5471-ad80-05faa6f3545d"
+          (reference "R214")
+          (unit 1)))))
+  (wire
+    (pts (xy 55.88 171.45) (xy 55.88 168.91))
+    (stroke (width 0) (type default))
+    (uuid "78eae850-2f0b-5d5c-be12-25b81586d184"))
+  (label
+    "EN_5V"
+    (at 55.88 168.91 90)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid "ec3d7105-833e-577e-a738-dcdfc191aede"))
+  (wire
+    (pts (xy 55.88 179.07) (xy 55.88 184.15))
+    (stroke (width 0) (type default))
+    (uuid "346ba8b9-783a-5b87-b23a-2caafd147184"))
+  (symbol
+    (lib_id "stmbl:GND")
+    (at 55.88 184.15 0)
+    (unit 1)
+    (in_bom no)
+    (on_board no)
+    (dnp no)
+    (uuid "2caf0974-1add-5acd-8e4d-b8e00978da22")
+    (property "Reference" "#PWR952" (at 55.88 182.35 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Value" "GND" (at 55.88 187.95 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 55.88 184.15 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 55.88 184.15 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "82b4f1e0-1065-5dbe-a76b-e119f4edc218"))
+    (instances
+      (project
+        "stman"
+        (path
+          "/b2fa32de-c480-5131-94f3-5535f61b0a45/2c63b4cc-737d-5471-ad80-05faa6f3545d"
+          (reference "#PWR952")
+          (unit 1)))))
   (text
-    "stman: U13, U27, U28 are LMR51420Y (ACT4088 end of life); R35, R59, R132 for VFB 0.6 V; EN pull-ups R212, R213"
+    "stman: U13, U27, U28 are LMR51420YF (ACT4088 end of life)"
+    (at 25.4 149.86 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid "a6f6d8d2-b059-5da3-9da6-09670e6ac345"))
+  (text
+    "R35, R59, R132 for VFB 0.6 V; EN: R212, R213 pull-ups, R214 pull-down"
     (at 25.4 152.4 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "3b509ed2-76de-507c-aa70-653af3f8db31")))
+    (uuid "5995042b-98fb-51eb-b344-b9bb3fad3768"))
+  (text
+    "D9, D12, D13 not fitted (synchronous); C102, C133, C137 4.7u 50V (0603 X5R)"
+    (at 25.4 154.94 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid "7458229c-4415-555e-b23d-17f7308dc783")))

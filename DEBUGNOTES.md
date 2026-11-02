@@ -3635,7 +3635,7 @@ Entry format:
   the items' boxes, pad nets set after `board.Add(fp)` (`SetNetCode(0)`
   where there is none).
 
-## 2026-11-02  stman: ACT4088 bucks replaced by LMR51420Y (pin numbers differ)
+## 2026-11-02  stman: ACT4088 bucks replaced by LMR51420YF (pin numbers differ)
 - Area:    `hardware/stman` supply sheet (U13, U27, U28)
 - Status:  Note
 - Symptom: stmbl's ACT4088 is end-of-life (and rated 30 V only).
@@ -3644,4 +3644,7 @@ Entry format:
   4 FB 5 GND 6 BST -> LMR 2 SW 3 VIN 5 EN 4 FB 1 GND 6 CB). `gen/build.py`
   renumbers the copied symbol's pins so stmbl's drawing stays; VFB is 0.6 V
   (not 0.81 V), so the lower divider resistors change; LMR's EN must not
-  float (R212/R213 to +24V). `gen/check.py` REGS checks the new nets.
+  float (R212/R213 to +24V, R214 pull-down on the MCU-driven U28 EN). It is
+  synchronous: stmbl's catch diodes are not fitted. YF (forced PWM), not Y
+  (PFM): PFM bursts at light load land in the analog band. Checked against
+  datasheet SLUSEF6C. `gen/check.py` REGS checks the new nets.

@@ -186,7 +186,13 @@ def main():
     placed, new = {}, []
     for c in comps:
         ref = c["ref"]
-        if ref in ofps:                         # stmbl's footprint where stmbl has it
+        if ref in ofps and ofps[ref].GetFPID().GetLibItemName() != c["fp"].split(":")[-1]:
+            fp = load_fp(c["fp"])                # stman changes the footprint (C102 0603 -> 0805): stmbl's place
+            fp.SetPosition(ofps[ref].GetPosition())
+            if ofps[ref].IsFlipped():
+                fp.Flip(fp.GetPosition(), False)
+            fp.SetOrientation(ofps[ref].GetOrientation())
+        elif ref in ofps:                       # stmbl's footprint where stmbl has it
             fp = pcbnew.FOOTPRINT(ofps[ref])
         else:
             fp = load_fp(c["fp"])

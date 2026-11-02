@@ -233,20 +233,37 @@ started each loop cycle (CONVST from the MCU).
 | rail | from | for |
 |---|---|---|
 | +24V | P3 (+UI / 0VI), reverse-polarity diode D200 (SS34A), SMAJ24A, 22 µF | everything; ITS724G VBB; the inputs' contact supply |
-| +5V | LMR51420Y buck (stmbl U13's place) | LDO, AD7606 AVCC |
+| +5V | LMR51420YF buck (stmbl U13's place) | LDO, AD7606 AVCC |
 | +3V3 | zldo1117 (stmbl U2) | MCU, DAC logic, AD7606 VDRIVE, ISO7331FC side 1 |
-| +12V | LMR51420Y (U27) | NMA1215, FB port option |
-| +5F | LMR51420Y (U28), EN_5V | FB0/FB1 port supply |
+| +12V | LMR51420YF (U27) | NMA1215, FB port option |
+| +5F | LMR51420YF (U28), EN_5V | FB0/FB1 port supply |
 | +15VA / −15VA | NMA1215 + LC | AD5761R AVDD/AVSS, OPA2197 |
 | SS_5V / SS_GND | the smart-serial cable (RJ45 4/5 and 7/8, by JP200/JP201) | U8, U9 and ISO7331FC side 2 only |
 
-The three bucks are TI LMR51420YDDCR (4.5–36 V in, 2 A, 1.1 MHz,
-SOT-23-6) in place of stmbl's ACT4088, which is end-of-life and only
-rated to 30 V. Same package, same drawing: only the pin numbers (the
-symbol keeps stmbl's pin positions), the feedback dividers (VFB 0.6 V:
-R35 6.98k for +5V, R59 2.87k for +12V, R132 7.15k for +5F) and two 100k EN
-pull-ups to +24V (R212, R213; U28's EN stays on the MCU's EN_5V) change.
-stmbl's inductors, diodes and capacitors stay.
+The three bucks are TI LMR51420YFDDCR in place of stmbl's ACT4088, which
+is end-of-life and rated to 30 V only. Checked against the datasheet
+(SLUSEF6C):
+
+| | LMR51420YF | in stman |
+|---|---|---|
+| input | 4.5–36 V (38 V abs. max) | +24V; see the TVS note below |
+| pins (SOT-23-6) | 1 GND, 2 SW, 3 VIN, 4 FB, 5 EN, 6 CB | symbol renumbered, stmbl's drawing kept |
+| VFB | 0.6 V ±1.5 % | R35 6.98k → 5.07 V, R59 2.87k → 12.08 V, R132 7.15k → 5.21 V (51k + 1k / 3.9k on top, as stmbl) |
+| frequency | Y: 1.1 MHz; **F: forced PWM** | YF: a fixed 1.1 MHz at any load. The PFM part (no F) bursts at light load, at a rate that can fall in the band of the analog outputs and the AD7606 |
+| EN | 1.23 V rising, must not float, may be tied to VIN | R212, R213 100k to +24V; U28's EN from the MCU (EN_5V, high unless `fbsd`), R214 100k pull-down while the MCU resets |
+| synchronous | internal low-side FET | stmbl's catch diodes D9, D12, D13 not fitted (left on the board) |
+| C_IN | ≥ 4.7 µF ceramic, ~2× VIN rating, + 100 nF | C102, C133, C137 4.7 µF 50 V (0603 X5R, an 0805 doesn't fit stmbl's corner) + C103/C104/C120 100 nF; C143 22 µF bulk |
+| L at 1.1 MHz | 4.7 µH for 5 V, 8.2 µH for 12 V | stmbl's 4.7 µH (L5, L12) and 10 µH (L6) |
+| C_OUT | 2 × 10 µF (25 V for 12 V) | 2 × 10 µF each; C110, C132 on +12V as 25 V |
+| C_BOOT | 100 nF, ≥ 16 V | stmbl's C105, C106, C121 |
+| min. on time | 70 ns | 5 V from 36 V: 126 ns |
+
+Left as is: the current limit (2.7–5.1 A peak) is above stmbl's
+inductors' rating (1–1.5 A). The loads here are some 100 mA, and a short
+ends in the hiccup mode, so they are not changed. The SMAJ24A clamps at
+up to 38.9 V at its full rated pulse, just over the 38 V maximum. Nothing
+that still passes 28.8 V (24 V +20 %) clamps lower. +UI is the drive's
+own 24 V on a short cable inside the cabinet, so this is accepted.
 
 ### Connectors
 
@@ -429,8 +446,5 @@ tested before the board exists.
   share MISO with the DACs.
 - Read the line counts and volts-per-rpm from each drive (keypad on the
   KDA, setup program on the DDS) before the first run.
-- LMR51420Y: check VFB (0.6 V), the switching frequency of the Y
-  variant, the EN threshold, and that the SMAJ24A clamp keeps a surge on
-  +UI below its 36 V (or use a lower-clamping TVS).
 - Enclosure: DIN-rail case near the drive, with the 8P8C ports and the
   3.5 mm terminals on one face.

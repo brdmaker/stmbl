@@ -301,10 +301,16 @@ def edit_supply():
     sh.save()
 
 
-# the ACT4088 (end of life, 30 V) -> TI LMR51420Y (4.5-36 V, 2 A, 1.1 MHz, SOT-23-6, VFB 0.6 V *):
+# the ACT4088 (end of life, 30 V) -> TI LMR51420YF (4.5-36 V, 2 A, 1.1 MHz, SOT-23-6, VFB 0.6 V; datasheet SLUSEF6C):
 # stmbl's ACT4088 symbol with the LMR514x0's pin numbers, so stmbl's wiring stays as drawn
 LMR_PINS = {"SW": ("2", "SW"), "IN": ("3", "VIN"), "EN": ("5", "EN"), "FB": ("4", "FB"), "GND": ("1", "GND"), "BST": ("6", "CB")}
-LMR_VALUE = "LMR51420YDDCR"
+LMR_VALUE = "LMR51420YFDDCR"   # YF: 1.1 MHz forced PWM (fixed frequency at light load, no PFM bursts near the analog band)
+# synchronous: stmbl's catch diodes are not needed (left on the board, not fitted)
+NOT_FITTED = ("D9", "D12", "D13")
+# the datasheet asks for >= 4.7 uF ceramic at VIN, rated about twice the input; and 25 V output caps on 12 V
+# (0603 kept: an 0805 does not fit stmbl's regulator corner; e.g. TDK C1608X5R1H475K, C143 22 uF is the bulk)
+VALUES = {"C102": ("4.7µ 50V", None), "C133": ("4.7µ 50V", None), "C137": ("4.7µ 50V", None),
+          "C110": ("10µ 25V", None), "C132": ("10µ 25V", None)}
 # the feedback dividers for VFB 0.6 V: the top resistors stay, the bottom ones change
 DIVIDERS = {"R35": "6.98k", "R59": "2.87k", "R132": "7.15k"}
 NOTES = {"(51k + 3.9k + 10k) / 10k": "0.6V * (51k + 3.9k + 7.15k) / 7.15k = 5.21V   (stman: LMR51420, VFB 0.6 V *)",
@@ -339,6 +345,14 @@ def regulators(sh):
         for pr in findall(sh.by_ref(ref)[0], "property"):
             if pr[1] == "Value":
                 pr[2] = v
+    for ref, (v, fp) in VALUES.items():
+        for pr in findall(sh.by_ref(ref)[0], "property"):
+            if pr[1] == "Value":
+                pr[2] = v
+            if pr[1] == "Footprint" and fp:
+                pr[2] = fp
+    for ref in NOT_FITTED:
+        find(sh.by_ref(ref)[0], "dnp")[1] = Sym("yes")
     for t in sh.items("text"):
         for k, v in NOTES.items():
             if k in t[1]:
@@ -354,7 +368,7 @@ def regulators(sh):
                 sh.remove(nc)
         sh.wire(en[0], en[1], en[0] - 2 * G, en[1])
         sh.label("EN_" + ref, en[0] - 2 * G, en[1], 180)
-        x, y = 30.48 + 12.7 * i, 160.02
+        x, y = 30.48 + 12.7 * i, 175.26
         r = sh.place("Device:R", rsym, "R%d" % (212 + i), "100k", x, y, [path], footprint="stmbl:R_0603",
                      fields={"Note": "stman: %s enable pull-up (LMR514x0 EN)" % ref})
         p1, p2 = sh.pin_points(r)["1"], sh.pin_points(r)["2"]
@@ -362,8 +376,18 @@ def regulators(sh):
         sh.place("stmbl:+24V", sh.libs["stmbl:+24V"], "#PWR95%d" % i, "+24V", p1[0], p1[1] - G, [path])
         sh.wire(p2[0], p2[1], p2[0], p2[1] + G)
         sh.label("EN_" + ref, p2[0], p2[1] + G, 270)
-    sh.text("stman: U13, U27, U28 are LMR51420Y (ACT4088 end of life); R35, R59, R132 for VFB 0.6 V; EN pull-ups R212, R213",
-            25.4, 152.4, size=1.27)
+    # U28's EN from the MCU (EN_5V, driven high by io4 unless fbsd): pulled down so it is defined (off) while the MCU resets
+    r = sh.place("Device:R", rsym, "R214", "100k", 30.48 + 12.7 * 2, 175.26, [path], footprint="stmbl:R_0603",
+                 fields={"Note": "stman: U28 EN pull-down (LMR514x0 EN must not float)"})
+    p1, p2 = sh.pin_points(r)["1"], sh.pin_points(r)["2"]
+    sh.wire(p1[0], p1[1], p1[0], p1[1] - G)
+    sh.label("EN_5V", p1[0], p1[1] - G, 90)
+    sh.wire(p2[0], p2[1], p2[0], p2[1] + 2 * G)
+    sh.place("stmbl:GND", sh.libs["stmbl:GND"], "#PWR952", "GND", p2[0], p2[1] + 2 * G, [path])
+    for i, line in enumerate(("stman: U13, U27, U28 are LMR51420YF (ACT4088 end of life)",
+                              "R35, R59, R132 for VFB 0.6 V; EN: R212, R213 pull-ups, R214 pull-down",
+                              "D9, D12, D13 not fitted (synchronous); C102, C133, C137 4.7u 50V (0603 X5R)")):
+        sh.text(line, 25.4, 149.86 + 2.54 * i, size=1.27)
 
 
 def edit_fb():
