@@ -26,3 +26,14 @@ static inline float sserial_sync_scale(uint32_t available, uint32_t goal, int re
   }
   return 1.0f;
 }
+
+// The link timeout (sserial0.timeout frt periods, 5 ms): reset by a parsed
+// packet. In reply_mode 1 the frt doesn't parse, so bytes arriving since the
+// last frt (the DMA's position moved) are the link alive too. Without that,
+// sparse traffic (discovery: hostmot2's config reads, ms apart) let the
+// timeout expire, and the frt threw a packet away (rxpos = bufferpos) between
+// its last byte and the idle interrupt: discovery failed 16 of 24 times on
+// the bench (DEBUGNOTES 2026-11-01 "sserial0.reply_mode").
+static inline int sserial_link_alive(int reply_irq, uint32_t bufferpos, uint32_t last_bufferpos) {
+  return reply_irq && bufferpos != last_bufferpos;
+}

@@ -607,6 +607,9 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   PIN(available) = available;
 
+  if(sserial_link_alive(reply_irq, bufferpos, last_bufferpos)) {
+    timeout = 0;  // mode 1: bytes coming in; the idle interrupt parses them
+  }
   if(!reply_irq) {
     parse(pins, 1);
   } else if(available > 0 && bufferpos == last_bufferpos) {

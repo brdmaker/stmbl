@@ -4359,7 +4359,16 @@ Entry format:
   max 154.8 -> 140.8 us (with adc0.fast on in both); irq_count ~1000/s
   (907755 in the run), crc_error 0, phase still cycling, real_cmd_freq
   ~999.8 Hz in motion, ferror per cycle median 0.059 mm (0.053 without).
-  Not yet: servo_rate.py below 1 ms, the hwtest suite.
+  Not yet: the hwtest suite.
+  Found on the bench: discovery failed 16 of 24 times in mode 1 (LinuxCNC
+  "Timeout trying to read config data in sserial_get_bytes"; mode 0 24/24).
+  The link timeout (5 ms) is reset only by a parsed packet; discovery's
+  packets come ms apart, and in mode 1 the frt doesn't parse, so it often
+  timed out and dropped a packet (rxpos = bufferpos) between its last byte
+  and the idle interrupt. Fixed: in mode 1 new bytes (the DMA's position
+  moved) reset it (sserial_link_alive, shared/sserial_sync.h): 24 of 24.
+  Tests: host test_adc_sum (the rule), hwtest/timing/sserial_discovery.sh
+  (fails 8/24 without).
 
 ## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
 - Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)

@@ -78,6 +78,10 @@ int main(void) {
   }
   CHECK(sserial_sync_scale(0, 5, 0, 1) == 1.0f, "mode 0 ignores the idle time");
   CHECK(sserial_sync_scale(0, 5, 1, 1) == 0.9f, "mode 1: answered just before the check: late, 0.9");
+  // the link timeout in mode 1: new bytes keep it alive (discovery's sparse packets)
+  CHECK(sserial_link_alive(1, 40, 30), "mode 1: bytes since the last frt: alive");
+  CHECK(!sserial_link_alive(1, 40, 40), "mode 1: nothing new: the timeout counts on");
+  CHECK(!sserial_link_alive(0, 40, 30), "mode 0: the frt's parse resets it, as before");
   printf("test_adc_sum: %d/%d passed\n", checks - fails, checks);
   return fails ? 1 : 0;
 }
