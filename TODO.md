@@ -123,9 +123,10 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       max and sserial errors.
 - [ ] Drive firmware: `sserial0.reply_mode` and `adc0.fast` benched on the
       SEW drive (DEBUGNOTES 2026-11-01 entries): rt max 172.8 -> 140.8 us.
-      Discovery bug in reply_mode 1 fixed (24/24). 2 kHz fits and a soak
-      passes, ferror not better yet: tune sserial0.pos_advance for 2 kHz;
-      the hwtest suite with the switches on; then make them the default.
+      Discovery bug in reply_mode 1 fixed (24/24). 2 kHz on the Pi 4 + SPI:
+      no ferror gain (pos_advance swept) and hm2's DoIt overruns: stay at
+      1 kHz. Next: the hwtest suite with the switches on, then make them
+      the default.
 - [ ] Zynq: `docs/zynq-measurement-plan.md` (steps 1-8, servo_rate.py and
       servo_load.py), pick the rate.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81

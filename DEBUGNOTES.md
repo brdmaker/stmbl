@@ -4373,8 +4373,13 @@ Entry format:
   (servo max 223 us + 150 us exchange = 75 %), 333 us doesn't (115 %), no
   sserial errors at any rate. A 15 min soak at 500 us (SOAK_SERVO_US=500,
   vel_int0.cmd_freq 2000) PASS, but the ferror per cycle median 0.084 mm
-  against 0.059 at 1 kHz: sserial0.pos_advance (0.0006 s) is 1 kHz's;
-  tune it for 2 kHz before judging the rate.
+  against 0.059 at 1 kHz. pos_advance sweep at 2 kHz (8 min soaks):
+  0.0001 0.178 mm, 0.0002 0.147, 0.0003 0.117, 0.0004 0.087, 0.0006 0.084
+  (median per cycle): 0.03 mm per 0.1 ms = 300 mm/s x the mismatch, flat
+  from 0.0004 on, so 0.0006 fits 2 kHz too; 2 kHz brings no gain here. The
+  0.0004 run failed on hm2's "DoIt not cleared from previous servo thread":
+  the 7C81 over SPI doesn't always finish the exchange in 500 us. Stay at
+  1 kHz on the Pi 4 + SPI (both switches on: 0.059 mm).
 
 ## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
 - Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)
