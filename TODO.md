@@ -121,8 +121,10 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       modules, log servo-thread tmax for an hour under load.
 - [ ] Bench: 2 kHz (SERVO_PERIOD 500000, vel_int0.cmd_freq 2000); drive rt
       max and sserial errors.
-- [ ] Drive firmware: bench `sserial0.reply_mode` and `adc0.fast` (branch
-      claude/drive-rt-speedup, docs/drive-rt-speedup.md); then make them default.
+- [ ] Drive firmware: `sserial0.reply_mode` and `adc0.fast` benched on the
+      SEW drive (DEBUGNOTES 2026-11-01 entries): rt max 172.8 -> 140.8 us.
+      Next: servo_rate.py below 1 ms, the hwtest suite with them on, then
+      make them the default.
 - [ ] Zynq: `docs/zynq-measurement-plan.md` (steps 1-8, servo_rate.py and
       servo_load.py), pick the rate.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81

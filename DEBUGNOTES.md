@@ -4345,7 +4345,7 @@ Entry format:
   once before gcode.parse.
 ## 2026-11-01  sserial0.reply_mode: answer packets from the USART idle interrupt
 - Area:    `src/comps/sserial.c`, `shared/sserial_sync.h` (branch claude/drive-rt-speedup)
-- Status:  Open (built and unit-tested; not yet on hardware)
+- Status:  Fixed behind the switch (benched 2026-11-02; still default 0)
 - Symptom: rt worst case 168.5 us of 200 under LinuxCNC, ~28 us of it the
   frt busy-waiting for a process-data packet's last bytes.
 - Cause:   see "rt worst case 168.5 us" above.
@@ -4354,16 +4354,27 @@ Entry format:
   the timeout and the clock lock (a packet answered within the last frt
   period counts as late). Default 0 = as before. Bench plan:
   docs/drive-rt-speedup.md.
+  Bench 2026-11-02 (drive 208535A65631, SEW CMP40M, 80ff3d23), 15 min
+  smart-serial soaks at 300 mm/s, each PASS: frt max 33.8 -> 4.8 us, rt
+  max 154.8 -> 140.8 us (with adc0.fast on in both); irq_count ~1000/s
+  (907755 in the run), crc_error 0, phase still cycling, real_cmd_freq
+  ~999.8 Hz in motion, ferror per cycle median 0.059 mm (0.053 without).
+  Not yet: servo_rate.py below 1 ms, the hwtest suite.
 
 ## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
 - Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)
-- Status:  Open (built and unit-tested; not yet on hardware)
+- Status:  Fixed behind the switch (benched 2026-11-02; still default 0)
 - Symptom: adc0 ~44 us of the 200 us rt cycle.
 - Cause:   per group two masked loops and 6 vdiv.f32 (14 cycles each) from
   V_DIFF's divisions.
 - Fix:     `adc0.fast = 1`: sums bit-exact (uadd16, <= 16 samples a group),
   the voltage within 2e-6 V (host/tests/test_adc_sum.c); estimated 10-15 us
   less (the earlier ~30 us guess was high). Default 0 until benched.
+  Bench 2026-11-02 (drive 208535A65631, resolver): at rest adc0 50.0 ->
+  32.8 us, rt 138.4 -> 114.7 us; sin/cos/res0.amp/pos the same within
+  noise (40 readings each way). Soak (300 mm/s, 15 min, PASS): rt max
+  172.8 -> 154.8 us, adc0 max 84.8 -> 62.0 us; ferror per cycle median
+  0.080 -> 0.053 mm.
 
 ## 2026-11-01  QEMU runs unit tests as Cortex-M4F code (host/m4)
 - Area:    `host/m4` (Makefile, start.c), QEMU 8.2 `mps2-an386`
