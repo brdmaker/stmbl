@@ -28,7 +28,7 @@ FANUC motors on hand:
 
 | doc | what |
 |---|---|
-| [fanuc/](fanuc/README.md) | βiS 12/2000, βiS 4/4000, α2/3000: nameplates, values for stmbl, the αA64 / βiA128 encoders and their bench test, the FANUC CNC and amplifiers as a reference system |
+| [fanuc/](fanuc/README.md) | moved to the private repository `brdmaker/brdmot`: the FANUC motors on hand, their encoders, the `encf` bench test, FANUC manuals as text |
 
 Tools: `servoterm-cli/README.md`, `linuxcnc/sserialterm/README.md`.
 Simulator and tests: `host/README.md` (`make -C host check`).

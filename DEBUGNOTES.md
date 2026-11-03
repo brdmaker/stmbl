@@ -3650,11 +3650,11 @@ Entry format:
   datasheet SLUSEF6C. `gen/check.py` REGS checks the new nets.
 
 ## 2026-11-03  FANUC βiA128 encoder (A860-2020-T301): not known to work with `encf`
-- Area:    `src/comps/encf.c`, FANUC βiS motors (docs/fanuc/)
+- Area:    `src/comps/encf.c`, FANUC βiS motors (notes in brdmaker/brdmot)
 - Status:  Open
 - Symptom: none yet (not tested). `encf` was written for the αA64
   (A860-0360): request on the Z pair, 76-bit reply at 1.024 Mbit/s, CRC-5.
 - Cause:   the i-series βiA128 may use another request or frame.
-- Fix:     bench test plan in docs/fanuc/encoders.md: α2/3000 (αA64) first
+- Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
