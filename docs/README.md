@@ -24,6 +24,12 @@ CAN (branch `can-support`):
 |---|---|
 | [can_support.md](can_support.md) | what CAN support would mean for stmbl and brdstepper: hardware, bus timing (`tools/canbus_budget.py`), LinuxCNC's side, protocol options, work plan |
 
+FANUC motors on hand:
+
+| doc | what |
+|---|---|
+| [fanuc/](fanuc/README.md) | βiS 12/2000, βiS 4/4000, α2/3000: nameplates, values for stmbl, the αA64 / βiA128 encoders and their bench test, the FANUC CNC and amplifiers as a reference system |
+
 Tools: `servoterm-cli/README.md`, `linuxcnc/sserialterm/README.md`.
 Simulator and tests: `host/README.md` (`make -C host check`).
 Findings and open issues: `DEBUGNOTES.md`.
