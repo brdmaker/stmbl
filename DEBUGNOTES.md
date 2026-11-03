@@ -3654,7 +3654,11 @@ Entry format:
 - Status:  Open
 - Symptom: none yet (not tested). `encf` was written for the αA64
   (A860-0360): request on the Z pair, 76-bit reply at 1.024 Mbit/s, CRC-5.
-- Cause:   the i-series βiA128 may use another request or frame.
+- Cause:   the i-series βiA128 may use another request or frame. FANUC's
+  αi/αCi motor manuals list only one data pair on the i-series pulsecoder
+  connector (RD/*RD, no REQ/*REQ), while the αA64 has separate SD and REQ
+  pairs. So the i-series link is free-running or half-duplex on RD, and
+  `encf`'s request on the Z pair can't reach it as wired.
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
