@@ -3659,6 +3659,10 @@ Entry format:
   connector (RD/*RD, no REQ/*REQ), while the αA64 has separate SD and REQ
   pairs. So the i-series link is free-running or half-duplex on RD, and
   `encf`'s request on the Z pair can't reach it as wired.
+  Web (ExcessiveOverkill/universal-IRC-1, GPL Mesa firmware for FANUC
+  R-2000iA "A64i/A128i" encoders): the 2-wire mode is half-duplex RS-485
+  at ~2.72 Mbit/s, a UART request byte instead of a pulse, polled at
+  8 kHz, reply with 16-bit position, 16-bit turns, 8-bit commutation.
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
