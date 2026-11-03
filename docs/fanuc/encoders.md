@@ -56,6 +56,22 @@ motor's own encoder connector has different numbers.
 | +6 V battery | 7 | not connected for the first tests |
 | shield | shell | connector shell |
 
+## The cable on hand
+
+A third-party green encoder cable, cut at one end (colours are the cable
+maker's, not FANUC's). Known so far:
+
+| wires | kind | role |
+|---|---|---|
+| violet / black | twisted pair | RD or REQ ✱ |
+| white / brown | twisted pair | REQ or RD ✱ |
+| yellow, yellow, green, green, grey, pink, blue | single, thicker | supply: +5 V and 0 V (doubled), battery +6 V ✱ |
+| foil shield | | to the connector shell |
+
+Still to do: ring each wire to its pin in the motor-end connector (encoder
+unplugged, ohmmeter only), then fill in the colour → pin → FB0 table.
+Don't find the supply by powering up: a wrong 5 V can kill the encoder.
+
 ## Bench test
 
 Encoder only: no high voltage, motor phases disconnected.
