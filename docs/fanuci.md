@@ -34,6 +34,25 @@ private notes (`brdmaker/brdmot`, `encoders.md`).
 
 None of this is confirmed for the βiA128. That's what the probe is for.
 
+### universal-IRC-1's FPGA code compared with fanuci
+
+What its `fanucabs.vhd` / `abs_encoder.c` / HAL file do (read 2026-11-03),
+and where `fanuci` differs:
+
+| | universal-IRC-1 | fanuci |
+|---|---|---|
+| poll rate | exactly 8 kHz, from an FPGA timer, jitter-free | 5 kHz (rt), 10 or 6.7 kHz (frt), with interrupt jitter: **8 kHz not possible yet** |
+| bit rate | 2721.088 kHz | the same (default) |
+| request | 10 bits, LSB first, `0b0001110000`, with the FPGA output inverted (`requestout = not Request`) | `req 112` = the same bits; inversion via `tx_invert` |
+| driver on before the request | 1000 clocks (30 µs) for the first request after switching to single-pair mode, then 16 (0.48 µs) | `lead` 2 bits (0.73 µs) every time |
+| after the request | 16 clocks (0.48 µs) more, driver off, 40 clocks (1.2 µs) before listening | `tail` 1 bit, driver off, listen at once |
+| reply | start on the first high sample, 73 bits, data inverted | every edge recorded |
+| mode switch | commented-out code sent 75 4-wire request pulses (8 µs) before going single-pair; a HAL pin "Normal pulses to send before changing modes" | none |
+| committed config | `single-pair 1` commented out in the HAL file | — |
+
+The things fanuci doesn't do yet: the exact 8 kHz rate, a long driver-on
+time before the first request, and a mode-switch sequence.
+
 ## Hardware
 
 stmbl v4 (4.3 on the bench), **FB0** port, Z pair:
