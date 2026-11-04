@@ -122,9 +122,14 @@ test_stmblcan: tests/test_stmblcan.c mcp2515_sim.c mcp2515_sim.h $(STMBLCAN)/mcp
 test_vibproto: tests/test_vibproto.c ../shared/vibproto.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_vibproto.c -lm
 
+# shared/fanuc1p.c: the fanuci probe's request/edge decoding (docs/fanuci.md)
+test_fanuc1p: tests/test_fanuc1p.c ../shared/fanuc1p.c ../shared/fanuc1p.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_fanuc1p.c ../shared/fanuc1p.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto
+check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_fanuc1p
+	@./test_fanuc1p
 	@./test_ssq
 	@./test_sscon
 	@./test_cur_offset

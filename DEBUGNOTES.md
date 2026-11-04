@@ -3666,6 +3666,10 @@ Entry format:
   Bench 2026-11-04: on the owner's βiS motors only one pair (RD) is wired
   from the encoder to its connector; SD/REQ exist only as test pads inside.
   So these need a 1-pair mode; the 4-wire `encf` can't read them.
+  2026-11-04: `fanuci` (src/comps/fanuci.c, docs/fanuci.md) is a probe for
+  the 1-pair mode: configurable request, bit rate and polarity, raw dumps.
+  Builds and host-tested, not yet run on hardware. Comp names must be
+  letters only (create_hal_tbl.py): "fanuc1p" was refused.
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.

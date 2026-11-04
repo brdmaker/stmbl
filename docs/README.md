@@ -28,6 +28,7 @@ FANUC motors on hand:
 
 | doc | what |
 |---|---|
+| [fanuci.md](fanuci.md) | `fanuci`: experimental probe for FANUC 1-pair (αi / βi) serial pulsecoders on FB0, how to find the protocol on the bench and turn it into a driver |
 | [fanuc/](fanuc/README.md) | moved to the private repository `brdmaker/brdmot`: the FANUC motors on hand, their encoders, the `encf` bench test, FANUC manuals as text |
 
 Tools: `servoterm-cli/README.md`, `linuxcnc/sserialterm/README.md`.
