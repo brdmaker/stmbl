@@ -14,8 +14,10 @@ decodes the edges into bits and prints them on the console. Field offsets
 for position, turns and commutation are pins too, so a layout found on the
 bench can be tried without rebuilding.
 
-Status: builds for stmbl v4 and its decoding is tested on the host
-(`host/tests/test_fanuc1p.c`). It has **not run on hardware yet**.
+Status: the βiA128 answers it (first reply 2026-11-04 with the defaults
+at 8 kHz: ≈ 2.727 Mbit/s, reply 8.4 µs after the request, ~100 bits). The
+frame layout is being worked out; first finding: position LSB first from
+bit 9. Decoding is tested on the host (`host/tests/test_fanuc1p.c`).
 
 Background, sources and bench results for the owner's motors are in the
 private notes (`brdmaker/brdmot`, `encoders.md`).

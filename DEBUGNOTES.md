@@ -3680,6 +3680,12 @@ Entry format:
   the first request (first_lead_us), and can send N old-style REQ pulses
   first (pre_pulses): the three things universal-IRC-1 does that the first
   sweep didn't.
+  **First reply, 2026-11-04** (fanuci 7362e58, defaults, poll_hz 8000): the
+  βiA128 answers every poll, 8.4 µs after the request, at ≈ 2.727 Mbit/s,
+  ~100 bits; then also at 6-10 kHz. The first lead or the interrupts-off
+  request made the difference (not yet re-tested from cold). Frames: bits
+  0-8 fixed `010100000`; a position read LSB first from bit 9 is steady to
+  ±6 counts with the shaft still (details in brdmot probe-log.md).
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
