@@ -24,6 +24,12 @@ CAN (branch `can-support`):
 |---|---|
 | [can_support.md](can_support.md) | what CAN support would mean for stmbl and brdstepper: hardware, bus timing (`tools/canbus_budget.py`), LinuxCNC's side, protocol options, work plan |
 
+Supply:
+
+| doc | what |
+|---|---|
+| [psu.md](psu.md) | pack power supply for single-phase 230 V: power path, force-guided main relays, PTC inrush, hardware chopper, relay chain, smart-serial controller on the 24 V side; decided vs open |
+
 FANUC motors on hand:
 
 | doc | what |
