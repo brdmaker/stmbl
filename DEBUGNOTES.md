@@ -4497,7 +4497,7 @@ Entry format:
 
 ## 2026-11-03  FANUC βiA128 encoder (A860-2020-T301): not known to work with `encf`
 - Area:    `src/comps/encf.c`, FANUC βiS motors (notes in brdmaker/brdmot)
-- Status:  Open
+- Status:  Open (frame decoded on the bench 2026-11-04; the driver is still to do)
 - Symptom: none yet (not tested). `encf` was written for the αA64
   (A860-0360): request on the Z pair, 76-bit reply at 1.024 Mbit/s, CRC-5.
 - Cause:   the i-series βiA128 may use another request or frame. FANUC's
@@ -4529,3 +4529,13 @@ Entry format:
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
+  Bench 2026-11-04 (drive 208535A65631, `fanuci` 7362e582, encoder on
+  FB0 5/4, 5 V and battery external): replies at 2.73 Mbit/s, 8.4 µs after
+  the request, every poll at 6-10 kHz once woken (the first version, polled
+  from rt/frt without the 30 µs first lead and with interrupts on, got no
+  edge at all). Frame, 100 bits LSB first, five 16-bit words each followed
+  by `110`: position 24 bit (bits 9-16 + 20-35), turns 16 bit (39-54),
+  commutation 8 bit (58-65, = 1024·pos/2^24), CRC-5 poly 0x0B init 0 over
+  bits 0-94 at 95-99 (600/600 ok). After a 5 V cycle it answers by itself;
+  commutation is ~30° el. off until ≈160° mech is passed, the position is
+  right at once (battery). Details and captures: brdmot probe-log.md.

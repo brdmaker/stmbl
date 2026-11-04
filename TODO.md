@@ -20,6 +20,13 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       the KTY now on FB0. Run at 314 V for the full 3000 rpm.
 - [ ] **Wizard simulator:** `syn_torque_14p` fails at the torque constant check
       (identified 1.31 vs nameplate 10.4 Nm/A), already before 2026-10-29.
+- [ ] **FANUC βiA128 (1-pair) feedback driver:** the frame is decoded
+      (DEBUGNOTES 2026-11-03, brdmot probe-log.md). Next: decode it in
+      `shared/fanuc1p.c` (24-bit position, turns, CRC-5 0x0B, commutation
+      from the position) with a host test on the recorded frames, `fanuci`
+      outputs for `fb_switch0`, a template; then the battery-out test and a
+      βiS motor. Drive 208535A65631 has the probe config now (SEW config
+      backed up as config-pre-fanuci.txt).
 - [ ] Boot-time fault 11 (HV volt error at 57 ms, before the bus is measured)
       is logged on every boot.
 
