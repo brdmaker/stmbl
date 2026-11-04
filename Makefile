@@ -51,6 +51,7 @@ else
 	SRC_COMPS += src/comps/fbtx.c
 	SRC_COMPS += src/comps/sserial.c
 	SRC_COMPS += src/comps/yaskawa.c
+	SRC_COMPS += src/comps/fanuci.c
 	SRC_COMPS += src/comps/encs.c
 	SRC_COMPS += src/comps/encf.c
 	SRC_COMPS += src/comps/endat.c
@@ -153,6 +154,7 @@ SOURCES += src/syscalls.c
 SOURCES += shared/crc.c
 SOURCES += shared/crc8.c
 SOURCES += shared/yaskawa_crc16.c
+SOURCES += shared/fanuc1p.c
 SOURCES += shared/endat.c
 SOURCES += shared/angle.c
 SOURCES += shared/hal.c

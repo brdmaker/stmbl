@@ -4436,3 +4436,86 @@ Entry format:
   RCC is unimplemented, so SystemInit spins reading RCC_CR for HSE/PLL ready
   (tried: 20,000 reads in 8 s).
 
+
+## 2026-11-02  KiCad 7's kicad-cli can't read KiCad 5 schematics (stmbl v4.0)
+- Area:    `hw/kicad/v4.0/*.sch`, `hardware/kigen/legacy.py`, `hardware/stman`
+- Status:  Workaround
+- Symptom: `kicad-cli sch export netlist|pdf stmbl_4.0.sch`: "Failed to load
+  schematic file" (also with a fixed sym-lib-table); only the GUI imports them.
+- Fix:     `hardware/kigen/legacy.py` converts a legacy hierarchy + its cache
+  library to .kicad_sch with the drawing kept; checked by comparing the
+  exported netlist with stmbl's own (hw/kicad/v4.0/stmbl_4.0.net).
+
+## 2026-11-02  Legacy schematics: field positions are before the symbol's transform
+- Area:    `hardware/kigen/legacy.py` (sheet_sexp)
+- Status:  Fixed
+- Symptom: converted sheets: references and values of rotated or mirrored
+  parts on the wrong side (e.g. above instead of below an SN65176B).
+- Cause:   a KiCad 5 file stores a field's offset from its symbol before the
+  symbol's transform: on the sheet it is T x offset with T the "1 0 0 -1"
+  matrix (measured on stmbl v4.0's plots); KiCad 7 stores it on the sheet and
+  turns and justifies the text itself.
+- Fix:     the converter applies T to the offset, keeps the H/V angle and
+  justification as stored.
+
+## 2026-11-02  Multi-unit symbols: KiCad 7 lists a shared pin once per placed unit
+- Area:    `hardware/kigen/legacy.py` (COMMON_UNIT), stmbl's LM358 (U6, U7)
+- Status:  Workaround
+- Symptom: KiCad 7's netlist had "unconnected-(U6A-V+-Pad8)" beside the real
+  V+ net: unit A's copy of the op-amp's supply pins (unit 0 in KiCad 5), not
+  wired on the sheet.
+- Fix:     COMMON_UNIT puts the shared pins on the unit the drawing wires them
+  on (LM358: unit 2). stmbl's 2018 netlist has the same pins twice too
+  (gen/check.py KNOWN).
+
+## 2026-11-02  pcbnew 7 Python: copying from one board into another corrupts the heap
+- Area:    `hardware/stman/gen/pcb.py` (stmbl v4.0's footprints into stman's board)
+- Status:  Workaround
+- Symptom: "malloc(): unaligned tcache chunk detected" / abort, reported at an
+  unrelated later call (KIID_PATH's constructor).
+- Cause:   any of: `Duplicate()` of an item of the loaded board added to a new
+  board; `BOX2I.Merge()` in a loop over a footprint's courtyard items; pads of
+  a copied footprint still pointing at the other board's nets.
+- Fix:     `pcbnew.FOOTPRINT(other)` (the copy constructor), new PCB_SHAPEs
+  of the same geometry for the outline, courtyards from plain min/max of
+  the items' boxes, pad nets set after `board.Add(fp)` (`SetNetCode(0)`
+  where there is none).
+
+## 2026-11-02  stman: ACT4088 bucks replaced by LMR51420YF (pin numbers differ)
+- Area:    `hardware/stman` supply sheet (U13, U27, U28)
+- Status:  Note
+- Symptom: stmbl's ACT4088 is end-of-life (and rated 30 V only).
+- Cause:   —
+- Fix:     LMR51420YDDCR, same SOT-23-6 but other pinout (ACT 1 SW 2 IN 3 EN
+  4 FB 5 GND 6 BST -> LMR 2 SW 3 VIN 5 EN 4 FB 1 GND 6 CB). `gen/build.py`
+  renumbers the copied symbol's pins so stmbl's drawing stays; VFB is 0.6 V
+  (not 0.81 V), so the lower divider resistors change; LMR's EN must not
+  float (R212/R213 to +24V, R214 pull-down on the MCU-driven U28 EN). It is
+  synchronous: stmbl's catch diodes are not fitted. YF (forced PWM), not Y
+  (PFM): PFM bursts at light load land in the analog band. Checked against
+  datasheet SLUSEF6C. `gen/check.py` REGS checks the new nets.
+
+## 2026-11-03  FANUC βiA128 encoder (A860-2020-T301): not known to work with `encf`
+- Area:    `src/comps/encf.c`, FANUC βiS motors (notes in brdmaker/brdmot)
+- Status:  Open
+- Symptom: none yet (not tested). `encf` was written for the αA64
+  (A860-0360): request on the Z pair, 76-bit reply at 1.024 Mbit/s, CRC-5.
+- Cause:   the i-series βiA128 may use another request or frame. FANUC's
+  αi/αCi motor manuals list only one data pair on the i-series pulsecoder
+  connector (RD/*RD, no REQ/*REQ), while the αA64 has separate SD and REQ
+  pairs. So the i-series link is free-running or half-duplex on RD, and
+  `encf`'s request on the Z pair can't reach it as wired.
+  Web (ExcessiveOverkill/universal-IRC-1, GPL Mesa firmware for FANUC
+  R-2000iA "A64i/A128i" encoders): the 2-wire mode is half-duplex RS-485
+  at ~2.72 Mbit/s, a UART request byte instead of a pulse, polled at
+  8 kHz, reply with 16-bit position, 16-bit turns, 8-bit commutation.
+  Bench 2026-11-04: on the owner's βiS motors only one pair (RD) is wired
+  from the encoder to its connector; SD/REQ exist only as test pads inside.
+  So these need a 1-pair mode; the 4-wire `encf` can't read them.
+  2026-11-04: `fanuci` (src/comps/fanuci.c, docs/fanuci.md) is a probe for
+  the 1-pair mode: configurable request, bit rate and polarity, raw dumps.
+  Builds and host-tested, not yet run on hardware. Comp names must be
+  letters only (create_hal_tbl.py): "fanuc1p" was refused.
+- Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
+  to prove the wiring, then a βiA128 on the same cable; if it differs,
+  record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.

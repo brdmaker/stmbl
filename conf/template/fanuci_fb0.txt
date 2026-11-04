@@ -1,0 +1,4 @@
+load fanuci
+fanuci0.rt_prio = 1
+io0.fb0y = fanuci0.error
+io0.fb0g = 1
