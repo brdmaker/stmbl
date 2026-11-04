@@ -28,7 +28,7 @@ Supply:
 
 | doc | what |
 |---|---|
-| [psu.md](psu.md) | pack power supply for single-phase 230 V: power path, force-guided main relays, PTC inrush, hardware chopper, relay chain, smart-serial controller on the 24 V side; decided vs open |
+| [psu.md](psu.md) | moved to `brdmaker/brdmot` (`psu/`): the pack power supply for single-phase 230 V |
 
 FANUC motors on hand:
 
