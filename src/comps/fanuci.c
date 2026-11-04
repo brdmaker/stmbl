@@ -40,6 +40,12 @@ HAL_PIN(idle);       // idle level of the line, logical (default 1)
 HAL_PIN(tx_invert);  // invert the transmitted levels (0/1)
 HAL_PIN(frt_div);    // when run from frt: poll every frt_div frt cycles (default 2 = 10 kHz)
 HAL_PIN(enable);     // 0: don't poll (line stays released)
+HAL_PIN(poll_hz);    // >0: poll from TIM7 at exactly this rate (default 8000); 0: from rt / frt
+HAL_PIN(first_lead_us); // driver on at idle this long before the first request (default 30)
+HAL_PIN(pre_pulses); // before the requests: this many single pulses, one per poll (default 0)
+HAL_PIN(pre_us);     // their width in us (default 8, like the 4-wire REQ pulse)
+HAL_PIN(pre_idle);   // line level around them (default 0: positive-going pulse)
+HAL_PIN(restart);    // rising edge: start again (pre pulses, first lead)
 
 // receive
 HAL_PIN(rx_idle);    // receiver level before the reply (default 1, fail-safe high)
@@ -69,6 +75,7 @@ HAL_PIN(reply);      // count of captures with >= min_edges
 HAL_PIN(noreply);    // count of captures without
 HAL_PIN(error);      // 1: last poll got no reply
 HAL_PIN(state);      // 0: no reply, 3: reply
+HAL_PIN(polls);      // polls done
 
 // console
 HAL_PIN(dump);       // rising edge: print one capture
@@ -87,6 +94,10 @@ struct fanuci_ctx_t {
   uint16_t arr;      // TIM8 reload for the bit rate
   int frt_count;
   int started;
+  int seq_init;      // 0: run the start sequence (pre pulses, first lead) next
+  int seq_left;      // pre pulses still to send
+  int first;         // next request is the first one
+  float tim7_hz;     // rate TIM7 is set to (0: off)
   // snapshot for the console
   volatile int snap_want;
   volatile int snap_ready;
@@ -97,6 +108,10 @@ struct fanuci_ctx_t {
   float snap_lat;
   int nrt_count;
 };
+
+static struct fanuci_ctx_t *isr_ctx;
+static struct fanuci_pin_ctx_t *isr_pins;
+static void poll(struct fanuci_ctx_t *ctx, struct fanuci_pin_ctx_t *pins);
 
 #define TIM8_CLK 168000000.0f
 #define TIM4_CLK 84000000.0f
@@ -133,8 +148,17 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(turns_len) = 16;
   PIN(com_off)   = 59;
   PIN(com_len)   = 8;
+  PIN(poll_hz)       = 8000;
+  PIN(first_lead_us) = 30;
+  PIN(pre_pulses)    = 0;
+  PIN(pre_us)        = 8;
+  PIN(pre_idle)      = 0;
   ctx->txn       = 0;
   ctx->started   = 0;
+  ctx->seq_init  = 0;
+  ctx->tim7_hz   = 0;
+  isr_ctx        = ctx;
+  isr_pins       = pins;
 }
 
 static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -175,6 +199,50 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   TIM8->DIER = TIM_DIER_UDE;
 
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA1 | RCC_AHB1Periph_DMA2, ENABLE);
+
+  // poll timer, off until rt starts it (84 MHz, update interrupt)
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM7, ENABLE);
+  TIM7->CR1  = 0;
+  TIM7->PSC  = 0;
+  TIM7->ARR  = 10499;
+  TIM7->DIER = TIM_DIER_UIE;
+  TIM7->SR   = 0;
+  NVIC_InitTypeDef nv;
+  nv.NVIC_IRQChannel                   = TIM7_IRQn;
+  nv.NVIC_IRQChannelPreemptionPriority = 1;  // below frt (0), above rt (2)
+  nv.NVIC_IRQChannelSubPriority        = 0;
+  nv.NVIC_IRQChannelCmd                = ENABLE;
+  NVIC_Init(&nv);
+}
+
+void TIM7_IRQHandler(void) {
+  TIM7->SR = 0;
+  if(isr_ctx) {
+    poll(isr_ctx, isr_pins);
+  }
+}
+
+// busy wait on the RX timer (84 MHz, max ~780 us); it is set up again for the capture afterwards
+static void wait_ticks(uint32_t ticks) {
+  if(ticks > 65000) {
+    ticks = 65000;
+  }
+  FB0_ENC_TIM->CR1  = 0;
+  FB0_ENC_TIM->CCER = 0;
+  FB0_ENC_TIM->DIER = 0;
+  FB0_ENC_TIM->CNT  = 0;
+  FB0_ENC_TIM->CR1  = TIM_CR1_CEN;
+  while(FB0_ENC_TIM->CNT < ticks) {
+  }
+  FB0_ENC_TIM->CR1 = 0;
+}
+
+static inline void zpin_level(int l) {
+  if(l) {
+    FB0_Z_PORT->BSRRL = FB0_Z_PIN;
+  } else {
+    FB0_Z_PORT->BSRRH = FB0_Z_PIN;
+  }
 }
 
 // (re)build txbuf when the request pins change
@@ -282,16 +350,18 @@ static void collect(struct fanuci_ctx_t *ctx, struct fanuci_pin_ctx_t *pins) {
   }
 }
 
-static void transmit_and_listen(struct fanuci_ctx_t *ctx) {
+static void listen(struct fanuci_ctx_t *ctx);
+
+static void transmit_and_listen(struct fanuci_ctx_t *ctx, uint32_t extra_lead_ticks) {
   // line at idle, driver on
   int idle = ctx->cfg[4] ^ ctx->cfg[5];
-  if(idle) {
-    FB0_Z_PORT->BSRRL = FB0_Z_PIN;
-  } else {
-    FB0_Z_PORT->BSRRH = FB0_Z_PIN;
-  }
+  zpin_level(idle);
   zpin_output();
   FB0_Z_TXEN_PORT->BSRRL = FB0_Z_TXEN_PIN;
+  if(extra_lead_ticks) {
+    wait_ticks(extra_lead_ticks);  // the long first lead, interrupts still on
+  }
+  __disable_irq();  // keep the request and the turnaround in one piece
 
   // TX DMA: one BSRR word per TIM8 update
   DMA_Cmd(DMA2_Stream1, DISABLE);
@@ -321,7 +391,29 @@ static void transmit_and_listen(struct fanuci_ctx_t *ctx) {
   }
   TIM8->CR1 = 0;
 
-  // turnaround: driver off, pin back to the capture input
+  listen(ctx);
+  __enable_irq();
+}
+
+// one old-style pulse (4-wire REQ): driver on at pre_idle, !pre_idle for pre_us, back, then listen
+static void pre_pulse(struct fanuci_ctx_t *ctx, struct fanuci_pin_ctx_t *pins) {
+  int idle    = (PIN(pre_idle) > 0.0f) ^ (PIN(tx_invert) > 0.0f);
+  float us    = PIN(pre_us) > 0.1f ? PIN(pre_us) : 8.0f;
+  zpin_level(idle);
+  zpin_output();
+  FB0_Z_TXEN_PORT->BSRRL = FB0_Z_TXEN_PIN;
+  wait_ticks(84 * 2);  // 2 us settle
+  __disable_irq();
+  zpin_level(!idle);
+  wait_ticks((uint32_t)(us * 84.0f));
+  zpin_level(idle);
+  wait_ticks(84);
+  listen(ctx);
+  __enable_irq();
+}
+
+// turnaround: driver off, pin back to the capture input, start the capture
+static void listen(struct fanuci_ctx_t *ctx) {
   FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
   zpin_af();
 
@@ -351,21 +443,73 @@ static void poll(struct fanuci_ctx_t *ctx, struct fanuci_pin_ctx_t *pins) {
   if(PIN(enable) <= 0.0f) {
     FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
     zpin_af();
-    ctx->started = 0;
+    ctx->started  = 0;
+    ctx->seq_init = 0;
+    return;
+  }
+  PIN(polls)++;
+  if(!ctx->seq_init) {
+    ctx->seq_left = (int)PIN(pre_pulses);
+    ctx->first    = 1;
+    ctx->seq_init = 1;
+  }
+  if(ctx->seq_left > 0) {
+    ctx->seq_left--;
+    pre_pulse(ctx, pins);
     return;
   }
   build_tx(ctx, pins);
-  transmit_and_listen(ctx);
+  uint32_t lead = 0;
+  if(ctx->first && PIN(first_lead_us) > 0.0f) {
+    lead = (uint32_t)(PIN(first_lead_us) * 84.0f);
+  }
+  ctx->first = 0;
+  transmit_and_listen(ctx, lead);
+}
+
+static void tim7_set(struct fanuci_ctx_t *ctx, float hz) {
+  if(hz == ctx->tim7_hz) {
+    return;
+  }
+  TIM7->CR1 = 0;
+  if(hz > 0.0f) {
+    if(hz < 1300.0f) {
+      hz = 1300.0f;
+    }
+    if(hz > 20000.0f) {
+      hz = 20000.0f;
+    }
+    TIM7->ARR = (uint32_t)(84e6f / hz + 0.5f) - 1;
+    TIM7->CNT = 0;
+    TIM7->SR  = 0;
+    TIM7->CR1 = TIM_CR1_CEN;
+  }
+  ctx->tim7_hz = hz > 0.0f ? hz : 0.0f;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  poll((struct fanuci_ctx_t *)ctx_ptr, (struct fanuci_pin_ctx_t *)pin_ptr);
+  struct fanuci_ctx_t *ctx      = (struct fanuci_ctx_t *)ctx_ptr;
+  struct fanuci_pin_ctx_t *pins = (struct fanuci_pin_ctx_t *)pin_ptr;
+  isr_ctx                       = ctx;
+  isr_pins                      = pins;
+  if(RISING_EDGE(PIN(restart))) {
+    ctx->seq_init = 0;
+  }
+  if(PIN(poll_hz) > 0.0f) {
+    tim7_set(ctx, PIN(poll_hz));  // TIM7 polls
+  } else {
+    tim7_set(ctx, 0.0f);
+    poll(ctx, pins);
+  }
 }
 
 static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fanuci_ctx_t *ctx      = (struct fanuci_ctx_t *)ctx_ptr;
   struct fanuci_pin_ctx_t *pins = (struct fanuci_pin_ctx_t *)pin_ptr;
-  int div                        = (int)PIN(frt_div);
+  if(PIN(poll_hz) > 0.0f) {
+    return;  // TIM7 polls
+  }
+  int div = (int)PIN(frt_div);
   if(div < 1) {
     div = 1;
   }
@@ -376,7 +520,11 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 }
 
 static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
-  FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
+  struct fanuci_ctx_t *ctx = (struct fanuci_ctx_t *)ctx_ptr;
+  TIM7->CR1                = 0;
+  ctx->tim7_hz             = 0;
+  ctx->seq_init            = 0;
+  FB0_Z_TXEN_PORT->BSRRH   = FB0_Z_TXEN_PIN;
 }
 
 static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {

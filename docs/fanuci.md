@@ -34,6 +34,25 @@ private notes (`brdmaker/brdmot`, `encoders.md`).
 
 None of this is confirmed for the βiA128. That's what the probe is for.
 
+### universal-IRC-1's FPGA code compared with fanuci
+
+What its `fanucabs.vhd` / `abs_encoder.c` / HAL file do (read 2026-11-03),
+and where `fanuci` differs:
+
+| | universal-IRC-1 | fanuci |
+|---|---|---|
+| poll rate | exactly 8 kHz, from an FPGA timer, jitter-free | 5 kHz (rt), 10 or 6.7 kHz (frt), with interrupt jitter: **8 kHz not possible yet** |
+| bit rate | 2721.088 kHz | the same (default) |
+| request | 10 bits, LSB first, `0b0001110000`, with the FPGA output inverted (`requestout = not Request`) | `req 112` = the same bits; inversion via `tx_invert` |
+| driver on before the request | 1000 clocks (30 µs) for the first request after switching to single-pair mode, then 16 (0.48 µs) | `lead` 2 bits (0.73 µs) every time |
+| after the request | 16 clocks (0.48 µs) more, driver off, 40 clocks (1.2 µs) before listening | `tail` 1 bit, driver off, listen at once |
+| reply | start on the first high sample, 73 bits, data inverted | every edge recorded |
+| mode switch | commented-out code sent 75 4-wire request pulses (8 µs) before going single-pair; a HAL pin "Normal pulses to send before changing modes" | none |
+| committed config | `single-pair 1` commented out in the HAL file | — |
+
+The things fanuci doesn't do yet: the exact 8 kHz rate, a long driver-on
+time before the first request, and a mode-switch sequence.
+
 ## Hardware
 
 stmbl v4 (4.3 on the bench), **FB0** port, Z pair:
@@ -86,16 +105,14 @@ io0.fb0y = fanuci0.error
 io0.fb0g = 1
 ```
 
-That polls from the rt thread at 5 kHz. For the faster rates, use the frt
-thread instead (20 kHz / `frt_div`: 2 → 10 kHz, 3 → 6.7 kHz):
+`rt_prio` must be set: rt starts the poll timer. By default the polls
+come from **TIM7 at exactly `poll_hz`** (8000), in an interrupt between
+frt and rt in priority. The request and the turnaround run with
+interrupts off (≈ 4 µs), so frt can't cut into them.
 
-```
-fanuci0.rt_prio = 0
-fanuci0.frt_prio = 1
-fanuci0.frt_div = 2
-```
-
-Set only one of `rt_prio` / `frt_prio`. Don't link `fanuci0` to
+With `poll_hz 0` the polls come from rt (5 kHz), or from frt
+(`fanuci0.frt_prio = 1`, `rt_prio = 0`, 20 kHz / `frt_div`). Set only one
+of `rt_prio` / `frt_prio` then. Don't link `fanuci0` to
 `fb_switch0` or the motor yet: the position isn't known to be right.
 
 ## Pins
@@ -112,7 +129,13 @@ Set only one of `rt_prio` / `frt_prio`. Don't link `fanuci0` to
 | `idle` | 1 | logical idle level |
 | `tx_invert` | 0 | invert what is sent |
 | `enable` | 1 | 0: stop polling, line released |
-| `frt_div` | 2 | frt only: poll every n frt cycles |
+| `poll_hz` | 8000 | > 0: poll from TIM7 at exactly this rate (1300…20000 Hz), jitter-free; 0: poll from rt (5 kHz) or frt (`frt_div`) |
+| `frt_div` | 2 | frt only, with `poll_hz` 0: poll every n frt cycles |
+| `first_lead_us` | 30 | driver on at idle this long before the first request (universal-IRC-1: 30 µs) |
+| `pre_pulses` | 0 | first send this many single old-style pulses, one per poll, then the requests |
+| `pre_us` | 8 | their width (the 4-wire REQ pulse is 6.5–9.1 µs) |
+| `pre_idle` | 0 | line level around them: 0 = positive-going pulse |
+| `restart` | | 0 → 1: run the start again (pre pulses, first lead) |
 
 **Receive**
 
@@ -144,6 +167,7 @@ Set a `_len` to 0 to switch that field off.
 | `latency_us` | from the end of the request to the first received edge |
 | `reply` / `noreply` | counters |
 | `error`, `state` | 1 / 0 without a reply, 0 / 3 with one |
+| `polls` | polls done (pre pulses included) |
 
 **Console**
 
@@ -171,7 +195,8 @@ Keep a log of every setting tried and what came back (in brdmot).
    receiver) on FB0 pins 5/4 you should see a ~4 µs burst every 200 µs (5
    kHz). If not, check the comp is loaded (`fanuci0.reply`/`noreply`
    count up) and that no other FB0 comp is loaded.
-2. **First tries**, watching `fanuci0.reply` and `fanuci0.edges`:
+2. **First tries** (done 2026-11-04 at 5/6.7/10 kHz with jitter, no edges;
+   repeat at exact 8 kHz), watching `fanuci0.reply` and `fanuci0.edges`:
    - defaults (2.72 Mbit/s, `req` 512);
    - `tx_invert 1`;
    - `req 112` (universal-IRC-1's pattern), with `tx_invert` 0 and 1;
@@ -179,6 +204,15 @@ Keep a log of every setting tried and what came back (in brdmot).
    - each of the above at `bitrate 2048000`;
    - from frt at 10 kHz (`frt_div 2`) and 6.7 kHz (`frt_div 3`), in case
      the encoder only answers when polled fast.
+   Then the start-up variants, each followed by `fanuci0.restart` 0 → 1
+   (or power-cycling the encoder):
+   - `first_lead_us` 30 (default), 100, 500;
+   - `pre_pulses 75`, `pre_us 8`, `pre_idle` 0 and 1 (the mode switch
+     universal-IRC-1 once tried), then the requests as above;
+   - a pre pulse alone on its own (`pre_pulses` 1000): if the encoder
+     answers an old-style REQ pulse, the reply may come on RD (watch
+     `edges`) or only on the board's SD/XSD test pads (watch them with the
+     analyzer).
 3. **A real reply** looks like this:
    - `edges` steady (tens of edges) on every poll;
    - `latency_us` a few µs at most;
