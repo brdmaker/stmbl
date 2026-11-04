@@ -3686,6 +3686,12 @@ Entry format:
   request made the difference (not yet re-tested from cold). Frames: bits
   0-8 fixed `010100000`; a position read LSB first from bit 9 is steady to
   ±6 counts with the shaft still (details in brdmot probe-log.md).
+  **Decoded** (owner, 2026-11-04; checked again on the 600-frame capture):
+  100 bits LSB first, five 16-bit words with `110` syncs; 24-bit position
+  (bits 9-16 + 20-35), 16-bit two's complement turns (39-54), 8-bit
+  commutation (58-65), CRC-5 poly 0x0B init 0 over bits 0-94 (95-99, MSB
+  first). Layout in docs/fanuci.md. Status: Open until fanuci reads it as
+  a feedback (24-bit pos, CRC gate, fb_switch template).
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
