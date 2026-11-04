@@ -3670,6 +3670,11 @@ Entry format:
   the 1-pair mode: configurable request, bit rate and polarity, raw dumps.
   Builds and host-tested, not yet run on hardware. Comp names must be
   letters only (create_hal_tbl.py): "fanuc1p" was refused.
+  Bench 2026-11-04 (brdmot probe-log.md): 108 combinations (2.72/2.048/1.024
+  Mbit/s × req 512/112/0 × tx_invert × idle, at 5/6.7/10 kHz): not a single
+  edge captured. Not yet known whether the request reaches the line; next:
+  analyzer on FB0 5/4, io0.fb0z, and an 8 µs α-style REQ pulse with the
+  encoder's internal SD/XSD pads watched (does it default to 4-wire?).
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
