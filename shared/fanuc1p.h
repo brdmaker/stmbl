@@ -68,3 +68,14 @@ uint8_t f1p_crc5(const uint8_t *bits, int n);
 int f1p_frame(const uint8_t *bits, int nbits, f1p_frame_t *f);
 /* frame bit (0..99) as stored in the words: -1 if it isn't a word bit */
 int f1p_frame_bit(const f1p_frame_t *f, int bit);
+
+/* The same on packed bits, for the driver's rt (the byte arrays above cost
+ * ~65 cycles a bit on the F4): bit i is (w[i >> 5] >> (i & 31)) & 1. w holds
+ * F1P_PACKED_WORDS words (one spare, read past the end by f1p_frame_packed).
+ * Results equal f1p_decode / f1p_frame (host/tests/test_fanuc_tw.c). */
+#define F1P_PACKED_WORDS ((F1P_MAX_BITS + 31) / 32 + 1)
+int f1p_decode_packed(const uint16_t *t, int n, float ticks_per_bit, int idle, uint32_t *w, int maxbits);
+int f1p_frame_packed(const uint32_t *w, int nbits, f1p_frame_t *f);
+static inline int f1p_bit_packed(const uint32_t *w, int i) {
+  return (w[i >> 5] >> (i & 31)) & 1;
+}

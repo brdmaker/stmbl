@@ -16,6 +16,39 @@ Entry format:
 
 ---
 
+## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt)
+- Area:    `src/comps/fanuc_tw.c`, `shared/fanuc1p.c`
+- Status:  Fixed
+- Symptom: The setup wizard's first config (pid, pmsm, fanuc_tw_fb0) on the
+  desk drive: HAL state RT_TOO_LONG, rt stopped, so hv0 sent nothing and
+  the HV board stayed silent ("HV bus reads 0 V", looked like an HV
+  firmware problem). With the encoder alone it had run (rt 3 us).
+- Cause:   The TIM6 poll interrupt (8 kHz, above rt) decoded every frame:
+  ~45 us each (byte-per-bit arrays, a bit-wise CRC, at -O1 from flash),
+  ~1.6 polls per rt period, pushing rt (~140 us) past 200 us.
+- Fix:     The interrupt only sends and copies the edge times; rt decodes
+  the newest capture once per cycle, with a packed decoder (32-bit words,
+  integer bit timing, table CRC). Bench: rt 157 us average / 170 max of 200
+  (adc0 47 us is the biggest), interrupt 10 us; pins isr_us / isr_max_us.
+  Test: host/tests/test_fanuc_tw.c checks the packed decoder equals the
+  byte one on the recorded and 500 random frames; the timing itself has no
+  host test (it needs the F4): check `hal` rt max with a motor config.
+
+## 2026-11-05  An HV board on v0.9.18-207 talks to master, only the version gate stops it
+- Area:    `shared/common.h` (the F4/F3 packets), `src/comps/hv.c`
+- Status:  Note
+- Symptom: Desk drive 205735A45631 (HV board still v207) on master: fault 19
+  HV_VERSION_ERROR, `version ... hv=0 hv_mismatch`, but `hv0.dc_volt` reads
+  the bus (201.6 V): the link works.
+- Cause:   Every protocol change since v207 is backward compatible: the new
+  command flags (brake_on_loss, brake) are ignored by an old F3, the new
+  state words (uid, fw_version) are just missing from its rotation, so it
+  reports version 0. A v207 F3 lacks the F3 brake on F4 loss, the current
+  offset drift tracking and the power-stage limits of the e-brake work.
+- Fix:     `hv_update` (an old F3 bootloader may reject it at CRC_CHECK, see
+  2026-10-29; then the DFU route), or `hv0.fw_check = 0` to run the old HV
+  firmware knowingly. No old LV firmware is needed for an old HV board.
+
 ## 2026-11-05  fanuc_tw: driver for FANUC 2-wire pulsecoders (βiA128)
 - Area:    `src/comps/fanuc_tw.c`, `shared/fanuc_tw.c`, `shared/fanuc1p.c` (f1p_frame), `conf/template/fanuc_tw_fb0.txt`
 - Status:  Note

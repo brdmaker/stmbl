@@ -8,7 +8,10 @@
  *
  * Every poll (TIM6, 8 kHz): the request (start 0, 0x00, stop 1 at 2.72
  * Mbit/s) on the Z pair, the transceiver turned around, the reply captured
- * edge by edge; the next poll decodes it. Outputs for fb_switch: pos /
+ * edge by edge; the next poll hands the edge times to rt, which decodes the
+ * newest capture once per rt cycle. The interrupt runs above rt, so it only
+ * sends and copies (decoding there, 8000 times a second, pushed rt over its
+ * period with a motor config: RT_TOO_LONG, 2026-11-05). Outputs for fb_switch: pos /
  * abs_pos (the 24-bit position in the turn), state 3 once the encoder is
  * referenced (frame bit 68 clear), 1 before (incremental: fb_switch phases),
  * 0 with error after max_err bad polls in a row.
@@ -63,6 +66,8 @@ HAL_PIN(sync_er);    // broken or short frames
 HAL_PIN(noreply);
 HAL_PIN(latency_us); // end of the request to the first edge of the reply
 HAL_PIN(edges);
+HAL_PIN(isr_us);     // the poll interrupt (above rt): last / max time
+HAL_PIN(isr_max_us);
 
 // debug: the raw words of the last good frame, and the bits that changed
 HAL_PIN(w0);         // bits 0-7 status, 8-15 position bits 0-7
@@ -116,6 +121,13 @@ typedef struct {
   f1p_frame_t f;
 } f2w_trace_t;
 
+// a capture as the poll interrupt hands it to rt: the edge times only
+#define F2W_RAWN 128
+typedef struct {
+  uint16_t t[F2W_RAWN];
+  int n;
+} f2w_raw_t;
+
 struct fanuc_tw_ctx_t {
   f2w_t d;
   int txn, txn_alt;
@@ -124,14 +136,19 @@ struct fanuc_tw_ctx_t {
   float tim6_hz;
   int started, first, cur_alt;
   uint32_t polls;
+  // the last captures, written by the poll interrupt, decoded by rt
+  f2w_raw_t raw, raw_alt;
+  volatile uint32_t seq, seq_alt;  // captures handed over
+  uint32_t seq_done, seq_alt_done;
+  volatile uint32_t isr_ticks, isr_max_ticks;
   // last frame bits for dump
-  uint8_t bits[F1P_MAX_BITS];
+  uint32_t bits[F1P_PACKED_WORDS];  // packed (f1p_bit_packed)
   int nbits;
   volatile int dump_want, dump_ready;
-  uint8_t dbits[F1P_MAX_BITS];
+  uint32_t dbits[F1P_PACKED_WORDS];
   int dnbits;
   // alternate reply
-  uint8_t abits[F1P_MAX_BITS];
+  uint32_t abits[F1P_PACKED_WORDS];
   int anbits;
   volatile int adump_ready;
   // trace ring
@@ -239,7 +256,14 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 void TIM6_DAC_IRQHandler(void) {
   TIM6->SR = 0;
   if(isr_ctx) {
+    uint32_t t0 = hal_get_systick_value();
     poll(isr_ctx, isr_pins);
+    uint32_t t1 = hal_get_systick_value();  // SysTick counts down
+    uint32_t dt = t0 >= t1 ? t0 - t1 : t0 + hal_get_systick_reload() + 1 - t1;
+    isr_ctx->isr_ticks = dt;
+    if(dt > isr_ctx->isr_max_ticks) {
+      isr_ctx->isr_max_ticks = dt;
+    }
   }
 }
 
@@ -380,8 +404,8 @@ static void set_outputs(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *p
   PIN(chg4)    = d->chg[4];
 }
 
-// the capture of the previous poll
-static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins) {
+// poll interrupt: hand the capture of the previous poll to rt (edge times only)
+static void grab(struct fanuc_tw_ctx_t *ctx) {
   int n = F2W_RXN - FB0_TIM_Z_DMA->NDTR;
   DMA_Cmd(FB0_TIM_Z_DMA, DISABLE);
   FB0_ENC_TIM->CR1 &= ~TIM_CR1_CEN;
@@ -389,28 +413,67 @@ static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins)
   if(!ctx->started) {
     return;
   }
-  const uint16_t *t = (const uint16_t *)rxbuf;
-  int alt           = ctx->cur_alt;
-  int res           = F2W_NOREPLY;
-  f1p_frame_t f;
-  uint8_t *bits = alt ? ctx->abits : ctx->bits;
-  int nb        = 0;
-  if(n >= 4) {
-    float tpb = TIM4_CLK / (float)ctx->br;
-    int span  = (int)((float)(uint16_t)(t[n - 1] - t[0]) / tpb + 1.5f);
-    if(span < F1P_FRAME_BITS) {
-      span = F1P_FRAME_BITS;  // the line holds its level after the last edge
-    }
-    if(span > F1P_MAX_BITS) {
-      span = F1P_MAX_BITS;
-    }
-    nb  = f1p_decode(t, n, tpb, 1, bits, span);
-    res = f1p_frame(bits, nb, &f);
+  f2w_raw_t *r = ctx->cur_alt ? &ctx->raw_alt : &ctx->raw;
+  if(n > F2W_RAWN) {
+    n = F2W_RAWN;
   }
-  if(alt) {
-    ctx->anbits    = nb;
+  for(int i = 0; i < n; i++) {
+    r->t[i] = rxbuf[i];
+  }
+  r->n = n;
+  if(ctx->cur_alt) {
+    ctx->seq_alt++;
+  } else {
+    ctx->seq++;
+  }
+}
+
+// rt: take the newest capture over, with interrupts off (a copy of < 1 us)
+static int take(f2w_raw_t *dst, const f2w_raw_t *src, volatile uint32_t *seq, uint32_t *done) {
+  uint32_t pm = __get_PRIMASK();
+  __disable_irq();
+  int fresh = *seq != *done;
+  if(fresh) {
+    dst->n = src->n;
+    for(int i = 0; i < src->n; i++) {
+      dst->t[i] = src->t[i];
+    }
+    *done = *seq;
+  }
+  __set_PRIMASK(pm);
+  return fresh;
+}
+
+uint32_t hal_get_systick_value(void);
+uint32_t hal_get_systick_reload(void);
+uint32_t hal_get_systick_freq(void);
+
+static int decode(struct fanuc_tw_ctx_t *ctx, const f2w_raw_t *r, uint32_t *bits, int *nbits, f1p_frame_t *f) {
+  int n  = r->n;
+  *nbits = 0;
+  if(n < 4) {
+    return F2W_NOREPLY;
+  }
+  float tpb = TIM4_CLK / (float)ctx->br;
+  int span  = (int)((float)(uint16_t)(r->t[n - 1] - r->t[0]) / tpb + 1.5f);
+  if(span < F1P_FRAME_BITS) {
+    span = F1P_FRAME_BITS;  // the line holds its level after the last edge
+  }
+  if(span > F1P_MAX_BITS) {
+    span = F1P_MAX_BITS;
+  }
+  *nbits = f1p_decode_packed(r->t, n, tpb, 1, bits, span);
+  return f1p_frame_packed(bits, *nbits, f);
+}
+
+// rt: decode the newest capture (and an alternate reply)
+static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins) {
+  static f2w_raw_t r;
+  f1p_frame_t f;
+  if(take(&r, &ctx->raw_alt, &ctx->seq_alt, &ctx->seq_alt_done)) {
+    int res        = decode(ctx, &r, ctx->abits, &ctx->anbits, &f);
     PIN(alt_res)   = res;
-    PIN(alt_edges) = n;
+    PIN(alt_edges) = r.n;
     if(res != F2W_NOREPLY) {
       PIN(alt_count)++;
       PIN(alt_w0) = f.w[0];
@@ -419,12 +482,15 @@ static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins)
       PIN(alt_w3) = f.w[3];
       PIN(alt_w4) = f.w[4];
     }
-    return;  // the position stays from the last normal poll
   }
-  ctx->nbits = nb;
-  PIN(edges) = n;
-  if(n >= 1) {
-    PIN(latency_us) = (float)t[0] / (TIM4_CLK / 1e6f);
+  if(!take(&r, &ctx->raw, &ctx->seq, &ctx->seq_done)) {
+    return;  // no new capture since the last rt (polling stopped)
+  }
+  int res    = decode(ctx, &r, ctx->bits, &ctx->nbits, &f);
+  int nb     = ctx->nbits;
+  PIN(edges) = r.n;
+  if(r.n >= 1) {
+    PIN(latency_us) = (float)r.t[0] / (TIM4_CLK / 1e6f);
   }
   f2w_poll(&ctx->d, res, &f);
   if(res == F1P_OK && PIN(trace) > 0.0f) {
@@ -456,8 +522,8 @@ static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins)
     PIN(fld) = v;
   }
   if(ctx->dump_want && !ctx->dump_ready) {
-    for(int i = 0; i < nb; i++) {
-      ctx->dbits[i] = bits[i];
+    for(int i = 0; i < F1P_PACKED_WORDS; i++) {
+      ctx->dbits[i] = ctx->bits[i];
     }
     ctx->dnbits     = nb;
     ctx->dump_want  = 0;
@@ -467,7 +533,7 @@ static void collect(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins)
 }
 
 static void poll(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins) {
-  collect(ctx, pins);
+  grab(ctx);
   if(PIN(enable) <= 0.0f) {
     FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
     zpin_af();
@@ -521,6 +587,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     f2w_chg_reset(&ctx->d);
   }
   tim6_set(ctx, PIN(poll_hz) > 0.0f ? PIN(poll_hz) : 8000.0f);
+  collect(ctx, pins);
+  PIN(isr_us)     = (float)ctx->isr_ticks * 1e6f / (float)hal_get_systick_freq();
+  PIN(isr_max_us) = (float)ctx->isr_max_ticks * 1e6f / (float)hal_get_systick_freq();
 }
 
 static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -529,10 +598,10 @@ static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
 }
 
-static void print_bits(const char *tag, const uint8_t *b, int n) {
+static void print_bits(const char *tag, const uint32_t *b, int n) {
   printf("%s n=%d ", tag, n);
   for(int i = 0; i < n; i++) {
-    putchar(b[i] ? '1' : '0');
+    putchar(f1p_bit_packed(b, i) ? '1' : '0');
     if(i % 19 == 0 || i % 19 == 16) {  // the start bit | 16 data bits | 3 sync bits
       putchar(' ');
     }
@@ -548,7 +617,7 @@ static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
   if(ctx->dump_ready) {
     f1p_frame_t f;
-    int r = f1p_frame(ctx->dbits, ctx->dnbits, &f);
+    int r = f1p_frame_packed(ctx->dbits, ctx->dnbits, &f);
     print_bits("f2w", ctx->dbits, ctx->dnbits);
     printf("f2w res=%d pos=%lu turns=%d com=%u w0=%04x w1=%04x w2=%04x w3=%04x w4=%04x crc=%u/%u\n", r,
            (unsigned long)f.pos, f.turns, f.com, f.w[0], f.w[1], f.w[2], f.w[3], f.w[4], f.crc, f.crc_rx);

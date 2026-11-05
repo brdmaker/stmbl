@@ -84,6 +84,18 @@ int main(void) {
     int res2 = f1p_frame(d, nb, &g);
     CHECK(res2 == rec[i].res && g.pos == f.pos && g.turns == f.turns && g.com == f.com,
           "%s: from edges: result %d pos %u", rec[i].name, res2, (unsigned)g.pos);
+    // the packed decoder (the driver's) gives the same, bit for bit
+    uint32_t pw[F1P_PACKED_WORDS];
+    int pn = f1p_decode_packed(t, ne, 84e6f / 2721088.0f, 1, pw, F1P_FRAME_BITS);
+    int same = pn == nb;
+    for(int k = 0; same && k < nb; k++) {
+      same = f1p_bit_packed(pw, k) == d[k];
+    }
+    CHECK(same, "%s: packed bits equal the byte decoder's (%d / %d bits)", rec[i].name, pn, nb);
+    f1p_frame_t h;
+    int res3 = f1p_frame_packed(pw, pn, &h);
+    CHECK(res3 == res2 && memcmp(h.w, g.w, sizeof(h.w)) == 0 && h.crc == g.crc && h.crc_rx == g.crc_rx,
+          "%s: packed frame result %d, want %d", rec[i].name, res3, res2);
   }
 
   // what was seen on the bench, checked over the recorded frames
@@ -95,6 +107,29 @@ int main(void) {
     // commutation = 1024 * pos / 2^24 within a count once referenced
     int e = (int)f.com - (int)((f.pos * 1024ull >> 24) & 255);
     CHECK(abs(e) <= 1, "commutation from the position: off by %d", e);
+  }
+
+  // packed decoder on random frames, timer wrap and jitter: equal to the byte decoder
+  for(int trial = 0; trial < 500; trial++) {
+    uint8_t fr[F1P_FRAME_BITS];
+    for(int k = 0; k < F1P_FRAME_BITS; k++) {
+      fr[k] = rand() & 1;
+    }
+    fr[0] = 0;
+    uint16_t t[200];
+    int ne = edges_of(fr, F1P_FRAME_BITS, 84e6f / 2721088.0f, 5.0f, 65000u + trial * 13, t);
+    uint8_t d[F1P_MAX_BITS];
+    uint32_t pw[F1P_PACKED_WORDS];
+    int nb   = f1p_decode(t, ne, 84e6f / 2721088.0f, 1, d, F1P_FRAME_BITS + trial % 40);
+    int pn   = f1p_decode_packed(t, ne, 84e6f / 2721088.0f, 1, pw, F1P_FRAME_BITS + trial % 40);
+    int same = pn == nb;
+    for(int k = 0; same && k < nb; k++) {
+      same = f1p_bit_packed(pw, k) == d[k];
+    }
+    f1p_frame_t a, c;
+    same = same && f1p_frame(d, nb, &a) == f1p_frame_packed(pw, pn, &c) && memcmp(a.w, c.w, sizeof(a.w)) == 0 &&
+           a.crc == c.crc && a.crc_rx == c.crc_rx;
+    CHECK(same, "random frame %d: packed differs", trial);
   }
 
   // a broken sync is caught, as is a short frame
