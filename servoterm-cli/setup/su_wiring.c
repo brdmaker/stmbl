@@ -20,6 +20,8 @@ static const column_t feedback[] = {
     {"UVW", {"U+", "U-", "V+", "W-", "W+", "V-", "VCC", "GND"}},
     {"Mitsubishi", {"", "", "", "2", "1", "", "VCC", "GND"}},
     {"Sanyo-Denki", {"", "", "", "Blue", "Brown", "", "Red", "Black"}},
+    // FANUC 2-wire pulsecoder: the motor connector's pins (docs/fanuc_tw.md); jumper on 5 V
+    {"FANUC-2wire", {"", "", "", "*RD (5)", "RD (6)", "", "+5V (8,9)", "0V (7,10)"}},
     {"Yaskawa", {"", "", "", "6", "5", "", "1", "2"}},
     {"Omron", {"", "", "", "4", "7", "", "6", "3"}},
     // serial protocols

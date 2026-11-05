@@ -16,6 +16,8 @@ const su_fb_type_t su_fb_types[] = {
      "Mitsubishi", 0},
     {"sanyo", "Sanyo Denki serial absolute encoder", "encs_fb0", NULL, "encs0.pos", SU_FB_RES_FIXED,
      "Sanyo-Denki", 0},
+    {"fanuc_tw", "FANUC 2-wire serial pulsecoder (betaiA128 etc., 1 pair RD/*RD)", "fanuc_tw_fb0", NULL,
+     "fanuc_tw0.pos", SU_FB_RES_FIXED, "FANUC-2wire", 0},
 };
 const int su_fb_ntypes = sizeof(su_fb_types) / sizeof(su_fb_types[0]);
 

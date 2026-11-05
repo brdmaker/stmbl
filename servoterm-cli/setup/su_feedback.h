@@ -10,7 +10,8 @@
  *    the encoder's counts per revolution, and their sign is the counting
  *    direction. No index: the user enters the line count.
  *  - resolver: the pole count is asked (the nameplate says "2 pole", ...).
- *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki): fixed
+ *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki, FANUC
+ *    2-wire): fixed
  *    by the protocol.
  */
 #pragma once
