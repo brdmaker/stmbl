@@ -16,6 +16,20 @@ Entry format:
 
 ---
 
+## 2026-11-05  Wizard: "the drive refused idm0.inertia = ..." in the mechanical step
+- Area:    `servoterm-cli/setup/su_steps.c` (step_mechanical), `su_link.c` (su_link_set)
+- Status:  Open
+- Symptom: FANUC betaiS 4/4000 on the desk drive: the set of idm's starting
+  inertia (3.1e-5) got no "OK idm0.inertia" within 2 s; idm0.min_pos and
+  max_pos just before were accepted. The step went on from idm's default
+  (2e-4) and measured j = 5.5e-4 in both runs, so no harm here; on a motor
+  below 2e-4 the high start makes the gains too high (the reason the set
+  exists).
+- Cause:   Not known. Like the SEW run's "refused fault0.en = 0" (2026-10-29),
+  an answer the link missed rather than a real refusal?
+- Fix:     Open: retry the set once, or read the pin back, and abort the
+  step if it isn't taken.
+
 ## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt)
 - Area:    `src/comps/fanuc_tw.c`, `shared/fanuc1p.c`
 - Status:  Fixed
