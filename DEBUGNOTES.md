@@ -41,7 +41,7 @@ Entry format:
 - Cause:   Not known. Like the SEW run's "refused fault0.en = 0" (2026-10-29),
   an answer the link missed rather than a real refusal?
 - Fix:     Open: retry the set once, or read the pin back, and abort the
-  step if it isn't taken.
+  step if it isn't taken. (The second betaiS 4/4000, same step: taken.)
 
 ## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt, then id_mot)
 - Area:    `src/comps/fanuc_tw.c`, `shared/fanuc1p.c`

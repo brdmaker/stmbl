@@ -10,6 +10,8 @@ link fanuc_tw_fb0
 # 2026-11-05, 201 V bench DC bus, motor uncoupled (a bellows coupling on
 # the shaft): r, l, pole pairs, offset, psi (id_pmsm), j, d, f, o (id_mot),
 # the gains (id_pid). Torque constant 0.696 Nm/A rms (nameplate ~0.75).
+# conf0.mot_fb_offset belongs to this motor's encoder mounting: the
+# second motor (fanuc_bis4-4000-2.txt) has its own.
 conf0.r = 1.77721
 conf0.l = 0.00211487
 conf0.polecount = 4
