@@ -3955,6 +3955,12 @@ Entry format:
   side beside P11, BOOT0 to 3.3 V) shorted while an isolated 24..48 V powers
   the HV input, then make f3_all_btburn. Afterwards the F3 ran master (hv=1).
   Drives with an F3 bootloader older than ~v0.9.18-207 may need this.
+  Again 2026-11-05 on the desk drive 205735A45631 (HV board v207): erase
+  acked after ~11 s, then SEND_APP got no write acks (0.4 s, FLASH_FAILED);
+  a second try the same, a third stopped at SEND_TO_BOOTLOADER. The F3 sits
+  in its bootloader (fault 9, hv0 values frozen, junk on the console from
+  the packets' buf byte). Not the fanuc_tw interrupt: the same with
+  `fanuc_tw0.enable = 0`. Recovery: the DFU route above.
 
 ## 2026-10-30  hardware/kigen: headless pcbnew 7 gotchas (route step)
 - Area:    hardware/kigen (route.py, place.py)
