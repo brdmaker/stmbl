@@ -125,6 +125,9 @@ int f1p_frame_bit(const f1p_frame_t *f, int bit) {
 }
 
 int f1p_decode_packed(const uint16_t *t, int n, float ticks_per_bit, int idle, uint32_t *w, int maxbits) {
+  // each edge toggles the line: mark the bit it starts (counted from the
+  // first edge, so rounding doesn't add up), then the level of every bit is
+  // idle ^ the parity of the marks up to it (a prefix XOR, word by word)
   for(int i = 0; i < F1P_PACKED_WORDS; i++) {
     w[i] = 0;
   }
@@ -135,36 +138,35 @@ int f1p_decode_packed(const uint16_t *t, int n, float ticks_per_bit, int idle, u
     maxbits = F1P_MAX_BITS;
   }
   uint32_t inv = (uint32_t)(65536.0f / ticks_per_bit + 0.5f);  // bits per tick, 16.16
-  int level    = idle ? 0 : 1;                                  // level after the first edge
-  int nb       = 0;
-  for(int i = 1; i <= n && nb < maxbits; i++) {
-    int k;
-    if(i < n) {
-      k = (int)(((uint32_t)(uint16_t)(t[i] - t[i - 1]) * inv + 32768u) >> 16);
-      if(k < 1) {
-        k = 1;
-      }
-    } else {
-      k = maxbits;  // after the last edge the line holds its level
+  int last     = -1;
+  for(int i = 0; i < n; i++) {
+    int b = (int)(((uint32_t)(uint16_t)(t[i] - t[0]) * inv + 32768u) >> 16);
+    if(b <= last) {
+      b = last + 1;  // at least a bit between edges, as f1p_decode
     }
-    if(k > maxbits - nb) {
-      k = maxbits - nb;
+    if(b >= maxbits) {
+      break;
     }
-    if(level) {
-      int b = nb, c = k;
-      while(c > 0) {
-        int o    = b & 31;
-        int m    = c < 32 - o ? c : 32 - o;
-        uint32_t mask = m == 32 ? 0xffffffffu : ((1u << m) - 1u);
-        w[b >> 5] |= mask << o;
-        b += m;
-        c -= m;
-      }
-    }
-    nb += k;
-    level = !level;
+    w[b >> 5] ^= 1u << (b & 31);
+    last = b;
   }
-  return nb;
+  uint32_t carry = idle ? 0xffffffffu : 0;  // the level before bit 0 of the word
+  int nw         = (maxbits + 31) >> 5;
+  for(int k = 0; k < nw; k++) {
+    uint32_t x = w[k];
+    x ^= x << 1;
+    x ^= x << 2;
+    x ^= x << 4;
+    x ^= x << 8;
+    x ^= x << 16;  // bit j: the parity of the marks 0..j in this word
+    x ^= carry;
+    w[k]  = x;
+    carry = (x & 0x80000000u) ? 0xffffffffu : 0;
+  }
+  if(maxbits & 31) {
+    w[nw - 1] &= (1u << (maxbits & 31)) - 1u;  // nothing past maxbits
+  }
+  return maxbits;
 }
 
 // CRC-5 0x0B over 8 bits MSB first: r = crc5_tab[(r << 3) ^ byte]

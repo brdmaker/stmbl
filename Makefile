@@ -324,6 +324,9 @@ lss: $(TARGET).lss
 sym: $(TARGET).sym
 
 $(OBJDIR)/shared/commands.o: inc/commandslist.h
+# the FANUC 2-wire decoder runs every rt cycle (fanuc_tw): -O3, the firmware's
+# -O1 made it ~35 us of the 200 us rt (RT_TOO_LONG with id_mot, 2026-11-05)
+$(OBJDIR)/shared/fanuc1p.o $(OBJDIR)/shared/fanuc_tw.o $(OBJDIR)/src/comps/fanuc_tw.o: OPT = -O3
 
 inc/commandslist.h: tools/create_cmd.py $(SOURCES) Makefile
 	@echo Generating commands list

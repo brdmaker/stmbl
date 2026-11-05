@@ -43,7 +43,8 @@ HAL_COMP(fanuc_tw);
 
 // link
 HAL_PIN(enable);     // 0: stop polling, line released (default 1)
-HAL_PIN(poll_hz);    // poll rate (default 8000)
+HAL_PIN(poll_hz);    // 0 (default): wake the encoder at 8 kHz (TIM6), then poll once per rt cycle; > 0: TIM6 at this rate
+HAL_PIN(rt_poll);    // out: 1 polling from rt, 0 from TIM6 (waking)
 HAL_PIN(bitrate);    // bit/s (default 2721088)
 HAL_PIN(req);        // request, 10 bits LSB first (default 512: start 0, 0x00, stop 1)
 HAL_PIN(max_err);    // bad polls in a row before error (default 4)
@@ -135,6 +136,8 @@ struct fanuc_tw_ctx_t {
   uint16_t arr;
   float tim6_hz;
   int started, first, cur_alt;
+  int rt_poll;       // polling from rt (the encoder is awake)
+  uint32_t ok_wake;  // d.ok when it was last not answering
   uint32_t polls;
   // the last captures, written by the poll interrupt, decoded by rt
   f2w_raw_t raw, raw_alt;
@@ -176,7 +179,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fanuc_tw_ctx_t *ctx      = (struct fanuc_tw_ctx_t *)ctx_ptr;
   struct fanuc_tw_pin_ctx_t *pins = (struct fanuc_tw_pin_ctx_t *)pin_ptr;
   PIN(enable)    = 1;
-  PIN(poll_hz)   = 8000;
+  PIN(poll_hz)   = 0;
   PIN(bitrate)   = 2721088;
   PIN(req)       = 512;
   PIN(max_err)   = 4;
@@ -378,12 +381,13 @@ static void transmit_and_listen(struct fanuc_tw_ctx_t *ctx, int alt) {
 static void set_outputs(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *pins) {
   f2w_t *d = &ctx->d;
   if(d->have) {
-    float p      = (float)d->f.pos * (2.0f * M_PI / 16777216.0f);
-    PIN(pos)     = mod(p);
+    float p      = (float)d->f.pos * (2.0f * M_PI / 16777216.0f);  // 0 .. 2pi
+    PIN(pos)     = p > M_PI ? p - 2.0f * M_PI : p;                   // -pi .. pi
     PIN(abs_pos) = PIN(pos);
     PIN(turns)   = d->f.turns;
     PIN(mpos)    = (float)d->f.turns * 2.0f * M_PI + p;
-    PIN(com_pos) = mod((float)d->f.com * (2.0f * M_PI / 256.0f));
+    float c      = (float)d->f.com * (2.0f * M_PI / 256.0f);
+    PIN(com_pos) = c > M_PI ? c - 2.0f * M_PI : c;
     PIN(w0)      = d->f.w[0];
     PIN(w1)      = d->f.w[1];
     PIN(w2)      = d->f.w[2];
@@ -586,7 +590,26 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(RISING_EDGE(PIN(chg_reset))) {
     f2w_chg_reset(&ctx->d);
   }
-  tim6_set(ctx, PIN(poll_hz) > 0.0f ? PIN(poll_hz) : 8000.0f);
+  // a cold encoder only starts answering when polled at ~8 kHz (bench
+  // 2026-11-05: none at 5 kHz from power-up); once it answers, 4..10 kHz work
+  if(ctx->d.bad_run > 40) {
+    ctx->rt_poll = 0;  // lost it: wake it again
+  } else if(ctx->d.ok > ctx->ok_wake + 2000) {
+    ctx->rt_poll = 1;  // answering steadily
+  }
+  if(!ctx->rt_poll && ctx->d.bad_run > 0) {
+    ctx->ok_wake = ctx->d.ok;  // count 2000 good frames in a row from here
+  }
+  PIN(rt_poll) = PIN(poll_hz) <= 0.0f && ctx->rt_poll;
+  if(PIN(poll_hz) > 0.0f || !ctx->rt_poll) {
+    tim6_set(ctx, PIN(poll_hz) > 0.0f ? PIN(poll_hz) : 8000.0f);  // TIM6 polls
+  } else {
+    // once per rt cycle: hand over the last reply and send the next request
+    // (the encoder answered 4..10 kHz on the bench; the interrupt at 8 kHz
+    // cost 10 us 1.6 times per rt period, RT_TOO_LONG with id_mot)
+    tim6_set(ctx, 0.0f);
+    poll(ctx, pins);
+  }
   collect(ctx, pins);
   PIN(isr_us)     = (float)ctx->isr_ticks * 1e6f / (float)hal_get_systick_freq();
   PIN(isr_max_us) = (float)ctx->isr_max_ticks * 1e6f / (float)hal_get_systick_freq();

@@ -43,7 +43,7 @@ Entry format:
 - Fix:     Open: retry the set once, or read the pin back, and abort the
   step if it isn't taken.
 
-## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt)
+## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt, then id_mot)
 - Area:    `src/comps/fanuc_tw.c`, `shared/fanuc1p.c`
 - Status:  Fixed
 - Symptom: The setup wizard's first config (pid, pmsm, fanuc_tw_fb0) on the
@@ -60,6 +60,16 @@ Entry format:
   Test: host/tests/test_fanuc_tw.c checks the packed decoder equals the
   byte one on the recorded and 500 random frames; the timing itself has no
   host test (it needs the F4): check `hal` rt max with a motor config.
+  Again with id_mot loaded (wizard, the second betaiS 4/4000): rt 198 us,
+  stopped mid-measurement (the motor just stood). Cycle counts (DWT): edges
+  to bits 2250 cycles, the outputs' mod() 840. Now: the edges become bits as
+  toggle marks + a prefix XOR (1400 cycles), no mod(), -O3 for the decoder
+  files, and the driver polls once per rt cycle from rt once the encoder
+  answers (a cold one only wakes at ~8 kHz: TIM6 until 2000 good frames,
+  and back to it after 40 bad polls). rt 140 us average. Tried and dropped:
+  the turnaround from the TX DMA's complete interrupt (no busy wait) gave
+  20 % sync errors, with any priority: the request must go out with
+  interrupts off (something writes GPIOD meanwhile? not found).
 
 ## 2026-11-05  An HV board on v0.9.18-207 talks to master, only the version gate stops it
 - Area:    `shared/common.h` (the F4/F3 packets), `src/comps/hv.c`

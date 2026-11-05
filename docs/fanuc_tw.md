@@ -35,9 +35,13 @@ DMA streams. `fanuc_tw` polls from TIM6 (`fanuci` uses TIM7).
 
 ## The link and the frame
 
-Every poll (8 kHz, TIM6 interrupt): the driver on, the request `start 0,
-0x00, stop 1` at 2.72 Mbit/s (30 µs of idle before the very first one), the
-driver off, the reply captured edge by edge; the next poll decodes it. The
+Every poll: the driver on, the request `start 0, 0x00, stop 1` at 2.72
+Mbit/s with interrupts off (30 µs of idle before the very first one), the
+driver off, the reply captured edge by edge; rt decodes it. A cold encoder
+only starts answering when polled at ~8 kHz, so the driver polls from TIM6
+at 8 kHz until 2000 good frames in a row, then once per rt cycle (5 kHz)
+from rt (`rt_poll` 1); after 40 bad polls it goes back to 8 kHz. `poll_hz`
+> 0 keeps TIM6 at that rate. The decoder costs ~20 µs of rt. The
 encoder answers 8.5 µs after the request with 100 bits at the same rate:
 
 | frame bits | word | field |
@@ -84,7 +88,7 @@ persist); on the bench 1 frame in ~900 had a flipped bit, caught by the CRC.
 
 ## Pins
 
-**Link:** `enable` (1), `poll_hz` (8000), `bitrate` (2721088), `req` (512),
+**Link:** `enable` (1), `poll_hz` (0: wake at 8 kHz, then rt; `rt_poll` shows which), `bitrate` (2721088), `req` (512),
 `max_err` (4), `nref_bit` (68; −1: ignore).
 
 **Feedback:** `pos`, `abs_pos` (rad, −π…π), `mpos` (turns·2π + position),
