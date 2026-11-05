@@ -46,6 +46,7 @@ host/test_adc_sum
 host/m4/*.elf
 host/m4/m4.ld
 host/test_fanuc1p
+host/test_fanuc_tw
 brdstepper/obj
 vibsensor/obj
 host/servoterm

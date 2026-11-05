@@ -16,6 +16,21 @@ Entry format:
 
 ---
 
+## 2026-11-05  fanuc_tw: driver for FANUC 2-wire pulsecoders (βiA128)
+- Area:    `src/comps/fanuc_tw.c`, `shared/fanuc_tw.c`, `shared/fanuc1p.c` (f1p_frame), `conf/template/fanuc_tw_fb0.txt`
+- Status:  Note
+- Symptom: —
+- Cause:   —
+- Fix:     A new comp (not a change to `encf` or the `fanuci` probe) for the
+  frame found on 2026-11-04: 24-bit position, turns, CRC-5 0x0B, state 3 /
+  1 by frame bit 68 (not referenced), error after `max_err` bad polls.
+  Debug pins for the unknown bits (words, changed bits, trace, a field by
+  bit, alternate request codes). docs/fanuc_tw.md. Test:
+  host/tests/test_fanuc_tw.c on recorded frames (incl. a CRC error and the
+  not-referenced frame). Bench 2026-11-05, desk drive 205735A45631: state 3,
+  ~200k frames, 0 CRC / sync errors, 1 µs rt. Names: comps can't have
+  digits, hence `fanuc_tw` (two-wire).
+
 ## 2026-11-02  scopedump over the smart-serial console: watchdog reset
 - Area:    `src/syscalls.c` (`_write`), `shared/sscon.c` (`sscon_out`)
 - Status:  Fixed

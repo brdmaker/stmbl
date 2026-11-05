@@ -35,3 +35,36 @@ uint32_t f1p_field(const uint8_t *bits, int nbits, int off, int len, int lsb_fir
 
 /* The bits as '0'/'1', a space every group bits (0: none); returns length. */
 int f1p_format(char *out, int max, const uint8_t *bits, int nbits, int group);
+
+/* The βiA128 1-pair frame (bench 2026-11-04, brdmot probe-log.md): 100 bits
+ * at 2.72 Mbit/s, bit 0 the start bit (0), then five 16-bit words LSB first
+ * at bits 1+19k .. 16+19k, each followed by the sync 1 1 0 (the last one by
+ * 1 1 only), then a CRC-5 (x^5+x^3+x+1, init 0, over bits 0-94, MSB first)
+ * at 95-99.
+ *   w0: bits 0-7 status (10100000 seen), bits 8-15 position bits 0-7
+ *   w1: position bits 8-23 (24 bit per turn)
+ *   w2: turns, 16 bit two's complement
+ *   w3: bits 0-7 commutation (256 per electrical turn), 8-15 status (bit 10,
+ *       frame bit 68, set after the encoder lost its backup: not referenced)
+ *   w4: unknown, 0x804B seen */
+#define F1P_FRAME_BITS 100
+#define F1P_CRC_POLY 0x0B
+
+typedef struct {
+  uint16_t w[5];
+  uint32_t pos;   // 0 .. 2^24-1
+  int16_t turns;
+  uint8_t com;    // 0 .. 255 per electrical turn
+  uint8_t crc, crc_rx;
+} f1p_frame_t;
+
+enum { F1P_OK = 0, F1P_SHORT = -1, F1P_SYNC = -2, F1P_CRC = -3 };
+
+/* CRC-5 of n bits, MSB first, poly F1P_CRC_POLY, init 0 */
+uint8_t f1p_crc5(const uint8_t *bits, int n);
+/* Decode a frame from received bits (bit 0 = start bit). The words and the
+ * CRCs are filled in whatever the result; F1P_OK only if the start bit, every
+ * sync and the CRC are right. */
+int f1p_frame(const uint8_t *bits, int nbits, f1p_frame_t *f);
+/* frame bit (0..99) as stored in the words: -1 if it isn't a word bit */
+int f1p_frame_bit(const f1p_frame_t *f, int bit);

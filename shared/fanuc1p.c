@@ -72,3 +72,54 @@ int f1p_format(char *out, int max, const uint8_t *bits, int nbits, int group) {
   }
   return n;
 }
+
+uint8_t f1p_crc5(const uint8_t *bits, int n) {
+  uint8_t r = 0;
+  for(int i = 0; i < n; i++) {
+    int fb = ((r >> 4) ^ bits[i]) & 1;
+    r      = (r << 1) & 31;
+    if(fb) {
+      r ^= F1P_CRC_POLY;
+    }
+  }
+  return r;
+}
+
+int f1p_frame(const uint8_t *bits, int nbits, f1p_frame_t *f) {
+  for(int k = 0; k < 5; k++) {
+    f->w[k] = 0;
+    for(int i = 0; i < 16; i++) {
+      int b = 1 + 19 * k + i;
+      f->w[k] |= (uint16_t)((b < nbits ? bits[b] & 1 : 0) << i);
+    }
+  }
+  f->pos   = (uint32_t)(f->w[0] >> 8) | ((uint32_t)f->w[1] << 8);
+  f->turns = (int16_t)f->w[2];
+  f->com   = (uint8_t)(f->w[3] & 0xff);
+  if(nbits < F1P_FRAME_BITS) {
+    f->crc = f->crc_rx = 0;
+    return F1P_SHORT;
+  }
+  f->crc    = f1p_crc5(bits, 95);
+  f->crc_rx = 0;
+  for(int i = 0; i < 5; i++) {
+    f->crc_rx = (uint8_t)((f->crc_rx << 1) | (bits[95 + i] & 1));
+  }
+  int sync = bits[0] == 0;
+  for(int k = 0; k < 5; k++) {
+    int s = 17 + 19 * k;
+    sync  = sync && bits[s] == 1 && bits[s + 1] == 1 && (k == 4 || bits[s + 2] == 0);
+  }
+  if(!sync) {
+    return F1P_SYNC;
+  }
+  return f->crc == f->crc_rx ? F1P_OK : F1P_CRC;
+}
+
+int f1p_frame_bit(const f1p_frame_t *f, int bit) {
+  int b = bit - 1;
+  if(b < 0 || b % 19 >= 16 || b / 19 > 4) {
+    return -1;
+  }
+  return (f->w[b / 19] >> (b % 19)) & 1;
+}
