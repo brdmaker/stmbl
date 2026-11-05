@@ -16,6 +16,19 @@ Entry format:
 
 ---
 
+## 2026-11-05  The HV board's scope stream fills the LV console (900 bytes/s)
+- Area:    `stm32f303/src/usbd_cdc_if.c` (cdc_is_connected), `shared/comps/term.c`, `src/comps/hv.c` (nrt prints hv_rx_buf)
+- Status:  Open
+- Symptom: A raw reader on /dev/ttyACM0 (the fanuc_tw soak script) gets
+  `FF 80 80 80 80 80 80 80 80` a hundred times a second, also idle.
+- Cause:   On the F3 cdc_is_connected() returns 1, so its term0 streams its
+  8 waves (send_step 50) into tx_buf; ls sends them one byte per packet to
+  the F4, whose hv0 prints them on its console. servoterm-cli takes
+  0xFF-framed bytes as scope data and hides them, so its users never see it.
+- Fix:     Open: the F3's term should stream only when asked (send_step 0 by
+  default on the F3, or a connected flag from the F4). Until then raw
+  readers must drop 0xFF + 8-byte frames (hwtest/soak runs/fanuc-desk-*).
+
 ## 2026-11-05  Wizard: "the drive refused idm0.inertia = ..." in the mechanical step
 - Area:    `servoterm-cli/setup/su_steps.c` (step_mechanical), `su_link.c` (su_link_set)
 - Status:  Open

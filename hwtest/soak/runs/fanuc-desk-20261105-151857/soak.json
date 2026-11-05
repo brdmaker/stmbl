@@ -1,0 +1,20 @@
+{
+ "max_err_move": 0.027836,
+ "max_err_rest": 0.002668,
+ "max_vel_err": 4.443735,
+ "max_cur": 1.993358,
+ "samples": 2417,
+ "moves": 704,
+ "max_iit": 32.972229,
+ "max_hv_temp": 58.354225,
+ "fault": 0,
+ "silent": 0,
+ "reason": "time",
+ "duration_s": 601.0,
+ "enc_ok": 0,
+ "enc_crc_er": 0.0,
+ "enc_sync_er": 0.0,
+ "enc_noreply": 0.0,
+ "end_fault": 0.0,
+ "end_state": 0.0
+}
