@@ -22,8 +22,8 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       (identified 1.31 vs nameplate 10.4 Nm/A), already before 2026-10-29.
 - [ ] **FANUC βiA128 (1-pair) feedback driver:** `fanuc_tw` (docs/fanuc_tw.md) runs both
       βiS 4/4000 in closed loop (setup wizard, `conf/fanuc_bis4-4000.txt`, `-2.txt`, 2026-11-05).
-      Still to do: the motor temperature and the other status bits (w4, bits
-      71-73), whether the position jumps at the reference after a long outage,
+      Still to do: the motor temperature (battery alarm found: frame bit 6) and
+      the other status bits (w4, bits 71-73), whether the position jumps at the reference after a long outage,
       the βiS 12/2000, the wizard's idm0.inertia set (DEBUGNOTES). The frame is decoded
       (DEBUGNOTES 2026-11-03, brdmot probe-log.md). Next: decode it in
       `shared/fanuc1p.c` (24-bit position, turns, CRC-5 0x0B, commutation

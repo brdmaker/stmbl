@@ -59,6 +59,7 @@ HAL_PIN(com_pos);    // rad, the encoder's own commutation field (256 per electr
 HAL_PIN(state);      // 0 none / error, 1 not referenced (incremental), 3 referenced (absolute)
 HAL_PIN(error);
 HAL_PIN(nref);       // the not-referenced bit
+HAL_PIN(bat_fail);   // the battery alarm (frame bit 6): battery missing or low, the position is lost at power-off
 
 // counters
 HAL_PIN(ok);
@@ -397,6 +398,7 @@ static void set_outputs(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *p
   PIN(state)   = d->state;
   PIN(error)   = d->error;
   PIN(nref)    = d->nref;
+  PIN(bat_fail) = d->bat_fail;
   PIN(ok)      = d->ok;
   PIN(crc_er)  = d->crc_er;
   PIN(sync_er) = d->sync_er;

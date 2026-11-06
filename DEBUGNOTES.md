@@ -16,6 +16,20 @@ Entry format:
 
 ---
 
+## 2026-11-06  FANUC 2-wire frame: bit 6 is the battery alarm
+- Area:    `shared/fanuc_tw.c` (F2W_BAT_BIT), `src/comps/fanuc_tw.c` (bat_fail)
+- Status:  Note
+- Symptom: —
+- Cause:   Bench, desk drive, betaiS 4/4000 #2 after a night on the battery
+  alone (referenced, turns kept): pulling the battery with the encoder
+  powered set frame bit 6 (w0 bit 5; trace w0 ..05 -> ..25), nothing else;
+  plugging it back bounced it for ~30 ms, then it stayed 0. Position and
+  bit 68 untouched. As 4-wire's "bit 5 = battery fail" plus the start bit.
+  After a night without battery (2026-11-05) it read 0: it reports the
+  battery now; bit 68 reports the position lost.
+- Fix:     Pin `fanuc_tw0.bat_fail` (a warning, no fault). Test:
+  host/tests/test_fanuc_tw.c "battery alarm" (frames from the traced words).
+
 ## 2026-11-05  The HV board's scope stream fills the LV console (900 bytes/s)
 - Area:    `stm32f303/src/usbd_cdc_if.c` (cdc_is_connected), `shared/comps/term.c`, `src/comps/hv.c` (nrt prints hv_rx_buf)
 - Status:  Open

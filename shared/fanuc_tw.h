@@ -8,7 +8,8 @@
 #include <stdint.h>
 #include "fanuc1p.h"
 
-#define F2W_NOREPLY 1  // a poll result besides F1P_OK / F1P_SHORT / F1P_SYNC / F1P_CRC
+#define F2W_NOREPLY 1
+#define F2W_BAT_BIT 6  // battery missing / low: set while it is, clears when it is back (bench 2026-11-06)  // a poll result besides F1P_OK / F1P_SHORT / F1P_SYNC / F1P_CRC
 
 typedef struct {
   // config
@@ -20,6 +21,7 @@ typedef struct {
   f1p_frame_t f;
   int have;      // a good frame since start
   int nref;      // the not-referenced bit of the last good frame
+  int bat_fail;  // the battery alarm (frame bit 6) of the last good frame
   int state;     // 0 none / error, 1 good but not referenced (incremental), 3 good and referenced (absolute)
   int error;
   // debug: bits of each word that changed since the last f2w_chg_reset

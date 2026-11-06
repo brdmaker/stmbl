@@ -47,7 +47,7 @@ encoder answers 8.5 µs after the request with 100 bits at the same rate:
 | frame bits | word | field |
 |---|---|---|
 | 0 | | start bit, 0 |
-| 1–16 | w0 | bits 0–7 status (`10100000` while running), bits 8–15 position bits 0–7 |
+| 1–16 | w0 | bits 0–7 status (`10100000` while running; bit 5 = frame bit 6: **battery alarm**, set while the battery is missing or low, clears when it is back), bits 8–15 position bits 0–7 |
 | 17–19 | | sync `110` |
 | 20–35 | w1 | position bits 8–23: **24 bit per turn** |
 | 36–38 | | sync |
@@ -93,7 +93,7 @@ persist); on the bench 1 frame in ~900 had a flipped bit, caught by the CRC.
 
 **Feedback:** `pos`, `abs_pos` (rad, −π…π), `mpos` (turns·2π + position),
 `turns`, `com_pos` (the encoder's commutation field, electrical rad),
-`state`, `error`, `nref`.
+`state`, `error`, `nref`, `bat_fail` (the battery alarm: a warning, the drive runs on; the position is lost at the next power-off).
 
 **Counters:** `ok`, `crc_er`, `sync_er`, `noreply`, `latency_us`, `edges`.
 

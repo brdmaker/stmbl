@@ -22,6 +22,7 @@ void f2w_poll(f2w_t *d, int res, const f1p_frame_t *f) {
     d->ok++;
     d->bad_run = 0;
     d->nref    = d->nref_bit >= 0 && f1p_frame_bit(f, d->nref_bit) == 1;
+    d->bat_fail = f1p_frame_bit(f, F2W_BAT_BIT) == 1;
     d->state   = d->nref ? 1 : 3;
     d->error   = 0;
     return;

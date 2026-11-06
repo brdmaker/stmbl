@@ -180,6 +180,39 @@ int main(void) {
     CHECK(!f2w_status_differs(&a, &c, 0x00ff, 0x0000, 0xffff), "masked out");
   }
 
+  // the battery alarm (frame bit 6, w0 bit 5): words as traced on the bench
+  // with the battery pulled (w0 f225) and back (f205), 2026-11-06
+  {
+    uint16_t ws[2] = {0xf225, 0xf205};
+    for(int k = 0; k < 2; k++) {
+      uint16_t w[5] = {ws[k], 0xc0ee, 0x0028, 0x0020, 0x804b};
+      uint8_t fb[F1P_FRAME_BITS] = {0};
+      for(int j = 0; j < 5; j++) {
+        for(int i = 0; i < 16; i++) {
+          fb[1 + 19 * j + i] = (w[j] >> i) & 1;
+        }
+        fb[17 + 19 * j] = 1;
+        fb[18 + 19 * j] = 1;  // the third sync bit 0 (and none after w4)
+      }
+      uint8_t c = f1p_crc5(fb, 95);
+      for(int i = 0; i < 5; i++) {
+        fb[95 + i] = (c >> (4 - i)) & 1;
+      }
+      f1p_frame_t f;
+      CHECK(f1p_frame(fb, F1P_FRAME_BITS, &f) == F1P_OK, "battery frame %d decodes", k);
+      f2w_t d;
+      f2w_init(&d, 3, 68);
+      f2w_poll(&d, F1P_OK, &f);
+      CHECK(d.bat_fail == (k == 0) && d.state == 3, "battery alarm %d: bat_fail %d, still state 3", k, d.bat_fail);
+    }
+    int n = bits_of(rec[5].bits, b);
+    f1p_frame(b, n, &f);
+    f2w_t d;
+    f2w_init(&d, 3, 68);
+    f2w_poll(&d, F1P_OK, &f);
+    CHECK(d.bat_fail == 0, "after a night without battery the alarm is off again (bit 68 says it)");
+  }
+
   printf("%s test_fanuc_tw: %d/%d passed\n", fails ? "FAIL" : "ok", tests - fails, tests);
   return fails ? 1 : 0;
 }

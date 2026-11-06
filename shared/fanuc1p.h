@@ -41,7 +41,8 @@ int f1p_format(char *out, int max, const uint8_t *bits, int nbits, int group);
  * at bits 1+19k .. 16+19k, each followed by the sync 1 1 0 (the last one by
  * 1 1 only), then a CRC-5 (x^5+x^3+x+1, init 0, over bits 0-94, MSB first)
  * at 95-99.
- *   w0: bits 0-7 status (10100000 seen), bits 8-15 position bits 0-7
+ *   w0: bits 0-7 status (10100000 seen; bit 5, frame bit 6: battery alarm),
+ *       bits 8-15 position bits 0-7
  *   w1: position bits 8-23 (24 bit per turn)
  *   w2: turns, 16 bit two's complement
  *   w3: bits 0-7 commutation (256 per electrical turn), 8-15 status (bit 10,
