@@ -255,6 +255,10 @@ char *su_build_config(const su_state_t *st, int final) {
   if(final && lk && strcmp(lk, "none") != 0) {
     c = su_conf_link(c, lk);
   }
+  if(final && fb && fb->mt_link && lk && strcmp(lk, "sserial") == 0) {  // multi-turn: needs linrev (sserial)
+    c = su_conf_link(c, "mturn");
+    c = su_conf_link(c, fb->mt_link);
+  }
   if(fb && fb->extra) {
     c = su_conf_set(c, "fb_switch0.mot_pos", strchr(fb->extra, '=') + 2, NULL);
   }
@@ -1189,6 +1193,55 @@ static su_result_t step_verify(su_wizard_t *w) {
   return SU_OK;
 }
 
+// a multi-turn absolute encoder (fb->mt_link): with the final config on the
+// drive, mturn has loaded the encoder's turn count, or says why not
+static su_result_t step_absolute(su_wizard_t *w) {
+  const su_fb_type_t *fb = su_fb_find(su_get(w->st, "feedback.type"));
+  if(!fb || !fb->mt_link) {
+    return SU_OK;
+  }
+  const char *lk = su_get(w->st, "link.kind");
+  if(!lk || strcmp(lk, "sserial") != 0) {
+    say(w, SU_MSG_WARN,
+        "%s keeps its turn count, but the drive only passes it on over smart-serial: with this\n"
+        "link the machine has to be homed after every power-up.",
+        fb->name);
+    return SU_OK;
+  }
+  double state = -1.0, rev = 0.0, batt = 0.0;
+  drive_sleep(w, 0.2);
+  if(get(w, "mturn0.state", &state) < 0) {
+    return SU_FAIL;
+  }
+  get(w, "linrev0.rev", &rev);
+  get(w, "mturn0.batt_warn", &batt);
+  su_set_num(w->st, "absolute.state", state);
+  int s = (int)(state + 0.5);
+  if(s == 1) {
+    say(w, SU_MSG_INFO, "Absolute: the drive took the encoder's turn count (%.0f turns) at boot.", rev);
+  } else if(s == 2) {
+    say(w, SU_MSG_WARN,
+        "The encoder's turn count is not valid (battery out, or never referenced): the position is\n"
+        "single-turn only until the machine is referenced again. Fit or check the battery, turn the\n"
+        "shaft past one full turn, reference the machine, then clear (mturn0.clear 0 -> 1).");
+  } else if(s == 3) {
+    say(w, SU_MSG_ERROR,
+        "The drive's turn count and the encoder's disagree (mturn0.state 3): check the encoder's\n"
+        "wiring and that it is the motor's own encoder.");
+    return SU_FAIL;
+  } else {
+    say(w, SU_MSG_WARN, "No good encoder frame yet (mturn0.state 0).");
+  }
+  if(batt > 0.0) {
+    say(w, SU_MSG_WARN, "The encoder reports a battery warning: replace the battery with the drive powered.");
+  }
+  say(w, SU_MSG_INFO,
+      "In LinuxCNC: HOME_ABSOLUTE_ENCODER = 2 for this joint (homed at start without moving),\n"
+      "HOME_OFFSET = the machine zero; the drive's input 2 is abs_ok (gate the machine on it),\n"
+      "input 3 the battery warning. docs/absolute_encoders.md.");
+  return SU_OK;
+}
+
 static su_result_t step_save(su_wizard_t *w) {
   char *conf = su_conf_read(w->link);
   if(!conf) {
@@ -1246,6 +1299,7 @@ const su_step_t su_steps[] = {
     {"limits", "Limits", step_limits},
     {"link", "Machine controller link", step_link},
     {"verify", "Check the final config", step_verify},
+    {"absolute", "Absolute position (multi-turn encoders)", step_absolute},
     {"save", "Save", step_save},
 };
 const int su_nsteps = sizeof(su_steps) / sizeof(su_steps[0]);

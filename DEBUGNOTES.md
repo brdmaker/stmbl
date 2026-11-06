@@ -3841,3 +3841,50 @@ Entry format:
   made 31, the tests' two scales 33. `hal` shows it: "HAL_MAX_COMPS 31/32".
 - Fix:     HAL_MAX_COMPS 40 (~0.5 KB RAM on the F4). A user's config
   loading extra comps would have hit the same limit.
+
+## 2026-11-06  Absolute encoders: linrev counted turns from 0 at every boot
+- Area:    `shared/comps/linrev.c`, new `shared/comps/mturn.c`, `src/comps/encf.c`,
+           templates `mturn.txt` / `fanuc_mt.txt`, docs/absolute_encoders.md
+- Status:  Fixed (simulation; not yet on a real drive)
+- Symptom: a multi-turn absolute encoder (FANUC alpha, battery) gave LinuxCNC a
+  position right only within one motor turn after every power-up.
+- Cause:   linrev counts turns from quadrant crossings, starting at 0; the
+  encoder's turn count was never used.
+- Fix:     mturn loads linrev's turn count from the encoder's on the first good
+  frame and checks it every cycle (modulo the counter width). abs_ok and the
+  battery warning go to LinuxCNC on sserial in2 / in3: the input process data
+  is at the 96-bit limit of older Mesa firmware, so no new field.
+
+## 2026-11-06  mturn: the load was a turn off right after boot
+- Area:    `shared/comps/mturn.c`
+- Status:  Fixed
+- Symptom: after a power cycle at 39.75 turns the position read one turn off
+  (397.5 mm became 407.5 or a mismatch); at 37.25 turns it was right.
+- Cause:   on the first rt cycle mturn's pos (idx_home0.pos_out, from
+  fb_switch) can still be a cycle old (0), while the encoder's angle is
+  already there; round((enc - pos)/2pi) then rounds the wrong way when the
+  angle is past half a turn. A second bug: the check left out the turn the load
+  added (rev_off), reading -2pi on the far half of a turn.
+- Fix:     load only once pos agrees with the encoder within 90 deg (a mismatch
+  after 50 check_time); the check adds rev_off*2pi. abs_power_cycle.test.
+
+## 2026-11-06  Host: a --drive config with comment lines loads nothing
+- Area:    `host/drive.c` (flashloadconf / loadconf of the --drive file)
+- Status:  Known
+- Symptom: `stmbl_host --drive x.conf` with `#` comment lines: no component
+  loaded, every pin "not found" (looks like a broken build).
+- Cause:   the simulated flash config is parsed as the drive's flash config,
+  which has no comment lines; host/mill's machine configs (with comments) go
+  through mill_sim's own loader.
+- Fix:     keep --drive configs comment-free; put the description in the .test
+  file (host/tests/abs/cn720_x_fanuc.conf).
+
+## 2026-11-06  Merge setup-wizard: the hand turn (hv0.sim_turn) was undone
+- Area:    `host/hw/hv.c`
+- Status:  Fixed
+- Symptom: after merging setup-wizard into mill-webui, sim_encoder_res failed:
+  no index counts; hv0.sim_dist counted the turn but the shaft didn't move.
+- Cause:   mill-webui's motor model keeps its position in ctx->upos / abs_pos and
+  rewrites sim_pos from them each cycle; the wizard's hand turn moved only the
+  sim_pos pin.
+- Fix:     the hand turn moves upos and abs_pos too.

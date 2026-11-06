@@ -10,8 +10,12 @@
  *    the encoder's counts per revolution, and their sign is the counting
  *    direction. No index: the user enters the line count.
  *  - resolver: the pole count is asked (the nameplate says "2 pole", ...).
- *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki): fixed
- *    by the protocol.
+ *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki, FANUC):
+ *    fixed by the protocol.
+ *
+ * A multi-turn absolute encoder also names the template that ties its turn
+ * count to mturn (mt_link, docs/absolute_encoders.md); the final config
+ * links mturn and it when the controller link is smart-serial.
  */
 #pragma once
 
@@ -30,6 +34,7 @@ typedef struct {
   su_fb_res_t res;
   const char *wiring_col;  // column of the feedback connector table (su_wiring)
   int simulated;           // the host simulator has it (tested end to end)
+  const char *mt_link;     // multi-turn: its template for mturn ("fanuc_mt"), or NULL
 } su_fb_type_t;
 
 extern const su_fb_type_t su_fb_types[];

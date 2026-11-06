@@ -22,6 +22,9 @@ static const column_t feedback[] = {
     {"Sanyo-Denki", {"", "", "", "Blue", "Brown", "", "Red", "Black"}},
     {"Yaskawa", {"", "", "", "6", "5", "", "1", "2"}},
     {"Omron", {"", "", "", "4", "7", "", "6", "3"}},
+    // FANUC alpha-type (aA64) 15-pin motor connector: SD 12/13, REQ 5/6,
+    // +5 V 8+15, 0 V 1+2+3 (battery 14/10 to a battery box, not to stmbl)
+    {"FANUC", {"12 SD", "13 *SD", "", "6 *REQ", "5 REQ", "", "8+15 +5V", "1+2+3 0V"}},
     // serial protocols
     {"RS485", {"", "", "", "B", "A", "", "VCC", "GND"}},
     {"RS422", {"A", "B", "", "Z", "Y", "", "VCC", "GND"}},

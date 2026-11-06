@@ -16,7 +16,7 @@ Setup (branch `setup-wizard`):
 
 | doc | what |
 |---|---|
-| [setup_wizard.md](setup_wizard.md) | `servoterm-cli --wizard`: sets up a drive and its motor step by step from the nameplate, measures the rest, wiring help, version check; the library for a GUI; tested on 35 simulated motors |
+| [setup_wizard.md](setup_wizard.md) | `servoterm-cli --wizard`: sets up a drive and its motor step by step from the nameplate, measures the rest, wiring help, version check; the library for a GUI; tested on 35 simulated motors; FANUC serial absolute (multi-turn) included |
 
 brdstepper (branch `brdstepper`):
 
@@ -29,6 +29,12 @@ CAN (branch `can-support`):
 | doc | what |
 |---|---|
 | [can_support.md](can_support.md) | what CAN support would mean for stmbl and brdstepper: hardware, bus timing (`tools/canbus_budget.py`), LinuxCNC's side, protocol options, work plan |
+
+Absolute encoders:
+
+| doc | what |
+|---|---|
+| [absolute_encoders.md](absolute_encoders.md) | the position from boot with a multi-turn absolute encoder: `mturn` loads the encoder's turn count into `linrev`, checks it; states, config, LinuxCNC settings, tests; the GUI plan |
 
 Supply:
 

@@ -58,7 +58,7 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 3 | `safety` | what will move; e-stop within reach, motor fastened |
 | 4 | `supply` | 230 V / 120 V mains or DC; a brake chopper and its threshold; the braking power the drive may feed back (`conf0.max_hv_power`) |
 | 5 | `motor` | nameplate: rated and peak current (A rms), rated torque, top speed; every one may be "unknown". A holding brake: its voltage, current, which output (DIO0–2), its engage time. The temperature sensor (none, KTY84-130, PT1000, PTC, NTC, thermal switch) with warning and trip temperatures. A vertical axis (gravity pulls) |
-| 6 | `feedback` | incremental encoder, sin/cos, resolver (pole count), Tamagawa smartabs, Mitsubishi, Sanyo Denki |
+| 6 | `feedback` | incremental encoder, sin/cos, resolver (pole count), Tamagawa smartabs, Mitsubishi, Sanyo Denki, FANUC 4-wire serial absolute (αA64 type, multi-turn) |
 | 7 | `wiring` | power, motor, brake and feedback connector pinout (the tables in `docs/src/Getting Started.adoc`), then the user wires it. The brake directly on its output when it is 24 V DC and takes at most 1 A (with a flyback diode), else through a relay. The temperature sensor to the HV board's motor temperature connector |
 | 8 | `base` | a first config (no command link), drive reset; checks the HV bus voltage, that the temperature sensor reads the room's temperature (a PTC or switch: not tripped), and that there is no fault |
 | 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below). A brake is released for it (`fault0.brake_release`); on a vertical axis only once the load is off or supported |
@@ -70,7 +70,8 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 15 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
 | 16 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
 | 17 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
-| 18 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
+| 18 | `absolute` | a multi-turn absolute encoder (FANUC) with the smart-serial link: the final config links `mturn` and the encoder's multi-turn template; this step checks that the drive took the encoder's turn count (`mturn0.state` 1), warns of a lost count or a battery warning, and gives LinuxCNC's settings ([absolute_encoders.md](absolute_encoders.md)). Other feedback: skipped |
+| 19 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
 
 The config it writes:
 - `link pid`, `link pmsm`, the feedback's template, and in the end the

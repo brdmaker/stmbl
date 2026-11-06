@@ -96,7 +96,7 @@ def case(i, motor):
                 prev=prev, index=index, brake=brake, vertical=vertical,
                 brake_torque=1.5 * rated_torque, brake_delay=0.06 if vertical else 0.04,
                 engage_ms=10 if vertical else 40, load=0.3 * rated_torque if vertical else 0.0,
-                sensor=SENSORS[i % 4], answer_sensor=SENSORS[i % 4], wire=0, expect_fail=None)
+                sensor=SENSORS[i % 4], answer_sensor=SENSORS[i % 4], wire=0, expect_fail=None, fb="enc")
 
 
 def temp_cases():
@@ -107,6 +107,16 @@ def temp_cases():
     c2 = case(0, MOTORS[0])
     c2.update(name=c2["name"] + "-openwire", sensor="kty84", answer_sensor="kty84", wire=1, expect_fail="reads open")
     return [c1, c2]
+
+
+def fanuc_cases():
+    """The first motor with a FANUC alpha-type absolute encoder (host/hw/encf.c),
+    counting the other way: a fixed resolution, the direction from a quarter
+    turn, commutation from the encoder's absolute angle (its zero is the
+    rotor's), and the multi-turn load (mturn) in the final config."""
+    c = case(0, MOTORS[0])
+    c.update(name=c["name"] + "-fanuc", fb="fanuc", rev=1, index=0.0, lines=0, brake=False, vertical=False)
+    return [c]
 
 
 def sim_file(c):
@@ -120,7 +130,9 @@ def sim_file(c):
         "hv0.sim_brake = %g" % (c["brake_torque"] if c["brake"] else 0.0),
         "hv0.sim_brake_delay = %g" % c["brake_delay"],
         "hv0.sim_temp_sensor = %d" % TEMP_IDS.index(c["sensor"]), "hv0.sim_temp = %g" % COLD,
-        "hv0.sim_temp_wire = %d" % c["wire"], ""])
+        "hv0.sim_temp_wire = %d" % c["wire"]] +
+        (["encf0.sim_abs_pos = hv0.sim_upos", "encf0.sim_pos = hv0.sim_pos", "encf0.sim_pp = %d" % c["pp"],
+          "encf0.sim_rev = %d" % c["rev"]] if c["fb"] == "fanuc" else []) + [""])
 
 
 def answers(c, wait):
@@ -139,7 +151,8 @@ def answers(c, wait):
         "brake.loaded = %s" % ("send hv0.sim_load = %.4g; wait 0.2" % -c["load"] if c["vertical"] else "done"),
         "brake.release_turn = send hv0.sim_turn = 1.5; wait %g" % wait,
         "brake.hold_turn = send hv0.sim_turn = 1; wait %g" % wait,
-        "feedback.type = enc", "wiring.done = done",
+        "feedback.type = %s" % c["fb"], "wiring.done = done",
+        "fbcheck.quarter = send hv0.sim_turn = 1.6; wait %g" % wait,
         "fbcheck.turn = send hv0.sim_turn = 19; wait %g" % wait,
         "gate.free = y", "gate.turns = 2", "link.kind = sserial", "link.scale = 10", ""])
 
@@ -209,8 +222,12 @@ def checks(c, rc, out, st):
         chk(c["expect_fail"] in out, "it says why: '%s'" % c["expect_fail"])
         return res
     chk(rc == 0, "wizard finished" + ("" if rc == 0 else ": " + (last[-1] if last else "rc %d" % rc)))
-    chk(num(st, "feedback.counts") == 4 * c["lines"], "counts %s, true %d" % (st.get("feedback.counts"),
-                                                                            4 * c["lines"]))
+    if c["fb"] == "enc":
+        chk(num(st, "feedback.counts") == 4 * c["lines"], "counts %s, true %d" % (st.get("feedback.counts"),
+                                                                                4 * c["lines"]))
+    else:
+        chk(num(st, "absolute.state") == 1, "absolute: mturn took the turn count (state %s)" %
+            st.get("absolute.state"))
     chk(num(st, "feedback.rev") == c["rev"], "encoder direction %s, true %d" % (st.get("feedback.rev"), c["rev"]))
     chk(num(st, "id.out_rev") == c["prev"], "phase order %s, true %d" % (st.get("id.out_rev"), c["prev"]))
     chk(num(st, "id.pp") == pp, "pole pairs %s, true %d" % (st.get("id.pp"), pp))
@@ -252,6 +269,7 @@ def main():
     only = [s for s in a.only.split(",") if s]
     cases = [case(i, m) for i, m in enumerate(MOTORS) if not only or m[0] in only]
     cases += [c for c in temp_cases() if not only or c["name"].split("-")[0] in only]
+    cases += [c for c in fanuc_cases() if not only or c["name"].split("-")[0] in only]
     n = failed = 0
     with ThreadPoolExecutor(max_workers=a.j) as ex:
         for c, rc, out, st, d, dt in ex.map(lambda c: run_case(c, a.speed, a.keep), cases):
