@@ -16,6 +16,18 @@ Entry format:
 
 ---
 
+## 2026-11-06  Repo motor configs a drive refuses: comment lines over 52 characters
+- Area:    `conf/*.txt`, servoterm-cli --load, webui/mill driveconf (LINE_MAX)
+- Status:  Fixed
+- Symptom: `servoterm-cli --load` of conf/fanuc_bis4-4000-2.txt (+ encmon):
+  "line is 74 chars, max 52", drive not touched. sew_cmp40m.txt the same.
+- Cause:   The drive's console takes 63 characters a line, "appendconf "
+  included, comments too; the configs were written by hand with long
+  comment lines (the wizard's own output fits).
+- Fix:     Comments rewrapped to 52 (sew_cmp40m, fanuc_bis4-4000, -2,
+  haas_spindle_slip_uf). Test: host/tests/test_stmblconf.py
+  test_every_config_fits_the_drives_line_limit (fails on the old files).
+
 ## 2026-11-06  FANUC 2-wire frame: bit 6 is the battery alarm
 - Area:    `shared/fanuc_tw.c` (F2W_BAT_BIT), `src/comps/fanuc_tw.c` (bat_fail)
 - Status:  Note
