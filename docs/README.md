@@ -2,7 +2,8 @@
 
 The user manual (AsciiDoc) is in `src/`: getting started, wiring and
 pinout, supply, motor and feedback setup, tuning, commands, servoterm.
-`linuxcnc/` holds an example LinuxCNC configuration.
+`linuxcnc/` holds the LinuxCNC side: the example configuration (`config/`),
+`sserialterm` and `stmblcan` ([linuxcnc/README.md](../linuxcnc/README.md)).
 
 Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 

@@ -3902,3 +3902,11 @@ Entry format:
   submodule (stmbl/). host/Makefile no longer builds test_quota/test_lathe;
   hwtest/burnin-sim lost test-quota. Paths named in older entries here
   (webui/mill/..., hardware/...) are now in brdmot.
+
+## 2026-11-06 Repo split commit picked up untracked build outputs
+
+- Area:    git, linuxcnc/, hardware/
+- Status:  Fixed
+- Symptom: after the split (d20defb) `linuxcnc/arm*`, `lathe`, `powerquota` still existed with only `*.so/*.tmp/*.ver`, and `hardware/` held teststand STLs and KiCad `*.kicad_prl`.
+- Cause:   those were ignored by `.gitignore` files inside the moved folders; `git rm` of the folders removed the ignore files too, so `git add -A` committed the leftovers.
+- Fix:     removed them; module build outputs are ignored repo-wide now. Before `git add -A` after moving folders out, check `git status` for files that were only ignored by the moved `.gitignore`s.

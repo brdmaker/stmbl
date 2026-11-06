@@ -1,7 +1,7 @@
 # hwtest/burnin: LinuxCNC test machine for STMBL
 
 LinuxCNC config for a burn-in / test bench: one STMBL drive on a Mesa 7c81,
-reached through the Raspberry Pi's SPI. Copied from `docs/linuxcnc` in the
+reached through the Raspberry Pi's SPI. Copied from `docs/linuxcnc` (now `linuxcnc/config`) in the
 upstream stmbl checkout (`/home/cnc/stmbl`), including the local changes made
 there. Changed since: `stmbl.ini` joint 0 / X axis limits raised to 500 mm/s
 (3000 rpm motor speed) and 1000 mm/s^2, and the drive config for the motor
