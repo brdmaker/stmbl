@@ -1,0 +1,19 @@
+{ global :
+rtapi_info_author;
+rtapi_info_description_tools;
+rtapi_info_description_model;
+rtapi_info_address_model;
+rtapi_info_type_model;
+rtapi_info_license;
+kinematicsHome;
+kinematicsInverse;
+rtapi_info_address_tools;
+rtapi_app_main;
+rtapi_info_description;
+rtapi_app_exit;
+rtapi_info_type_tools;
+kinematicsType;
+kinematicsSwitchable;
+kinematicsForward;
+kinematicsSwitch;
+local : * ; };

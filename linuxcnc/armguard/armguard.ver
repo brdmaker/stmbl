@@ -1,0 +1,13 @@
+{ global :
+rtapi_info_author;
+rtapi_info_description_model;
+rtapi_info_address_model;
+rtapi_info_type_model;
+rtapi_info_license;
+rtapi_info_address_cell;
+rtapi_info_type_cell;
+rtapi_app_main;
+rtapi_info_description;
+rtapi_app_exit;
+rtapi_info_description_cell;
+local : * ; };

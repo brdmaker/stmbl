@@ -3888,3 +3888,17 @@ Entry format:
   rewrites sim_pos from them each cycle; the wizard's hand turn moved only the
   sim_pos pin.
 - Fix:     the hand turn moves upos and abs_pos too.
+
+## 2026-11-06  Repo split: GUI, hardware and application parts moved to brdmot
+- Area:    whole tree
+- Status:  Note
+- Symptom: (structure) the stmbl fork carried the web GUI, our hardware
+  designs and machine-level LinuxCNC parts next to the GPL drive.
+- Cause:   N/A.
+- Fix:     moved with their history (git filter-repo) to the private
+  brdmaker/brdmot: webui/, hardware/, linuxcnc/{arm*,vis3d,lathe,dynwiz,
+  powerquota,pcomp}, hwtest/{arcmate-sim,portal-sim}, their docs, the lathe
+  and quota unit tests and the burn-in quota test. brdmot has this repo as a
+  submodule (stmbl/). host/Makefile no longer builds test_quota/test_lathe;
+  hwtest/burnin-sim lost test-quota. Paths named in older entries here
+  (webui/mill/..., hardware/...) are now in brdmot.

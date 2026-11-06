@@ -1,5 +1,7 @@
 # TODO
 
+(The GUI items below, webui/..., are in brdmaker/brdmot since the repo split, 2026-11-06.)
+
 Open work, grouped by area. Tick an item off (or delete it) when it lands, and
 record any debug findings in `DEBUGNOTES.md` as usual.
 

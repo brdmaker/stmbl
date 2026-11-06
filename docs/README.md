@@ -22,7 +22,7 @@ brdstepper (branch `brdstepper`):
 
 | doc | what |
 |---|---|
-| [brdstepper_hw.md](brdstepper_hw.md) | closed-loop NEMA11 stepper drive: MCU choice, pin plan, smart-serial / CAN variants, USB, parts list, software plan (a new target in this repo, reusing `shared/`) |
+| brdstepper_hw.md | moved to `brdmaker/brdmot` (`docs/`), with the board designs (`hardware/`); the firmware target stays here (`brdstepper/`) |
 
 CAN (branch `can-support`):
 
@@ -52,3 +52,14 @@ FANUC motors on hand:
 Tools: `servoterm-cli/README.md`, `linuxcnc/sserialterm/README.md`.
 Simulator and tests: `host/README.md` (`make -C host check`).
 Findings and open issues: `DEBUGNOTES.md`.
+
+Moved to the private repository `brdmaker/brdmot` (with their history):
+the web GUI (`webui/`, millweb), the hardware designs (`hardware/`: stman,
+vibsensor, brdstepper, teststand, kigen), the application LinuxCNC parts
+(`linuxcnc/` arm6hmi, armcollide, armgrip, armguard, armkins, armtool, vis3d,
+lathe, dynwiz, powerquota, pcomp), their simulated machine configs
+(`hwtest/arcmate-sim`, `hwtest/portal-sim`) and docs (ctxtwin, hmi, hsm400u,
+stman.md, vibsensor.md, brdstepper_hw.md). brdmot uses this repository as a
+submodule (`stmbl/`). What stays here: the drive (firmware, its components,
+the host simulator, servoterm-cli and the setup wizard, the LinuxCNC drive
+link: stmblcan, sserialterm, stmbl_sim).
