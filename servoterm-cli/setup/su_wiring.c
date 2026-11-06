@@ -20,6 +20,8 @@ static const column_t feedback[] = {
     {"UVW", {"U+", "U-", "V+", "W-", "W+", "V-", "VCC", "GND"}},
     {"Mitsubishi", {"", "", "", "2", "1", "", "VCC", "GND"}},
     {"Sanyo-Denki", {"", "", "", "Blue", "Brown", "", "Red", "Black"}},
+    // FANUC 2-wire pulsecoder: the motor connector's pins (docs/fanuc_tw.md); jumper on 5 V
+    {"FANUC-2wire", {"", "", "", "*RD (5)", "RD (6)", "", "+5V (8,9)", "0V (7,10)"}},
     {"Yaskawa", {"", "", "", "6", "5", "", "1", "2"}},
     {"Omron", {"", "", "", "4", "7", "", "6", "3"}},
     // FANUC alpha-type (aA64) 15-pin motor connector: SD 12/13, REQ 5/6,
@@ -104,6 +106,30 @@ char *su_wiring_power(int brake, double bus) {
            "  - Keep the HV and LV sides isolated: USB ties the PC's GND to the LV board;\n"
            "    never let it reach the HV side.\n");
   return out;
+}
+
+// The sensor on a feedback port's pin 7 instead (port 0: FB0, 1: FB1;
+// docs/motor_temp_lv.md): the port's supply jumper opened, the sensor
+// against pin 8 (GND), measured on the LV side.
+char *su_wiring_temp_fb(int type, int port) {
+  char *s = malloc(1536);
+  snprintf(s, 1536,
+           "Motor temperature sensor (%s) on %s, the RJ45 %s:\n"
+           "  pin 7 (brown stripe)  sensor\n"
+           "  pin 8 (brown)         sensor, GND\n"
+           "Either way round (a KTY84: its band, the cathode, to pin 8). Before that, open the\n"
+           "port's supply jumper %s on the LV board: a 3-pad solder jumper, its centre pad\n"
+           "joined to the +5 V pad by a trace. Cut that trace (pin 7 must read 10 kohm to +5 V,\n"
+           "the pull-up, not 0), leave the +12 V pad open. Pin 7 then no longer powers an\n"
+           "encoder: %s. See docs/motor_temp_lv.md.\n"
+           "The sensor is then on the LV side, with the feedback: its insulation inside the motor\n"
+           "must be rated for that, as the feedback's (SEW CMP: the KTY84 is in the feedback\n"
+           "cable, brown / white, next to the resolver: it goes to the same plug).\n",
+           type == 1 ? "KTY84-130" : type == 2 ? "PT1000" : type == 3 ? "PTC" : type == 4 ? "NTC" : "thermal switch",
+           port ? "FB1" : "FB0", port ? "second feedback port" : "feedback port (with the resolver)",
+           port ? "JP5" : "JP2",
+           port ? "nothing else may use FB1" : "only a resolver works on FB0 then (it needs no supply)");
+  return s;
 }
 
 char *su_wiring_temp(int type) {

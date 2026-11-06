@@ -20,7 +20,6 @@ L_MIN_TAU = 0.0005
 
 # Known failures, marked @todo (they show, but don't fail the run).
 KNOWN = {
-    "sew_cmp40m": "light rotor, slow l/r: it reaches max_vel before its current settles; j 24 % high, friction half (DEBUGNOTES)",
 }
 
 TEMPLATE = """\

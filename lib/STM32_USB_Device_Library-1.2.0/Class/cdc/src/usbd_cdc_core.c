@@ -189,6 +189,7 @@ uint32_t APP_Rx_ptr_out = 0;
 uint32_t APP_Rx_length  = 0;
 
 uint8_t  USB_Tx_State = USB_CDC_IDLE;
+static uint32_t cdc_last_ptr, cdc_last_len;  /* stmbl: the transfer in flight, for cdc_tx_heal */
 
 static uint32_t cdcCmd = 0xFF;
 static uint32_t cdcLen = 0;
@@ -431,6 +432,8 @@ __ALIGN_BEGIN uint8_t usbd_cdc_OtherCfgDesc[USB_CDC_CONFIG_DESC_SIZ]  __ALIGN_EN
   * @param  cfgidx: Configuration index
   * @retval status
   */
+static void cdc_tx_reset(void);
+
 uint8_t  usbd_cdc_Init (void  *pdev, 
                                uint8_t cfgidx)
 {
@@ -466,6 +469,12 @@ uint8_t  usbd_cdc_Init (void  *pdev,
                    CDC_OUT_EP,
                    (uint8_t*)(USB_Rx_Buffer),
                    CDC_DATA_OUT_PACKET_SIZE);
+  
+  /* stmbl: a fresh IN side. A bus reset leaves these as they were: busy,
+     data pending, DTR set; cdc_tx_heal then found the new connection stuck
+     at once and re-enumerated again, for good (SEW bench soak, 45 in 10
+     min). Output from before the reset is dropped. */
+  cdc_tx_reset();
   
   return USBD_OK;
 }
@@ -611,10 +620,18 @@ uint8_t  usbd_cdc_EP0_RxReady (void  *pdev)
   * @param  epnum: endpoint number
   * @retval status
   */
+static uint32_t cdc_in_done;   /* stmbl: DataIns from the core (progress, cdc_tx_heal) */
+static uint8_t cdc_in_heal;    /* stmbl: DataIn called by cdc_tx_heal, not the core */
+
 uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
 {
   uint16_t USB_Tx_ptr;
   uint16_t USB_Tx_length;
+  
+  if (!cdc_in_heal)
+  {
+    cdc_in_done++;
+  }
   
   if (USB_Tx_State == USB_CDC_BUSY)
   {
@@ -624,12 +641,17 @@ uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
     }
     else 
     {
-      if (APP_Rx_length > CDC_DATA_IN_PACKET_SIZE){
+      if (APP_Rx_length >= CDC_DATA_IN_PACKET_SIZE){
+        /* stmbl: a transfer never ends on a full packet, so it never needs
+           a ZLP: 64 bytes left go as 63 + 1. A ZLP armed on the bench
+           (DIEPTSIZ 1 packet, 0 bytes, EPENA) was NAKed for good while the
+           host kept polling: the console never sent again (usbdiag,
+           DEBUGNOTES 2026-10-29). */
         USB_Tx_ptr = APP_Rx_ptr_out;
-        USB_Tx_length = CDC_DATA_IN_PACKET_SIZE;
+        USB_Tx_length = APP_Rx_length == CDC_DATA_IN_PACKET_SIZE ? CDC_DATA_IN_PACKET_SIZE - 1 : CDC_DATA_IN_PACKET_SIZE;
         
-        APP_Rx_ptr_out += CDC_DATA_IN_PACKET_SIZE;
-        APP_Rx_length -= CDC_DATA_IN_PACKET_SIZE;    
+        APP_Rx_ptr_out += USB_Tx_length;
+        APP_Rx_length -= USB_Tx_length;    
       }
       else 
       {
@@ -649,6 +671,8 @@ uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
                  CDC_IN_EP,
                  (uint8_t*)&APP_Rx_Buffer[USB_Tx_ptr],
                  USB_Tx_length);
+      cdc_last_ptr = USB_Tx_ptr;
+      cdc_last_len = USB_Tx_length;
       return USBD_OK;
     }
   }  
@@ -662,7 +686,12 @@ uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
                NULL,
                0);
     
-    USB_Tx_State = USB_CDC_IDLE;
+    /* stmbl: busy until the ZLP is taken (APP_Rx_length is 0, so its DataIn
+       goes idle). Idle at once let the next SOF start a transfer over the
+       pending ZLP: a DataIn got lost and the state stayed busy, the console
+       sent nothing again while it still took input (SEW bench 2026-10-29,
+       hwtest/suite usb_stall). */
+    USB_Tx_State = USB_CDC_BUSY;
   }
   return USBD_OK;
 }
@@ -701,9 +730,119 @@ uint8_t  usbd_cdc_DataOut (void *pdev, uint8_t epnum)
   * @param  epnum: endpoint number
   * @retval status
   */
+/* stmbl: two ways the IN side got stuck on the bench (DEBUGNOTES
+   2026-10-29), both healed here, counted in usb_tx_healed (`about`):
+   - the core finished a transfer (endpoint no longer enabled) but the
+     state still says busy: its DataIn was lost. After CDC_TX_HEAL_FRAMES
+     frames, go on as if it had come.
+   - the transfer is armed, its data counted as loaded (DIEPTSIZ 1 packet,
+     0 bytes), but the host's IN tokens find the FIFO empty (ITTXFE once)
+     and get NAKs (DIEPINT bit 13), for good. Seen while the power stage switched with noise
+     coupling in (usbdiag). After CDC_TX_HEAL_FRAMES frames of that: NAK,
+     disable the endpoint, flush its FIFO and send the transfer again.
+   A closed port sends no IN tokens: an armed transfer then waits. So does
+   one the host doesn't poll because its tty is full (flow control): a
+   "no progress while DTR is set" rule, and a re-enumeration after it, fired
+   on that (a reader that paused for 8 s) and left the console one packet
+   behind; both are gone. From the drive's side a host that stopped polling
+   can't be told from flow control. */
+extern volatile uint8_t usb_dtr;  /* src/usb_cdc.c */
+#define CDC_TX_HEAL_FRAMES 20
+volatile uint32_t usb_tx_healed = 0;
+volatile uint32_t usb_sof_count = 0;  /* usbdiag */
+
+#define DEPCTL_EPENA  0x80000000u
+#define DEPCTL_EPDIS  0x40000000u
+#define DEPCTL_SNAK   0x08000000u
+#define DIEPINT_EPDISD 0x02u
+#define DIEPINT_ITTXFE 0x10u
+#define DIEPINT_INEPNE 0x40u
+#define DIEPINT_NAK    0x2000u /* NAK sent on an IN token */
+#define DIEPINT_POLLED (DIEPINT_ITTXFE | DIEPINT_NAK)
+
+static int cdc_wait_int(USB_OTG_CORE_HANDLE *core, uint32_t ep, uint32_t bit)
+{
+  for (int i = 0; i < 10000; i++) /* a few frames at most */
+  {
+    if (USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPINT) & bit)
+    {
+      USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPINT, bit);
+      return 0;
+    }
+  }
+  return -1;
+}
+
+static void cdc_tx_reset(void)
+{
+  USB_Tx_State       = USB_CDC_IDLE;
+  APP_Rx_ptr_out     = APP_Rx_ptr_in;
+  APP_Rx_length      = 0;
+  usb_dtr            = 0;  /* the host sets it again when it opens the port */
+}
+
+static void cdc_tx_heal(void *pdev)
+{
+  static uint32_t lost_frames = 0, starved_frames = 0, last_out = 0;
+  USB_OTG_CORE_HANDLE *core = (USB_OTG_CORE_HANDLE *)pdev;
+  uint32_t ep  = CDC_IN_EP & 0x7F;
+  uint32_t ctl = USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL);
+  if (USB_Tx_State == USB_CDC_IDLE || APP_Rx_ptr_out != last_out)
+  {
+    lost_frames = starved_frames = 0;
+    last_out = APP_Rx_ptr_out;
+    USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPINT, DIEPINT_POLLED);
+    return;
+  }
+  if (!(ctl & DEPCTL_EPENA))
+  {
+    starved_frames = 0;
+    if (++lost_frames >= CDC_TX_HEAL_FRAMES)
+    {
+      lost_frames = 0;
+      usb_tx_healed++;
+      cdc_in_heal = 1;
+      usbd_cdc_DataIn(pdev, ep);
+      cdc_in_heal = 0;
+    }
+    return;
+  }
+  lost_frames = 0;
+  uint32_t ints = USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPINT);
+  if (ints & DIEPINT_POLLED) /* the host asked and got nothing */
+  {
+    USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPINT, DIEPINT_POLLED);
+    starved_frames++;
+  }
+  if (starved_frames < CDC_TX_HEAL_FRAMES)
+  {
+    return;
+  }
+  starved_frames = 0;
+  usb_tx_healed++;
+  /* abort: NAK, then disable, then flush its FIFO */
+  USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL, (ctl & ~DEPCTL_EPENA) | DEPCTL_SNAK);
+  cdc_wait_int(core, ep, DIEPINT_INEPNE);
+  ctl = USB_OTG_READ_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL);
+  USB_OTG_WRITE_REG32(&core->regs.INEP_REGS[ep]->DIEPCTL, ctl | DEPCTL_EPDIS | DEPCTL_SNAK);
+  cdc_wait_int(core, ep, DIEPINT_EPDISD);
+  USB_OTG_FlushTxFifo(core, (ctl >> 22) & 0xF);
+  /* send it again: back to the start of the transfer in flight */
+  APP_Rx_ptr_out = cdc_last_ptr;
+  APP_Rx_length += cdc_last_len;
+  last_out       = APP_Rx_ptr_out;
+  USB_Tx_State   = USB_CDC_BUSY;
+  cdc_in_heal    = 1;
+  usbd_cdc_DataIn(pdev, ep);
+  cdc_in_heal    = 0;
+}
+
 uint8_t  usbd_cdc_SOF (void *pdev)
 {      
   static uint32_t FrameCount = 0;
+  
+  usb_sof_count++;
+  cdc_tx_heal(pdev);
   
   if (FrameCount++ == CDC_IN_FRAME_INTERVAL)
   {
@@ -755,13 +894,13 @@ static void Handle_USBAsynchXfer (void *pdev)
     APP_Rx_length &= ~0x03;
 #endif /* USB_OTG_HS_INTERNAL_DMA_ENABLED */
     
-    if (APP_Rx_length > CDC_DATA_IN_PACKET_SIZE)
+    if (APP_Rx_length >= CDC_DATA_IN_PACKET_SIZE) /* stmbl: no ZLP, see DataIn */
     {
       USB_Tx_ptr = APP_Rx_ptr_out;
-      USB_Tx_length = CDC_DATA_IN_PACKET_SIZE;
+      USB_Tx_length = APP_Rx_length == CDC_DATA_IN_PACKET_SIZE ? CDC_DATA_IN_PACKET_SIZE - 1 : CDC_DATA_IN_PACKET_SIZE;
       
-      APP_Rx_ptr_out += CDC_DATA_IN_PACKET_SIZE;	
-      APP_Rx_length -= CDC_DATA_IN_PACKET_SIZE;
+      APP_Rx_ptr_out += USB_Tx_length;	
+      APP_Rx_length -= USB_Tx_length;
       USB_Tx_State = USB_CDC_BUSY;
     }
     else
@@ -785,6 +924,8 @@ static void Handle_USBAsynchXfer (void *pdev)
                CDC_IN_EP,
                (uint8_t*)&APP_Rx_Buffer[USB_Tx_ptr],
                USB_Tx_length);
+    cdc_last_ptr = USB_Tx_ptr;
+    cdc_last_len = USB_Tx_length;
   }  
 }
 

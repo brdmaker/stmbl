@@ -60,6 +60,26 @@ uint32_t sscon_tx_free(const sscon_t *c) {
   return SSCON_TXSIZE - tx_count(c);
 }
 
+uint32_t sscon_out(sscon_t *c, const sscon_out_t *o, const char *ptr, int len, uint32_t wait_ms) {
+  uint32_t done = 0;
+  uint32_t t0   = o->now_ms();
+  while(len > 0) {
+    uint32_t n = len > 8 ? 8 : (uint32_t)len;
+    if(sscon_tx_free(c) < n && wait_ms) {
+      if(o->now_ms() - t0 < wait_ms) {
+        o->idle();
+        continue;
+      }
+      wait_ms = 0;  // timed out: drop the rest at once
+    }
+    done += o->put(c, ptr, n);
+    ptr += n;
+    len -= (int)n;
+    t0 = o->now_ms();
+  }
+  return done;
+}
+
 uint32_t sscon_write(sscon_t *c, const void *data, uint32_t len) {
   const uint8_t *d = data;
   uint32_t n = 0;

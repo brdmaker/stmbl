@@ -18,6 +18,8 @@ const su_fb_type_t su_fb_types[] = {
      "Sanyo-Denki", 0},
     {"fanuc", "FANUC serial absolute encoder, 4-wire (alpha aA64 type, multi-turn with battery)", "fanuc_fb0",
      NULL, "encf0.abs_pos", SU_FB_RES_FIXED, "FANUC", 1, "fanuc_mt"},
+    {"fanuc_tw", "FANUC 2-wire serial pulsecoder (betaiA128 etc., 1 pair RD/*RD)", "fanuc_tw_fb0", NULL,
+     "fanuc_tw0.pos", SU_FB_RES_FIXED, "FANUC-2wire", 0},
 };
 const int su_fb_ntypes = sizeof(su_fb_types) / sizeof(su_fb_types[0]);
 

@@ -19,6 +19,7 @@ struct su_link {
   char *dev;
   int fd;
   int in_frame;  // bytes of a scope frame still to drop
+  int reconnects;  // the device came back after it went away
   char *buf;     // text since the last clear
   size_t len, cap;
   void (*on_text)(void *, const char *, size_t);
@@ -131,6 +132,33 @@ void su_link_on_text(su_link_t *l, void (*fn)(void *, const char *, size_t), voi
   l->user    = user;
 }
 
+// The drive went away (its USB re-enumerates when its console was stuck,
+// usbd_cdc_core.c; a reset): open the same path again, for up to 15 s. A
+// stable path (/dev/serial/by-id/...) survives a new ttyACMn. 0: back.
+static int reconnect(su_link_t *l) {
+  if(l->fd >= 0) {
+    close(l->fd);
+    l->fd = -1;
+  }
+  double end = now() + 15.0;
+  while(now() < end) {
+    struct timespec ts = {0, 300000000};
+    nanosleep(&ts, NULL);
+    int fd = open_fd(l->dev);
+    if(fd >= 0) {
+      l->fd       = fd;
+      l->in_frame = 0;
+      l->reconnects++;
+      return 0;
+    }
+  }
+  return -1;
+}
+
+int su_link_reconnects(const su_link_t *l) {
+  return l->reconnects;
+}
+
 int su_link_send(su_link_t *l, const char *line) {
   size_t n = strlen(line);
   char buf[SU_LINE_MAX + 2];
@@ -141,10 +169,15 @@ int su_link_send(su_link_t *l, const char *line) {
   memcpy(buf, line, n);
   buf[n] = '\n';
   size_t off = 0;
+  int again   = 1;
   while(off < n + 1) {
     ssize_t w = write(l->fd, buf + off, n + 1 - off);
     if(w < 0) {
       if(errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+      if(again-- > 0 && reconnect(l) == 0) {  // the whole line again
+        off = 0;
         continue;
       }
       return -1;
@@ -186,10 +219,13 @@ int su_link_pump(su_link_t *l, double sec) {
       if(errno == EINTR || errno == EAGAIN) {
         continue;
       }
+      if(errno == EIO || errno == ENODEV || errno == ENXIO) {
+        return reconnect(l) == 0 ? text : -1;
+      }
       return -1;
     }
     if(n == 0) {
-      return -1;  // gone (USB unplugged, drive reset)
+      return reconnect(l) == 0 ? text : -1;  // gone (USB re-enumerated, drive reset)
     }
     text += demux(l, b, (int)n);
   }
@@ -260,16 +296,42 @@ int su_parse_pin(const char *text, const char *pin, double *v) {
   return found ? 0 : -1;
 }
 
+// the pin's answer line is complete: "pin = v\n" (or "pin <= src = v\n")
+static int pin_line_done(const char *text, const char *pin) {
+  size_t pl = strlen(pin);
+  for(const char *p = text; p && *p;) {
+    const char *e = strchr(p, '\n');
+    if(!e) {
+      return 0;  // the last line, still coming
+    }
+    if(strncmp(p, pin, pl) == 0 && (strncmp(p + pl, " = ", 3) == 0 || strncmp(p + pl, " <= ", 4) == 0)) {
+      return 1;
+    }
+    p = e + 1;
+  }
+  return 0;
+}
+
 int su_link_get(su_link_t *l, const char *pin, double *v) {
   char cmd[SU_LINE_MAX + 1];
   snprintf(cmd, sizeof(cmd), "getf %s", pin);  // full precision (setup api 1)
+  // Read until the pin's own line is complete. The first newline isn't
+  // enough: on the smart-serial console (~1 kB/s) the last answer's tail
+  // still comes in after the command, and every try failed on it (the SEW
+  // bench's brake step, DEBUGNOTES 2026-10-29).
   for(int attempt = 0; attempt < 3; attempt++) {
-    const char *t = su_link_query(l, cmd, 0.15, "\n", 2.0);
-    if(!t) {
+    su_link_clear(l);
+    if(su_link_send(l, cmd) < 0) {
       return -1;
     }
-    if(su_parse_pin(t, pin, v) == 0) {
-      return 0;
+    double end = now() + 2.0;
+    while(now() < end) {
+      if(su_link_pump(l, 0.05) < 0) {
+        return -1;
+      }
+      if(pin_line_done(su_link_text(l), pin) && su_parse_pin(su_link_text(l), pin, v) == 0) {
+        return 0;
+      }
     }
   }
   return -1;

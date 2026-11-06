@@ -16,6 +16,329 @@ Entry format:
 
 ---
 
+## 2026-11-06  webui/mill: a drive streaming its scope was never polled (versions, values)
+- Area:    `webui/mill/server/drives.py` (DriveLink.feed / tick)
+- Status:  Fixed
+- Symptom: The new config check never started on the simulated drive:
+  `l.ver` stayed None. The link only asks (`version`, the card's pins) when
+  the console has been quiet 150 ms; the drive's term0 scope stream (0xFF +
+  8 bytes, 250 frames/s) kept it busy. The real drive's HV board streams the
+  same through hv0 all the time (DEBUGNOTES below).
+- Cause:   feed() counted every byte as the drive talking.
+- Fix:     feed() drops scope frames (0xFF and the 8 bytes after it; text
+  never has 0xFF) before the lines and before last_rx. Test: test_millweb
+  DriveWaves (fails without), ConfCheck (end to end on stmbl_host).
+
+## 2026-11-06  encmon catches a wrong commutation offset at the first enable (FANUC betaiS)
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`, setup wizard
+- Status:  Note
+- Symptom: —
+- Cause:   Bench, betaiS 4/4000 #2 on fanuc_tw (hwtest/soak/runs/encmon-fanuc-*):
+  offset 0 el. quiet over 3 enables (max ratio 0.15 of the 0.30 trip), 10 deg
+  quiet (0.33 under 20 ms), 30 / 115 / 180 deg fault 18 at the enable.
+  conf0.mot_fb_offset is mechanical (x pole pairs in fb_switch): the two
+  betaiS offsets (+1.560 / -1.582) are pi apart, 4 pi electrical: the same
+  angle, FANUC aligns the encoders; either config runs either motor.
+- Fix:     The wizard links encmon into every final config and its verify
+  step reports encmon0.max_ratio (fault 18 there: "the offset or the motor
+  data don't fit"); conf/fanuc_bis4-4000*.txt link it. Test: the wizard
+  simulator (host/tests/run_wizard_sim.py) runs every motor's verify with it.
+
+## 2026-11-06  Repo motor configs a drive refuses: comment lines over 52 characters
+- Area:    `conf/*.txt`, servoterm-cli --load, webui/mill driveconf (LINE_MAX)
+- Status:  Fixed
+- Symptom: `servoterm-cli --load` of conf/fanuc_bis4-4000-2.txt (+ encmon):
+  "line is 74 chars, max 52", drive not touched. sew_cmp40m.txt the same.
+- Cause:   The drive's console takes 63 characters a line, "appendconf "
+  included, comments too; the configs were written by hand with long
+  comment lines (the wizard's own output fits).
+- Fix:     Comments rewrapped to 52 (sew_cmp40m, fanuc_bis4-4000, -2,
+  haas_spindle_slip_uf). Test: host/tests/test_stmblconf.py
+  test_every_config_fits_the_drives_line_limit (fails on the old files).
+
+## 2026-11-06  FANUC 2-wire frame: bit 6 is the battery alarm
+- Area:    `shared/fanuc_tw.c` (F2W_BAT_BIT), `src/comps/fanuc_tw.c` (bat_fail)
+- Status:  Note
+- Symptom: —
+- Cause:   Bench, desk drive, betaiS 4/4000 #2 after a night on the battery
+  alone (referenced, turns kept): pulling the battery with the encoder
+  powered set frame bit 6 (w0 bit 5; trace w0 ..05 -> ..25), nothing else;
+  plugging it back bounced it for ~30 ms, then it stayed 0. Position and
+  bit 68 untouched. As 4-wire's "bit 5 = battery fail" plus the start bit.
+  After a night without battery (2026-11-05) it read 0: it reports the
+  battery now; bit 68 reports the position lost.
+- Fix:     Pin `fanuc_tw0.bat_fail`. Test: host/tests/test_fanuc_tw.c
+  "battery alarm" (frames from the traced words). Then (owner's choice) a
+  fault: bat_fail and nref keep the drive from enabling, the battery alarm
+  stops it (fault0.mot_fb_bat / mot_fb_nref, faults 21 / 20; template
+  fanuc_tw_fb0). Test: host/tests/mot_fb_nref_bat.test. STMBL_FW_VERSION not
+  counted up: the codes are appended, an older console shows the number,
+  and a count-up would make every HV board need hv_update for nothing.
+
+## 2026-11-05  The HV board's scope stream fills the LV console (900 bytes/s)
+- Area:    `stm32f303/src/usbd_cdc_if.c` (cdc_is_connected), `shared/comps/term.c`, `src/comps/hv.c` (nrt prints hv_rx_buf)
+- Status:  Open
+- Symptom: A raw reader on /dev/ttyACM0 (the fanuc_tw soak script) gets
+  `FF 80 80 80 80 80 80 80 80` a hundred times a second, also idle.
+- Cause:   On the F3 cdc_is_connected() returns 1, so its term0 streams its
+  8 waves (send_step 50) into tx_buf; ls sends them one byte per packet to
+  the F4, whose hv0 prints them on its console. servoterm-cli takes
+  0xFF-framed bytes as scope data and hides them, so its users never see it.
+- Fix:     Open: the F3's term should stream only when asked (send_step 0 by
+  default on the F3, or a connected flag from the F4). Until then raw
+  readers must drop 0xFF + 8-byte frames (hwtest/soak runs/fanuc-desk-*).
+  webui/mill's drive link drops them now (2026-11-06, entry above).
+
+## 2026-11-05  Wizard: "the drive refused idm0.inertia = ..." in the mechanical step
+- Area:    `servoterm-cli/setup/su_steps.c` (step_mechanical), `su_link.c` (su_link_set)
+- Status:  Open
+- Symptom: FANUC betaiS 4/4000 on the desk drive: the set of idm's starting
+  inertia (3.1e-5) got no "OK idm0.inertia" within 2 s; idm0.min_pos and
+  max_pos just before were accepted. The step went on from idm's default
+  (2e-4) and measured j = 5.5e-4 in both runs, so no harm here; on a motor
+  below 2e-4 the high start makes the gains too high (the reason the set
+  exists).
+- Cause:   Not known. Like the SEW run's "refused fault0.en = 0" (2026-10-29),
+  an answer the link missed rather than a real refusal?
+- Fix:     Open: retry the set once, or read the pin back, and abort the
+  step if it isn't taken. (The second betaiS 4/4000, same step: taken.)
+
+## 2026-11-05  fanuc_tw: RT_TOO_LONG with a motor config (decoding in the poll interrupt, then id_mot)
+- Area:    `src/comps/fanuc_tw.c`, `shared/fanuc1p.c`
+- Status:  Fixed
+- Symptom: The setup wizard's first config (pid, pmsm, fanuc_tw_fb0) on the
+  desk drive: HAL state RT_TOO_LONG, rt stopped, so hv0 sent nothing and
+  the HV board stayed silent ("HV bus reads 0 V", looked like an HV
+  firmware problem). With the encoder alone it had run (rt 3 us).
+- Cause:   The TIM6 poll interrupt (8 kHz, above rt) decoded every frame:
+  ~45 us each (byte-per-bit arrays, a bit-wise CRC, at -O1 from flash),
+  ~1.6 polls per rt period, pushing rt (~140 us) past 200 us.
+- Fix:     The interrupt only sends and copies the edge times; rt decodes
+  the newest capture once per cycle, with a packed decoder (32-bit words,
+  integer bit timing, table CRC). Bench: rt 157 us average / 170 max of 200
+  (adc0 47 us is the biggest), interrupt 10 us; pins isr_us / isr_max_us.
+  Test: host/tests/test_fanuc_tw.c checks the packed decoder equals the
+  byte one on the recorded and 500 random frames; the timing itself has no
+  host test (it needs the F4): check `hal` rt max with a motor config.
+  Again with id_mot loaded (wizard, the second betaiS 4/4000): rt 198 us,
+  stopped mid-measurement (the motor just stood). Cycle counts (DWT): edges
+  to bits 2250 cycles, the outputs' mod() 840. Now: the edges become bits as
+  toggle marks + a prefix XOR (1400 cycles), no mod(), -O3 for the decoder
+  files, and the driver polls once per rt cycle from rt once the encoder
+  answers (a cold one only wakes at ~8 kHz: TIM6 until 2000 good frames,
+  and back to it after 40 bad polls). rt 140 us average. Tried and dropped:
+  the turnaround from the TX DMA's complete interrupt (no busy wait) gave
+  20 % sync errors, with any priority: the request must go out with
+  interrupts off (something writes GPIOD meanwhile? not found).
+
+## 2026-11-05  An HV board on v0.9.18-207 talks to master, only the version gate stops it
+- Area:    `shared/common.h` (the F4/F3 packets), `src/comps/hv.c`
+- Status:  Note
+- Symptom: Desk drive 205735A45631 (HV board still v207) on master: fault 19
+  HV_VERSION_ERROR, `version ... hv=0 hv_mismatch`, but `hv0.dc_volt` reads
+  the bus (201.6 V): the link works.
+- Cause:   Every protocol change since v207 is backward compatible: the new
+  command flags (brake_on_loss, brake) are ignored by an old F3, the new
+  state words (uid, fw_version) are just missing from its rotation, so it
+  reports version 0. A v207 F3 lacks the F3 brake on F4 loss, the current
+  offset drift tracking and the power-stage limits of the e-brake work.
+- Fix:     `hv_update` (an old F3 bootloader may reject it at CRC_CHECK, see
+  2026-10-29; then the DFU route), or `hv0.fw_check = 0` to run the old HV
+  firmware knowingly. No old LV firmware is needed for an old HV board.
+
+## 2026-11-05  fanuc_tw: driver for FANUC 2-wire pulsecoders (βiA128)
+- Area:    `src/comps/fanuc_tw.c`, `shared/fanuc_tw.c`, `shared/fanuc1p.c` (f1p_frame), `conf/template/fanuc_tw_fb0.txt`
+- Status:  Note
+- Symptom: —
+- Cause:   —
+- Fix:     A new comp (not a change to `encf` or the `fanuci` probe) for the
+  frame found on 2026-11-04: 24-bit position, turns, CRC-5 0x0B, state 3 /
+  1 by frame bit 68 (not referenced), error after `max_err` bad polls.
+  Debug pins for the unknown bits (words, changed bits, trace, a field by
+  bit, alternate request codes). docs/fanuc_tw.md. Test:
+  host/tests/test_fanuc_tw.c on recorded frames (incl. a CRC error and the
+  not-referenced frame). Bench 2026-11-05, desk drive 205735A45631: state 3,
+  ~200k frames, 0 CRC / sync errors, 1 µs rt. Names: comps can't have
+  digits, hence `fanuc_tw` (two-wire).
+
+## 2026-11-02  scopedump over the smart-serial console: watchdog reset
+- Area:    `src/syscalls.c` (`_write`), `shared/sscon.c` (`sscon_out`)
+- Status:  Fixed
+- Symptom: hwtest suite (SEW drive, speed-ups on): "capture scope over
+  smart-serial" got a bad scopedump; the drive reset mid-dump (errlog:
+  "HANG: watchdog reset cmd scopedump nrt term0"), so "power field" and the
+  end state failed after it.
+- Cause:   `_write` waits in the main loop for room in the sscon tx ring
+  (~1 kB/s), up to 100 ms a chunk, without feeding the watchdog. A scopedump
+  is several kB: > 2 s in one command, and the 2 s IWDG (added after the
+  last passing suite run, 10-28) reset the drive. Not the speed-ups.
+- Fix:     The wait loop moved to `sscon_out` (shared), which calls
+  `wdog_poll` while it waits; a chunk that timed out (link gone) drops the
+  rest at once instead of 100 ms per chunk. Test: `host/tests/test_sscon.c`
+  "sscon_out: feeds the watchdog while it waits", "a dead link waits one
+  timeout"; on the bench the suite's "capture scope over smart-serial".
+
+## 2026-10-29  Wizard over smart-serial: getf missed answers on the slow console
+- Area:    `servoterm-cli/setup/su_link.c` (`su_link_get`)
+- Status:  Fixed
+- Symptom: Over the smart-serial console (~1 kB/s) steps failed with "no
+  answer from the drive for fb_switch0.pos_fb" after a reset, though the
+  drive answered every try (strace).
+- Cause:   su_link_get stopped at the first newline: the previous answer's
+  tail, with only the start of its own ("fb_switch0.pos_fb = -"). All
+  three tries failed so. USB delivers an answer in one burst.
+- Fix:     Read until the pin's own line is complete. Test: servoterm-cli
+  `make check`, "get: the last answer's tail first..." (fails without).
+  Also: the host simulator lacked `confcrc` (the config write's checks,
+  every wizard sim case failed), and its brake followed `io0.out0` through
+  a link the boot's relink had collapsed to fault0.mot_brake, so a console
+  override of the output didn't reach it: `io0.out0_state` now (host/hw/io.c).
+
+## 2026-10-29  SEW CMP40M: the KTY wiring couples PWM into the resolver
+- Area:    bench wiring; HV board motor temperature input (`mtemp`, hv0.mot_temp)
+- Status:  Workaround (KTY disconnected, mot_temp_type 0 for commissioning)
+- Symptom: Wizard step 12 stopped with fault 2 (resolver amplitude < 0.15).
+  Enabled at 0 A, no motion: res0.amp fell from 0.259 to ~0.20 and jumped
+  0.16..0.25; the KTY read 46..62 degC on a cold motor. res0.phase 0.85 is
+  already the best (swept disabled and enabled).
+- Cause:   The KTY goes to the HV board, whose ground is the HV side's. Its
+  wires run with the resolver's (SEW signal plug), so the inverter's
+  common-mode swing reaches the resolver inputs. With the KTY unplugged,
+  enabled at 0 A reads 0.259 +-0.001, the same as disabled.
+- Fix:     For now none: the thermal model only. Options: run the KTY wires
+  apart from the resolver's (or in the power cable), earth the HV supply's
+  DC-, or read the KTY on the LV side. FB1 can't take a resolver as is (no
+  excitation; 1 of 10 ADC samples), see the session of 2026-10-29.
+
+## 2026-10-29  USB console stops sending, input still works (was: "F4 hung after enable")
+- Area:    `lib/STM32_USB_Device_Library-1.2.0/Class/cdc/src/usbd_cdc_core.c`,
+  `src/usb_cdc.c`, `servoterm-cli/setup/su_link.c`
+- Status:  Open (the stall under current; the wizard reconnects, smart-serial
+  avoids it)
+- Symptom: `/dev/ttyACM0` stays, the console sends nothing, the drive runs
+  on and still takes input. Only under large motor currents: the wizard's
+  id_mot (10000 rad/s^2) stalled it every run; 2400 queries over 27 min of
+  soak motion (628 rad/s^2) never did.
+- Cause:   (1) Fixed: ST's CDC went idle right after arming a ZLP (stuck
+  after 350 port closes mid-output); transfers also never end on a full
+  packet now. (2) Under current: a transfer stays armed (DIEPTSIZ 1 packet,
+  0 bytes left, FIFO empty) and the host stops polling it; an abort, FIFO
+  flush and resend don't revive it, a re-enumeration does. Interference on
+  the USB link suspected (the Pi 4's xHCI and the bench's grounding).
+- Fix:     The drive heals a lost DataIn, and aborts and resends a transfer
+  the host polls (NAKs) but never gets. The wizard reopens its device when
+  it goes away (by-id path, 15 s). A re-enumeration after "DTR set, no
+  progress for 200 ms" was tried and removed: it also fired on plain flow
+  control (a reader that paused 8 s, the host's tty full), looped (a bus
+  reset left the CDC state busy, 45 in 10 min; usbd_cdc_Init clears it now)
+  and left the console one packet behind (every soak answer one command
+  late). From the drive's side a host that stopped polling looks like flow
+  control. usbmon (/dev/usbmon1) saw EPIPE on the bulk IN during a soak.
+  Tests: hwtest/suite `usb: 1000 port closes...`, servoterm-cli "reconnect:
+  ..." (fails without). Tuning over USB came out lower (pos_bw 11.3 vs 35.4
+  over smart-serial); the smart-serial config stays on the drive.
+  2026-11-02, hwtest suite on the SEW drive (speed-ups on): stalled in
+  "enable cycles" (cycle 2), every USB check after it failed. usbdiag over
+  smart-serial: dtr 0, tx state 1, dieptsiz 1 packet / 9 bytes armed, the
+  drive otherwise fine. A host-side re-enumeration (usb authorized 0/1)
+  revived it for one command, then it stalled again at rest; a 24 V cycle
+  recovered it and the rerun passed (5 enable cycles, motion, all USB).
+  `usbdiag` puts the state in `errlog`. `tools/ssflash.sh` finds the drive
+  by its by-id link (it came back as ttyACM1, ssburn failed on ttyACM0).
+
+## 2026-10-29  Wizard: a lost deleteconf doubled the config; messages broke acks
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`)
+- Status:  Fixed
+- Symptom: The flash config held its 21 lines twice (two hv comps, see
+  below); later "no ack for line 18 (appendconf ...)" with the drive's fault
+  messages in the answers.
+- Cause:   Any output counted as the answer to `deleteconf` (which prints
+  nothing), so a lost one appended to the old RAM text; the ack had to be
+  the first line of the answer; "Fault 9: HV timeout error" in the
+  flashsaveconf answer read as a failure; read-back kept message lines.
+- Fix:     RAM size 0 checked after deleteconf (`confcrc`), acks searched
+  in the answer, the RAM size checked before flashsaveconf, drive messages
+  dropped from the read-back. Test: servoterm-cli `make check`, "conf write:
+  ..." on a fake drive (fails 3 of 4 without the fix). Over smart-serial the
+  read-back starts with a blank line ("verify failed: flash differs"):
+  blank lines are ignored in the compare (same test, fails without).
+
+## 2026-10-29  Doubled config in flash: a second hv comp kills the HV link
+- Area:    `servoterm-cli/setup/su_conf.c` (`su_conf_write`), `src/config.c`
+- Status:  Open (drive repaired; how the text got doubled is not known)
+- Symptom: SEW commissioning, wizard step 12 onward: endless "Fault 9: HV
+  timeout", the F3 sends nothing (hv0.crc_error 0, fw_version -1, dc_volt 0)
+  across LV and 24 V power cycles. HV board LED: 1 blink per 1.2 s (F3 app
+  running, fault 1 = no valid packet from the F4). The wizard's own
+  `--dump`/`--load` fail in the fault flood.
+- Cause:   The flash config held its 21 lines twice. Every `link pid` loads
+  a full set of comps, so the drive ran `hv0` and `hv1` (and pid1, fault1, ...)
+  on the one F3 UART; the F3 never sees a valid packet, and it only starts
+  sending after one. Which write doubled it is open: `su_conf_write` takes
+  any output as the answer to `deleteconf`, so a lost `deleteconf` appends to
+  the old RAM text. Note `showconf` prints the flash text, not RAM
+  (`confcrc` prints the RAM size).
+- Fix:     Rewrote one copy (deleteconf, confcrc size 0, appendconf, size
+  check, flashsaveconf, showconf compare), reset: link up, 202 V, no fault.
+  Ideas: confirm `deleteconf` (RAM size 0) before appending; refuse a second
+  instance of the hardware comps (hv, adc, io) in `load_comp`. No test yet.
+## 2026-10-29  EBAZ4205: LinuxCNC didn't start, "Too many levels of symbolic links"
+- Area:    the EBAZ4205 image (hostmot2 `ebaz4205/image`: ebaz-lcnc-modules), for millweb comps.py
+- Status:  Fixed (image 2026.10.29.3; .1 and .2 withdrawn)
+- Symptom: every loadrt failed: `hal_lib: dlopen: /usr/lib/linuxcnc/modules/hal_lib.so:
+  ... Too many levels of symbolic links`, LinuxCNC ended at once.
+- Cause:   the writable modules directory is a tmpfs of links to LinuxCNC's own
+  modules, kept at a bind mount /run/ebaz/lcnc-modules-stock. `/` is a shared
+  mount, so that bind was its peer: the tmpfs mounted over the modules directory
+  propagated onto the stock copy too, and the links pointed at themselves. The
+  chroot test of the image (halcompile only) couldn't see it.
+- Fix:     `mount --make-private` on the stock bind; the script checks hal_lib.so
+  resolves. Test on the board: hostmot2 `ebaz4205/tools/test-comps.sh`.
+
+## 2026-10-28  EBAZ4205: LinuxCNC's NML gone after an SSH login as cnc ended
+- Area:    the EBAZ4205 image (hostmot2 repo `ebaz4205/image`), seen in millweb
+- Status:  Fixed (image 2026.10.28.3)
+- Symptom: the console showed "millweb: Error buffer invalid" and "LinuxCNC
+  status: emcStatusBuffer invalid", twice a second, for good; linuxcnc.log:
+  "SHMEM: Can't take semaphore"; `ipcs -s` empty while LinuxCNC ran.
+- Cause:   systemd-logind's default `RemoveIPC=yes`: about 10 s after the last
+  login session of cnc ended (`UserStopDelaySec`), logind deleted every SysV
+  semaphore and shared memory segment cnc owns, LinuxCNC's NML among them
+  (millweb-supervisor runs LinuxCNC as cnc). Any SSH login as cnc did it.
+- Fix:     `etc/systemd/logind.conf.d/ebaz.conf`: `RemoveIPC=no`; the image
+  build refuses a rootfs without it. Test: hostmot2 `ebaz4205/tools/test-removeipc.sh`
+  (on the board; 2026.10.28.2 fails it: 5 semaphores -> 0). Idea: millweb
+  could say "LinuxCNC's connection is broken: restart it" once instead of
+  repeating the two errors.
+
+## 2026-10-26  The System card's buttons did nothing (system updates, first releases)
+- Area:    `webui/mill/js/sysupdate.js`, `webui/mill/server/sysupdate.py`
+- Status:  Fixed
+- Symptom: On the EBAZ4205 images 2026.10.26.1/.2 the System card showed the
+  version but Check, Upgrade and Restart did nothing; the page got no answer.
+- Cause:   Three things. The card called `Live.sys` (the API is `Live.L`); a
+  first fix used the global `LIVE`, which is still null when the hello arrives,
+  so every page load threw (the whole live suite failed on it). And the
+  replies merged the `{"t": "sys", ...}` snapshot into `{"t": "reply", ...}`,
+  so the reply's type was overwritten and the page never matched it.
+- Fix:     `Live.L.sys`; replies carry `status`/`check` only. Tests:
+  `server/tests/test_sysupdate.py` (`test_replies_dont_carry_a_message_type`),
+  `test/gui/live_suite.js` "system updates: ..." with
+  `MILLWEB_UPDATE_CMD=test/fake-update-helper`.
+
+## 2026-10-26  Live GUI suite on the EBAZ4205: some cases fail only in the full run
+- Area:    `webui/mill/test/gui/live_suite.js` (remote, Chromium on a Pi 400 against the board)
+- Status:  Open
+- Symptom: In a full `make test-gui-live REMOTE=board:8080` run, "file page" (run
+  with the cycle buttons, file management), "3D models" and "scope" failed; run
+  alone (`-k`) the same cases pass, with and without the system-update change
+  (the branch without it failed "3D models" alone once, too).
+- Cause:   Not known; timing under load (a slow board and a software-rendering
+  browser) is the likely one. Possibly the RemoveIPC fault above (2026-10-28):
+  an SSH login as cnc during the run (stopping the harness) broke LinuxCNC's
+  NML; re-run on 2026.10.28.3 or later before chasing the waits.
+- Fix:     Open: find the waits that are too short in those cases.
+
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
 - Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)
@@ -2366,6 +2689,23 @@ Entry format:
   page back to the new millweb without passing the supervisor: the
   supervisor's state is in millweb's hello and pushed on change.
 
+## 2026-10-23  webui/mill/bench: a 1 mm following error tripped X at enable
+- Area:    webui/mill/server/millweb.py, webui/mill/bench (phasing_ferror.hal, mill.hal)
+- Status:  Fixed
+- Symptom: Switching the bench mill on, X jerked (the drive autophasing)
+  and LinuxCNC stopped with "joint 0 following error" (highmark 1.17 mm).
+- Cause:   The larger limit while the drive autophases (PHASING_FERROR 2 mm,
+  hwtest/burnin's phasing_ferror.hal) is a POSTGUI_HALFILE: it links the
+  ini.0.* pins LinuxCNC makes after the HALFILEs. AXIS loads those files;
+  millweb, as the display, didn't, so ini.0.ferror stayed 1 mm. Loaded
+  by hand, its `loadrt and2` then failed: under uspace a module loads
+  once, and mill.hal already loads and2 for the probe.
+- Fix:     millweb runs [HAL] POSTGUI_HALFILE (.tcl through haltcl) and
+  POSTGUI_HALCMD as AXIS does, after it starts, and reports each in the
+  event log (a failure as an error). The bench loads both and2 instances
+  in mill.hal. Test: test_millweb.PostGui. On the bench: ini.0.ferror 2
+  until X is homed and enabled 1.5 s, then 1.
+
 ## 2026-10-23  Drives with older firmware faulted; HV and LV firmware could differ unseen
 - Area:    shared/version_number.h, src/comps/hv.c, host/hw/hv.c, shared/commands.c, tools/stmblconf.py, webui/mill (driveconf.py)
 - Status:  Fixed (the mechanism; not yet run on hardware)
@@ -2384,345 +2724,232 @@ Entry format:
 - Note:    version_info_t's product_name sits at byte 152 of the struct
   (0x188 + 152 in an image), fw_magic at 196, fw_version at 200.
 
-## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
-- Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
+## 2026-10-23  hm2_spix: a cold start read the card bit-shifted at 31.25 MHz
+- Area:    `hwtest/burnin/stmbl.ini` [HOSTMOT2] DRIVER_PARAMS (Pi 4 + 7C81)
 - Status:  Workaround
-- Symptom: `kicad-cli sch erc` / `pcb drc` don't exist (KiCad 7.0.11, the
-  apt version here; the KiCad 8 PPA is blocked). `ZONE_FILLER.Fill`
-  segfaults in a headless pcbnew; `FOOTPRINT.Flip` segfaults on a footprint
-  not yet on a board; `SaveBoard` rewrites the .kicad_pro and drops its net
-  classes and sheet list.
-- Cause:   ERC/DRC came to kicad-cli in KiCad 8; the others are pcbnew 7's
-  Python bindings.
-- Fix:     check.py checks KiCad's own netlist against parts.py plus ERC's
-  pin-type rules; drc.py runs DRC through pcbnew.WriteDRCReport; the GND
-  plane is left unfilled; footprints are added to the board before they are
-  flipped; pcb.py writes its net classes back after saving.
-- Note:    the *_ThermalVias QFN footprints have a copper pad on the far
-  side as well: a QFN on the bottom puts copper on the top. And 28 x 28 mm
-  with both variants' connectors (USB-C, 3 GH, XH 3) and the M2.5 holes'
-  6 mm courtyards is full: J3 is pads and J7 the 1.27 mm 5-pin (both
-  options the document allows), U4 turned 90° so J2's pins pass beside it.
+- Symptom: after a power-up, LinuxCNC with the burn-in config failed:
+  "hm2_spix: SPI0/CE0: MISO input is bit-shifted by one bit. SPI read clock
+  frequency probably too high", "Invalid cookie", no board. The same 35.7 /
+  31.25 MHz had worked for days.
+- Cause:   the read margin at 31.25 MHz is thin (reads failed at 41.7);
+  a cold board or supply shifts it. Not pinned down.
+- Fix:     25 MHz both ways (`spiclk_rate=25000 spiclk_rate_rd=25000`), also
+  in webui/mill/bench. The Pi-side timing test (hwtest/suite) shows the cost.
 
-## 2026-10-25  vibration sensor: a strong tone's skirt read as chatter
-- Area:    shared/vibdsp.c (vib_peak), shared/comps/vib.c (chat_f, chat_a)
+## 2026-10-23  Index homing again: the index reported at once, without moving
+- Area:    `shared/comps/idx_home.c`
 - Status:  Fixed
-- Symptom: (simulator) milling without chatter still reported chat_a
-  0.29 g at 436 Hz: next to the 400 Hz tooth passing.
-- Cause:   the search skipped bins within 3 of a spindle harmonic, but then
-  summed +-3 bins around the bin it found, which reached back into the
-  excluded tone's Hann main lobe.
-- Fix:     exclude +-4 bins, and leave excluded bins out of the sum. Chatter
-  within 4 bins of a spindle harmonic (52 Hz at fft_n 2048, 26 Hz at
-  4096) is not separated from it.
+- Symptom: On the bench mill (webui/mill/bench) homing X a second time
+  "homed" it where it stood: index-enable dropped 50 ms after it was set,
+  the joint never crept to the index (the true index was 3 mm away).
+- Cause:   idx_home finds the index as fb_abs crossing between quadrants 1
+  and 4, comparing each sample with lastq. A new request compared its
+  first sample with the lastq of the request before, which stopped just
+  past the index (quadrant 1 or 4): standing anywhere in the other of the
+  two, that was a crossing. Also: waitabs (an index requested before the
+  drive had seen one) was never cleared, so it would fire every later
+  request at once.
+- Fix:     A new request starts lastq at its own first sample; waitabs is
+  cleared when it fires or the request goes away. Tests:
+  host/tests/index_rehome.test (fails before: found after 3 periods),
+  index_rehome_creep.test.
 
-## 2026-10-25  The console prints every pin a name starts with
-- Area:    the console (hal_parse), host tests (@expect PIN[k])
-- Status:  Note
-- Symptom: `vib0.crash` printed crash_g, crash_reset, crash and crash_peak,
-  so a test's crash_peak[1] was the value printed with the crash query.
-- Cause:   pin queries match by prefix.
-- Fix:     name pins so that an alarm's name is no prefix of others
-  (vib0.crash, shock, shock_lim, reset).
-
-## 2026-10-25  vibsensor: 4096-point FFTs and the HAL's pools didn't fit 128 KB
-- Area:    vibsensor/ (Makefile HAL_SIZES), shared/comps/vib.c, shared/vibbuf.h, shared/comps/vnode.c
+## 2026-10-14  --sim file ignored after a comment line
+- Area:    `host/drive.c` (drive_boot, --sim)
 - Status:  Fixed
-- Symptom: the first link overflowed RAM by 58 KB.
-- Cause:   the FFT input double buffer (32 KB) plus a copy for the FFT
-  (16 KB) and im (16 KB), a 4096-sample vibbuf (24 KB), a spectrum copy
-  and frame array for vnspec (13 KB), and the HAL's default pools
-  (1024 pins, 16 KB of contexts: 26 KB).
-- Fix:     the FFT works in the collected block; vibbuf 1024 samples
-  (38 ms; rt drains it every 0.2 ms); vnspec builds frames one at a time;
-  the sensor's HAL pools -DHAL_MAX_PINS=320 -DHAL_MAX_COMPS=8
-  -DHAL_MAX_CTX=4096; config text 6 KB, Tx ring 64. Now 108 KB.
-- Note:    a component name must not contain a digit (the console reads
-  `tmp1170.temp` as comp tmp, instance 1170): the TMP117's component is
-  `thermo`.
+- Symptom: A `--sim` file starting with a `#` comment had no effect at all.
+- Cause:   The file was passed to the console as one string; the comment
+  stripper cut everything from the first `#` to the end, i.e. every line.
+- Fix:     Parse the --sim text line by line, stripping comments per line.
 
-## 2026-10-26  Vibration levels flipped at a threshold, and tripped on the filters' start
-- Area:    shared/comps/vib.c (level, temp_level), host/tests/vib/levels.test
-- Status:  Fixed
-- Symptom: (vibmon --sim) a sensor at 4.4 mm/s, next to vel_warn 4.5, sent
-  a level event most reports, each a line in millweb's event log. With
-  hysteresis added, a steady 11.04 mm/s then stayed at alarm (11.2): the
-  first report after start had passed it.
-- Cause:   no hysteresis; and the high pass and velocity filters ring for a
-  few hundred ms after start (gravity's 1 g step on z).
-- Fix:     a level falls back only 10 % below its threshold (temperature
-  2 degC); levels are judged from 0.5 s after the filters were (re)made.
-
-## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
-- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
-- Status:  Open
-- Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
-  psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
-  but j 24 % high and friction at half. With 3x the inertia every value is
-  within tolerance.
-- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
-  less than the electrical time constant l / r = 2.3 ms: the drive
-  segments are mostly current rise, and the momentum fit trades j against
-  friction.
-- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
-  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
-  unit and the load add inertia.
-
-## 2026-10-26  kigen: GND in a wide-clearance net class fails fine-pitch parts
-- Area:    hardware/kigen (sch.py net classes), hardware/vibsensor/gen/parts.py
-- Status:  Note
-- Symptom: DRC on the vibration sensor's board: four clearance errors
-  between the IIS3DWB's own pads (0.5 mm pitch, 0.15 mm apart).
-- Cause:   GND was in the "Power" net class (0.2 mm clearance), and LGA /
-  QFN pads of the same part sit closer than that.
-- Fix:     a board's NETCLASS_POWER (gen/parts.py) leaves GND out where
-  fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
-  classes (no violation there).
-
-
-## 2026-10-26  kigen: connector rows at 45 degrees collide in a chamfered tail
-- Area:    hardware/vibsensor/gen/board.py (two M8 sockets IN / OUT)
-- Status:  Note
-- Symptom: J1 / J3 rotated 45 degrees to face the tail's chamfers gave 26
-  courtyard violations; placed near the corner, "overlaps where fixed".
-- Cause:   kigen's courtyards are axis-aligned boxes, so a 45-degree row
-  grows its box into the M2 hole and the other row; its corner crossed
-  the tail chamfer.
-- Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
-  rotation 90; the socket's leads bend to them inside the potting.
-
-## 2026-10-27  SEW CMP40M resolver cable: pairs found by resistance
-- Area:    conf/sew_cmp40m.txt (RH1M resolver on res_fb0)
-- Status:  Note
-- Symptom: SEW's green resolver cable cut off its D-sub; which pair is
-  excitation, sin and cos.
-- Cause:   colours only; SEW's tables disagree on pins.
-- Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
-  out is the excitation (grey/pink 77.4 ohm), sin and cos match
-  (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
-  comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
-  violet/black: that pair reads 1 ohm, a bridge at the motor end.
-
-## 2026-10-27  servoterm-cli ignored SIGTERM in interactive mode
-- Area:    servoterm-cli/servoterm-cli.c (the interactive select loop)
-- Status:  Fixed
-- Symptom: `kill` on an interactive servoterm-cli did nothing; a test
-  driving it through a pty hung until its timeout.
-- Cause:   the loop retried select() on EINTR without looking at stop_req,
-  which the signal handler sets.
-- Fix:     the loop runs while !stop_req. Found by
-  host/tests/test_servoterm_ident.py (drive name in the prompt).
-
-## 2026-10-27  millweb: a moving-table machine in the 3D view
-- Area:    webui/mill/js/app.js (buildBuiltin, workG), machmodel.js
-- Status:  Note
-- Symptom: the 3D view drew everything in the work's frame with a gantry
-  moving over it; a fixed-bridge machine (CN 720) would show its base and
-  bridge sliding in Y.
-- Cause:   one frame for both layouts.
-- Fix:     machine.json `type` (gantry | bridge). For a bridge the view keeps
-  the base and bridge still (the tool at y 0) and moves workG (fixtures,
-  toolpath, trail, travel box) and the built-in table with -Y. Anything that
-  turns a view position back into machine Y must add workG.position.y (the
-  follow camera does).
-
-## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
-- Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js
-- Status:  Fixed
-- Symptom: in see-through mode (fixtures / workpiece "glass") the view
-  flickered where two surfaces lie at the same level (the stock on the
-  vise, the vise's jaws on its base), changing as the view turned.
-- Cause:   see-through materials don't write depth, so three.js sorts them
-  by their objects' distance every frame; two at the same level swap places
-  as the camera moves, and the blend changes with the order.
-- Fix:     every see-through mesh gets its own fixed renderOrder (per object,
-  per mesh inside it), and a polygon offset pushing it back (never forward,
-  so the toolpath on the stock top stays in front). Machine model parts
-  with opacity < 1 get a fixed order behind the setup's.
-
-## 2026-10-28  millweb 3D: "orange sparks" at some view angles only
-- Area:    webui/mill/js/app.js (scene setup: trail, chips)
-- Status:  Fixed
-- Symptom: the tool threw orange sparks at some view angles, none at others.
-- Cause:   the chip particles (and the tool trail) are buffers rewritten
-  every frame, but their bounding spheres were computed once (the chips' at
-  Z -5000, all parked there). three.js culled them by that stale sphere: they
-  showed only when it happened to be in view.
-- Fix:     frustumCulled = false on both; the chips are aluminium-grey now.
-  Any geometry whose positions change per frame needs this (or
-  computeBoundingSphere after each change).
-
-## 2026-10-28  LinuxCNC 2.9: an NGC-only M6 remap for a rack changer
-- Area:    webui/mill/server/machineconf.py (toolchange_ngc, atc)
-- Status:  Note
-- Symptom: -
-- Cause:   -
-- Fix:     `REMAP=M6 modalgroup=6 ngc=toolchange` without a Python prolog
-  works: the sub reads #<_current_tool> / #<_selected_tool>, ends with
-  `M61 Q#<_selected_tool>`, and M70 / M72 keep the modal state (G43 stays as
-  it was). M66 L3 sets #5399 to -1 on a timeout (abort then). M0 inside the
-  remap pauses for a manual change (resume continues). motion's digital I/O
-  needs `num_dio` on motmod. Checked in LinuxCNC 2.9 (sim joints, 4 pockets,
-  slide-in): T2, T3 swapped through the rack, T7 by hand.
-
-## 2026-10-28  backend_suite: "X moves through the drive" fails now and then
-- Area:    webui/mill/test/backend_suite.py (supervisor: an stmbl drive on X)
-- Status:  Open
-- Symptom: once in a full `make test-backend` run: joint.0.motor-pos-fb
-  599.990417 vs stmbl-sim.0.pos_fb 599.990173; the case alone passes.
-- Cause:   it reads both pins in one hal_values call and wants them equal,
-  but the drive may still be settling and the two are read a servo cycle
-  apart.
-- Fix:     idea: wait for inpos, or compare within 1 µm.
-
-## 2026-10-28  OpenSCAD: "may not be a valid 2-manifold" from a tangent counterbore
-- Area:    hardware/teststand/teststand.scad (the motor brackets)
-- Status:  Fixed
-- Symptom: the X and Z motor brackets exported with "Object may not be a
-  valid 2-manifold"; removing the motor's cuts didn't help.
-- Cause:   a bolt's counterbore (Ø16) exactly tangent to another face (a
-  gusset's side, the plate's bottom edge): CGAL leaves an edge shared by
-  two solids.
-- Fix:     moved the bolts so nothing is tangent. Also: OpenSCAD 2021's
-  ASCII STL of printed threads is huge (64 MB for the set); `--export-format
-  binstl` and 12 slices a pitch make it 11 MB.
-
-## 2026-10-29  LinuxCNC lathes: M2 puts the plane back to G17
-- Area:    webui/mill (lathe programs, the wizards)
-- Status:  Note
-- Symptom: after a lathe program's M2 the modal state shows G17, though the
-  INI's RS274NGC_STARTUP_CODE starts with G18 (G7 stays).
-- Cause:   M2/M30 reset the plane (LinuxCNC's documented M2 behaviour).
-- Fix:     every lathe program states G18 (and G7/G8) in its first lines:
-  the wizards and the demo do.
-
-## 2026-10-29  millweb preview: a lathe's program timed at 0.1 mm/min
-- Area:    webui/mill/server/preview.py (Canon._feed)
-- Status:  Fixed
-- Symptom: a lathe program's remaining time read 44 h: its F0.1 (G95, mm a
-  turn) was timed as mm/min; G76's passes, with no F at all, at the last F.
-- Cause:   the canon gets F and the motion, not the feed mode or the spindle
-  sync; the interpreter's line state has feed_mode (950: G95), speed (the S
-  word: rpm, or m/min with G96, gcodes[13] 960), not the block's words.
-- Fix:     G95: F x rpm (G96: from the cutting speed at the move's
-  diameter, the spindle's max at most); G33 / G76 lines: their pitch (K / P,
-  read from the file's text, by line number from 1, as the canon numbers
-  them) x rpm. The test program: 42 s estimated, 50 s run in LinuxCNC.
-
-## 2026-10-29  A STEP assembly as millweb model parts (tools/step2parts.py)
-- Area:    webui/mill/tools/step2parts.py
-- Status:  Note
-- Symptom: gmsh (with OCC) meshed the Emco Compact 5's 19 MB STEP in 8.5 min
-  and then stopped on one bad face ("1D mesh not a closed loop").
-- Cause:   gmsh builds a real FE surface mesh, face by face.
-- Fix:     OpenCASCADE's own tessellator (BRepMesh, the OCP wheel:
-  pip install cadquery-ocp; it installs for the python3 pip runs, here
-  3.13) and the XCAF tree for names and placements: 1 min, no failures.
-  Leaving out fasteners and what is inside covers took the parts from 17 MB
-  to 5.7 MB (in under millweb's 5-6 MB a file).
-
-## 2026-10-29  millweb machine.hal: a stock comp loaded twice
-- Area:    webui/mill/server/machineconf.py (generate)
-- Status:  Fixed
-- Symptom: a machine with an inverted E-STOP input and an inverted probe (or
-  now an stmbl spindle, an inverted turret index) wrote `loadrt not names=…`
-  twice; LinuxCNC refuses the second load of a module.
-- Cause:   each feature loaded its own `not` / `and2` instance.
-- Fix:     generate() collects the names= comps and loads each module once,
-  with all its names, before the first net.
-
-## 2026-10-29  Lathe turret: M6 to a tool not in tool.tbl waits forever
-- Area:    linuxcnc/lathe (lathe.turret), LinuxCNC iocontrol
+## 2026-10-14  Linear scale with periodic reference marks breaks commutation
+- Area:    `src/comps/enc_fb.c` (index latch), linear motors
 - Status:  Known
-- Symptom: `T2 M6` with no T2 line in tool.tbl: the turret doesn't move, the
-  MDI never finishes (the rest of the changes work).
-- Cause:   LinuxCNC's tool table: a T it doesn't have is not prepared.
-- Fix:     every station's tool needs a line in tool.tbl (the lathe's Tools
-  page writes them).
+- Symptom: Linear axis (60 mm electrical period) on a scale with a reference
+  mark every 20 mm: absolute commutation from the first mark is right, then
+  the axis loses force and trips POS_ERROR after the next mark (sim:
+  `host/tests/linear_periodic_marks.test`).
+- Cause:   enc_fb re-latches `absoffset` on every index pulse while
+  `en_index` is set; only marks a whole electrical period apart land at the
+  angle `conf0.mot_fb_offset` was measured for, the others are +-120 deg off.
+- Fix:     Use a single (selectable) reference mark, e.g. the RGH22 reference
+  actuator, or marks at a multiple of the electrical period. A firmware option
+  to latch only the first index would also cover it.
 
-## 2026-10-29  stmbl spindle: the index without a sensor
-- Area:    linuxcnc/lathe (lathe.spindle)
-- Status:  Note
-- Symptom: threading passes would not line up with a belt ratio like 1.5.
-- Cause:   without an index sensor the index is the motor's zero angle,
-  which is a fixed spindle angle only when the ratio is a whole number.
-- Fix:     set `spindle.index_sensor` (one pulse a spindle turn) for other
-  ratios.
-
-## 2026-10-30  Lathe tool orientation Q drawn mirrored
-- Area:    webui/mill/js/lathe.js (the tool's drawing), the simulated tools
+## 2026-10-14  Sim: encoder drifted from the true position over long travel
+- Area:    `host/hw/hv.c` (PMSM integrator)
 - Status:  Fixed
-- Symptom: an outside turning tool needed Q3 to look right in millweb;
-  LinuxCNC (G41/G42, AXIS) means Q2 for it.
-- Cause:   my orientation table swapped X and Z against LinuxCNC's.
-  glcanon.py lathe_shapes is the reference: the nose's centre is at
-  r·(dx, dz) from the controlled point (Q2: (1, 1)).
-- Fix:     stock.js's toolShape follows glcanon.py (the edges from I, J as
-  AXIS draws them); the view draws its outline; the demo tools are Q2 (turning,
-  grooving), Q6 (thread), Q3 (boring bar), Q7 (drill).
+- Symptom: Linear axis round trip to -485 mm and back: encoder at 0, carriage
+  (`sim_abs_pos`) at +0.06 mm; reference marks moved against the counts.
+- Cause:   `sim_pos` (what enc_fb counts) was a wrapped float sum at 80 kHz,
+  `sim_abs_pos` a separate double sum; float rounding drifted between them.
+- Fix:     `sim_pos` is now derived from the double position every step.
 
-## 2026-10-30  Material removal: a thread in a turned section
-- Area:    webui/mill/js/stock.js
-- Status:  Workaround
-- Symptom: threading passes turned the thread down to its minor Ø; pulling
-  the insert straight out of the groove read as a G0 into the stock.
-- Cause:   the stock is axisymmetric (rings along Z): a helix isn't.
-- Fix:     a 60° insert's passes along Z keep the major Ø and record the
-  depth (half the groove's volume taken); moving out over a thread cuts
-  nothing. Programs threading with another insert are cut as turning.
+## 2026-10-14  rlpsij wanders on a limited stroke
+- Area:    `shared/comps/rlpsij.c` (states 3-5)
+- Status:  Fixed
+- Symptom: Linear axis (60 mm period): the id moved the carriage 0..+208 mm,
+  all one way; started near an end it would hit the stop.
+- Cause:   State 4 always starts driving +, and its coasts are long on a low
+  friction axis (~95 mm from 0.6 m/s); state 5 steps + first.
+- Fix:     `rlpsij0.max_travel` (rad, 0 = off): segments head back past half
+  of it, a coast heading away brakes, state 5 runs towards the start, abort
+  beyond it. 100 mm limit: -39..+59 mm used, same results.
 
-## 2026-10-30  Live preview before the first status: machine coordinates
-- Area:    webui/mill/server/millweb.py (preview)
+## 2026-10-14  No acceleration feedforward with LinuxCNC over sserial
+- Area:    `conf/template/sserial.txt`, `conf/template/pid.txt`
 - Status:  Known
-- Symptom: a program asked for before millweb has LinuxCNC's first status
-  came back with the work offset in it (X440 Z-195 for X15 Z0).
-- Cause:   the preview takes out the G5x + G92 from millweb's state, empty
-  until the first poll.
-- Fix:     none needed for the console (it asks after it has the status);
-  a test client waits for g5x first.
+- Symptom: Linear axis at 10 m/s^2: following error ~0.4 mm with bench gains
+  even though j is exact; `pid0.ff_torque_cmd` holds only friction/damping.
+- Cause:   sserial.txt sets `vel0.en = 0`; `pid0.acc_ext_cmd = vel0.acc` is
+  then 0, so j * acc comes from the feedback loops. Enabling vel0 helps
+  little (0.37 -> 0.30 mm): its acc is pos_error * w^2 of 1 kHz steps.
+- Fix:     Open. Higher cur_bw/vel_bw (id_pid) gets it under 0.17 mm in sim. A
+  proper fix is an acc from the commanded velocity (vel_int) or from LinuxCNC.
 
-## 2026-10-30  GUI sim suite: "the footer's line opens the last again"
-- Area:    webui/mill/test/gui/sim_suite.js (messages case)
-- Status:  Fixed
-- Symptom: fails alone and in the full run (51/52), also on the commit
-  before the material removal work: during its 10.5 s wait an "M1
-  optional stop" message becomes the last one, so the footer opens that.
-- Cause:   the simulation starts with its demo program running; it reached
-  its M1 while the case waited, and that became the last message.
-- Fix:     the case stops the program first (stop(t)).
 
-## 2026-10-30  Mill material removal: a fixture as its bounding box
-- Area:    webui/mill/js/mstock.js, millrem.js (fixtures)
-- Status:  Fixed
-- Symptom: every drilled hole in the demo bracket hit "the vise".
-- Cause:   the vise's bounding box spans the gap between its jaws, where
-  the stock sits.
-- Fix:     fixtures as a height map (a built-in's boxes one by one, a model
-  from its triangles); a move's tool (from its tip) and holder (from the
-  stick-out) checked against the cells under them, at the lowest the tool
-  is over each (a plunge: its bottom, not its start).
+## 2026-10-17  Baldor linear motors: phase colours depend on the drive
+- Area:    `docs/baldor_linear.md` (Baldor LMCF / LMBL, MN1800 cables)
+- Status:  Note
+- Symptom: (documentation) the same AY1763A00 cable lists two phase
+  colourings: LinDrive/MintDrive (U red, V white, W black) and "trap"
+  drives (U black, V red, W white).
+- Cause:   Baldor matched the phase order to the Hall order of each drive.
+- Fix:     On stmbl, find the phase order by scoping the back-EMF against
+  Hall 1/2/3, not from the colours (docs/baldor_linear.md, "Bring-up
+  checks").
 
-## 2026-10-30  Mill material removal: the holder's ring made short moves slow
-- Area:    webui/mill/js/mstock.js (cut)
-- Status:  Fixed
-- Symptom: 60 000 0.1 mm moves took 7.5 s to check.
-- Cause:   every move scanned the holder's radius (Ø6 tool, Ø26 holder: 19x
-  the cells) for the holder's check.
-- Fix:     the holder's ring only when its bottom can be below the stock's
-  top: 0.8 s.
+## 2026-10-18  enc_fb: input filter set before the timer clock (fast scales)
+- Area:    `src/comps/enc_fb.c` hw_init (F4, FB0 quadrature on TIM4 for v4.0)
+- Status:  Fixed (compiles for the F4; not yet run on a drive)
+- Symptom: none seen; found by reading the code. Relevant for fast linear
+  scales: 1 µm at 4–5 m/s is 4–5 M counts/s.
+- Cause:   Three problems:
+  - TIM_ICInit (ICFilter = 0xF) ran before
+    RCC_APB1PeriphClockCmd(FB0_ENC_TIM_RCC), so its writes were lost
+    unless res.c had already enabled TIM4. The inputs ran unfiltered.
+  - `TIM_Channel_1 | TIM_Channel_2` is TIM_Channel_2 (Channel_1 is 0), so
+    TIM_ICInit only ever reached B.
+  - Its BothEdge polarity sets CC2NP, which TIM_EncoderInterfaceConfig
+    leaves set. Encoder mode must not use that.
+  Just moving the clock enable would have applied a 3 µs filter to B
+  only (0xF: fDTS/32, N = 8: about 0.65 m/s at 1 µm), in both-edges mode.
+- Fix:     Enable the clock first and drop TIM_ICInit. After
+  TIM_EncoderInterfaceConfig, write IC1F/IC2F in CCMR1 from the new pin
+  `enc_fb0.input_filter` (set at load; default 3 = 8 samples at 84 MHz,
+  ~0.1 µs; 0 = off). The counting direction (B inverted) is unchanged.
+  Still to check on a drive: counts against distance at speed, and the
+  direction.
 
-## 2026-10-30  Mill material removal: the cut stock slowed the view to 4 fps
-- Area:    webui/mill/js/millrem.js (millRemMesh)
-- Status:  Fixed
-- Symptom: with the cut stock shown, the headless browser (software
-  rendering) drew 4.5 frames a second; the simulation's clock (dt capped
-  at 0.1 s a frame) fell behind and timing tests failed (single block).
-- Cause:   the surface drawn at the check's 0.25 mm cells: 150 000 points,
-  300 000 triangles, re-uploaded and its normals recomputed whole.
-- Fix:     drawn coarser than cut (a point the lowest of the cells under
-  it, at most 40 000), halved while frames take over 50 ms; only the rows a
-  cut changed are updated, normals from the heights. 20 fps there, 40
-  without it.
+## 2026-10-18  No emergency braking: every fault coasts the motor
+- Area:    `shared/comps/fault.c`, F3 `stm32f303/src/comps/io.c` / `ls.c`
+- Status:  Fixed (by "No emergency braking: every fault coasted the motor"
+  above: qstop, dbrake, the F3 braking on its own; the claude/linear-motor
+  branch's note, merged after)
+- Symptom: (code review, for linear axes at speed) a fault or a lost link
+  leaves a moving axis to coast into its end stop.
+- Cause:   Every fault (CMD_ERROR after about 5 rt cycles of lost
+  smart-serial/CAN, a feedback error, over-voltage, ...) goes to
+  SOFT_FAULT. That sets en_out = 0, and the F3 clears HV_EN: all switches
+  off. The F3 does the same if the F4's packets stop (ls.c, after 5
+  missed). mot_brake drops (the holding brake engages, if one is fitted;
+  linear motors usually have none). Regen while decelerating can only
+  clamp current (high_dc_volt) or trip HV_VOLT_ERROR. fault0.dc_brake is
+  computed but used nowhere, and the F3's BRK output (io0.brk, with
+  brk_present detection) is not linked by any template.
+- Fix:     Ideas: a controlled quick stop on CMD_ERROR while the feedback is
+  good; dynamic braking (all low sides on) when control is lost but the
+  power stage works; a chopper on BRK driven by dc_brake; and, for a dead
+  drive, an external normally-closed contactor shorting the phases through
+  resistors, plus shock absorbers at the ends.
+
+## 2026-10-26  Linear axis: id_pid tunes lower on master
+- Area:    `shared/comps/ids.c` (id_pid), host simulator, `host/tests/gen_linear_soak.py`
+- Status:  Open
+- Symptom: Merging claude/linear-motor into master: id_pid on the simulated
+  linear axis (examples/linear_axis.conf) now ends at pos_bw 20, vel_bw 77,
+  vel_d 1.75; on the branch it reached pos_bw 101, vel_bw 1000, vel_d 1. With
+  master's gains the linear soak's following error is 0.33 rad (3 mm) against
+  a 0.021 limit; with the branch's gains it passes 12/12 on master.
+- Cause:   Not found. ids.c is the same on both; the first scored cycle
+  already costs more than kt x the warm-up's, so vel_bw is cut at once
+  (100 x kd). Master's plant and loop differ since the branch: probe
+  autophasing (phase_mode 1), vel2.en = fb_switch0.state, qstop / dbrake in
+  pid.txt, the simulated motor's coulomb friction hold, the mains-fed bus
+  (sim_supply 0 changes nothing). No linear motor to compare on hardware.
+- Fix:     gen_linear_soak.py uses the branch's gains (--tune runs id_pid).
+  The linear tests wait 3 s for probe phasing (it takes ~2 s here).
+
+## 2026-10-14  uf (V/f) template: slip from |i|, stale angle, voltage derating
+- Area:    `conf/template/uf.txt`, `shared/comps/uf2.c` (comp `uf`),
+           `conf/template/sserial_uf.txt`, `conf/asyc_uf_3kw.txt`
+- Status:  Open (uf unchanged; acvf avoids all of these)
+- Symptom: On the simulated 100 W induction motor: +1.1% speed at no load,
+  -32% at rated load (50 Hz), stall at 25 Hz with half load, then the
+  rotor driven backwards and a motor overtemperature fault.
+- Cause:   Slip compensation scales with |i|, which counts the magnetizing
+  current as load and has no resistive-drop boost. hv0.vel is not set, so
+  between 5 kHz packets the F3 holds a stale angle. uf0.scale =
+  fault0.scale scales the voltage: thermal derating collapses the flux, a
+  hot motor cannot restart. sserial_uf reports the command back as
+  vel_fb and no pos_fb. asyc_uf_3kw.txt sets ramp0.max_speed, which does
+  not exist (ramp0.max_vel), and never ramp0.en.
+- Fix:     New acvf (see "acvf / idacim"). Fixing uf in place would change
+  existing machines; left as is.
+
+## 2026-10-14  acvf / idacim: induction motor V/f and autotune
+- Area:    `shared/comps/acvf.c`, `shared/comps/idacim.c`, templates acvf,
+           sserial_acvf, id_acim; sim `hv0.sim_type = 1`; branch
+           `claude/acim-conveyor`
+- Status:  Note (sim only)
+- Symptom: (design notes) Found while building it on the sim:
+- Cause:   (1) Slip compensation is positive feedback: filtered at 20 Hz it
+  hunts above ~100 rad/s (5 Hz now). (2) r * id compensation hunts on the
+  larger motors (370 W: 17, 750 W: 79 rad/s peak to peak) where plain V/f
+  is stable or marginal: active damping (torque high-pass on the frequency,
+  damp 0.5..4) stops it. (3) At zero frequency u = r * id holds any dc
+  current forever: faded in only above 3 * u_boost. (4) idacim's rotor
+  step: the current takes ~20 ms to settle, so a fit that assumes constant
+  current read tau_r +19%; the fit now uses the measured current.
+  (5) Without cur_bw (uf-derived templates leave it 0) current mode gives
+  no voltage: id_acim sets hv0.cur_bw.
+- Fix:     4 motors (100 W 4p .. 750 W 2p): autotune rs 0.5%, rr/lm/tau_r
+  ~3%, leakage ~6% (sigma*ls +5%: the rotor flux partly follows the square
+  wave); speed within 1% with the autotuned values, travel within 1%.
+  Untested: hardware, regenerative overvoltage on fast stops, field
+  weakening, the ARM build.
+
+## 2026-10-14  Test infra: float sim position, HAL query prefixes, link echoes
+- Area:    `host/hw/hv.c` (sim_abs_pos), `host/tests/run_tests.py`
+- Status:  Fixed / Note
+- Symptom: The belt travel check failed by 2% only late in a run; queries
+  showed "wrong" values in index-based checks.
+- Cause:   sim_abs_pos summed in float: near 2000 rad one ulp is 2.4e-4
+  rad against ~1.8e-3 rad per 12.5 us step, a biased rounding of ~7% per
+  add. A console query prints every pin with that prefix (acvf0.vel also
+  prints vel_cmd, vel_n, vel_sync), and the boot's link echo "OK sink <=
+  source = v" is parsed as a value of sink, shifting [k] indices.
+- Fix:     sim_abs_pos accumulates in double. Index linked pins from the
+  end ([-1]); avoid pin names that prefix others (acvf: blocked,
+  block_time, jtimer).
+
+## 2026-10-26  acvf: the current limit never acted under master's F3 current clamp
+- Area:    `shared/comps/acvf.c` (induction V/f), F3 `curpid.c` voltage mode, host `hw/hv.c`
+- Status:  Fixed (simulated; no induction motor on the bench)
+- Symptom: Merging claude/acim-conveyor into master, acim_100w_4p_speed: a
+  belt jammed with 4x rated friction stalled, but acvf0.blocked (sserial
+  in2) never came: acvf0.lim stayed 0, the frequency kept rising (vel_sync
+  115 rad/s, u_cmd 178 V) with the rotor at 0.
+- Cause:   acvf pulls the frequency back only while the current is above
+  max_cur. Since the branch was made the F3's current loop in voltage mode
+  (curpid.c, and the simulator's stand-in) scales its voltage down above
+  max_cur itself, so the current sits at max_cur and never above it: the
+  V/f limit, and with it the blocked-belt detection, never engaged. The
+  same on a real drive.
+- Fix:     acvf0.lim_share (0.9): the limit acts at 0.9 x max_cur x scale,
+  below the F3's clamp. Test: acim_100w_4p_speed.test (blocked == 1 at the
+  jam; fails without it). The induction model now uses the simulator's
+  mech_step (friction, brake, end stops) and a stiff sim_udc bus.
 
 ## 2026-10-15  stmbl_arm hung in its first servo call after a struct change
 - Area:    `host/arm/lcnc/Makefile`, `host/lcnc/stmbl_sim_api.h`
@@ -2842,122 +3069,6 @@ Entry format:
   module. (`QSizePolicy.Ignored` instead squeezed them to nothing next to a
   stretch.) Now 1448 px.
 
-## 2026-10-30  LinuxCNC 2.9's joint status has no actual_position
-- Area:    webui/mill/server/machine.py (an arm's status)
-- Status:  Fixed
-- Symptom: with an arm, millweb sent no status at all (the poll raised).
-- Cause:   stat.joint[n] has `input` (the joint's feedback) and `output`,
-  not `actual_position` (that is stat's, the axes').
-- Fix:     `input`; the test stand-in (fake_linuxcnc) has the real keys.
-
-## 2026-10-30  Merging the robot branch: two copies of the drive's build
-- Area:    host/arm/Makefile, host/lcnc/Makefile
-- Status:  Note
-- Symptom: after the merge host/arm (the arm's drive library) didn't build:
-  stmblcan_bus.h not found.
-- Cause:   the arm builds the drive from its own source list, a copy of
-  host/lcnc's; this branch had added the CAN bus, firmware staging and the
-  console to host/lcnc's (sim_api.c needs them).
-- Fix:     host/arm/Makefile has host/lcnc's sources and flags again. A
-  change to one wants the other (or one shared list).
-
-## 2026-10-31  An arm's model limits are offsets from theta0
-- Area:    webui/mill/js/arm.js (the simulation's joint limits)
-- Status:  Fixed
-- Symptom: the simulated arm refused every pose of the demo program: "out
-  of the arm's reach or its joints' limits"; J2 at -86 deg read as below
-  its -60 limit.
-- Cause:   arm_sim's .arm `limits` are on its q (offsets from theta0);
-  with `joints theta` (vis3d, LinuxCNC) the joint values include theta0
-  (J2's -90).
-- Fix:     the model's limits moved by theta0 when the joints are the DH
-  theta; live, LinuxCNC's own [JOINT_n] limits.
-
-## 2026-10-31  An arm's model files: two names for one file
-- Area:    webui/mill/server/machine.py (arm_model), js/armmodel.js
-- Status:  Fixed
-- Symptom: with the cell elsewhere than the model (hwtest/arcmate-sim's,
-  a copy in /tmp), the browser missed the tool table: "not in the model's
-  files".
-- Cause:   files are named by their path from the model's folder; an
-  include resolved from another folder gives another, equally valid,
-  relative path (../../../../../../home/... against ../../../host/...),
-  and the browser can't tell without the server's absolute paths.
-- Fix:     the server writes every include and mesh in the texts as
-  @<name>, the bundle's own name for the file; the browser takes @names
-  as they are.
-
-## 2026-10-31  An arm's Tools page: Mount buttons stayed disabled
-- Area:    webui/mill/js/arm.js (armRenderTools)
-- Status:  Fixed
-- Symptom: test-gui-arm failed now and then: clicking "Mount T2" timed
-  out after T1 M6 although the machine was idle again.
-- Cause:   the changer table was drawn when the Tools page opened or the
-  tool table changed; drawn while T1 M6 ran, its buttons stayed disabled.
-- Fix:     the joints panel's 20 Hz update draws the table again when
-  busy/idle, the mounted tool or the changer's fault changes.
-
-## 2026-10-31  An arm's TOOL-frame jog is an MDI move
-- Area:    webui/mill/server/machine.py (_jog_tool)
-- Status:  Note
-- Symptom: LinuxCNC has no tool-frame jog: teleop jogs X..C in the
-  world frame only.
-- Cause:   by design (motion's teleop).
-- Fix:     the server works the target out from the commanded pose
-  (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F`; held, it
-  goes to the [AXIS_*] limits along the line (a turn: 45°) and jog_stop or
-  the deadman aborts it. A turn keeps the tool point, but LinuxCNC moves
-  A B C linearly, so between the ends the orientation is the A B C line's,
-  not an exact turn about the tool axis. A B C wrap to within 180° of the
-  current values.
-
-## 2026-10-31  The arm's M6 went to the docks in work coordinates
-- Area:    hwtest/arcmate-sim/toolchange.ngc (and the generated run/toolchange.ngc)
-- Status:  Fixed
-- Symptom: with a G54 offset active (test/machine's linuxcnc.var: Z -195),
-  T1 M6 moved to the wrong place and never locked the tool.
-- Cause:   the dock and approach moves were `G90 G1 X#<_dk..>`: work
-  coordinates, while armtool's dock positions are machine positions.
-- Fix:     `G53 G1` for every dock move; the example's TOOL_READY too.
-
-## 2026-10-31  Record point wrote machine coordinates as a plain G1
-- Area:    webui/mill/server/machine.py (cmd_teach_record)
-- Status:  Fixed
-- Symptom: a taught point replayed from teach.ngc landed off by the work
-  offset.
-- Cause:   it wrote stat.actual_position (machine) into a G1 line, which a
-  program reads in the work coordinates.
-- Fix:     it records actual - G5x - G92. The file is now a program (header,
-  points, M2): LinuxCNC refuses a file without M2 or %.
-
-## 2026-10-31  Mount with TOOL_READY: "a program or MDI is running"
-- Area:    webui/mill/js/arm.js (armMount)
-- Status:  Fixed
-- Symptom: with [ARM6HMI] TOOL_READY set, Mount moved to the ready pose
-  and never changed the tool.
-- Cause:   the console sent the ready move and T<n> M6 back to back; millweb
-  refuses MDI while one runs.
-- Fix:     the ready move with wait (op mdi {wait: true}), then M6.
-
-## 2026-10-31  machine.json → arm: the first tool.tbl was a mill's
-- Area:    webui/mill/server/machineconf.py (write_run, init)
-- Status:  Fixed
-- Symptom: a new arm machine had `T1 P1 D6.0 ;6 mm endmill` only, so T2 M6
-  failed ("tool not found").
-- Cause:   init() wrote the default tool.tbl before any configuration was
-  made.
-- Fix:     tool.tbl is written with the first generated configuration; an
-  arm's is its changer's tools (generate's `tool.tbl.init`). An existing
-  tool.tbl is kept (switching a mill to an arm keeps the mill's: edit it).
-
-## 2026-10-31  An arm's enabling switch: jog-inhibit, and MDI jogs
-- Area:    webui/mill/server/machineconf.py (generate_arm), millweb.py
-- Status:  Note
-- Symptom: LinuxCNC 2.9's motion.jog-inhibit / jog-stop stop teleop and
-  joint jogs, but not the console's TOOL-frame jog (an MDI move).
-- Cause:   by design: jog pins act on jogs only.
-- Fix:     released, millweb aborts its tool-frame move and refuses new
-  jogs; `arm.enable.hold_all` adds motion.feed-inhibit for every move.
 
 ## 2026-10-14  --sim file ignored after a comment line
 - Area:    `host/drive.c` (drive_boot, --sim)
@@ -3340,6 +3451,194 @@ Entry format:
   the carriage off-centre); the rack left is dynamic.
 - Fix:     none needed; the gantry link instead. Removed from pcomp.
 
+## 2026-10-26  Portal: the linear motors run out of bus voltage at 1.3 m/s
+- Area:    host/portal (claude/portal-dynamics), host `hw/hv.c` (the F3's voltage limit)
+- Status:  Open (simulation; no portal hardware)
+- Symptom: Merging claude/portal-dynamics into master: portal_move's tool
+  path error 177 um (limit 100, the branch 60), the frame moving 562 um (114);
+  portal_racking's Y1 current 1.06 x (limit 1.05); portal_momentum's second
+  move ends elsewhere. Marked @todo.
+- Cause:   Master's simulated F3 limits the output voltage vector to what the
+  bus can make (vbus / sqrt 3); the branch's limited ud and uq one by one, up
+  to 1.34 x that. The Baldor LMCF08F at 1.3 m/s needs ~130 V back-EMF plus
+  R i (10.5 ohm) against 188 V from a 325 V bus: the moves are voltage
+  limited. Without the vector limit the merge reproduces the branch's numbers
+  (60 um, 114 um). portal_momentum faults (POS_ERROR) on its second move on
+  both; it only checks momentum and frame travel, and master brakes after the
+  fault where the branch coasted.
+- Fix:     Not yet: slower or lower-acceleration moves, a higher bus (a PFC
+  front end, 400 V), or motors with a lower Kf. Then drop the @todo lines.
+- Also:    linuxcnc/dynwiz `make test-sim` (not in host check): 4 of 8 fail
+  on the branch itself on the bench Pi (dispenser: "the scales can't see the
+  head"; pcbdrill, write_confs: "math domain error"; write); after the merge
+  test_portal fails instead of test_write ("math domain error", likely the
+  same voltage limit). `make test` (dynident) 6/6.
+
+## 2026-10-26  sserial pos_advance is 0.2 ms long since idx_home runs before linrev
+- Area:    `conf/template/sserial.txt` (sserial0.pos_advance 0.0008), idx_home rt_prio
+- Status:  Open (needs the bench)
+- Symptom: The portal simulation's following error (LinuxCNC's command
+  minus the drive's reported position) grew from ~8 to ~228 um at 0.7 g on
+  master; the motion itself was the same.
+- Cause:   sserial0.pos_fb is extrapolated by pos_advance (0.8 ms) for the
+  link's latency. Since idx_home0.rt_prio went to 2.05 (2026-10-17, index
+  homing) linrev reports the position one rt cycle (0.2 ms) fresher, so the
+  same advance now leads by 0.2 ms: at 1 m/s that reads as 0.2 mm.
+- Fix:     0.0006 restores the portal's numbers in simulation. Not changed:
+  it alters every drive's reported position; check it on the bench first
+  (hwtest soak's ferror_max at 500 mm/s should drop by ~0.1 mm).
+- Also:    2026-10-27, the simulated CN 720 (host/mill, ball screws, SEW
+  CMP40M) merged with master: mill_move's following error 16.9 / 17.2 um
+  against 15 (the branch: under 15); with pos_advance 0.0006 10/10. Marked
+  @todo there too.
+
+## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
+- Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
+- Status:  Workaround
+- Symptom: `kicad-cli sch erc` / `pcb drc` don't exist (KiCad 7.0.11, the
+  apt version here; the KiCad 8 PPA is blocked). `ZONE_FILLER.Fill`
+  segfaults in a headless pcbnew; `FOOTPRINT.Flip` segfaults on a footprint
+  not yet on a board; `SaveBoard` rewrites the .kicad_pro and drops its net
+  classes and sheet list.
+- Cause:   ERC/DRC came to kicad-cli in KiCad 8; the others are pcbnew 7's
+  Python bindings.
+- Fix:     check.py checks KiCad's own netlist against parts.py plus ERC's
+  pin-type rules; drc.py runs DRC through pcbnew.WriteDRCReport; the GND
+  plane is left unfilled; footprints are added to the board before they are
+  flipped; pcb.py writes its net classes back after saving.
+- Note:    the *_ThermalVias QFN footprints have a copper pad on the far
+  side as well: a QFN on the bottom puts copper on the top. And 28 x 28 mm
+  with both variants' connectors (USB-C, 3 GH, XH 3) and the M2.5 holes'
+  6 mm courtyards is full: J3 is pads and J7 the 1.27 mm 5-pin (both
+  options the document allows), U4 turned 90° so J2's pins pass beside it.
+
+## 2026-10-25  vibration sensor: a strong tone's skirt read as chatter
+- Area:    shared/vibdsp.c (vib_peak), shared/comps/vib.c (chat_f, chat_a)
+- Status:  Fixed
+- Symptom: (simulator) milling without chatter still reported chat_a
+  0.29 g at 436 Hz: next to the 400 Hz tooth passing.
+- Cause:   the search skipped bins within 3 of a spindle harmonic, but then
+  summed +-3 bins around the bin it found, which reached back into the
+  excluded tone's Hann main lobe.
+- Fix:     exclude +-4 bins, and leave excluded bins out of the sum. Chatter
+  within 4 bins of a spindle harmonic (52 Hz at fft_n 2048, 26 Hz at
+  4096) is not separated from it.
+
+## 2026-10-25  The console prints every pin a name starts with
+- Area:    the console (hal_parse), host tests (@expect PIN[k])
+- Status:  Note
+- Symptom: `vib0.crash` printed crash_g, crash_reset, crash and crash_peak,
+  so a test's crash_peak[1] was the value printed with the crash query.
+- Cause:   pin queries match by prefix.
+- Fix:     name pins so that an alarm's name is no prefix of others
+  (vib0.crash, shock, shock_lim, reset).
+
+## 2026-10-25  vibsensor: 4096-point FFTs and the HAL's pools didn't fit 128 KB
+- Area:    vibsensor/ (Makefile HAL_SIZES), shared/comps/vib.c, shared/vibbuf.h, shared/comps/vnode.c
+- Status:  Fixed
+- Symptom: the first link overflowed RAM by 58 KB.
+- Cause:   the FFT input double buffer (32 KB) plus a copy for the FFT
+  (16 KB) and im (16 KB), a 4096-sample vibbuf (24 KB), a spectrum copy
+  and frame array for vnspec (13 KB), and the HAL's default pools
+  (1024 pins, 16 KB of contexts: 26 KB).
+- Fix:     the FFT works in the collected block; vibbuf 1024 samples
+  (38 ms; rt drains it every 0.2 ms); vnspec builds frames one at a time;
+  the sensor's HAL pools -DHAL_MAX_PINS=320 -DHAL_MAX_COMPS=8
+  -DHAL_MAX_CTX=4096; config text 6 KB, Tx ring 64. Now 108 KB.
+- Note:    a component name must not contain a digit (the console reads
+  `tmp1170.temp` as comp tmp, instance 1170): the TMP117's component is
+  `thermo`.
+
+## 2026-10-26  Vibration levels flipped at a threshold, and tripped on the filters' start
+- Area:    shared/comps/vib.c (level, temp_level), host/tests/vib/levels.test
+- Status:  Fixed
+- Symptom: (vibmon --sim) a sensor at 4.4 mm/s, next to vel_warn 4.5, sent
+  a level event most reports, each a line in millweb's event log. With
+  hysteresis added, a steady 11.04 mm/s then stayed at alarm (11.2): the
+  first report after start had passed it.
+- Cause:   no hysteresis; and the high pass and velocity filters ring for a
+  few hundred ms after start (gravity's 1 g step on z).
+- Fix:     a level falls back only 10 % below its threshold (temperature
+  2 degC); levels are judged from 0.5 s after the filters were (re)made.
+
+## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
+- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
+- Status:  Open
+
+
+## 2026-10-26  rlpsij: a light rotor with a slow l/r gets j and friction wrong
+- Area:    shared/comps/rlpsij.c (state 4), host/tests/motor_sew_cmp40m.test
+- Status:  Fixed
+- Symptom: the SEW CMP40M (r 9.96 ohm, l 22.75 mH, j 1.8e-5 kg m^2,
+  psi 0.1455, 3 pole pairs) identifies r, l, psi and the pole count right,
+  but j 24 % high and friction at half. With 3x the inertia every value is
+  within tolerance.
+- Cause:   (likely) at test_cur the rotor reaches max_vel in under 1 ms,
+  less than the electrical time constant l / r = 2.3 ms: the drive
+  segments are mostly current rise, and the momentum fit trades j against
+  friction.
+- Fix:     not yet; the test carries @todo. Closed-loop soak of the motor
+  passes (gen_soak_tests.py --only sew_cmp40m). On the machine the gear
+  unit and the load add inertia.
+
+## 2026-10-26  kigen: GND in a wide-clearance net class fails fine-pitch parts
+- Area:    hardware/kigen (sch.py net classes), hardware/vibsensor/gen/parts.py
+- Status:  Note
+- Symptom: DRC on the vibration sensor's board: four clearance errors
+  between the IIS3DWB's own pads (0.5 mm pitch, 0.15 mm apart).
+- Cause:   GND was in the "Power" net class (0.2 mm clearance), and LGA /
+  QFN pads of the same part sit closer than that.
+- Fix:     a board's NETCLASS_POWER (gen/parts.py) leaves GND out where
+  fine-pitch parts have ground pads (vibsensor); brdstepper keeps its
+  classes (no violation there).
+
+
+## 2026-10-26  kigen: connector rows at 45 degrees collide in a chamfered tail
+- Area:    hardware/vibsensor/gen/board.py (two M8 sockets IN / OUT)
+- Status:  Note
+- Symptom: J1 / J3 rotated 45 degrees to face the tail's chamfers gave 26
+  courtyard violations; placed near the corner, "overlaps where fixed".
+- Cause:   kigen's courtyards are axis-aligned boxes, so a 45-degree row
+  grows its box into the M2 hole and the other row; its corner crossed
+  the tail chamfer.
+- Fix:     the lead pads as rows along the long edges at (-9.4, +-7.35),
+  rotation 90; the socket's leads bend to them inside the potting.
+
+## 2026-10-27  SEW CMP40M resolver cable: pairs found by resistance
+- Area:    conf/sew_cmp40m.txt (RH1M resolver on res_fb0)
+- Status:  Note
+- Symptom: SEW's green resolver cable cut off its D-sub; which pair is
+  excitation, sin and cos.
+- Cause:   colours only; SEW's tables disagree on pins.
+- Fix:     pairs by D-sub pins (3/8, 1/6, 2/7) and resistance: the odd one
+  out is the excitation (grey/pink 77.4 ohm), sin and cos match
+  (green/yellow 67.5, blue/red 67.3). Wiring to the RJ45 in the config's
+  comments. The KTY84 is on brown/white (576 ohm at ~20 C), not
+  violet/black: that pair reads 1 ohm, a bridge at the motor end.
+
+## 2026-10-27  servoterm-cli ignored SIGTERM in interactive mode
+- Area:    servoterm-cli/servoterm-cli.c (the interactive select loop)
+- Status:  Fixed
+- Symptom: `kill` on an interactive servoterm-cli did nothing; a test
+  driving it through a pty hung until its timeout.
+- Cause:   the loop retried select() on EINTR without looking at stop_req,
+  which the signal handler sets.
+- Fix:     the loop runs while !stop_req. Found by
+  host/tests/test_servoterm_ident.py (drive name in the prompt).
+
+## 2026-10-27  millweb: a moving-table machine in the 3D view
+- Area:    webui/mill/js/app.js (buildBuiltin, workG), machmodel.js
+- Status:  Note
+- Symptom: the 3D view drew everything in the work's frame with a gantry
+  moving over it; a fixed-bridge machine (CN 720) would show its base and
+  bridge sliding in Y.
+- Cause:   one frame for both layouts.
+- Fix:     machine.json `type` (gantry | bridge). For a bridge the view keeps
+  the base and bridge still (the tool at y 0) and moves workG (fixtures,
+  toolpath, trail, travel box) and the built-in table with -Y. Anything that
+  turns a view position back into machine Y must add workG.position.y (the
+  follow camera does).
+
 ## 2026-10-27  mill_sim: a 2 kHz servo thread looked jittery, the harness wasn't
 - Area:    host/mill/mill_sim.c (servo_period, tool_mm)
 - Status:  Fixed
@@ -3406,6 +3705,634 @@ Entry format:
 - Cause:   cmd_freq is a setting, not measured.
 - Fix:     the simulation sets it from the period; on a real drive put
   vel_int0.cmd_freq = 2000 in the config for a 2 kHz thread.
+
+- Cause:   not the l/r (that guess was wrong: the drive current adapts down
+  to 0.32 A and segments last ~40 ms). Each segment lasted between SEG_MIN
+  and 4 * SEG_MIN, so drive_cur never changed and state 4 settled into a
+  limit cycle of identical segments: the momentum fit had only two distinct
+  equations (drive, coast, mirrored) for four unknowns, and |v| always
+  within max_vel / 2..max_vel made friction and damping 0.994 correlated.
+  It traded friction into damping; state 5 then used that friction as
+  feedforward, the rotor stuck at test_vel / 10, and read friction low too.
+- Fix:     every other pair of drive segments stops at max_vel / 2 (only
+  full-speed segments adapt drive_cur). j +5 %, friction +2 % (was +24 %,
+  -55 %); the other motors' friction errors shrink (rx60_456 -9 -> +1 %,
+  p50b -8 -> -0.5 %). Test: motor_sew_cmp40m.test (no longer @todo).
+
+## 2026-10-26  rlpsij state 5: a start-up kick winds the speed integrator
+- Area:    shared/comps/rlpsij.c (state 5)
+- Status:  Fixed
+- Symptom: with the state 4 fix above alone, p50b, weiler_x and
+  syn_servo_2kw read friction 25-60 % low; which motors fail depends on
+  the direction state 4's brake ends in.
+- Cause:   in the simulated drive the current loop barely follows the brake
+  (iq ~0 for a -1.5 A command) and overshoots when state 5 starts (0.9 A for
+  a 0.1 A command): the rotor kicks to ~20 rad/s, and the speed integrator
+  (gain jq * vel_bw^2 / 4, slow) winds ~-0.13 A while it slows down. At
+  test_vel / 10 the rotor then stands still with negative current, and the
+  phase reads a wrong friction current.
+- Fix:     state 5 integrates the speed error only within test_vel / 2 of
+  the command or below test_vel / 2 (breakaway). Tests:
+  motor_p50b.test, motor_weiler_x.test, motor_syn_servo_2kw.test fail
+  without it (with the state 4 fix in).
+
+## 2026-10-26  make check: test_step2cell.py needs libGLU (gmsh)
+- Area:    host/tests/robot/test_step2cell.py, cloud containers
+- Status:  Note
+- Symptom: `make -C host check` stops at test_step2cell.py with
+  "OSError: libGLU.so.1: cannot open shared object file"; the .test suite
+  after it never runs.
+- Cause:   the gmsh Python package loads libGLU, which the container lacks.
+- Fix:     install libglu1-mesa, or run the remaining check steps by hand
+  (`make -s -C arm all; make -s -C portal all; python3 tests/run_tests.py
+  tests/*.test tests/ebrake/*.test tests/bus/*.test arm/tests/*.test
+  portal/tests/*.test`).
+
+## 2026-10-18  idpmsm: pole pairs wrong on heavy rotors
+- Area:    `shared/comps/idpmsm.c` (state 2.2)
+- Status:  Fixed
+- Symptom: setup wizard over 35 simulated motors: 5 got 9-12 pole pairs
+  (syn_spindle, syn_servo_2kw, manutec_r15_1, p50b, weiler_x).
+- Cause:   the rotating field started at full test_vel; a rotor heavy for
+  the test current can't pull in and swings; pp was a filtered ratio of
+  instantaneous speeds, biased by the swinging.
+- Fix:     the field ramps up over 1 s; pp = the field's travel / the
+  rotor's over the last 2 s. All 35 right.
+
+## 2026-10-18  idpmsm: the flux step spun light motors to the voltage limit
+- Area:    `shared/comps/idpmsm.c` (state 3.2), `conf/template/id_pmsm.txt`
+- Status:  Fixed
+- Symptom: manutec_r15_1 (j 3.5e-4, 0.8 A) ran up to 700 rad/s (6700 rpm)
+  during the psi measurement; with a wrong conf0.polecount it kept being
+  driven with no current command.
+- Cause:   (1) the speed loop was a slow integrator (error limited to
+  test_vel / 100): huge overshoot. (2) id_pmsm left hv0.vel on the normal
+  commutation chain, scaled by conf0.polecount (still a guess there): the
+  F3 advanced the angle by it between packets and spun the field itself.
+- Fix:     bang-bang: test_cur below test_vel, no current until 0.7
+  test_vel; psi = the integral of uq - r iq over the rotor's travel while
+  coasting (vel1 reads ~1 % high while slowing: 2 % in psi). The template
+  sets hv0.vel = 0. drive_id_pmsm.test: psi -1.3 % (2 % tolerance).
+
+## 2026-10-18  idm: micro motors saturate; inertia high with heavy friction
+- Area:    `shared/comps/idm.c`, the setup wizard's mechanical step
+- Status:  Workaround (inertia), Fixed (micro motors)
+- Symptom: syn_micro (j 4e-7) faulted SAT_ERROR in id_mot. Light motors with
+  friction large against the inertia's torque read j 1.3-7x high.
+- Cause:   idm's adaptive inertia (which sets the loop gains) had a floor
+  of 5e-6: gains 12x too high. At idm's 25 rad/s the friction's sign
+  changes often and the least-squares fit puts the misfit into j.
+- Fix:     floor 1e-7 and the wizard starts the inertia low; the wizard runs
+  idm twice, the second time at 30 % of peak torque for the first (high)
+  estimate and faster: within 25 % except fanuc_b05_6000 (2.3x) and
+  sgmph_01a1 (2.4x), kept as TODO in host/tests/run_wizard_sim.py.
+
+## 2026-10-18  The console prints pins with 6 decimals
+- Area:    `shared/hal.c` (hal_print_pin: %f)
+- Status:  Workaround
+- Symptom: a micro motor's inertia (4e-7) read as 0.000000; 4.4e-5 as
+  0.000044 (2 significant digits).
+- Cause:   %f.
+- Fix:     new console command `getf <pin>` (%.9g), used by the setup
+  wizard. The normal print is unchanged (servoterm and scripts read it).
+
+## 2026-10-18  idpmsm: inductance high when L/R is a few rt cycles
+- Area:    `shared/comps/idpmsm.c` (L step)
+- Status:  Known
+- Symptom: r2aa04003f (L/R 55 us) L 2.7x high, sr60_4 (40 us) +15 %.
+- Cause:   the square-wave L step resolves the current slope over a few
+  5 kHz samples; with L/R near the period the slope isn't linear.
+- Fix:     none yet; the wizard warns when L/R < 50 us.
+
+## 2026-10-18  setup wizard: notes
+- Area:    `servoterm-cli/setup/`, docs/setup_wizard.md
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     Gotchas found building it: idpmsm resets r/l/psi/pp to defaults
+  when disabled (state 0): read results before disabling. A pin query
+  prints every pin with that prefix (conf0.r also prints conf0.rt_prio):
+  match the whole name. The scope stream (term0.send_step) fills the
+  buffers while the wizard waits for the user: it sets send_step = 0. The
+  host simulator's sim_board links the simulated motor to conf0, so
+  identification tests need a --sim file with fixed values.
+
+## 2026-10-18  A vertical axis drops while the holding brake closes
+- Area:    `shared/comps/fault.c` (mot_brake, en_out)
+- Status:  Fixed
+- Symptom: burn-in axis, a 50 ms brake, 0.5 Nm hanging load: disabled at
+  standstill it fell 18.7 rad (3 turns) before the brake gripped.
+- Cause:   the outputs went off in the same cycle as the brake command;
+  brakes take tens of ms to grip.
+- Fix:     fault0.brake_time: the brake grips while the quick stop (or the
+  dynamic brake) still holds the axis, then the outputs go off. Default 0
+  (old behaviour); the setup wizard sets it and raises it until there is no
+  sag. tests/ebrake/estop_brake_time.test.
+
+## 2026-10-18  fb_switch0.pos_fb stands still while the drive is disabled
+- Area:    `shared/comps/fb_switch.c` (fault0.en_fb)
+- Status:  Known
+- Symptom: the wizard's brake step saw no movement with the drive off
+  although the axis fell 3 rad.
+- Cause:   fb_switch only updates with en_fb.
+- Fix:     read the feedback's own pin (enc_fb0.pos, res0.pos, ...) to watch
+  a disabled axis.
+
+## 2026-10-18  "The motor moves when enabled" doesn't prove the brake releases
+- Area:    setup wizard, brake step
+- Status:  Note
+- Symptom: a brake on the wrong output (never released) passed a 0.3 rad
+  move test.
+- Cause:   the motor's peak torque (3x rated) is above a typical brake's
+  (1.5x rated): it drags the closed brake.
+- Fix:     the release test is by hand with the drive off and
+  fault0.brake_release = 1: the shaft must turn freely.
+
+## 2026-10-27  Motor temperature sensor: the HV board's reading went nowhere
+- Area:    shared/comps/mtemp.c, conf/template/{pid,mpid,uf}.txt, setup wizard
+- Status:  Fixed
+- Symptom: a motor's KTY / PTC on the HV board's temperature connector
+  protected nothing: fault0.mot_temp was linked to iit0.temp, the thermal
+  model; hv0.mot_temp (the sensor's resistance in ohms) was only shown.
+- Cause:   no conversion from ohms to degC, and no sensor type setting.
+- Fix:     mtemp0 converts for conf0.mot_temp_type (0 none, 1 KTY84-130,
+  2 PT1000, 3 PTC, 4 NTC, 5 NC switch); fault0.mot_temp = max(sensor,
+  model); open / shorted wire, tripped PTC / switch stop the drive.
+  Default 0 keeps the old behaviour. The wizard asks the type and checks
+  the cold reading (setup api 2).
+
+## 2026-10-27  The motor temperature input is on the HV side
+- Area:    HV board, motor temperature connector; SEW CMP feedback cables
+- Status:  Known
+- Symptom: none yet; a wiring hazard. SEW (and others) run the KTY pair in
+  the feedback cable next to the resolver.
+- Cause:   the F3 reads the sensor (stm32f303/src/comps/io.c), on the HV
+  side at the DC bus' potential; the resolver / encoder is on the LV side.
+  Moved to the HV board, the KTY pair sits at bus potential beside LV
+  pairs, separated only by the wires' insulation.
+- Fix:     keep the KTY pair's ends insulated and away from the feedback
+  RJ45 (the wizard's wiring text says so). Not checked on hardware: a
+  bench reading of the input (ohms vs a resistor) is still to do.
+
+## 2026-10-27  Wizard: a bad temperature sensor faulted the drive before the check
+- Area:    servoterm-cli/setup/su_steps.c (step_base)
+- Status:  Fixed
+- Symptom: with an open sensor wire or the wrong type, the base step said
+  only "The drive reports fault 7 with the first config."
+- Cause:   a broken sensor reads as trip + 10 degC, so fault0 stops the
+  drive (MOT_TEMP_ERROR) within 5 s; the fault check ran first.
+- Fix:     the sensor check runs before the fault check and says which
+  (open, short / another type, implausible reading).
+
+## 2026-10-27  HAL_MAX_COMPS (32) full: a test's second extra comp didn't load
+- Area:    shared/hal.h; host/tests/motor_*.test (generated)
+- Status:  Fixed
+- Symptom: after mtemp joined the pid template, 23 motor tests failed with
+  "scale1.out0 was never printed": `load scale` twice, the second missing.
+- Cause:   the drive config already used 30 of 32 comp instances; mtemp
+  made 31, the tests' two scales 33. `hal` shows it: "HAL_MAX_COMPS 31/32".
+- Fix:     HAL_MAX_COMPS 40 (~0.5 KB RAM on the F4). A user's config
+  loading extra comps would have hit the same limit.
+
+## 2026-10-27  call_cmd: a long command argument overflowed the stack
+- Area:    `shared/commands.c` (call_cmd), every console (drive, F3, host, vibration sensor)
+- Status:  Fixed
+- Symptom: tests/vib/node.test failed on the bench Pi (32-bit ARM), also on
+  claude/mill-webui alone: the sensor never took its node number; on x86 it
+  passed.
+- Cause:   call_cmd split a line with sscanf(" %[a-zA-Z_0-9] %[ -~]") into
+  64-byte buffers, unbounded: the SET frame's 67-character argument ran past
+  `a` on the stack. Where it landed decided whether anything broke.
+- Fix:     bounded fields (%63, %127; `a` is 128 bytes). Test:
+  tests/vib/node.test (fails on ARM without it).
+
+## 2026-10-28  The console showed no motion while homing, then a jump
+- Area:    webui/mill/server/machine.py (status: pos, mach)
+- Status:  Fixed
+- Symptom: Homing on the bench GUI: the positions stood still (0) while
+  the axes homed, and jumped to the home positions at the end.
+- Cause:   millweb showed LinuxCNC's axis positions (stat.actual_position),
+  which LinuxCNC's motion updates only once every joint is homed; homing
+  runs in joint mode, so they stood still until the last joint was done.
+- Fix:     until every joint is homed each axis shows its joint's position
+  (stat.joint_actual_position; a gantry's first joint). Each axis still
+  steps once when it is homed: from where it started (0) to machine
+  coordinates. Test: test_millweb.Protocol.test_positions_follow_the_joints_until_homed.
+
+## 2026-10-28  Bench: the tool setter never tripped; the 3D view drew it elsewhere
+- Area:    webui/mill/server/machineconf.py (simulated probe), bench/mill.hal, test/sim/mill.hal; machine.py (hello), js/app.js, js/live.js
+- Status:  Fixed
+- Symptom: Measure on the Tools page went down to Z -215 over the setter at
+  X 250 Y 20 and stopped "without making contact"; the 3D view showed the
+  setter at X 980.
+- Cause:   (1) the simulated probe compared joint.N.motor-pos-cmd (the motor's
+  count from where it started) with its trip height, not the machine
+  position: Z's start sat 20 mm below the switch, so at the bottom of travel
+  the motor read -195 and the tip never got below it; with random starts
+  (sim_at random) anything. (2) The console only learnt *whether* there is
+  a setter; the 3D models put it at fixed places (X 980 Y 20, or the bridge
+  table's corner).
+- Fix:     the probe takes joint.N.pos-fb (machine coordinates); hello's
+  machine.toolsetter is {x, y, z_above, z_ref, travel} and both models and the
+  demo place the setter there. On the bench: trips at Z -195.0 over X 250 Y
+  20 (T1 50 mm). Tests: test_hello_and_static (the setter's position),
+  backend_suite's hello check; the probe wiring by hand (no simulated-probe
+  test with an offset start yet).
+- Then:    2026-10-28, the simulated probe touches only the stock and the
+  setter: the stock's box from the 3D setup's workpieces (millweb sets
+  probe-sx/sy/sz at 2 Hz), the setter within 10 mm of its X Y at z_ref, and
+  the tool tip from each tool's true length (SIM_TOOLS / the table's when
+  first used), not the active offset (Measure cancels it). Bench: T1 62.408
+  (true 62.415), T3 48.123 (48.13), over the stock Z -195.03, beside it no
+  contact. Tests: backend_suite "the simulated probe touches the setup's
+  stock and the tool setter, nothing else", "the tool setter measures"
+  (T3 51.25, its table 48.13), test_sim_probe, test_sim_probe_stock_box_and_tool_lengths.
+
+## 2026-10-28  millweb 3D: see-through objects flicker where two surfaces meet
+- Area:    webui/mill/js/setup3d.js (applyLooks, stableOrder), machmodel.js
+- Status:  Fixed
+- Symptom: in see-through mode (fixtures / workpiece "glass") the view
+  flickered where two surfaces lie at the same level (the stock on the
+  vise, the vise's jaws on its base), changing as the view turned.
+- Cause:   see-through materials don't write depth, so three.js sorts them
+  by their objects' distance every frame; two at the same level swap places
+  as the camera moves, and the blend changes with the order.
+- Fix:     every see-through mesh gets its own fixed renderOrder (per object,
+  per mesh inside it), and a polygon offset pushing it back (never forward,
+  so the toolpath on the stock top stays in front). Machine model parts
+  with opacity < 1 get a fixed order behind the setup's.
+
+## 2026-10-28  millweb 3D: "orange sparks" at some view angles only
+- Area:    webui/mill/js/app.js (scene setup: trail, chips)
+- Status:  Fixed
+- Symptom: the tool threw orange sparks at some view angles, none at others.
+- Cause:   the chip particles (and the tool trail) are buffers rewritten
+  every frame, but their bounding spheres were computed once (the chips' at
+  Z -5000, all parked there). three.js culled them by that stale sphere: they
+  showed only when it happened to be in view.
+- Fix:     frustumCulled = false on both; the chips are aluminium-grey now.
+  Any geometry whose positions change per frame needs this (or
+  computeBoundingSphere after each change).
+
+## 2026-10-28  LinuxCNC 2.9: an NGC-only M6 remap for a rack changer
+- Area:    webui/mill/server/machineconf.py (toolchange_ngc, atc)
+- Status:  Note
+- Symptom: -
+- Cause:   -
+- Fix:     `REMAP=M6 modalgroup=6 ngc=toolchange` without a Python prolog
+  works: the sub reads #<_current_tool> / #<_selected_tool>, ends with
+  `M61 Q#<_selected_tool>`, and M70 / M72 keep the modal state (G43 stays as
+  it was). M66 L3 sets #5399 to -1 on a timeout (abort then). M0 inside the
+  remap pauses for a manual change (resume continues). motion's digital I/O
+  needs `num_dio` on motmod. Checked in LinuxCNC 2.9 (sim joints, 4 pockets,
+  slide-in): T2, T3 swapped through the rack, T7 by hand.
+
+## 2026-10-28  backend_suite: "X moves through the drive" fails now and then
+- Area:    webui/mill/test/backend_suite.py (supervisor: an stmbl drive on X)
+- Status:  Open
+- Symptom: once in a full `make test-backend` run: joint.0.motor-pos-fb
+  599.990417 vs stmbl-sim.0.pos_fb 599.990173; the case alone passes.
+- Cause:   it reads both pins in one hal_values call and wants them equal,
+  but the drive may still be settling and the two are read a servo cycle
+  apart.
+- Fix:     idea: wait for inpos, or compare within 1 µm.
+
+## 2026-10-29  A new drive's erased config flash: servoterm-cli --load aborted
+- Area:    src/config.c (showconf, flashloadconf, conf_flash_text), host/drive.c, shared/confident.h (conf_text)
+- Status:  Fixed
+- Symptom: The first config load into a new drive (blank F4, flashed over
+  DFU): "no ack for line 1 (appendconf #stmbl_conf_version 1), got:
+  stmbl_conf_version 1", load aborted.
+- Cause:   The config sector had never been written: erased flash, all 0xFF
+  with no terminating 0. showconf printed it as a string (on past the
+  sector until some 0 byte), flashloadconf copied 15 KB of it into the
+  unterminated RAM config. servoterm-cli's backup read it with showconf, took
+  a 0xFF for a scope frame's marker and swallowed the next 8 bytes: the
+  first ack's "adding #".
+- Fix:     conf_text(): erased flash (first byte 0xFF) is an empty config, for
+  the firmware and the simulator; showconf prints at most the config's size,
+  flashloadconf terminates. Test: host/tests/test_servoterm_ident.py
+  test_load_into_erased_flash (fails without it, as on the drive).
+
+## 2026-10-29  After make btburn the drive came back in DFU at every start
+- Area:    bootloader/src/main.c (the DFU request word in CCM), src (the app's `bootloader` command, SystemInit)
+- Status:  Open
+- Symptom: The new drive (USB 207D35A45631): make btburn (bootloader.py's
+  `bootloader`, then DFU, download, leave to 0x08010000): back in ROM DFU
+  0.45 s later; a leave to 0x08000000: DFU again at once; the next leave to
+  0x08000000 booted the application. Flash read back exactly the build.
+- Cause:   Not found. Fits the request word (0xD0F0B007 at 0x1000FE00)
+  surviving into the application, whose SystemInit takes a request an
+  older bootloader passed on, until a start through the bootloader cleared
+  it.
+- Fix:     Recovery: dfu-util -a 0 -s 0x08000000:4:leave -U <file> (a 4-byte
+  read, then leave) until it starts. Next: reproduce on a drive with the
+  debugger, check whether the bootloader's clear reaches CCM before the ROM
+  jump.
+
+## 2026-10-29  Bench: a new drive dropped off USB for good
+- Area:    hardware (drive with USB serial 207D35A45631)
+- Status:  Known
+- Symptom: After its first flash it ran, answered `about`, then disconnected
+  46 s after a start and never enumerated again (neither as STMBL nor DFU).
+- Fix:     None: the user found the board faulty and replaced it.
+
+## 2026-10-29  hv_update fails at CRC_CHECK with an old F3 bootloader (v0.9.18-184)
+- Area:    f3_boot (on the HV board), src/comps/hv.c (hv_update)
+- Status:  Workaround
+- Symptom: A drive from v0.9.18-207 updated to master: hv_update went
+  through ERASE_FLASH and SEND_APP, then FLASH_FAILED at CRC_CHECK, twice;
+  afterwards the F3 stayed in its bootloader (fault 9, HV values frozen).
+- Cause:   The image was written exactly (the F3's flash read back equals
+  obj_hvf3/hvf3.bin, whose STM32 CRC is 0), but that board's F3 bootloader,
+  v0.9.18-184, rejected it, at the update and at boot. Its source reads the
+  same as today's; the binary on the board computes the CRC differently.
+- Fix:     Replace the F3 bootloader: DC bus off, USB on the HV board's own
+  micro-USB (P11; its GND is the HV side's, VBUS not connected), JP1 (bottom
+  side beside P11, BOOT0 to 3.3 V) shorted while an isolated 24..48 V powers
+  the HV input, then make f3_all_btburn. Afterwards the F3 ran master (hv=1).
+  Drives with an F3 bootloader older than ~v0.9.18-207 may need this.
+  Again 2026-11-05 on the desk drive 205735A45631 (HV board v207): erase
+  acked after ~11 s, then SEND_APP got no write acks (0.4 s, FLASH_FAILED);
+  a second try the same, a third stopped at SEND_TO_BOOTLOADER. The F3 sits
+  in its bootloader (fault 9, hv0 values frozen, junk on the console from
+  the packets' buf byte). Not the fanuc_tw interrupt: the same with
+  `fanuc_tw0.enable = 0`. Recovery: the DFU route above.
+
+## 2026-10-30  hardware/kigen: headless pcbnew 7 gotchas (route step)
+- Area:    hardware/kigen (route.py, place.py)
+- Status:  Workaround
+- Symptom: `board.Remove(track)` on a loaded board segfaults later; `pcbnew.ImportSpecctraSES`
+  returns False (needs the editor); BOX2I.Merge in a Python loop corrupts the heap.
+- Cause:   pcbnew 7's SWIG ownership; the SES importer is tied to the GUI frame.
+- Fix:     route.py cuts tracks out of the file text before loading (`load_bare`) and imports
+  the SES itself (`import_ses`). No test: needs KiCad; `make -C hardware/brdstepper_mesa pcb route`
+  exercises it and DRC checks the result.
+## 2026-10-28  OpenSCAD: "may not be a valid 2-manifold" from a tangent counterbore
+- Area:    hardware/teststand/teststand.scad (the motor brackets)
+- Status:  Fixed
+- Symptom: the X and Z motor brackets exported with "Object may not be a
+  valid 2-manifold"; removing the motor's cuts didn't help.
+- Cause:   a bolt's counterbore (Ø16) exactly tangent to another face (a
+  gusset's side, the plate's bottom edge): CGAL leaves an edge shared by
+  two solids.
+- Fix:     moved the bolts so nothing is tangent. Also: OpenSCAD 2021's
+  ASCII STL of printed threads is huge (64 MB for the set); `--export-format
+  binstl` and 12 slices a pitch make it 11 MB.
+
+## 2026-10-29  LinuxCNC lathes: M2 puts the plane back to G17
+- Area:    webui/mill (lathe programs, the wizards)
+- Status:  Note
+- Symptom: after a lathe program's M2 the modal state shows G17, though the
+  INI's RS274NGC_STARTUP_CODE starts with G18 (G7 stays).
+- Cause:   M2/M30 reset the plane (LinuxCNC's documented M2 behaviour).
+- Fix:     every lathe program states G18 (and G7/G8) in its first lines:
+  the wizards and the demo do.
+
+## 2026-10-29  millweb preview: a lathe's program timed at 0.1 mm/min
+- Area:    webui/mill/server/preview.py (Canon._feed)
+- Status:  Fixed
+- Symptom: a lathe program's remaining time read 44 h: its F0.1 (G95, mm a
+  turn) was timed as mm/min; G76's passes, with no F at all, at the last F.
+- Cause:   the canon gets F and the motion, not the feed mode or the spindle
+  sync; the interpreter's line state has feed_mode (950: G95), speed (the S
+  word: rpm, or m/min with G96, gcodes[13] 960), not the block's words.
+- Fix:     G95: F x rpm (G96: from the cutting speed at the move's
+  diameter, the spindle's max at most); G33 / G76 lines: their pitch (K / P,
+  read from the file's text, by line number from 1, as the canon numbers
+  them) x rpm. The test program: 42 s estimated, 50 s run in LinuxCNC.
+
+## 2026-10-29  A STEP assembly as millweb model parts (tools/step2parts.py)
+- Area:    webui/mill/tools/step2parts.py
+- Status:  Note
+- Symptom: gmsh (with OCC) meshed the Emco Compact 5's 19 MB STEP in 8.5 min
+  and then stopped on one bad face ("1D mesh not a closed loop").
+- Cause:   gmsh builds a real FE surface mesh, face by face.
+- Fix:     OpenCASCADE's own tessellator (BRepMesh, the OCP wheel:
+  pip install cadquery-ocp; it installs for the python3 pip runs, here
+  3.13) and the XCAF tree for names and placements: 1 min, no failures.
+  Leaving out fasteners and what is inside covers took the parts from 17 MB
+  to 5.7 MB (in under millweb's 5-6 MB a file).
+
+## 2026-10-29  millweb machine.hal: a stock comp loaded twice
+- Area:    webui/mill/server/machineconf.py (generate)
+- Status:  Fixed
+- Symptom: a machine with an inverted E-STOP input and an inverted probe (or
+  now an stmbl spindle, an inverted turret index) wrote `loadrt not names=…`
+  twice; LinuxCNC refuses the second load of a module.
+- Cause:   each feature loaded its own `not` / `and2` instance.
+- Fix:     generate() collects the names= comps and loads each module once,
+  with all its names, before the first net.
+
+## 2026-10-29  Lathe turret: M6 to a tool not in tool.tbl waits forever
+- Area:    linuxcnc/lathe (lathe.turret), LinuxCNC iocontrol
+- Status:  Known
+- Symptom: `T2 M6` with no T2 line in tool.tbl: the turret doesn't move, the
+  MDI never finishes (the rest of the changes work).
+- Cause:   LinuxCNC's tool table: a T it doesn't have is not prepared.
+- Fix:     every station's tool needs a line in tool.tbl (the lathe's Tools
+  page writes them).
+
+## 2026-10-29  stmbl spindle: the index without a sensor
+- Area:    linuxcnc/lathe (lathe.spindle)
+- Status:  Note
+- Symptom: threading passes would not line up with a belt ratio like 1.5.
+- Cause:   without an index sensor the index is the motor's zero angle,
+  which is a fixed spindle angle only when the ratio is a whole number.
+- Fix:     set `spindle.index_sensor` (one pulse a spindle turn) for other
+  ratios.
+
+## 2026-10-30  Lathe tool orientation Q drawn mirrored
+- Area:    webui/mill/js/lathe.js (the tool's drawing), the simulated tools
+- Status:  Fixed
+- Symptom: an outside turning tool needed Q3 to look right in millweb;
+  LinuxCNC (G41/G42, AXIS) means Q2 for it.
+- Cause:   my orientation table swapped X and Z against LinuxCNC's.
+  glcanon.py lathe_shapes is the reference: the nose's centre is at
+  r·(dx, dz) from the controlled point (Q2: (1, 1)).
+- Fix:     stock.js's toolShape follows glcanon.py (the edges from I, J as
+  AXIS draws them); the view draws its outline; the demo tools are Q2 (turning,
+  grooving), Q6 (thread), Q3 (boring bar), Q7 (drill).
+
+## 2026-10-30  Material removal: a thread in a turned section
+- Area:    webui/mill/js/stock.js
+- Status:  Workaround
+- Symptom: threading passes turned the thread down to its minor Ø; pulling
+  the insert straight out of the groove read as a G0 into the stock.
+- Cause:   the stock is axisymmetric (rings along Z): a helix isn't.
+- Fix:     a 60° insert's passes along Z keep the major Ø and record the
+  depth (half the groove's volume taken); moving out over a thread cuts
+  nothing. Programs threading with another insert are cut as turning.
+
+## 2026-10-30  Live preview before the first status: machine coordinates
+- Area:    webui/mill/server/millweb.py (preview)
+- Status:  Known
+- Symptom: a program asked for before millweb has LinuxCNC's first status
+  came back with the work offset in it (X440 Z-195 for X15 Z0).
+- Cause:   the preview takes out the G5x + G92 from millweb's state, empty
+  until the first poll.
+- Fix:     none needed for the console (it asks after it has the status);
+  a test client waits for g5x first.
+
+## 2026-10-30  GUI sim suite: "the footer's line opens the last again"
+- Area:    webui/mill/test/gui/sim_suite.js (messages case)
+- Status:  Fixed
+- Symptom: fails alone and in the full run (51/52), also on the commit
+  before the material removal work: during its 10.5 s wait an "M1
+  optional stop" message becomes the last one, so the footer opens that.
+- Cause:   the simulation starts with its demo program running; it reached
+  its M1 while the case waited, and that became the last message.
+- Fix:     the case stops the program first (stop(t)).
+
+## 2026-10-30  Mill material removal: a fixture as its bounding box
+- Area:    webui/mill/js/mstock.js, millrem.js (fixtures)
+- Status:  Fixed
+- Symptom: every drilled hole in the demo bracket hit "the vise".
+- Cause:   the vise's bounding box spans the gap between its jaws, where
+  the stock sits.
+- Fix:     fixtures as a height map (a built-in's boxes one by one, a model
+  from its triangles); a move's tool (from its tip) and holder (from the
+  stick-out) checked against the cells under them, at the lowest the tool
+  is over each (a plunge: its bottom, not its start).
+
+## 2026-10-30  Mill material removal: the holder's ring made short moves slow
+- Area:    webui/mill/js/mstock.js (cut)
+- Status:  Fixed
+- Symptom: 60 000 0.1 mm moves took 7.5 s to check.
+- Cause:   every move scanned the holder's radius (Ø6 tool, Ø26 holder: 19x
+  the cells) for the holder's check.
+- Fix:     the holder's ring only when its bottom can be below the stock's
+  top: 0.8 s.
+
+## 2026-10-30  Mill material removal: the cut stock slowed the view to 4 fps
+- Area:    webui/mill/js/millrem.js (millRemMesh)
+- Status:  Fixed
+- Symptom: with the cut stock shown, the headless browser (software
+  rendering) drew 4.5 frames a second; the simulation's clock (dt capped
+  at 0.1 s a frame) fell behind and timing tests failed (single block).
+- Cause:   the surface drawn at the check's 0.25 mm cells: 150 000 points,
+  300 000 triangles, re-uploaded and its normals recomputed whole.
+- Fix:     drawn coarser than cut (a point the lowest of the cells under
+  it, at most 40 000), halved while frames take over 50 ms; only the rows a
+  cut changed are updated, normals from the heights. 20 fps there, 40
+  without it.
+
+## 2026-10-30  LinuxCNC 2.9's joint status has no actual_position
+- Area:    webui/mill/server/machine.py (an arm's status)
+- Status:  Fixed
+- Symptom: with an arm, millweb sent no status at all (the poll raised).
+- Cause:   stat.joint[n] has `input` (the joint's feedback) and `output`,
+  not `actual_position` (that is stat's, the axes').
+- Fix:     `input`; the test stand-in (fake_linuxcnc) has the real keys.
+
+## 2026-10-30  Merging the robot branch: two copies of the drive's build
+- Area:    host/arm/Makefile, host/lcnc/Makefile
+- Status:  Note
+- Symptom: after the merge host/arm (the arm's drive library) didn't build:
+  stmblcan_bus.h not found.
+- Cause:   the arm builds the drive from its own source list, a copy of
+  host/lcnc's; this branch had added the CAN bus, firmware staging and the
+  console to host/lcnc's (sim_api.c needs them).
+- Fix:     host/arm/Makefile has host/lcnc's sources and flags again. A
+  change to one wants the other (or one shared list).
+
+## 2026-10-31  An arm's model limits are offsets from theta0
+- Area:    webui/mill/js/arm.js (the simulation's joint limits)
+- Status:  Fixed
+- Symptom: the simulated arm refused every pose of the demo program: "out
+  of the arm's reach or its joints' limits"; J2 at -86 deg read as below
+  its -60 limit.
+- Cause:   arm_sim's .arm `limits` are on its q (offsets from theta0);
+  with `joints theta` (vis3d, LinuxCNC) the joint values include theta0
+  (J2's -90).
+- Fix:     the model's limits moved by theta0 when the joints are the DH
+  theta; live, LinuxCNC's own [JOINT_n] limits.
+
+## 2026-10-31  An arm's model files: two names for one file
+- Area:    webui/mill/server/machine.py (arm_model), js/armmodel.js
+- Status:  Fixed
+- Symptom: with the cell elsewhere than the model (hwtest/arcmate-sim's,
+  a copy in /tmp), the browser missed the tool table: "not in the model's
+  files".
+- Cause:   files are named by their path from the model's folder; an
+  include resolved from another folder gives another, equally valid,
+  relative path (../../../../../../home/... against ../../../host/...),
+  and the browser can't tell without the server's absolute paths.
+- Fix:     the server writes every include and mesh in the texts as
+  @<name>, the bundle's own name for the file; the browser takes @names
+  as they are.
+
+## 2026-10-31  An arm's Tools page: Mount buttons stayed disabled
+- Area:    webui/mill/js/arm.js (armRenderTools)
+- Status:  Fixed
+- Symptom: test-gui-arm failed now and then: clicking "Mount T2" timed
+  out after T1 M6 although the machine was idle again.
+- Cause:   the changer table was drawn when the Tools page opened or the
+  tool table changed; drawn while T1 M6 ran, its buttons stayed disabled.
+- Fix:     the joints panel's 20 Hz update draws the table again when
+  busy/idle, the mounted tool or the changer's fault changes.
+
+## 2026-10-31  An arm's TOOL-frame jog is an MDI move
+- Area:    webui/mill/server/machine.py (_jog_tool)
+- Status:  Note
+- Symptom: LinuxCNC has no tool-frame jog: teleop jogs X..C in the
+  world frame only.
+- Cause:   by design (motion's teleop).
+- Fix:     the server works the target out from the commanded pose
+  (R = Rz(C) Ry(B) Rx(A)) and sends one `G53 G1 X Y Z A B C F`; held, it
+  goes to the [AXIS_*] limits along the line (a turn: 45°) and jog_stop or
+  the deadman aborts it. A turn keeps the tool point, but LinuxCNC moves
+  A B C linearly, so between the ends the orientation is the A B C line's,
+  not an exact turn about the tool axis. A B C wrap to within 180° of the
+  current values.
+
+## 2026-10-31  The arm's M6 went to the docks in work coordinates
+- Area:    hwtest/arcmate-sim/toolchange.ngc (and the generated run/toolchange.ngc)
+- Status:  Fixed
+- Symptom: with a G54 offset active (test/machine's linuxcnc.var: Z -195),
+  T1 M6 moved to the wrong place and never locked the tool.
+- Cause:   the dock and approach moves were `G90 G1 X#<_dk..>`: work
+  coordinates, while armtool's dock positions are machine positions.
+- Fix:     `G53 G1` for every dock move; the example's TOOL_READY too.
+
+## 2026-10-31  Record point wrote machine coordinates as a plain G1
+- Area:    webui/mill/server/machine.py (cmd_teach_record)
+- Status:  Fixed
+- Symptom: a taught point replayed from teach.ngc landed off by the work
+  offset.
+- Cause:   it wrote stat.actual_position (machine) into a G1 line, which a
+  program reads in the work coordinates.
+- Fix:     it records actual - G5x - G92. The file is now a program (header,
+  points, M2): LinuxCNC refuses a file without M2 or %.
+
+## 2026-10-31  Mount with TOOL_READY: "a program or MDI is running"
+- Area:    webui/mill/js/arm.js (armMount)
+- Status:  Fixed
+- Symptom: with [ARM6HMI] TOOL_READY set, Mount moved to the ready pose
+  and never changed the tool.
+- Cause:   the console sent the ready move and T<n> M6 back to back; millweb
+  refuses MDI while one runs.
+- Fix:     the ready move with wait (op mdi {wait: true}), then M6.
+
+## 2026-10-31  machine.json → arm: the first tool.tbl was a mill's
+- Area:    webui/mill/server/machineconf.py (write_run, init)
+- Status:  Fixed
+- Symptom: a new arm machine had `T1 P1 D6.0 ;6 mm endmill` only, so T2 M6
+  failed ("tool not found").
+- Cause:   init() wrote the default tool.tbl before any configuration was
+  made.
+- Fix:     tool.tbl is written with the first generated configuration; an
+  arm's is its changer's tools (generate's `tool.tbl.init`). An existing
+  tool.tbl is kept (switching a mill to an arm keeps the mill's: edit it).
+
+## 2026-10-31  An arm's enabling switch: jog-inhibit, and MDI jogs
+- Area:    webui/mill/server/machineconf.py (generate_arm), millweb.py
+- Status:  Note
+- Symptom: LinuxCNC 2.9's motion.jog-inhibit / jog-stop stop teleop and
+  joint jogs, but not the console's TOOL-frame jog (an MDI move).
+- Cause:   by design: jog pins act on jogs only.
+- Fix:     released, millweb aborts its tool-frame move and refuses new
+  jogs; `arm.enable.hold_all` adds motion.feed-inhibit for every move.
 
 ## 2026-10-31  Merge of claude/portal-dynamics: pos_advance one rt cycle too long
 - Area:    conf/template/sserial.txt, can.txt, sserial_dummy.txt (sserial0/can0.pos_advance)
@@ -3590,6 +4517,76 @@ Entry format:
 - Fix:     run it inside `test/harness.py --ini-set EMCIO.TOOL_TABLE=<a table
   with the program's tools> -- python3 script.py`, polling linuxcnc.stat()
   once before gcode.parse.
+## 2026-11-01  sserial0.reply_mode: answer packets from the USART idle interrupt
+- Area:    `src/comps/sserial.c`, `shared/sserial_sync.h` (branch claude/drive-rt-speedup)
+- Status:  Fixed behind the switch (benched 2026-11-02; still default 0)
+- Symptom: rt worst case 168.5 us of 200 under LinuxCNC, ~28 us of it the
+  frt busy-waiting for a process-data packet's last bytes.
+- Cause:   see "rt worst case 168.5 us" above.
+- Fix:     `sserial0.reply_mode = 1`: the USART1 idle-line interrupt
+  (priority 1) parses and answers each packet at its end; the frt keeps
+  the timeout and the clock lock (a packet answered within the last frt
+  period counts as late). Default 0 = as before. Bench plan:
+  docs/drive-rt-speedup.md.
+  Bench 2026-11-02 (drive 208535A65631, SEW CMP40M, 80ff3d23), 15 min
+  smart-serial soaks at 300 mm/s, each PASS: frt max 33.8 -> 4.8 us, rt
+  max 154.8 -> 140.8 us (with adc0.fast on in both); irq_count ~1000/s
+  (907755 in the run), crc_error 0, phase still cycling, real_cmd_freq
+  ~999.8 Hz in motion, ferror per cycle median 0.059 mm (0.053 without).
+  Not yet: the hwtest suite.
+  Found on the bench: discovery failed 16 of 24 times in mode 1 (LinuxCNC
+  "Timeout trying to read config data in sserial_get_bytes"; mode 0 24/24).
+  The link timeout (5 ms) is reset only by a parsed packet; discovery's
+  packets come ms apart, and in mode 1 the frt doesn't parse, so it often
+  timed out and dropped a packet (rxpos = bufferpos) between its last byte
+  and the idle interrupt. Fixed: in mode 1 new bytes (the DMA's position
+  moved) reset it (sserial_link_alive, shared/sserial_sync.h): 24 of 24.
+  Tests: host test_adc_sum (the rule), hwtest/timing/sserial_discovery.sh
+  (fails 8/24 without).
+  2 kHz (servo_rate.py, Pi 4 + 7C81 SPI, both switches on): 500 us fits
+  (servo max 223 us + 150 us exchange = 75 %), 333 us doesn't (115 %), no
+  sserial errors at any rate. A 15 min soak at 500 us (SOAK_SERVO_US=500,
+  vel_int0.cmd_freq 2000) PASS, but the ferror per cycle median 0.084 mm
+  against 0.059 at 1 kHz. pos_advance sweep at 2 kHz (8 min soaks):
+  0.0001 0.178 mm, 0.0002 0.147, 0.0003 0.117, 0.0004 0.087, 0.0006 0.084
+  (median per cycle): 0.03 mm per 0.1 ms = 300 mm/s x the mismatch, flat
+  from 0.0004 on, so 0.0006 fits 2 kHz too; 2 kHz brings no gain here. The
+  0.0004 run failed on hm2's "DoIt not cleared from previous servo thread":
+  the 7C81 over SPI doesn't always finish the exchange in 500 us. Stay at
+  1 kHz on the Pi 4 + SPI (both switches on: 0.059 mm).
+
+## 2026-11-01  adc0.fast: sin/cos sums with uadd16, no float divisions
+- Area:    `src/comps/adc.c`, `shared/adc_sum.h` (branch claude/drive-rt-speedup)
+- Status:  Fixed behind the switch (benched 2026-11-02; still default 0)
+- Symptom: adc0 ~44 us of the 200 us rt cycle.
+- Cause:   per group two masked loops and 6 vdiv.f32 (14 cycles each) from
+  V_DIFF's divisions.
+- Fix:     `adc0.fast = 1`: sums bit-exact (uadd16, <= 16 samples a group),
+  the voltage within 2e-6 V (host/tests/test_adc_sum.c); estimated 10-15 us
+  less (the earlier ~30 us guess was high). Default 0 until benched.
+  Bench 2026-11-02 (drive 208535A65631, resolver): at rest adc0 50.0 ->
+  32.8 us, rt 138.4 -> 114.7 us; sin/cos/res0.amp/pos the same within
+  noise (40 readings each way). Soak (300 mm/s, 15 min, PASS): rt max
+  172.8 -> 154.8 us, adc0 max 84.8 -> 62.0 us; ferror per cycle median
+  0.080 -> 0.053 mm.
+
+## 2026-11-01  QEMU runs unit tests as Cortex-M4F code (host/m4)
+- Area:    `host/m4` (Makefile, start.c), QEMU 8.2 `mps2-an386`
+- Status:  Note
+- Symptom: the host build of test_adc_sum takes adc_sum.h's portable C
+  path; the firmware's uadd16 and single-precision FPU went untested. The
+  first QEMU run hard-faulted at the first float instruction.
+- Cause:   newlib's rdimon crt0 has no vector table and leaves the FPU off
+  (CPACR); QEMU's M-profile boards take SP and PC from address 0.
+- Fix:     start.c: a 2-entry vector table at 0 and a reset that sets
+  CPACR CP10/CP11 before `_start`; m4.ld is the toolchain's default script
+  relinked at 0 with `.vectors` first. `make -C host/m4 check` (in host
+  check; skips without qemu-system-arm). QEMU is not cycle-accurate: it
+  checks correctness, not timing. The real firmware doesn't boot on QEMU's
+  STM32F405 (`olimex-stm32-h405`, blboot.elf + `-device loader` stmbl.elf):
+  RCC is unimplemented, so SystemInit spins reading RCC_CR for HSE/PLL ready
+  (tried: 20,000 reads in 8 s).
+
 
 ## 2026-11-02  KiCad 7's kicad-cli can't read KiCad 5 schematics (stmbl v4.0)
 - Area:    `hw/kicad/v4.0/*.sch`, `hardware/kigen/legacy.py`, `hardware/stman`
@@ -3651,7 +4648,7 @@ Entry format:
 
 ## 2026-11-03  FANUC βiA128 encoder (A860-2020-T301): not known to work with `encf`
 - Area:    `src/comps/encf.c`, FANUC βiS motors (notes in brdmaker/brdmot)
-- Status:  Open
+- Status:  Open (frame decoded on the bench 2026-11-04; the driver is still to do)
 - Symptom: none yet (not tested). `encf` was written for the αA64
   (A860-0360): request on the Z pair, 76-bit reply at 1.024 Mbit/s, CRC-5.
 - Cause:   the i-series βiA128 may use another request or frame. FANUC's
@@ -3680,167 +4677,19 @@ Entry format:
   the first request (first_lead_us), and can send N old-style REQ pulses
   first (pre_pulses): the three things universal-IRC-1 does that the first
   sweep didn't.
-  **First reply, 2026-11-04** (fanuci 7362e58, defaults, poll_hz 8000): the
-  βiA128 answers every poll, 8.4 µs after the request, at ≈ 2.727 Mbit/s,
-  ~100 bits; then also at 6-10 kHz. The first lead or the interrupts-off
-  request made the difference (not yet re-tested from cold). Frames: bits
-  0-8 fixed `010100000`; a position read LSB first from bit 9 is steady to
-  ±6 counts with the shaft still (details in brdmot probe-log.md).
-  **Decoded** (owner, 2026-11-04; checked again on the 600-frame capture):
-  100 bits LSB first, five 16-bit words with `110` syncs; 24-bit position
-  (bits 9-16 + 20-35), 16-bit two's complement turns (39-54), 8-bit
-  commutation (58-65), CRC-5 poly 0x0B init 0 over bits 0-94 (95-99, MSB
-  first). Layout in docs/fanuci.md. Status: Open until fanuci reads it as
-  a feedback (24-bit pos, CRC gate, fb_switch template).
 - Fix:     bench test plan in brdmaker/brdmot, encoders.md: α2/3000 (αA64) first
   to prove the wiring, then a βiA128 on the same cable; if it differs,
   record the FANUC CNC + βiSV 20 exchange and add a decoder with host tests.
-
-## 2026-10-18  idpmsm: pole pairs wrong on heavy rotors
-- Area:    `shared/comps/idpmsm.c` (state 2.2)
-- Status:  Fixed
-- Symptom: setup wizard over 35 simulated motors: 5 got 9-12 pole pairs
-  (syn_spindle, syn_servo_2kw, manutec_r15_1, p50b, weiler_x).
-- Cause:   the rotating field started at full test_vel; a rotor heavy for
-  the test current can't pull in and swings; pp was a filtered ratio of
-  instantaneous speeds, biased by the swinging.
-- Fix:     the field ramps up over 1 s; pp = the field's travel / the
-  rotor's over the last 2 s. All 35 right.
-
-## 2026-10-18  idpmsm: the flux step spun light motors to the voltage limit
-- Area:    `shared/comps/idpmsm.c` (state 3.2), `conf/template/id_pmsm.txt`
-- Status:  Fixed
-- Symptom: manutec_r15_1 (j 3.5e-4, 0.8 A) ran up to 700 rad/s (6700 rpm)
-  during the psi measurement; with a wrong conf0.polecount it kept being
-  driven with no current command.
-- Cause:   (1) the speed loop was a slow integrator (error limited to
-  test_vel / 100): huge overshoot. (2) id_pmsm left hv0.vel on the normal
-  commutation chain, scaled by conf0.polecount (still a guess there): the
-  F3 advanced the angle by it between packets and spun the field itself.
-- Fix:     bang-bang: test_cur below test_vel, no current until 0.7
-  test_vel; psi = the integral of uq - r iq over the rotor's travel while
-  coasting (vel1 reads ~1 % high while slowing: 2 % in psi). The template
-  sets hv0.vel = 0. drive_id_pmsm.test: psi -1.3 % (2 % tolerance).
-
-## 2026-10-18  idm: micro motors saturate; inertia high with heavy friction
-- Area:    `shared/comps/idm.c`, the setup wizard's mechanical step
-- Status:  Workaround (inertia), Fixed (micro motors)
-- Symptom: syn_micro (j 4e-7) faulted SAT_ERROR in id_mot. Light motors with
-  friction large against the inertia's torque read j 1.3-7x high.
-- Cause:   idm's adaptive inertia (which sets the loop gains) had a floor
-  of 5e-6: gains 12x too high. At idm's 25 rad/s the friction's sign
-  changes often and the least-squares fit puts the misfit into j.
-- Fix:     floor 1e-7 and the wizard starts the inertia low; the wizard runs
-  idm twice, the second time at 30 % of peak torque for the first (high)
-  estimate and faster: within 25 % except fanuc_b05_6000 (2.3x) and
-  sgmph_01a1 (2.4x), kept as TODO in host/tests/run_wizard_sim.py.
-
-## 2026-10-18  The console prints pins with 6 decimals
-- Area:    `shared/hal.c` (hal_print_pin: %f)
-- Status:  Workaround
-- Symptom: a micro motor's inertia (4e-7) read as 0.000000; 4.4e-5 as
-  0.000044 (2 significant digits).
-- Cause:   %f.
-- Fix:     new console command `getf <pin>` (%.9g), used by the setup
-  wizard. The normal print is unchanged (servoterm and scripts read it).
-
-## 2026-10-18  idpmsm: inductance high when L/R is a few rt cycles
-- Area:    `shared/comps/idpmsm.c` (L step)
-- Status:  Known
-- Symptom: r2aa04003f (L/R 55 us) L 2.7x high, sr60_4 (40 us) +15 %.
-- Cause:   the square-wave L step resolves the current slope over a few
-  5 kHz samples; with L/R near the period the slope isn't linear.
-- Fix:     none yet; the wizard warns when L/R < 50 us.
-
-## 2026-10-18  setup wizard: notes
-- Area:    `servoterm-cli/setup/`, docs/setup_wizard.md
-- Status:  Note
-- Symptom: -
-- Cause:   -
-- Fix:     Gotchas found building it: idpmsm resets r/l/psi/pp to defaults
-  when disabled (state 0): read results before disabling. A pin query
-  prints every pin with that prefix (conf0.r also prints conf0.rt_prio):
-  match the whole name. The scope stream (term0.send_step) fills the
-  buffers while the wizard waits for the user: it sets send_step = 0. The
-  host simulator's sim_board links the simulated motor to conf0, so
-  identification tests need a --sim file with fixed values.
-
-## 2026-10-18  A vertical axis drops while the holding brake closes
-- Area:    `shared/comps/fault.c` (mot_brake, en_out)
-- Status:  Fixed
-- Symptom: burn-in axis, a 50 ms brake, 0.5 Nm hanging load: disabled at
-  standstill it fell 18.7 rad (3 turns) before the brake gripped.
-- Cause:   the outputs went off in the same cycle as the brake command;
-  brakes take tens of ms to grip.
-- Fix:     fault0.brake_time: the brake grips while the quick stop (or the
-  dynamic brake) still holds the axis, then the outputs go off. Default 0
-  (old behaviour); the setup wizard sets it and raises it until there is no
-  sag. tests/ebrake/estop_brake_time.test.
-
-## 2026-10-18  fb_switch0.pos_fb stands still while the drive is disabled
-- Area:    `shared/comps/fb_switch.c` (fault0.en_fb)
-- Status:  Known
-- Symptom: the wizard's brake step saw no movement with the drive off
-  although the axis fell 3 rad.
-- Cause:   fb_switch only updates with en_fb.
-- Fix:     read the feedback's own pin (enc_fb0.pos, res0.pos, ...) to watch
-  a disabled axis.
-
-## 2026-10-18  "The motor moves when enabled" doesn't prove the brake releases
-- Area:    setup wizard, brake step
-- Status:  Note
-- Symptom: a brake on the wrong output (never released) passed a 0.3 rad
-  move test.
-- Cause:   the motor's peak torque (3x rated) is above a typical brake's
-  (1.5x rated): it drags the closed brake.
-- Fix:     the release test is by hand with the drive off and
-  fault0.brake_release = 1: the shaft must turn freely.
-
-## 2026-10-27  Motor temperature sensor: the HV board's reading went nowhere
-- Area:    shared/comps/mtemp.c, conf/template/{pid,mpid,uf}.txt, setup wizard
-- Status:  Fixed
-- Symptom: a motor's KTY / PTC on the HV board's temperature connector
-  protected nothing: fault0.mot_temp was linked to iit0.temp, the thermal
-  model; hv0.mot_temp (the sensor's resistance in ohms) was only shown.
-- Cause:   no conversion from ohms to degC, and no sensor type setting.
-- Fix:     mtemp0 converts for conf0.mot_temp_type (0 none, 1 KTY84-130,
-  2 PT1000, 3 PTC, 4 NTC, 5 NC switch); fault0.mot_temp = max(sensor,
-  model); open / shorted wire, tripped PTC / switch stop the drive.
-  Default 0 keeps the old behaviour. The wizard asks the type and checks
-  the cold reading (setup api 2).
-
-## 2026-10-27  The motor temperature input is on the HV side
-- Area:    HV board, motor temperature connector; SEW CMP feedback cables
-- Status:  Known
-- Symptom: none yet; a wiring hazard. SEW (and others) run the KTY pair in
-  the feedback cable next to the resolver.
-- Cause:   the F3 reads the sensor (stm32f303/src/comps/io.c), on the HV
-  side at the DC bus' potential; the resolver / encoder is on the LV side.
-  Moved to the HV board, the KTY pair sits at bus potential beside LV
-  pairs, separated only by the wires' insulation.
-- Fix:     keep the KTY pair's ends insulated and away from the feedback
-  RJ45 (the wizard's wiring text says so). Not checked on hardware: a
-  bench reading of the input (ohms vs a resistor) is still to do.
-
-## 2026-10-27  Wizard: a bad temperature sensor faulted the drive before the check
-- Area:    servoterm-cli/setup/su_steps.c (step_base)
-- Status:  Fixed
-- Symptom: with an open sensor wire or the wrong type, the base step said
-  only "The drive reports fault 7 with the first config."
-- Cause:   a broken sensor reads as trip + 10 degC, so fault0 stops the
-  drive (MOT_TEMP_ERROR) within 5 s; the fault check ran first.
-- Fix:     the sensor check runs before the fault check and says which
-  (open, short / another type, implausible reading).
-
-## 2026-10-27  HAL_MAX_COMPS (32) full: a test's second extra comp didn't load
-- Area:    shared/hal.h; host/tests/motor_*.test (generated)
-- Status:  Fixed
-- Symptom: after mtemp joined the pid template, 23 motor tests failed with
-  "scale1.out0 was never printed": `load scale` twice, the second missing.
-- Cause:   the drive config already used 30 of 32 comp instances; mtemp
-  made 31, the tests' two scales 33. `hal` shows it: "HAL_MAX_COMPS 31/32".
-- Fix:     HAL_MAX_COMPS 40 (~0.5 KB RAM on the F4). A user's config
-  loading extra comps would have hit the same limit.
+  Bench 2026-11-04 (drive 208535A65631, `fanuci` 7362e582, encoder on
+  FB0 5/4, 5 V and battery external): replies at 2.73 Mbit/s, 8.4 µs after
+  the request, every poll at 6-10 kHz once woken (the first version, polled
+  from rt/frt without the 30 µs first lead and with interrupts on, got no
+  edge at all). Frame, 100 bits LSB first, five 16-bit words each followed
+  by `110`: position 24 bit (bits 9-16 + 20-35), turns 16 bit (39-54),
+  commutation 8 bit (58-65, = 1024·pos/2^24), CRC-5 poly 0x0B init 0 over
+  bits 0-94 at 95-99 (600/600 ok). After a 5 V cycle it answers by itself;
+  commutation is ~30° el. off until ≈160° mech is passed, the position is
+  right at once (battery). Details and captures: brdmot probe-log.md.
 
 ## 2026-11-06  Absolute encoders: linrev counted turns from 0 at every boot
 - Area:    `shared/comps/linrev.c`, new `shared/comps/mturn.c`, `src/comps/encf.c`,
@@ -3910,3 +4759,13 @@ Entry format:
 - Symptom: after the split (d20defb) `linuxcnc/arm*`, `lathe`, `powerquota` still existed with only `*.so/*.tmp/*.ver`, and `hardware/` held teststand STLs and KiCad `*.kicad_prl`.
 - Cause:   those were ignored by `.gitignore` files inside the moved folders; `git rm` of the folders removed the ignore files too, so `git add -A` committed the leftovers.
 - Fix:     removed them; module build outputs are ignored repo-wide now. Before `git add -A` after moving folders out, check `git status` for files that were only ignored by the moved `.gitignore`s.
+
+## 2026-11-06 Merge mill-webui into master: hv.c's sim_abs_pos, two versions
+- Area:    host/hw/hv.c
+- Status:  Fixed
+- Symptom: both branches had reworked the simulated shaft's absolute position: master
+  as `upos - abs0` (with the induction motor model and sim_ext in mech_step), mill-webui
+  as a separate `abs_pos` accumulator plus `sim_keep_pos` / `sim_off_move` (tests/abs).
+- Fix:     master's hv.c; sim_keep_pos restores `upos` and sets `abs0 = upos - abs_pos`
+  from the static memory, so sim_abs_pos keeps its place over a reset and sim_off_move
+  moves both. Host check 1476/1478 (2 known TODO), tests/abs included.

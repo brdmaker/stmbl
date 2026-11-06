@@ -3,6 +3,7 @@
 # other way round near Y2; in the middle both share it. With the drives'
 # exact command feedforward and unbiased velocity observer (y.conf) the
 # two loops hold the bridge square (a few urad) wherever the load is.
+@todo master's F3 voltage limit (DEBUGNOTES 2026-10-26 "Portal: the linear motors run out of bus voltage")
 @program portal/portal_sim
 @args portal/machine/portal.portal
 run 0.05

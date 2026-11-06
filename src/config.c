@@ -23,6 +23,7 @@
 #include "hal.h"
 #include "commands.h"
 #include "stm32f4xx_conf.h"
+#include "confident.h"
 
 char config[15 * 1024];
 const char *config_ro = (char *)0x08008000;
@@ -40,7 +41,7 @@ void confcrc(char *ptr) {
 COMMAND("confcrc", confcrc, "foo");
 
 const char *conf_flash_text(void) {  // shared/commands.c: version, the boot check
-  return config_ro;
+  return conf_text(config_ro);
 }
 
 char *conf_ram(size_t *size) {  // shared/commands.c: name, motor
@@ -49,7 +50,8 @@ char *conf_ram(size_t *size) {  // shared/commands.c: name, motor
 }
 
 void flashloadconf(char *ptr) {
-  strncpy(config, config_ro, sizeof(config));
+  strncpy(config, conf_flash_text(), sizeof(config) - 1);
+  config[sizeof(config) - 1] = 0;
 }
 COMMAND("flashloadconf", flashloadconf, "load config from flash");
 
@@ -104,7 +106,8 @@ void loadconf(char *ptr) {
 COMMAND("loadconf", loadconf, "parse config");
 
 void showconf(char *ptr) {
-  printf("%s", config_ro);
+  const char *t = conf_flash_text();
+  printf("%.*s", (int)strnlen(t, sizeof(config) - 1), t);
 }
 COMMAND("showconf", showconf, "show config");
 

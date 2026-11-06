@@ -48,6 +48,17 @@ uint16_t sscon_frame(sscon_t *c, uint16_t in);
 // console side: queue output (dropped when full; returns bytes queued)
 uint32_t sscon_write(sscon_t *c, const void *data, uint32_t len);
 uint32_t sscon_tx_free(const sscon_t *c);
+// the drive's _write, in the main loop: queue len bytes in 8-byte chunks
+// through put (sscon_write with interrupts off); while the ring is full,
+// call idle (feeds the watchdog: a scopedump is kB at ~1 kB/s) and wait, up
+// to wait_ms for a chunk (0: never wait, in an interrupt). Once a chunk timed
+// out (the link is gone) the rest is dropped without waiting. Bytes queued.
+typedef struct {
+  uint32_t (*now_ms)(void);
+  void (*idle)(void);
+  uint32_t (*put)(sscon_t *c, const void *data, uint32_t len);
+} sscon_out_t;
+uint32_t sscon_out(sscon_t *c, const sscon_out_t *o, const char *ptr, int len, uint32_t wait_ms);
 // console side: received bytes
 uint32_t sscon_read(sscon_t *c, void *data, uint32_t len);
 // a whole line (without the newline, 0 terminated): its length (0: an

@@ -5,6 +5,8 @@
 #define COMMAND(c, p, d)
 
 uint32_t call_cmd(char *s);
+const char *cmd_name(int32_t i);  // NULL: no such command
+extern volatile int32_t cmd_active;
 
 typedef struct {
   char name[32];

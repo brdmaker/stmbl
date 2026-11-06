@@ -26,7 +26,10 @@ void su_link_on_text(su_link_t *l, void (*fn)(void *user, const char *text, size
 // send one command line (no newline); -1 on error or a line too long
 int su_link_send(su_link_t *l, const char *line);
 // read for up to sec; returns text bytes received, -1 when the drive is gone
+// (a drive that goes away and comes back within 15 s is reopened: sends and
+// reads go on; su_link_reconnects counts it)
 int su_link_pump(su_link_t *l, double sec);
+int su_link_reconnects(const su_link_t *l);
 // the text received since the last clear
 const char *su_link_text(const su_link_t *l);
 void su_link_clear(su_link_t *l);

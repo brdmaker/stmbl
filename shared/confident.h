@@ -6,6 +6,14 @@
 #include <stddef.h>
 #include <string.h>
 
+// The flash config's text: erased flash (a new drive's, never written: all
+// 0xFF, no terminating 0) is an empty config. Printed or copied as it was,
+// it went on past the config's sector, and its 0xFF bytes read as scope
+// frame markers in servoterm-cli (the bench, 2026-10-29).
+static inline const char *conf_text(const char *flash) {
+  return (!flash || (unsigned char)flash[0] == 0xFF) ? "" : flash;
+}
+
 #define CONF_NAME_KEY "#stmbl_name"
 #define CONF_MOTOR_KEY "#stmbl_motor"
 // "appendconf " + key + ' ' + value must fit the console's 63-char line

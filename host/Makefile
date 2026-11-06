@@ -116,17 +116,38 @@ test_vibproto: tests/test_vibproto.c ../shared/vibproto.h
 test_fanuc1p: tests/test_fanuc1p.c ../shared/fanuc1p.c ../shared/fanuc1p.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_fanuc1p.c ../shared/fanuc1p.c -lm
 
+# shared/fanuc1p.c (f1p_frame) + shared/fanuc_tw.c: the fanuc_tw driver on recorded βiA128 frames (docs/fanuc_tw.md)
+test_fanuc_tw: tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc1p.h ../shared/fanuc_tw.c ../shared/fanuc_tw.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc_tw.c -lm
+
+# shared/wdog.h: reset cause, watchdog feeding, the breathing LED (src/wdog.c)
+test_wdog: tests/test_wdog.c ../shared/wdog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
+
+# shared/errlog.c: the flash error log (src/errlog_f4.c) on a simulated flash
+test_errlog: tests/test_errlog.c ../shared/errlog.c ../shared/errlog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_errlog.c ../shared/errlog.c
+
+# shared/adc_sum.h (adc.c's fast sums) and shared/sserial_sync.h (sserial reply_mode 1)
+test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_adc_sum.c -lm
+
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_fanuc1p
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw
 	@./test_fanuc1p
+	@./test_fanuc_tw
 	@./test_ssq
+	@./test_adc_sum
 	@./test_sscon
 	@./test_cur_offset
 	@./test_bootloader
 	@./test_bip
 	@./test_stmblcan
 	@./test_vibproto
+	@./test_wdog
+	@./test_errlog
+	@$(MAKE) -s -C m4 check
 	@$(PYTHON) ../tools/vibmon/test_vibaddr.py | tail -1
 	@$(PYTHON) ../tools/vibmon/test_vibmon.py | tail -1
 	@$(PYTHON) tests/test_mkssfw.py

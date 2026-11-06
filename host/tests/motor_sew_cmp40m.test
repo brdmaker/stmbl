@@ -45,4 +45,3 @@ scale1.out0
 @expect rlpsij0.friction ~ 0.1113 15%
 @expect scale1.out0 ~ 22750 10%
 @expect max|hv0.sim_vel| < 80
-@todo light rotor, slow l/r: it reaches max_vel before its current settles; j 24 % high, friction half (DEBUGNOTES)

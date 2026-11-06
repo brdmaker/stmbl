@@ -1,4 +1,5 @@
 #include "io4_comp.h"
+#include "wdog.h"
 #include "commands.h"
 #include "hal.h"
 #include "defines.h"
@@ -335,16 +336,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(CK)  = GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_14);
   }
 
+  // the steady state LEDs breathe while rt and the main loop run (wdog.h)
+  extern volatile uint32_t wdog_rt_count, wdog_alive_ms;
+  int alive = wdog_breathe(wdog_alive_ms, wdog_rt_count);
   switch((state_t)PIN(state)) {
     case DISABLED:
       red    = 0;
       green  = 0;
-      yellow = 1;
+      yellow = alive;
       break;
 
     case ENABLED:
       red    = 0;
-      green  = 1;
+      green  = alive;
       yellow = 0;
       break;
 

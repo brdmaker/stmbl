@@ -21,6 +21,8 @@ HAL_PIN(fb_ready);
 
 HAL_PIN(cmd_error);
 HAL_PIN(mot_fb_error);
+HAL_PIN(mot_fb_nref);  // in: the absolute feedback's position was lost (not referenced): no enable
+HAL_PIN(mot_fb_bat);   // in: the absolute feedback's battery alarm: no enable, and a stop if it comes while enabled
 HAL_PIN(com_fb_error);
 HAL_PIN(joint_fb_error);
 HAL_PIN(phase_error);  // fb_switch: autophasing failed
@@ -116,13 +118,22 @@ static const char* fault_string[] = {
   "phasing failed (rotor blocked, or wrong motor/feedback setup)",
   "encoder monitor",
   "HV firmware version: the HV board runs another firmware than this one carries (hv_update, or hv0.fw_check = 0)",
+  "mot FB not referenced: the absolute position was lost (encoder battery); turn the motor through its reference",
+  "mot FB battery alarm: the encoder's battery is missing or low",
 };
+
+// the error log prints them (src/errlog_f4.c)
+const char *fault_name(uint32_t f) {
+  return f < sizeof(fault_string) / sizeof(fault_string[0]) ? fault_string[f] : "?";
+}
 
 struct fault_ctx_t {
   state_t state;
   fault_t fault;
   float cmd_error;
   float mot_fb_error;
+  float mot_fb_nref;
+  float mot_fb_bat;
   float com_fb_error;
   float joint_fb_error;
   float hv_temp_error;
@@ -153,6 +164,8 @@ static int stop_for(struct fault_pin_ctx_t *pins, fault_t f, int hv) {
     case POS_ERROR:
     case SAT_ERROR:
     case MOT_TEMP_ERROR:
+    case MOT_FB_NREF_ERROR:  // the feedback still counts: a normal stop
+    case MOT_FB_BAT_ERROR:
     case HV_TEMP_ERROR:
     case HV_VOLT_ERROR:
       m = PIN(err_stop);
@@ -245,6 +258,20 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   if(err_filter(&(ctx->mot_fb_error), 5.0, 0.001, PIN(mot_fb_error) > 0.0)) {
     ctx->fault      = MOT_FB_ERROR;
+    PIN(last_fault) = ctx->fault;
+    ctx->state      = SOFT_FAULT;
+  }
+
+  // the absolute feedback's position lost / its battery alarm (fanuc_tw): the
+  // check runs disabled too, so the drive won't enable while either is on
+  if(err_filter(&(ctx->mot_fb_nref), 5.0, 0.001, PIN(mot_fb_nref) > 0.0)) {
+    ctx->fault      = MOT_FB_NREF_ERROR;
+    PIN(last_fault) = ctx->fault;
+    ctx->state      = SOFT_FAULT;
+  }
+
+  if(err_filter(&(ctx->mot_fb_bat), 5.0, 0.001, PIN(mot_fb_bat) > 0.0)) {
+    ctx->fault      = MOT_FB_BAT_ERROR;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;
   }

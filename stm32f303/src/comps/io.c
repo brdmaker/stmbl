@@ -326,7 +326,10 @@ void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     led = 2;
   }
 
-  HAL_GPIO_WritePin(LED_PORT, LED_PIN, BLINK(led) > 0 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  // no fault: a 20 ms blink every 2 s says the HV board runs (a fault
+  // blinks its code; the bootloader flickers at 10 Hz)
+  int on = led ? BLINK(led) > 0 : systime % 2000 < 20;
+  HAL_GPIO_WritePin(LED_PORT, LED_PIN, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
   PIN(hv_temp)  = r2temp(HV_R(ADC(ctx->hv_temp >> 16))) * 0.01 + PIN(hv_temp) * 0.99;
   PIN(mot_temp) = MOT_R(MOT_REF(ADC(ctx->mot_temp >> 16)));

@@ -18,9 +18,11 @@ HAL_COMP(rlpsij);
 //   3  polecount: d-axis field rotated one electrical turn per second.
 //   4  psi, j: drive segments up to +-max_vel (or for vel_time / 2), each
 //      followed by a zero-current coast down to half speed (or for
-//      vel_time / 8). The drive current starts at test_cur / 8 and adapts so
-//      a segment lasts >= SEG_MIN (a light rotor would otherwise overshoot
-//      max_vel within the current loop's own rise time).
+//      vel_time / 8); every other pair of segments stops at +-max_vel / 2,
+//      so the segments differ even at a constant drive current. The drive
+//      current starts at test_cur / 8 and adapts so a full segment lasts
+//      >= SEG_MIN (a light rotor would otherwise overshoot max_vel within
+//      the current loop's own rise time).
 //      psi from a least-squares fit of uq - r * iq = l' * diq/dt + psi * w_el
 //      over all samples: the current never settles on a light rotor, and
 //      without back-EMF feedforward the coast current is not zero either.
@@ -31,7 +33,8 @@ HAL_COMP(rlpsij);
 //      kt * int(iq) = j * dv + friction * int(sign v) + load * t + damping * int(v)
 //   5  friction, damping, load again from the steady currents at speed steps
 //      +-test_vel/10, +-test_vel, with a speed loop tuned from j / kt and the
-//      state 4 fit as feedforward.
+//      state 4 fit as feedforward; it integrates only near the command or
+//      near standstill.
 //   6  done, 7 aborted (overspeed, travel, or nothing measured; output off).
 // max_travel (0: off) bounds states 3 to 5 for a linear axis or any limited
 // axis: travel integrates the motion since the start; a state 4 drive
@@ -100,6 +103,7 @@ HAL_PIN(seg_start);  // state 4: timer at the start of the segment/coast
 HAL_PIN(seg_q);      // state 4: integral of iq since then
 HAL_PIN(seg_s);      // state 4: integral of sign(vel)
 HAL_PIN(seg_p);      // state 4: integral of vel
+HAL_PIN(seg_n);      // state 4: drive segments ended (picks their top speed)
 // State 4 momentum fit: normal equations of int(iq) = a . x with
 // a = (dv, int(sign v), t, int(v)), x = (j, friction, load, damping) / kt;
 // ls[0..9] = upper triangle of sum(a a'), ls[10..13] = sum(a * int(iq)).
@@ -326,6 +330,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
           PINA(ls, k) = 0.0;
         }
         PIN(j_n) = 0.0;
+        PIN(seg_n) = 0.0;
         PIN(coast) = 0.0;
         PIN(timer) = 0.0;
         PIN(state) = 4.0;
@@ -428,13 +433,20 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(seg_p) += vel * period;
 
       // A heavy rotor that never reaches max_vel stops driving after vel_time / 2.
-      if((PIN(q_cmd) > 0.0 && vel >= PIN(max_vel)) || (PIN(q_cmd) < 0.0 && vel <= -PIN(max_vel)) ||
+      // Every other pair of segments tops out at half speed: identical segments
+      // (a constant drive current) would give the fit only two distinct
+      // equations, and it would trade j against friction and damping.
+      float top = ((int)PIN(seg_n) & 2) ? PIN(max_vel) * 0.5 : PIN(max_vel);
+      if((PIN(q_cmd) > 0.0 && vel >= top) || (PIN(q_cmd) < 0.0 && vel <= -top) ||
          t_seg > PIN(vel_time) / 2.0 || (far && PIN(q_cmd) * PIN(travel) > 0.0)){
         seg_eq(pins, PIN(seg_q), vel - PIN(seg_vel), PIN(seg_s), t_seg, PIN(seg_p));
-        if(t_seg < SEG_MIN){
-          PIN(drive_cur) *= 0.5;
-        } else if(t_seg > SEG_MIN * 4.0){
-          PIN(drive_cur) = MIN(PIN(drive_cur) * 2.0, PIN(test_cur));
+        PIN(seg_n) += 1.0;
+        if(top == PIN(max_vel)){  // a half-speed segment is short by design
+          if(t_seg < SEG_MIN){
+            PIN(drive_cur) *= 0.5;
+          } else if(t_seg > SEG_MIN * 4.0){
+            PIN(drive_cur) = MIN(PIN(drive_cur) * 2.0, PIN(test_cur));
+          }
         }
         PIN(coast) = 1.0;
         PIN(q_cmd) = 0.0;
@@ -462,7 +474,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       float kp = PIN(jq) * PIN(vel_bw);
       float error = vel_cmd - PIN(vel_c);
       float ff = PIN(ff_f) * SIGN(vel_cmd) + PIN(ff_l) + PIN(ff_d) * vel_cmd;
-      PIN(error_sum) += kp * PIN(vel_bw) / 4.0 * period * error;
+      // Integrate only near the command or near standstill (breakaway): a
+      // kick at the start of state 5 (the current loop recovering from the
+      // state 4 brake) would otherwise wind the slow integrator for seconds.
+      if(ABS(error) < PIN(test_vel) * 0.5 || ABS(PIN(vel_c)) < PIN(test_vel) * 0.5){
+        PIN(error_sum) += kp * PIN(vel_bw) / 4.0 * period * error;
+      }
       PIN(error_sum) = LIMIT(PIN(error_sum), PIN(test_cur));
       PIN(q_cmd) = LIMIT(ff + kp * error + PIN(error_sum), PIN(test_cur));
 

@@ -15,6 +15,12 @@ cd hwtest/soak
 touch runs/<run>/STOP                            # end a run cleanly
 ```
 
+A slower motor or an unreliable USB console: `SOAK_MAX_VEL=300` caps the
+machine's top speed (mm/s) in the run's copy of the ini, `SOAK_CONSOLE=sserial`
+(hw) checks the drive over the smart-serial console (sserialterm in
+LinuxCNC's HAL) instead of USB. The SEW CMP40M on the 202 V bench:
+`SOAK_MAX_VEL=300 SOAK_CONSOLE=sserial ./run_soak.sh hw --hours 4`.
+
 `run_soak.sh` starts LinuxCNC headless, from a copy of the machine config in
 the run directory, with `soak.py` in place of the GUI. Nothing appears on the
 desktop. For `sim`, that copy also holds the simulated drive's flash, so a

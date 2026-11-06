@@ -5,6 +5,37 @@
 Open work, grouped by area. Tick an item off (or delete it) when it lands, and
 record any debug findings in `DEBUGNOTES.md` as usual.
 
+## Drives (stmbl, the SEW bench)
+
+- [x] **Motor temperature sensor on the LV board** (docs/motor_temp_lv.md):
+      on drive 208535A65631 the KTY on FB0 pins 7 / 8 (JP2 opened), the
+      resolver clean through a 30 min soak; calibrated to 25 C
+      (`rpull0.rpull = 9064`: a ~97 k leak beside the cut jumper).
+- [ ] **USB console under motor current** (DEBUGNOTES 2026-10-29): the PC
+      stops polling the drive after a STALL on the bulk IN; the wizard
+      reconnects, smart-serial avoids it. Try a USB isolator / another port.
+      Find why the tuning over USB came out lower.
+- [ ] **Resolver on FB1:** needs an excitation on FB1's Z driver (TIM1 CH3,
+      PE13) synced to FB0's, polarity demodulation for sin1/cos1 in `adc.c`, a
+      `res_fb1` template; FB1 gets 1 of 10 ADC samples, so it is noisier.
+- [ ] **SEW CMP40M:** commissioned (wizard, all steps, `conf/sew_cmp40m.txt`),
+      the KTY now on FB0. Run at 314 V for the full 3000 rpm.
+- [ ] **Wizard simulator:** `syn_torque_14p` fails at the torque constant check
+      (identified 1.31 vs nameplate 10.4 Nm/A), already before 2026-10-29.
+- [ ] **FANUC βiA128 (1-pair) feedback driver:** `fanuc_tw` (docs/fanuc_tw.md) runs both
+      βiS 4/4000 in closed loop (setup wizard, `conf/fanuc_bis4-4000.txt`, `-2.txt`, 2026-11-05).
+      Still to do: the motor temperature (battery alarm found: frame bit 6) and
+      the other status bits (w4, bits 71-73), whether the position jumps at the reference after a long outage,
+      the βiS 12/2000, the wizard's idm0.inertia set (DEBUGNOTES). The frame is decoded
+      (DEBUGNOTES 2026-11-03, brdmot probe-log.md). Next: decode it in
+      `shared/fanuc1p.c` (24-bit position, turns, CRC-5 0x0B, commutation
+      from the position) with a host test on the recorded frames, `fanuci`
+      outputs for `fb_switch0`, a template; then the battery-out test and a
+      βiS motor. Drive 208535A65631 has the probe config now (SEW config
+      backed up as config-pre-fanuci.txt).
+- [ ] Boot-time fault 11 (HV volt error at 57 ms, before the bus is measured)
+      is logged on every boot.
+
 ## Arm (millweb arm page, `webui/mill/js/arm.js`)
 
 - [x] Configure page: machine type "arm" (`generate_arm`: armkins, armguard,
@@ -103,8 +134,12 @@ record any debug findings in `DEBUGNOTES.md` as usual.
       modules, log servo-thread tmax for an hour under load.
 - [ ] Bench: 2 kHz (SERVO_PERIOD 500000, vel_int0.cmd_freq 2000); drive rt
       max and sserial errors.
-- [ ] Drive firmware: no sserial frt busy-wait; adc0 sum with __UADD16
-      (needed above 2 kHz).
+- [ ] Drive firmware: `sserial0.reply_mode` and `adc0.fast` benched on the
+      SEW drive (DEBUGNOTES 2026-11-01 entries): rt max 172.8 -> 140.8 us.
+      Discovery bug in reply_mode 1 fixed (24/24). 2 kHz on the Pi 4 + SPI:
+      no ferror gain (pos_advance swept) and hm2's DoIt overruns: stay at
+      1 kHz. Next: the hwtest suite with the switches on, then make them
+      the default.
 - [ ] Zynq: `docs/zynq-measurement-plan.md` (steps 1-8, servo_rate.py and
       servo_load.py), pick the rate.
 - [ ] Measure the front ends with `hwtest/timing/servo_rate.py`: Pi 4 + 7C81

@@ -25,6 +25,9 @@ SOURCES += src/system_stm32f4xx.c #TODO: update this, system file from cmsis
 SOURCES += src/setup.c
 SOURCES += src/usb_cdc.c
 SOURCES += src/config.c
+SOURCES += src/wdog.c
+SOURCES += src/errlog_f4.c
+SOURCES += shared/errlog.c
 # SOURCES += src/hal_conf.c
 SOURCES += src/hal_tbl.c
 
@@ -49,6 +52,7 @@ else
 	SRC_COMPS += src/comps/sserial.c
 	SRC_COMPS += src/comps/yaskawa.c
 	SRC_COMPS += src/comps/fanuci.c
+	SRC_COMPS += src/comps/fanuc_tw.c
 	SRC_COMPS += src/comps/encs.c
 	SRC_COMPS += src/comps/encf.c
 	SRC_COMPS += src/comps/endat.c
@@ -92,6 +96,7 @@ SHARED_COMPS += shared/comps/fb_switch.c
 SHARED_COMPS += shared/comps/reslimit.c
 SHARED_COMPS += shared/comps/iit.c
 SHARED_COMPS += shared/comps/mtemp.c
+SHARED_COMPS += shared/comps/rpull.c
 SHARED_COMPS += shared/comps/vel_int.c
 SHARED_COMPS += shared/comps/gantry.c
 SHARED_COMPS += shared/comps/linrev.c
@@ -123,6 +128,8 @@ SHARED_COMPS += shared/comps/field.c
 SHARED_COMPS += shared/comps/gain.c
 SHARED_COMPS += shared/comps/rlpsij.c
 SHARED_COMPS += shared/comps/encmon.c
+SHARED_COMPS += shared/comps/acvf.c
+SHARED_COMPS += shared/comps/idacim.c
 SHARED_COMPS += shared/comps/veltime.c
 SHARED_COMPS += shared/comps/mpid.c
 SHARED_COMPS += shared/comps/fmove.c
@@ -150,6 +157,7 @@ SOURCES += shared/crc.c
 SOURCES += shared/crc8.c
 SOURCES += shared/yaskawa_crc16.c
 SOURCES += shared/fanuc1p.c
+SOURCES += shared/fanuc_tw.c
 SOURCES += shared/endat.c
 SOURCES += shared/angle.c
 SOURCES += shared/hal.c
@@ -317,6 +325,9 @@ lss: $(TARGET).lss
 sym: $(TARGET).sym
 
 $(OBJDIR)/shared/commands.o: inc/commandslist.h
+# the FANUC 2-wire decoder runs every rt cycle (fanuc_tw): -O3, the firmware's
+# -O1 made it ~35 us of the 200 us rt (RT_TOO_LONG with id_mot, 2026-11-05)
+$(OBJDIR)/shared/fanuc1p.o $(OBJDIR)/shared/fanuc_tw.o $(OBJDIR)/src/comps/fanuc_tw.o: OPT = -O3
 
 inc/commandslist.h: tools/create_cmd.py $(SOURCES) Makefile
 	@echo Generating commands list

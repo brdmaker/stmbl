@@ -37,7 +37,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-LINUXCNC = os.environ.get("LINUXCNC", "/home/user/linuxcnc-2.9")
+LINUXCNC = os.environ.get("LINUXCNC", "")  # empty: the installed LinuxCNC
 COLS = "cx cy cz tx ty tz fe0 fe1 fe2 i0 i1 i2 hx hy yb vel mt".split()
 CX, CY, R10, R2, ZCUT = 350.0, 215.0, 10.0, 2.0, -25.0
 
@@ -141,8 +141,10 @@ def main():
             d = tempfile.mkdtemp(prefix="mill-sim.")
             progs = setup(d, servo, machine)
             env = dict(os.environ, MILL_PROGRAMS=" ".join(progs), MILL_OUT=d)
-            cmd = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null && cd %s && "
-                   "timeout 300 linuxcnc mill.ini > linuxcnc.log 2>&1") % (LINUXCNC, LINUXCNC, d)
+            # a run-in-place LinuxCNC (LINUXCNC=its tree), or the installed one (LINUXCNC empty)
+            rip = ("export PATH=%s/pybin:$PATH; . %s/scripts/rip-environment >/dev/null && " % (LINUXCNC, LINUXCNC)
+                   if LINUXCNC and os.path.isdir(LINUXCNC) else "")
+            cmd = rip + ("cd %s && timeout 300 linuxcnc mill.ini > linuxcnc.log 2>&1" % d)
             subprocess.run(["bash", "-c", cmd], env=env)
             title = "%s, servo %g ms (%d Hz)" % (machine, servo, round(1000 / servo))
             print("\n## " + title + "  (" + d + ")")

@@ -10,8 +10,8 @@
  *    the encoder's counts per revolution, and their sign is the counting
  *    direction. No index: the user enters the line count.
  *  - resolver: the pole count is asked (the nameplate says "2 pole", ...).
- *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki, FANUC):
- *    fixed by the protocol.
+ *  - serial absolute (Tamagawa smartabs, Mitsubishi, Sanyo Denki, FANUC
+ *    4-wire and 2-wire): fixed by the protocol.
  *
  * A multi-turn absolute encoder also names the template that ties its turn
  * count to mturn (mt_link, docs/absolute_encoders.md); the final config

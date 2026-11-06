@@ -118,7 +118,13 @@ def run_period(a, period_us, workdir):
         end = time.time() + 30
         while time.time() < end and sh("halcmd", "show", "thread").stdout.find("servo-thread") < 0:
             time.sleep(0.3)
-        board = board_prefix() if a.driver != "none" else None
+        # the thread comes with motmod, before the board's driver has found its
+        # smart-serial remotes (seconds): wait for the board's functions too
+        board = None
+        while a.driver != "none" and time.time() < end and not board:
+            board = board_prefix()
+            if not board:
+                time.sleep(0.3)
         if a.driver != "none" and not board:
             res["error"] = "no hostmot2 board (see %s)" % log.name
             return res

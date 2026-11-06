@@ -33,6 +33,16 @@
  * period (e.g. 60 mm): j = mass * (period / 2pi)^2. sim_min_pos / sim_max_pos
  * (on sim_abs_pos, rad) are end stops: the carriage stops dead there, and
  * sim_stop_hits counts the contacts. Both 0: no stops.
+ *
+ * sim_type = 1 simulates an induction motor instead (T equivalent circuit,
+ * stationary frame, states: stator current is and rotor flux psir):
+ *   dpsir/dt = rr / lr * (lm * is - psir) + j * we * psir
+ *   dis/dt   = (us - rs * is - lm / lr * dpsir/dt) / (sigma * ls)
+ *   torque   = 3/2 * pp * lm / lr * (psir x is)
+ * with rs = sim_r, rr = sim_rr, lm = sim_lm, leakage sim_l split evenly
+ * between stator and rotor (ls = lr = lm + sim_l / 2), sigma = 1 - lm^2 /
+ * (ls * lr), we = pp * sim_vel. sim_psi is not used. sim_id / sim_iq are
+ * then the stator current in the rotor flux frame (magnetizing / torque).
  */
 #include "hv_comp.h"
 #include "hal.h"
@@ -146,17 +156,21 @@ HAL_PIN(sim_sense_gain);    // IPROPI gain error, share: + on A, - on B (DRV8876
 HAL_PIN(sense_cal);         // IPROPI offset calibration at enable [PWM periods] (0: off)
 HAL_PIN(sense_off_a);       // the offsets it found [A]
 HAL_PIN(sense_off_b);
+// the motor's temperature sensor (shared/mtemp.h): mot_temp is its resistance [ohm], as the F3 reports it
+HAL_PIN(sim_temp);         // winding temperature [degC]
+HAL_PIN(sim_temp_sensor);  // its sensor type (mtemp.h), 0: none fitted (the input reads open, -1)
+HAL_PIN(sim_temp_wire);    // 0 ok, 1 open wire, 2 shorted
+HAL_PIN(sim_temp_tnat);    // PTC / switch: trip temperature [degC]
+
+HAL_PIN(sim_type);       // 0 = PMSM, 1 = induction motor
+HAL_PIN(sim_rr);         // induction: rotor resistance [ohm]
+HAL_PIN(sim_lm);         // induction: magnetizing inductance [H]
 // sim_ext = 1: the mechanics are simulated outside (host/arm). Before every
 // rt cycle the host sets sim_pos and sim_vel; within the cycle the rotor
 // advances at sim_vel, and sim_te_int accumulates te * dt for the host to
 // read and clear. sim_j/d/f/load/brake are then unused.
 HAL_PIN(sim_ext);
 HAL_PIN(sim_te_int);
-// the motor's temperature sensor (shared/mtemp.h): mot_temp is its resistance [ohm], as the F3 reports it
-HAL_PIN(sim_temp);         // winding temperature [degC]
-HAL_PIN(sim_temp_sensor);  // its sensor type (mtemp.h), 0: none fitted (the input reads open, -1)
-HAL_PIN(sim_temp_wire);    // 0 ok, 1 open wire, 2 shorted
-HAL_PIN(sim_temp_tnat);    // PTC / switch: trip temperature [degC]
 
 // simulated motor state
 HAL_PIN(sim_pos);  // mechanical position [rad], -pi..pi
@@ -183,6 +197,8 @@ HAL_PIN(sim_ia);  // stepper coil currents [A]
 HAL_PIN(sim_ib);
 HAL_PIN(duty_a);  // stepper bridge duties, -1..1
 HAL_PIN(duty_b);
+HAL_PIN(sim_flux);    // induction: rotor flux magnitude [V*s]
+HAL_PIN(sim_slip);    // induction: slip, electrical [rad/s]
 
 #define F3_PER_RT 4    // F3 current loop at 20 kHz
 #define MOT_PER_F3 4   // motor model at 80 kHz
@@ -220,8 +236,11 @@ struct hv_ctx_t {
   int hv_fault;    // the F3's own fault (over-voltage), until the F4 disables it
   float hbrake_t;  // [s] since the holding brake's output changed
   int chop;        // the chopper is on
-  double abs_pos;  // sim_abs_pos, from 0 at the start (the scales' reference marks sit on it)
-  int at_stop;     // against sim_min_pos / sim_max_pos
+  double abs0;      // upos where sim_abs_pos is 0 (the start)
+  int abs0_set;
+  int at_stop;      // against sim_min_pos / sim_max_pos (sim_stop_hits)
+  float isa, isb;  // induction motor: stator current, stationary frame
+  float fra, frb;  // rotor flux, stationary frame
   int booted;      // sim_keep_pos looked at
 };
 
@@ -264,12 +283,22 @@ static float sense(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float i, flo
 
 // the rotor: electrical torque te for dt, coulomb friction, brake, load
 static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te, float mj, float dt) {
+  if(PIN(sim_ext) > 0.0) {  // the host's mechanics (host/arm): it sets sim_pos and sim_vel
+    PIN(sim_pos)     = mod(PIN(sim_pos) + PIN(sim_vel) * dt);
+    PIN(sim_te_int) += te * dt;
+    PIN(sim_torque)  = te;
+    return;
+  }
   float tf     = PIN(sim_f) + (PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0);
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
   if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside
     ctx->upos     = PIN(sim_upos);
     ctx->upos_pin = PIN(sim_upos);
+  }
+  if(!ctx->abs0_set) {  // sim_abs_pos counts from where the rotor starts
+    ctx->abs0     = ctx->upos;
+    ctx->abs0_set = 1;
   }
   // coulomb friction: holds the rotor when the other torques can't beat it
   if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
@@ -284,24 +313,20 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_acc) = acc;
     PIN(sim_vel) = nv;
     double was   = ctx->upos;
-    double step  = (v + nv) * 0.5 * dt;
-    ctx->upos += step;
-    ctx->abs_pos += step;
+    ctx->upos += (v + nv) * 0.5 * dt;
     // a stiff, dead hard stop: the rotor stops there
     float lo = PIN(sim_stop_min), hi = PIN(sim_stop_max);
     if((lo != 0.0 || hi != 0.0) && (ctx->upos < lo || ctx->upos > hi)) {
-      double to = ctx->upos < lo ? lo : hi;
-      ctx->abs_pos += to - ctx->upos;
-      ctx->upos    = to;
+      ctx->upos    = ctx->upos < lo ? lo : hi;
       PIN(sim_vel) = 0.0;
       PIN(sim_acc) = 0.0;
     }
-    // end stops on sim_abs_pos (a linear motor's carriage, host/portal): stops dead, the contacts counted
-    if(PIN(sim_min_pos) != 0.0 || PIN(sim_max_pos) != 0.0) {
-      double lim = ctx->abs_pos < PIN(sim_min_pos) ? PIN(sim_min_pos) : ctx->abs_pos > PIN(sim_max_pos) ? PIN(sim_max_pos) : ctx->abs_pos;
-      if(lim != ctx->abs_pos) {
-        ctx->upos += lim - ctx->abs_pos;
-        ctx->abs_pos = lim;
+    // a linear motor's end stops, on sim_abs_pos (from where it started)
+    double alo = PIN(sim_min_pos), ahi = PIN(sim_max_pos);
+    if(alo != 0.0 || ahi != 0.0) {
+      double a = ctx->upos - ctx->abs0;
+      if(a < alo || a > ahi) {
+        ctx->upos    = ctx->abs0 + (a < alo ? alo : ahi);
         PIN(sim_vel) = 0.0;
         PIN(sim_acc) = 0.0;
         if(!ctx->at_stop) {
@@ -316,7 +341,7 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
   }
   PIN(sim_pos)     = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
-  PIN(sim_abs_pos) = ctx->abs_pos;
+  PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
   PIN(sim_torque)  = te;
 }
 
@@ -432,12 +457,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(!ctx->booted) {
     ctx->booted = 1;
     if(PIN(sim_keep_pos) > 0.0 && mech_mem.valid) {
-      double m       = mech_mem.off_move * 2.0 * M_PI;
-      ctx->upos      = mech_mem.upos + m;
-      ctx->abs_pos   = mech_mem.abs_pos + m;
-      PIN(sim_upos)  = ctx->upos_pin = (float)ctx->upos;
-      PIN(sim_abs_pos) = ctx->abs_pos;
-      PIN(sim_pos)   = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
+      ctx->upos        = mech_mem.upos + mech_mem.off_move * 2.0 * M_PI;
+      ctx->abs0        = mech_mem.upos - mech_mem.abs_pos;  // sim_abs_pos moves with the shaft
+      ctx->abs0_set    = 1;
+      PIN(sim_upos)    = ctx->upos_pin = (float)ctx->upos;
+      PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
+      PIN(sim_pos)     = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
     }
     mech_mem.off_move = 0.0;
   }
@@ -508,7 +533,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(sim_f3_brake) = f3_brake;
 
   float udc = MAX(PIN(sim_udc), 0.0);
-  int mains = PIN(sim_supply) > 0.0 && PIN(sim_motor) <= 0.0;
+  int mains = PIN(sim_supply) > 0.0 && PIN(sim_motor) <= 0.0 && PIN(sim_type) <= 0.5;  // the induction motor: sim_udc
   if(!ctx->bus_init) {  // charged: peak minus two diodes
     ctx->bus_init = 1;
     ctx->vbus     = mains ? MAX(PIN(sim_mains) * M_SQRT2 - 1.8, 0.0) : udc;
@@ -552,6 +577,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float pp   = MAX(PIN(sim_pp), 1.0);
   float mj   = MAX(PIN(sim_j), 1e-7);
   float prev = PIN(sim_phase_rev) > 0.0 ? -1.0 : 1.0;
+  int acim   = PIN(sim_type) > 0.5;
+  float rr   = MAX(PIN(sim_rr), 0.001);
+  float lm   = MAX(PIN(sim_lm), 0.0001);
+  float lsr  = lm + ml / 2.0;  // ls = lr
+  float sls  = lsr - lm * lm / lsr;  // sigma * ls
+  float kr   = lm / lsr;
 
   float f3_dt  = period / F3_PER_RT;
   float mot_dt = f3_dt / MOT_PER_F3;
@@ -567,6 +598,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
     float ia = PIN(sim_id) * cm - PIN(sim_iq) * sm;
     float ib = (PIN(sim_id) * sm + PIN(sim_iq) * cm) * prev;
+    if(acim) {
+      ia = ctx->isa;
+      ib = ctx->isb * prev;
+    }
     id       = ia * ca + ib * sa;
     iq       = -ia * sa + ib * ca;
 
@@ -646,7 +681,35 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       ub *= umax / uu;
     }
 
-    for(int m = 0; m < MOT_PER_F3; m++) {
+    for(int m = 0; m < MOT_PER_F3 && acim; m++) {
+      float we = PIN(sim_vel) * pp;
+      if(en) {
+        float dfa = rr / lsr * (lm * ctx->isa - ctx->fra) - we * ctx->frb;
+        float dfb = rr / lsr * (lm * ctx->isb - ctx->frb) + we * ctx->fra;
+        ctx->isa += (ua - mr * ctx->isa - kr * dfa) / sls * mot_dt;
+        ctx->isb += (ub - mr * ctx->isb - kr * dfb) / sls * mot_dt;
+        ctx->fra += dfa * mot_dt;
+        ctx->frb += dfb * mot_dt;
+      } else {  // bridge off: no stator current, the rotor flux decays
+        ctx->isa = 0.0;
+        ctx->isb = 0.0;
+        ctx->fra -= rr / lsr * ctx->fra * mot_dt;
+        ctx->frb -= rr / lsr * ctx->frb * mot_dt;
+      }
+      // the rotor as for the PMSM (mech_step: friction, brake, load, stops);
+      // the bus is the stiff sim_udc (the mains model is the PMSM's)
+      mech_step(ctx, pins, 1.5 * pp * kr * (ctx->fra * ctx->isb - ctx->frb * ctx->isa), mj, mot_dt);
+      float flux = sqrtf(ctx->fra * ctx->fra + ctx->frb * ctx->frb);
+      PIN(sim_flux) = flux;
+      if(flux > 1e-6) {
+        float c = ctx->fra / flux, sn = ctx->frb / flux;
+        PIN(sim_id) = ctx->isa * c + ctx->isb * sn;
+        PIN(sim_iq) = -ctx->isa * sn + ctx->isb * c;
+        PIN(sim_slip) = rr / lsr * lm * PIN(sim_iq) / flux;  // slip w_e - w_r
+      }
+    }
+
+    for(int m = 0; m < MOT_PER_F3 && !acim; m++) {
       sincos_fast(mod(PIN(sim_pos) * pp), &sm, &cm);
       float mud = ua * cm + ub * sm;
       float muq = -ua * sm + ub * cm;
@@ -662,14 +725,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(sim_iq) = 0.0;
       }
 
-      float te = 1.5 * pp * mpsi * PIN(sim_iq);
-      if(PIN(sim_ext) > 0.0) {  // host/arm: the mechanics outside
-        PIN(sim_pos) = mod(PIN(sim_pos) + PIN(sim_vel) * mot_dt);
-        PIN(sim_te_int) += te * mot_dt;
-        PIN(sim_torque) = te;
-      } else {
-        mech_step(ctx, pins, te, mj, mot_dt);
-      }
+      mech_step(ctx, pins, 1.5 * pp * mpsi * PIN(sim_iq), mj, mot_dt);
 
       // the bus: the bridge's power (< 0 regenerates), the rectifier
       if(mains) {
@@ -718,11 +774,11 @@ feedback:
   }
   if(PIN(sim_turn) != 0.0) {  // the hand wins over the motor
     float step = SIGN(PIN(sim_turn)) * MIN(fabsf(PIN(sim_turn)), 2.0 * M_PI * period);
-    ctx->upos += step;  // mech_step integrates these: move them too, or the next cycle undoes the turn
-    ctx->abs_pos += step;
-    PIN(sim_upos)    = ctx->upos_pin = (float)ctx->upos;
-    PIN(sim_abs_pos) = ctx->abs_pos;
-    PIN(sim_pos)  = mod(PIN(sim_pos) + step);
+    // on the unwrapped position: mech_step makes sim_pos from it
+    ctx->upos += step;
+    PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
+    PIN(sim_pos)  = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
+    PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
     PIN(sim_dist) += step;
     PIN(sim_turn) -= step;
     PIN(sim_vel)  = 0.0;
@@ -774,7 +830,7 @@ feedback:
   }
   PIN(value)    = 1.0;
   mech_mem.upos    = ctx->upos;  // for sim_keep_pos after a reset
-  mech_mem.abs_pos = ctx->abs_pos;
+  mech_mem.abs_pos = ctx->upos - ctx->abs0;
   mech_mem.valid   = 1;
 }
 

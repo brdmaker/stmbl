@@ -14,43 +14,13 @@ decodes the edges into bits and prints them on the console. Field offsets
 for position, turns and commutation are pins too, so a layout found on the
 bench can be tried without rebuilding.
 
-Status: the βiA128 answers it (first reply 2026-11-04 with the defaults
-at 8 kHz: ≈ 2.727 Mbit/s, reply 8.4 µs after the request, ~100 bits). The
-frame layout is being worked out; first finding: position LSB first from
-bit 9. Decoding is tested on the host (`host/tests/test_fanuc1p.c`).
+Status: builds for stmbl v4 and its decoding is tested on the host
+(`host/tests/test_fanuc1p.c`). On the bench (2026-11-04) it read a βiA128:
+the frame is decoded (DEBUGNOTES 2026-11-03 "FANUC βiA128 encoder";
+brdmot `probe-log.md`).
 
 Background, sources and bench results for the owner's motors are in the
 private notes (`brdmaker/brdmot`, `encoders.md`).
-
-## The βiA128 frame (decoded 2026-11-04)
-
-From 600 frames over ≈ 7 turns (brdmot `captures/bia128-turn-20261104.txt`),
-CRC good on all 600. Request: the defaults (`req 512` = start 0, 0x00,
-stop 1 at 2.727 Mbit/s, 8 kHz). Reply 8.4 µs later, 100 bits, LSB first:
-
-| bits | field |
-|---|---|
-| 0 | start bit, 0 |
-| 1–8 | `10100000` while running (status, to check: battery out, power-up) |
-| 9–16 | position, low 8 bits |
-| 17–19 | sync `110` |
-| 20–35 | position, high 16 bits: **24-bit single-turn position** (2²⁴ per turn) |
-| 36–38 | sync `110` |
-| 39–54 | **turn count**, 16 bit two's complement |
-| 55–57 | sync `110` |
-| 58–65 | **commutation**, 8 bits, 256 per electrical turn (= 1024·pos/2²⁴ mod 256 on the 4-pole-pair βiS, within ±2) |
-| 66–70 | 0 |
-| 71–73 | 3 bits, changing (unknown) |
-| 74–76 | sync `110` |
-| 77–92 | `1101001000000001` constant (ID / status word, unknown) |
-| 93–94 | `11` |
-| 95–99 | **CRC-5**, polynomial x⁵+x³+x+1 (0x0B), init 0, no final xor, over bits 0–94, sent MSB first |
-
-A frame is five 16-bit words separated by the sync `110`. The 24-bit
-position is finer than the "128" (2¹⁷) in the name: the low bits are
-interpolated. With the pins as they are, `pos_off 20, pos_len 16`,
-`turns_off 39, turns_len 16`, `com_off 58, com_len 8` read it live; the
-24-bit position and the CRC check need code (next step: a feedback driver).
 
 ## What is known about the protocol
 
@@ -118,8 +88,9 @@ DMA streams.
 On the bench Pi (binutils 2.40; see `CLAUDE.md` and `DEBUGNOTES.md`):
 
 1. Back up the drive's config: `servoterm-cli --dump > backup.txt`.
-2. `make btburn` at the repo root. It builds, puts the drive in the
-   bootloader and flashes. Use no other flashing method.
+2. `make update` (USB or the smart-serial console), alternating with
+   `make ssburn`, as `CLAUDE.md` says; `make btburn` (DFU) only as the
+   backup. Use no other flashing method.
 3. Check `about` and that the config is unchanged.
 
 The component is in the normal firmware image. It does nothing until it

@@ -81,29 +81,34 @@ extern volatile uint64_t systime;
 // spoken: in 8-byte chunks with interrupts off (realtime code may print
 // too; 64-byte chunks held off frt and rt for ~9 us each, 8 bytes ~1 us); in
 // the main loop, waits up to 100 ms for room (the link moves ~1 kB/s), so a
-// long output (showconf) comes through whole but never hangs the drive
-static void sscon_out(const char *ptr, int len) {
+// long output (showconf, scopedump) comes through whole, feeding the
+// watchdog meanwhile: a scopedump without it reset the drive (hwtest suite,
+// 2026-11-02)
+void wdog_poll(void);  // src/wdog.c
+
+static uint32_t sscon_now(void) {
+  return (uint32_t)systime;
+}
+
+static uint32_t sscon_put(sscon_t *c, const void *data, uint32_t len) {
+  uint32_t pm = __get_PRIMASK();
+  __disable_irq();
+  uint32_t n = sscon_write(c, data, len);  // what does not fit is dropped
+  __set_PRIMASK(pm);
+  return n;
+}
+
+static const sscon_out_t sscon_drive_out = {sscon_now, wdog_poll, sscon_put};
+
+static void sscon_out_drive(const char *ptr, int len) {
   if(!sscon0.active) {
     return;
   }
-  uint64_t t0 = systime;
-  while(len > 0) {
-    int n = len > 8 ? 8 : len;
-    if(sscon_tx_free(&sscon0) < (uint32_t)n && __get_IPSR() == 0 && systime - t0 < 100) {
-      continue;
-    }
-    uint32_t pm = __get_PRIMASK();
-    __disable_irq();
-    sscon_write(&sscon0, ptr, n);  // what does not fit is dropped
-    __set_PRIMASK(pm);
-    ptr += n;
-    len -= n;
-    t0 = systime;
-  }
+  sscon_out(&sscon0, &sscon_drive_out, ptr, len, __get_IPSR() == 0 ? 100 : 0);
 }
 
 int _write(int fd, const char *ptr, int len) {
-  sscon_out(ptr, len);
+  sscon_out_drive(ptr, len);
   if(!USB_CDC_is_connected()) {
     return len;
   }

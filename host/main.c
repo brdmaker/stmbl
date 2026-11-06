@@ -101,7 +101,7 @@ static float lcnc_index(int cleared, float pos_fb, float pos_cmd, float vel) {
 
 static void lcnc_servo(void) {
   sim_sserial_io_t *io = &sim_sserial_io;
-  // the drive's command between LinuxCNC's points: with an acceleration, the velocity ramps over the period
+  // a constant acceleration (lcnc ... acc): vel_cmd is the period's mean
   if(lcnc_acc != 0.0f) {
     float v0 = lcnc_vel;
     lcnc_vel += lcnc_acc * 0.001f;

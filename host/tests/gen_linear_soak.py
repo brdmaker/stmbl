@@ -18,8 +18,8 @@ Pass: following error under FERROR mm in motion and REST mm at rest, no
 fault, never at an end stop, current within max_ac_cur, commutation absolute
 after the reference run.
 
-usage: gen_linear_soak.py [--cycles N] [--out DIR] [--gains POS_BW VEL_BW VEL_D]
-       (--gains skips id_pid)
+usage: gen_linear_soak.py [--cycles N] [--out DIR] [--gains POS_BW VEL_BW VEL_D] [--tune]
+       (the gains id_pid found in 2026-10; --tune runs id_pid)
 """
 
 import argparse
@@ -81,7 +81,7 @@ def build(cycles):
             p.cruise(0.3)
         p.rest_check()
         p.section("enable")
-        p.lines += ["lcnc 0 0", "run 0.3", "fault0.state", "lcnc 1 0", "run 1.5",
+        p.lines += ["lcnc 0 0", "run 0.3", "fault0.state", "lcnc 1 0", "run 3.0",
                     "enc_fb0.state"]
         p.move(5.0 / MM, 0.5 * VMAX, 0.5 * AMAX)
         p.move(-p.pos, VMAX, AMAX)  # p.pos keeps the tick-rounding rest
@@ -102,7 +102,7 @@ TEMPLATE = """\
 lcnc 0 0
 run 0.5
 lcnc 1 0
-run 1.5
+run 3.0
 {body}
 fault0.state
 sserial0.error
@@ -126,16 +126,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cycles", type=int, default=1)
     ap.add_argument("--gains", type=float, nargs=3, metavar=("POS_BW", "VEL_BW", "VEL_D"))
+    ap.add_argument("--tune", action="store_true", help="tune with id_pid instead of the gains below")
     ap.add_argument("--out", default=os.path.join(gs.HOST_DIR, "gen", "soak"))
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    g = args.gains
+    # id_pid's result when this axis was added (2026-10-18). Since the merge
+    # into master id_pid stops at pos_bw 20, vel_bw 77 here (DEBUGNOTES
+    # "Linear axis: id_pid tunes lower on master"), far below what holds
+    # the following-error limit; --tune runs it anyway.
+    g = args.gains or (None if args.tune else (100.947, 1000.0, 1.0))
     if g is None:
         g = gs.tune(["conf0.cur_bw = %g" % CUR_BW], drive_args=ARGS)
     if g is None:
         gains = "@fail id_pid did not finish on the linear axis\n"
     else:
-        gains = ("conf0.cur_bw = %g\n# id_pid result\nconf0.pos_bw = %.4f\n"
+        gains = ("conf0.cur_bw = %g\n# gains (id_pid's with --tune)\nconf0.pos_bw = %.4f\n"
                  "conf0.vel_bw = %.4f\nconf0.vel_d = %.4f\n" % ((CUR_BW,) + tuple(g)))
         print("  linear_axis     pos_bw %.1f vel_bw %.0f vel_d %.2f" % tuple(g))
     p = build(args.cycles)

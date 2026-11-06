@@ -24,7 +24,7 @@ servoterm-cli: servoterm-cli.c $(SETUP_SRCS) $(SETUP_HDRS)
 	$(CC) $(CFLAGS) servoterm-cli.c $(SETUP_SRCS) -o $@ $(LDLIBS)
 
 setup/tests/test_setup: setup/tests/test_setup.c $(SETUP_SRCS) $(SETUP_HDRS)
-	$(CC) $(CFLAGS) -Isetup $< $(SETUP_SRCS) -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) -Isetup $< $(SETUP_SRCS) -o $@ $(LDLIBS) -lutil -lpthread
 
 check: setup/tests/test_setup
 	./setup/tests/test_setup

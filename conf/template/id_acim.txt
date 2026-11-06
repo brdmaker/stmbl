@@ -1,0 +1,14 @@
+load idacim
+idacim0.rt_prio = 4
+idacim0.en = fault0.en_out
+hv0.en = idacim0.en_out
+hv0.cmd_mode = idacim0.cmd_mode
+hv0.d_cmd = idacim0.d_cmd
+hv0.q_cmd = idacim0.q_cmd
+hv0.pos = idacim0.com_pos
+hv0.vel = 0
+hv0.r = idacim0.rs
+hv0.l = idacim0.sls
+hv0.cur_bw = conf0.cur_bw
+idacim0.ud = hv0.ud_fb
+idacim0.id = hv0.id_fb

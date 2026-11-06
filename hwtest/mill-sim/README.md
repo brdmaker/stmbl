@@ -55,3 +55,13 @@ What the results show:
 
 - **A metric artifact:** at the first cutting samples of a program, the servo error can read up to 20 µm. Around the plunge the XY command path is still nearly a point, so the window's polyline is short. Read the path error for the machine's accuracy there.
 - **Homing:** homing is `HOME_ABSOLUTE_ENCODER`, which needs no motion. The drives report absolute positions, as the machine file's `home` sets them.
+
+## The browser console on the simulation
+
+The web console on this simulation (`console.ini`: `mill.ini` with millweb
+as LinuxCNC's display) is in the private repository `brdmaker/brdmot`,
+`hwtest/mill-console/`, next to the GUI.
+
+An installed LinuxCNC works for `make test` and `make run` too
+(`LINUXCNC` empty; a run-in-place tree: `LINUXCNC=~/linuxcnc-2.9`).
+

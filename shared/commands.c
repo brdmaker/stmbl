@@ -126,10 +126,20 @@ void ident_print(char *ptr) {
 }
 COMMAND("ident", ident_print, "the drive's name and motor type (machine-readable)");
 
+// the command running, an index into cmd[] (-1: none): the watchdog's crumb
+// and the crash record name it (src/wdog.c, src/stm32f4xx_it.c)
+volatile int32_t cmd_active = -1;
+
+const char *cmd_name(int32_t i) {
+  return i >= 0 && i < (int32_t)(sizeof(cmd) / sizeof(cmd_t)) ? cmd[i].name : 0;
+}
+
 uint32_t call_cmd(char *s) {
   char c[64];
-  char a[64];
-  uint32_t matches = sscanf(s, " %[a-zA-Z_0-9] %[ -~]", c, a);
+  char a[128];
+  // bounded: an argument longer than the buffer overflowed the stack (a
+  // 67-character vnin frame broke the vibration sensor's test on 32-bit ARM)
+  uint32_t matches = sscanf(s, " %63[a-zA-Z_0-9] %127[ -~]", c, a);
   switch(matches) {
     case 0:
       return (0);
@@ -139,7 +149,10 @@ uint32_t call_cmd(char *s) {
     case 2:
       for(uint32_t i = 0; i < sizeof(cmd) / sizeof(cmd_t); i++) {
         if(!strcmp(cmd[i].name, c)) {
+          int32_t outer = cmd_active;  // name, motor call flashsaveconf
+          cmd_active    = i;
           cmd[i].ptr(a);
+          cmd_active = outer;
           return (1);
         }
       }

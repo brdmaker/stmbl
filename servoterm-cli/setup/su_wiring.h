@@ -26,3 +26,5 @@ char *su_wiring_brake(int out, int volt24, double current);
 
 // the motor temperature sensor (type: conf0.mot_temp_type) on the HV board
 char *su_wiring_temp(int type);
+// the sensor on a feedback port's pin 7 (port 0: FB0, 1: FB1), the jumper to open
+char *su_wiring_temp_fb(int type, int port);

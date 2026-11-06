@@ -57,10 +57,17 @@
  * config, no drive components, console working (crash_safe_mode, main.c).
  * A crash loop at boot cannot hide the record, and `reset` tries a normal
  * boot.
+ *
+ * A hang has no handler: the watchdog resets, and at the next boot
+ * wdog_boot (src/wdog.c) records it here as "Watchdog" from the crumb the
+ * rt and frt interrupts keep. Both records name the console command that
+ * was running.
  */
 #include <stdio.h>
 #include <string.h>
 #include "commands.h"
+#include "wdog.h"
+#include "errlog.h"
 
 #define CRASH_MAGIC 0x43524153  // "CRAS"
 #define CRASH_MAX_RESETS 3
@@ -75,6 +82,8 @@ typedef struct {
   uint32_t cfsr, hfsr, mmfar, bfar;
   uint32_t rt_func, frt_func, nrt_func;
   uint32_t uptime_ms;
+  int32_t cmd;      // console command running (cmd_active), -1 none
+  uint32_t logged;  // in the flash error log already (src/errlog_f4.c)
   uint32_t check;
 } crash_t;
 
@@ -114,10 +123,54 @@ void crash_record(uint32_t *frame, uint32_t handler) {
   crash->frt_func  = hal.active_frt_func;
   crash->nrt_func  = hal.active_nrt_func;
   crash->uptime_ms = (uint32_t)systime;
+  crash->cmd       = cmd_active;
+  crash->logged    = 0;
   crash->check     = crash_check();
 
   hal_error(handler);
   NVIC_SystemReset();
+}
+
+#define CRASH_WATCHDOG 5  // after hal_error_t's handlers
+
+// At boot after a watchdog reset (wdog_boot): what ran, from the crumb.
+void crash_watchdog(const wdog_crumb_t *c) {
+  if(!crash_valid()) {
+    memset(crash, 0, sizeof(crash_t));
+    crash->magic = CRASH_MAGIC;
+  }
+  crash->count++;
+  crash->consecutive++;
+  crash->handler = CRASH_WATCHDOG;
+  crash->pc = crash->lr = crash->psr = 0;
+  crash->cfsr = crash->hfsr = crash->mmfar = crash->bfar = 0;
+  crash->rt_func   = c->rt_func;
+  crash->frt_func  = c->frt_func;
+  crash->nrt_func  = c->nrt_func;
+  crash->uptime_ms = c->uptime_ms;
+  crash->cmd       = c->cmd;
+  crash->logged    = 0;
+  crash->check     = crash_check();
+}
+
+// At boot, for the flash error log: the crash (or hang) not logged yet.
+int crash_unlogged(errlog_entry_t *e, uint16_t boot) {
+  if(!crash_valid() || crash->logged) {
+    return 0;
+  }
+  int wd      = crash->handler == CRASH_WATCHDOG;
+  e->head      = errlog_head(wd ? ERRLOG_WATCHDOG : ERRLOG_CRASH, crash->handler, boot - 1);  // it was the boot before
+  e->uptime_ms = crash->uptime_ms;
+  e->a         = crash->pc;
+  e->b         = crash->lr;
+  e->c         = crash->cfsr;
+  e->rt_func   = (int16_t)crash->rt_func;
+  e->frt_func  = (int16_t)crash->frt_func;
+  e->nrt_func  = (int16_t)crash->nrt_func;
+  e->cmd       = (int16_t)crash->cmd;
+  crash->logged = 1;
+  crash->check  = crash_check();
+  return 1;
 }
 
 static int safe_mode;
@@ -142,7 +195,20 @@ void crash_running(void) {
   }
 }
 
-static const char *crash_names[] = {"HardFault", "NMI", "MemManage", "BusFault", "UsageFault"};
+static const char *crash_names[] = {"HardFault", "NMI", "MemManage", "BusFault", "UsageFault", "Watchdog"};
+const char *wdog_reset_name(void);  // src/wdog.c
+
+// a function index as the crash saw it, with the comp's name when it's
+// still loaded (the same config boots again)
+static void print_func(const char *what, int32_t f) {
+  if(f < 0) {
+    printf("%s -", what);
+  } else if(f < (int32_t)hal.comp_inst_count) {
+    printf("%s %ld (%s%lu)", what, f, hal.comp_insts[f].comp->name, hal.comp_insts[f].instance);
+  } else {
+    printf("%s %ld", what, f);
+  }
+}
 
 void crash_cmd(char *ptr) {
   if(ptr && strncmp(ptr, "clear", 5) == 0) {
@@ -150,6 +216,7 @@ void crash_cmd(char *ptr) {
     printf("crash record cleared\n");
     return;
   }
+  printf("last reset: %s\n", wdog_reset_name());
   if(!crash_valid()) {
     printf("no crash recorded since power-on\n");
     return;
@@ -159,10 +226,19 @@ void crash_cmd(char *ptr) {
     printf("components running; 'reset' boots normally\n");
   }
   printf("crashes since power-on: %lu (in a row: %lu)\n", crash->count, crash->consecutive);
-  printf("last: %s at uptime %lu ms\n", crash->handler < 5 ? crash_names[crash->handler] : "?", crash->uptime_ms);
+  printf("last: %s at uptime %lu ms\n", crash->handler <= CRASH_WATCHDOG ? crash_names[crash->handler] : "?", crash->uptime_ms);
+  const char *cn = cmd_name(crash->cmd);
+  printf("console command: %s\n", cn ? cn : "-");
+  print_func("active rt func", (int32_t)crash->rt_func);
+  print_func(", frt func", (int32_t)crash->frt_func);
+  print_func(", nrt func", (int32_t)crash->nrt_func);
+  printf("\n");
+  if(crash->handler == CRASH_WATCHDOG) {
+    printf("hang: no fault, the watchdog reset it (main loop or an interrupt stuck)\n");
+    return;
+  }
   printf("pc 0x%08lx lr 0x%08lx psr 0x%08lx\n", crash->pc, crash->lr, crash->psr);
   printf("cfsr 0x%08lx hfsr 0x%08lx mmfar 0x%08lx bfar 0x%08lx\n", crash->cfsr, crash->hfsr, crash->mmfar, crash->bfar);
-  printf("active rt func %ld, frt func %ld, nrt func %ld\n", (int32_t)crash->rt_func, (int32_t)crash->frt_func, (int32_t)crash->nrt_func);
   printf("(arm-none-eabi-addr2line -e obj_app/stmbl.elf 0x%08lx)\n", crash->pc);
 }
 COMMAND("crash", crash_cmd, "show the last fault record, 'crash clear' clears it");

@@ -4,10 +4,10 @@
 COMPS = \
   sim svm vel rev hal_test ypid fault pid spid pe \
   pmsm_limits pmsm_ttc dc_limits dc_ttc acim_ttc uvw fanuc fb_switch reslimit \
-  iit mtemp vel_int linrev mturn psi stp uf2 ramp scale idx_home move not and or jog \
+  iit mtemp rpull vel_int linrev mturn psi stp uf2 ramp scale idx_home move not and or jog \
   velbuf avg mux veltopos debounce pos_filter rl mad sensorless field gain \
   rlpsij veltime mpid fmove home en th motsim term \
-  idm idpmsm ids iddc scope fwup stp_ttc can qstop dbrake encmon gantry
+  idm idpmsm ids iddc scope fwup stp_ttc can qstop dbrake encmon acvf idacim gantry
 
 # Simulated drive hardware: stand-ins for the src/comps components the drive
 # config templates link to (same names and pins), plus the unchanged conf.

@@ -1,6 +1,7 @@
 # The multibody model: with the frame free (no feet) and frictionless
 # guides, the motors' forces are internal, so the machine's total momentum
 # stays zero while the moving parts go one way and the frame the other.
+@todo master's F3 voltage limit (DEBUGNOTES 2026-10-26 "Portal: the linear motors run out of bus voltage")
 @program portal/portal_sim
 @args portal/machine/portal.portal
 frame 600 200 0 0 0 0

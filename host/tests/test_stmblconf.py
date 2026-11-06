@@ -83,6 +83,15 @@ class StmblConf(unittest.TestCase):
             self.assertEqual(sc.version_of(up), top, f)
             self.assertEqual(norm(sc.migrate(up, 0, patches)[0]), norm(text), f)
 
+    def test_every_config_fits_the_drives_line_limit(self):
+        # the drive takes 63 characters a console line, "appendconf " included:
+        # servoterm-cli --load and webui/mill refuse longer lines, comments too
+        # (conf/fanuc_bis4-4000*.txt couldn't be loaded, 2026-11-06)
+        for f in sorted(glob.glob(os.path.join(ROOT, "conf", "*.txt"))):
+            with open(f) as fh:
+                for i, line in enumerate(fh.read().split("\n"), 1):
+                    self.assertLessEqual(len(line), 52, "%s:%d is %d characters" % (os.path.relpath(f, ROOT), i, len(line)))
+
     def test_cli(self):
         import tempfile
         d = tempfile.mkdtemp()
