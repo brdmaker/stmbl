@@ -1,7 +1,7 @@
 # Mikron HSM 400U as the simulation lays it out (host/mill/mplant.h): the
 # table with the trunnion on Y, the X carriage on a bridge, Z vertical,
 # the B/C trunnion on the table (B tilts about Y, C turns the pallet).
-# From the manual (docs/hsm400u/manual/08_p163-177.md, 9.2.1 and 9.2.10):
+# From the manual (brdmaker/brdmot manuals/mikron-hsm400u/08_p163-177.md, 9.2.1 and 9.2.10):
 # X 400 (+/-200 about the table centre), Y 240 (-160 / +80 about it),
 # Z 350, B +/-110 deg; max. 350 mm work height, 230 mm turning diameter. Masses, stiffnesses and modes are
 # GUESSES for a compact polymer-concrete 5-axis HSC machine: replace them
