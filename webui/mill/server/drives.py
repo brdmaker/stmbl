@@ -37,7 +37,8 @@ STATES = ["DISABLED", "ENABLED", "PHASING", "SOFT FAULT", "HARD FAULT", "LED TES
 FAULTS = ["no error", "command error (link lost)", "motor feedback error", "commutation feedback error", "joint feedback error",
           "position error", "saturation", "motor over temperature", "HV CRC error", "HV timeout", "HV over temperature",
           "HV bus voltage", "HV fault", "HV current offset", "HV overcurrent (RMS)", "HV overcurrent (peak)",
-          "HV overcurrent (hardware)", "phasing failed", "encoder monitor", "HV firmware version"]  # fault_t
+          "HV overcurrent (hardware)", "phasing failed", "encoder monitor", "HV firmware version",
+          "feedback not referenced (position lost)", "encoder battery alarm"]  # fault_t
 HV_VERSION_FAULT = 19
 
 # the drive's commands (COMMAND(...) in shared/ and src/) that only read

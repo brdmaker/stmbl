@@ -169,6 +169,8 @@ typedef enum {
   PHASING_ERROR,  // autophasing found no angle, or its check failed (fb_switch)
   FB_MON_ERROR,   // encoder monitor (encmon): feedback disagrees with the motor
   HV_VERSION_ERROR,  // the HV board's firmware isn't this LV firmware's (hv_update)
+  MOT_FB_NREF_ERROR,  // absolute feedback not referenced: its position was lost (fanuc_tw nref)
+  MOT_FB_BAT_ERROR,   // absolute feedback battery alarm: it would lose the position at power-off (fanuc_tw bat_fail)
 } fault_t;
 
 //check if structs can be send at 5kHz with DATABAUD

@@ -1,0 +1,62 @@
+# An absolute feedback that lost its position (not referenced, fanuc_tw nref)
+# or reports its battery alarm (fanuc_tw bat_fail) keeps the drive from
+# enabling, and the battery alarm stops it while enabled: fault0's inputs
+# mot_fb_nref (MOT_FB_NREF_ERROR, 20) and mot_fb_bat (MOT_FB_BAT_ERROR, 21),
+# linked by conf/template/fanuc_tw_fb0.txt. Set by hand here: the simulator
+# has no fanuc_tw.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+fault0.state
+@expect fault0.fault[1] == 0
+@expect fault0.state[1] == 1
+# the battery alarm while enabled: a fault, the drive stops
+fault0.mot_fb_bat = 1
+run 0.5
+fault0.fault
+fault0.state
+@expect fault0.fault[2] == 21
+@expect fault0.state[2] == 3
+# enable again while it is on: refused
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+fault0.state
+@expect fault0.fault[3] == 21
+@expect fault0.state[3] == 3
+# battery back: it enables
+fault0.mot_fb_bat = 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+fault0.state
+@expect fault0.fault[4] == 0
+@expect fault0.state[4] == 1
+# not referenced, from disabled: no enable
+lcnc 0 0
+run 0.5
+fault0.mot_fb_nref = 1
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+fault0.state
+@expect fault0.fault[5] == 20
+@expect fault0.state[5] == 3
+# referenced again (the shaft turned through the reference): it enables
+fault0.mot_fb_nref = 0
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1
+fault0.fault
+fault0.state
+@expect fault0.fault[6] == 0
+@expect fault0.state[6] == 1

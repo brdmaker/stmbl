@@ -27,8 +27,13 @@ Entry format:
   bit 68 untouched. As 4-wire's "bit 5 = battery fail" plus the start bit.
   After a night without battery (2026-11-05) it read 0: it reports the
   battery now; bit 68 reports the position lost.
-- Fix:     Pin `fanuc_tw0.bat_fail` (a warning, no fault). Test:
-  host/tests/test_fanuc_tw.c "battery alarm" (frames from the traced words).
+- Fix:     Pin `fanuc_tw0.bat_fail`. Test: host/tests/test_fanuc_tw.c
+  "battery alarm" (frames from the traced words). Then (owner's choice) a
+  fault: bat_fail and nref keep the drive from enabling, the battery alarm
+  stops it (fault0.mot_fb_bat / mot_fb_nref, faults 21 / 20; template
+  fanuc_tw_fb0). Test: host/tests/mot_fb_nref_bat.test. STMBL_FW_VERSION not
+  counted up: the codes are appended, an older console shows the number,
+  and a count-up would make every HV board need hv_update for nothing.
 
 ## 2026-11-05  The HV board's scope stream fills the LV console (900 bytes/s)
 - Area:    `stm32f303/src/usbd_cdc_if.c` (cdc_is_connected), `shared/comps/term.c`, `src/comps/hv.c` (nrt prints hv_rx_buf)

@@ -83,6 +83,18 @@ until the reference is passed.
 | 1 | good frames, not referenced (bit 68 set) | incremental: the drive phases the motor first |
 | 0 | `max_err` bad polls in a row (no reply, CRC or sync error), or none yet | `error` 1 → fault |
 
+**Position lost or battery alarm: no enable.** The template links `nref` to
+`fault0.mot_fb_nref` and `bat_fail` to `fault0.mot_fb_bat`. While either is
+on the drive is in fault and won't enable: fault 20 *mot FB not
+referenced* (the encoder lost its position: turn the motor through its
+reference, about one turn, then enable) and 21 *mot FB battery alarm*
+(battery missing or low). The battery alarm while enabled stops the drive
+(the normal stop, `fault0.err_stop`: the feedback still counts). LinuxCNC
+sees the fault bit in the process data; the code and its text come over
+the smart-serial console (`fault0.fault`, the drive's `ERROR: Fault n`
+line; webui/mill's Drives tab names them). Unlink them in a config to run
+without the check.
+
 Isolated bad frames keep the last good one (FANUC alarms only on errors that
 persist); on the bench 1 frame in ~900 had a flipped bit, caught by the CRC.
 
