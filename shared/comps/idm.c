@@ -383,7 +383,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(inertia) = CLAMP(PIN(inertia), 0.0, 50.0);
       }
       else{
-        PIN(inertia) = CLAMP(PIN(inertia), 0.000005, 50.0);
+        PIN(inertia) = CLAMP(PIN(inertia), 0.0000001, 50.0);  // micro motors: 4e-7
       }
       PIN(damping) = CLAMP(PIN(damping), 0.0, 100.0);
       PIN(friction) = CLAMP(PIN(friction), 0.0, 100.0);
@@ -451,7 +451,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(friction) += period / PIN(fi) * PIN(fb_torque) * SIGN(PIN(vel_cmd)) * period;
       PIN(offset) += period / PIN(li) * PIN(fb_torque) * period;
 
-      PIN(inertia) = CLAMP(PIN(inertia), 0.000005, 50.0);
+      PIN(inertia) = CLAMP(PIN(inertia), 0.0000001, 50.0);
       PIN(damping) = CLAMP(PIN(damping), 0.0, 100.0);
       PIN(friction) = CLAMP(PIN(friction), 0.0, 100.0);
       PIN(offset) = CLAMP(PIN(offset), -100.0, 100.0);

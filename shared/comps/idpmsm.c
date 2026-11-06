@@ -64,6 +64,12 @@ struct idpmsm_ctx_t {
   float u[2];     // sum of the applied voltage
   float i[2];     // sum of the mean current between two samples
   unsigned cycle;
+  // pole pairs: the field's and the rotor's travel over the window
+  float field, rotor, last_pos;
+  int coast;  // psi: between test_vel and 0.7 test_vel without current
+  float psi_u, psi_x;  // coasting: the integral of uq - r iq, the rotor's travel
+  int psi_n;
+  float coast_t;  // [s] since the current was switched off
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -284,7 +290,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
     break;
 
-    case 22: // pp, out_rev
+    case 22: { // pp, out_rev
+      // The field turns at test_vel, reached over the first second: a field
+      // that starts at full speed leaves a heavy rotor behind (it swings
+      // instead of following, and the pole pairs came out wrong). Then
+      // pp = the field's travel / the rotor's over the last 2 s: travel,
+      // not the ratio of speeds, so a rotor that still swings a little
+      // averages out.
       PIN(en_out) = 1.0;
       PIN(cmd_mode) = 1.0;
       PIN(cur_bw) = 100.0;
@@ -292,17 +304,26 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       PIN(d_cmd) = PIN(test_cur);
 
-      PIN(com_pos) += PIN(test_vel) * period;
+      float w = PIN(test_vel) * MIN(PIN(timer) / 1.0, 1.0);
+      PIN(com_pos) += w * period;
       PIN(com_pos) = mod(PIN(com_pos));
 
-      if(ABS(PIN(vel_fb)) > 0.1){
-        PIN(pp) = PIN(pp) * 0.995 + PIN(test_vel) / PIN(vel_fb) * 0.005;
+      if(PIN(timer) == 0.0) {
+        ctx->field    = 0.0;
+        ctx->rotor    = 0.0;
+        ctx->last_pos = PIN(pos_fb);
       }
+      if(PIN(timer) >= 1.5) {
+        ctx->field += w * period;
+        ctx->rotor += minus(PIN(pos_fb), ctx->last_pos);
+      }
+      ctx->last_pos = PIN(pos_fb);
 
       PIN(timer) += period;
-      if(PIN(timer) >= 3.0){
+      if(PIN(timer) >= 3.5){
         PIN(timer) = 0.0;
-        
+        PIN(pp) = ABS(ctx->rotor) > 0.1 ? ctx->field / ctx->rotor : 0.0;
+
         if(PIN(pp) < 0.0){
           PIN(out_rev) = 1.0;
           PIN(pp) *= -1.0;
@@ -313,7 +334,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         PIN(tmp1) = 0.0;
         PIN(state) = 2.3;
       }
-    break;
+    } break;
 
     case 23: // mot_fb_offset
       PIN(en_out) = 1.0;
@@ -341,27 +362,55 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     break;
 
     case 32: // psi
+      // test_cur until the motor turns at test_vel [rad/s], then no current
+      // until it has slowed to 0.7 test_vel, and so on: the speed stays
+      // bounded whatever the inertia (the speed loop this replaces, a slow
+      // integrator, overshot to the voltage limit on light motors: 700 rad/s
+      // on a 3.5e-4 kg m^2 motor with 0.8 A). Coasting, uq is the back-EMF
+      // alone.
       PIN(en_out) = 1.0;
       PIN(cmd_mode) = 1.0;
       PIN(cur_bw) = 250.0;
       PIN(d_cmd) = 0.0;
       PIN(com_pos) = mod((PIN(pos_fb) + PIN(com_offset)) * PIN(pp));
 
-      float vel_error = PIN(test_vel) - PIN(vel_fb);
-      vel_error = LIMIT(vel_error, PIN(test_vel) / 100.0);
-      PIN(cur_sum) += PIN(ki) * vel_error * period;
+      if(ABS(PIN(vel_fb)) >= PIN(test_vel)) {
+        ctx->coast = 1;
+      } else if(ABS(PIN(vel_fb)) < 0.7 * PIN(test_vel)) {
+        ctx->coast = 0;
+      }
+      ctx->coast_t = ctx->coast ? ctx->coast_t + period : 0.0;
+      PIN(q_cmd) = ctx->coast ? 0.0 : PIN(test_cur);
+      if(PIN(timer) == 0.0) {
+        ctx->psi_u    = 0.0;
+        ctx->psi_x    = 0.0;
+        ctx->psi_n    = 0;
+        ctx->last_pos = PIN(pos_fb);
+      }
+      float step    = minus(PIN(pos_fb), ctx->last_pos);
+      ctx->last_pos = PIN(pos_fb);
 
-      PIN(q_cmd) = PIN(vel_bw) * period * vel_error + PIN(cur_sum);
-      
-      if(ABS(PIN(vel_fb)) > 0.1){
+      if(ABS(PIN(vel_fb)) > 0.1 * PIN(test_vel)){
         float psi  = (PIN(uq_fb) - PIN(iq_fb) * PIN(r)) / (PIN(vel_fb) * PIN(pp));
         PIN(psi) = PIN(psi) * (1.0 - period / PIN(pi)) + psi * period / PIN(pi);
+        // coasting, once the current has died down (5 L/R: before that
+        // L di/dt is in uq): psi = the voltage's integral over the rotor's
+        // travel, from the position: vel_fb (vel1's observer) reads ~1 %
+        // high while the motor slows down, and that was 2 % in psi
+        if(ctx->coast && ctx->coast_t > 5.0 * PIN(l) / MAX(PIN(r), 0.01) + 0.002) {
+          ctx->psi_u += (PIN(uq_fb) - PIN(iq_fb) * PIN(r)) * period;
+          ctx->psi_x += step;
+          ctx->psi_n++;
+        }
       }
 
       PIN(psi) = CLAMP(PIN(psi), 0.001, 1.0);
 
       PIN(timer) += period;
       if(PIN(timer) >= 5.0){
+        if(ctx->psi_n * period > 0.2 && ABS(ctx->psi_x) > 1.0) {  // else it never coasted: the filtered estimate
+          PIN(psi) = CLAMP(ABS(ctx->psi_u / (ctx->psi_x * PIN(pp))), 0.001, 1.0);
+        }
         PIN(timer) = 0.0;
         PIN(en_out) = 0.0;
         PIN(d_cmd) = 0.0;

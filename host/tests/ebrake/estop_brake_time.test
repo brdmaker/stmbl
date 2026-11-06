@@ -1,0 +1,52 @@
+# Holding brake timing (fault0.brake_time, docs/emergency_stop.md) on the
+# burn-in axis with a hanging load (0.5 Nm, a vertical axis) and a brake
+# that grips 50 ms after its output (hv0.sim_brake_delay).
+# 1. brake_time 0 (the old behaviour): disabled at standstill, the quick
+#    stop ends at once, the outputs go off with the brake command, and the
+#    load pulls the axis down for the 50 ms the brake takes: many turns.
+# 2. brake_time 0.08: the brake is told to grip while the quick stop still
+#    holds the position for 80 ms; the axis doesn't move, and the outputs
+#    then go off with the brake closed. Enabling again releases it.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+hv0.sim_brake = 1.3
+hv0.sim_brake_delay = 0.05
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+hv0.sim_load = -0.5
+run 0.5
+hv0.sim_dist = 0
+lcnc 0 0
+run 0.5
+hv0.sim_dist
+fault0.brake_time = 0.08
+lcnc 1 0
+run 1.5
+hv0.sim_dist = 0
+lcnc 0 0
+run 0.03
+fault0.brake_hold
+fault0.en_out
+hv0.sim_brake_on
+run 0.1
+fault0.brake_hold
+fault0.en_out
+hv0.sim_brake_on
+run 0.4
+hv0.sim_dist
+lcnc 1 0
+run 0.5
+hv0.sim_brake_on
+fault0.state
+@expect hv0.sim_dist[2] < -1
+@expect fault0.brake_hold[1] == 1
+@expect fault0.en_out[1] == 1
+@expect hv0.sim_brake_on[1] == 0
+@expect fault0.brake_hold[2] == 0
+@expect fault0.en_out[2] == 0
+@expect hv0.sim_brake_on[2] == 1
+@expect hv0.sim_dist[-1] ~ 0 0.01
+@expect hv0.sim_brake_on[-1] == 0
+@expect fault0.state == 1

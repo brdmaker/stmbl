@@ -31,7 +31,7 @@
 #endif
 
 #ifndef HAL_MAX_COMPS
-#define HAL_MAX_COMPS 32
+#define HAL_MAX_COMPS 40  // 32 was full with a test's two extra comps once mtemp came (DEBUGNOTES)
 #endif
 
 #ifndef HAL_MAX_CTX
