@@ -37,6 +37,8 @@ HAL_PIN(fb_d_out);
 HAL_PIN(rev_clear);
 HAL_PIN(rev);
 HAL_PIN(cmd_offset);  // taken off cmd_out [rad] (idx_home0.cmd_offset)
+HAL_PIN(rev_in);      // a turn count to take (mturn0.rev: an absolute encoder's turns)
+HAL_PIN(rev_load);    // > 0: rev = rev_in this cycle (mturn0.load)
 
 struct linrev_ctx_t {
   int lastq;    //last quadrant
@@ -64,6 +66,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   ctx->lastq = q;
 
+  if(PIN(rev_load) > 0) {  // computed for this cycle's fb_in (mturn runs before linrev)
+    ctx->rev = (int32_t)lroundf(PIN(rev_in));
+  }
   if(PIN(rev_clear) > 0) {
     ctx->rev = 0;
   }

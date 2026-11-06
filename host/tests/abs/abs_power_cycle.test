@@ -1,0 +1,57 @@
+# The CN 720's X axis (cmp40m + x.conf, 10 mm screw) with a FANUC alpha-type
+# absolute encoder (simulated: host/hw/encf.c) and mturn: the position over
+# smart-serial is the absolute one from boot, keeps it over a power cycle,
+# and enabling there does not move the axis.
+# The shaft (and the encoder on it) is put at 37.25 turns (372.5 mm) and
+# the drive reset, so it boots there;
+# a hand turns the screw 2.5 turns (+25 mm; the simulated hand sums its
+# steps in float, ~2 um short) while the drive is not enabled;
+# the drive is reset (power cycle; the shaft keeps its place:
+# hv0.sim_keep_pos in fanuc_sim.txt); LinuxCNC enables at the
+# position it reads, holds, then jogs 10 mm (5 mm/s for 2 s).
+@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+hv0.sim_upos = 234.04866
+run 0.05
+reset
+run 0.2
+sserial0.scale = 10
+run 0.05
+mturn0.state
+mturn0.abs_ok
+linrev0.fb_out
+hv0.sim_turn = 15.70796
+run 3
+linrev0.fb_out
+reset
+run 0.2
+sserial0.scale = 10
+run 0.05
+mturn0.loads
+mturn0.abs_ok
+linrev0.fb_out
+lcncscale 10
+lcnc 0 0 397.5
+run 0.5
+lcnc 1 0 397.5
+run 1.5
+hv0.sim_dist
+fault0.state
+fault0.fault
+lcnc 1 5
+run 2
+lcnc 1 0
+run 0.5
+linrev0.fb_out
+mturn0.state
+@expect mturn0.state[1] == 1
+@expect mturn0.abs_ok[1] == 1
+@expect linrev0.fb_out[1] ~ 372.5 0.001
+@expect linrev0.fb_out[2] ~ 397.5 0.01
+@expect mturn0.loads == 1
+@expect mturn0.abs_ok[2] == 1
+@expect linrev0.fb_out[3] ~ 397.5 0.01
+@expect max|hv0.sim_dist| < 0.05
+@expect fault0.state == 1
+@expect fault0.fault == 0
+@expect linrev0.fb_out[4] ~ 407.5 0.01
+@expect mturn0.state[2] == 1

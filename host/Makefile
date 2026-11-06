@@ -153,7 +153,7 @@ check: stmbl_host test_robot test_quota test_lathe test_ssq test_sscon test_cur_
 	@$(MAKE) -s -C arm all
 	@$(MAKE) -s -C portal all
 	@$(MAKE) -s -C mill all
-	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test tests/vib/*.test arm/tests/*.test portal/tests/*.test mill/tests/*.test
+	@$(PYTHON) tests/run_tests.py tests/*.test tests/ebrake/*.test tests/bus/*.test tests/vib/*.test arm/tests/*.test portal/tests/*.test mill/tests/*.test tests/abs/*.test
 	@$(MAKE) -s -C $(ROOT)/servoterm-cli check
 	@$(MAKE) -s wizard-smoke
 

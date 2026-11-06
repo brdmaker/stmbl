@@ -169,6 +169,13 @@ HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a s
 HAL_PIN(sim_turn); // a hand on the shaft: turns it by this much [rad], at 1 rev/s, counting down to 0
 HAL_PIN(sim_acc);
 HAL_PIN(sim_upos);  // unwrapped mechanical position [rad] (sim_pos = mod(sim_upos))
+// sim_keep_pos = 1 (in a --sim file, so it is set again at every boot): the
+// shaft keeps its position over a drive `reset`, as real mechanics do;
+// otherwise the motor model starts from 0. sim_off_move [turns]: the shaft
+// turns this much while the drive is off (acts at the next reset; kept in
+// static memory, since a reset sets every pin back).
+HAL_PIN(sim_keep_pos);
+HAL_PIN(sim_off_move);
 HAL_PIN(sim_torque);  // electrical torque [Nm]
 HAL_PIN(sim_id);      // motor frame currents [A]
 HAL_PIN(sim_iq);
@@ -215,7 +222,14 @@ struct hv_ctx_t {
   int chop;        // the chopper is on
   double abs_pos;  // sim_abs_pos, from 0 at the start (the scales' reference marks sit on it)
   int at_stop;     // against sim_min_pos / sim_max_pos
+  int booted;      // sim_keep_pos looked at
 };
+
+// the shaft over a drive reset (sim_keep_pos)
+static struct {
+  int valid;
+  double upos, abs_pos, off_move;
+} mech_mem;
 
 static float noise(struct hv_ctx_t *ctx, float amp) {  // xorshift32, uniform +- amp
   ctx->rnd = ctx->rnd ? ctx->rnd : 2463534242u;
@@ -410,6 +424,23 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct hv_ctx_t *ctx      = (struct hv_ctx_t *)ctx_ptr;
   struct hv_pin_ctx_t *pins = (struct hv_pin_ctx_t *)pin_ptr;
+
+  if(PIN(sim_off_move) != 0.0) {
+    mech_mem.off_move += PIN(sim_off_move);
+    PIN(sim_off_move) = 0.0;
+  }
+  if(!ctx->booted) {
+    ctx->booted = 1;
+    if(PIN(sim_keep_pos) > 0.0 && mech_mem.valid) {
+      double m       = mech_mem.off_move * 2.0 * M_PI;
+      ctx->upos      = mech_mem.upos + m;
+      ctx->abs_pos   = mech_mem.abs_pos + m;
+      PIN(sim_upos)  = ctx->upos_pin = (float)ctx->upos;
+      PIN(sim_abs_pos) = ctx->abs_pos;
+      PIN(sim_pos)   = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
+    }
+    mech_mem.off_move = 0.0;
+  }
 
   // the motor's temperature sensor
   int ts = (int)PIN(sim_temp_sensor), tw = (int)PIN(sim_temp_wire);
@@ -742,6 +773,9 @@ feedback:
     PIN(fault) = HV_VERSION_ERROR;  // as src/comps/hv.c: no enable with another HV firmware
   }
   PIN(value)    = 1.0;
+  mech_mem.upos    = ctx->upos;  // for sim_keep_pos after a reset
+  mech_mem.abs_pos = ctx->abs_pos;
+  mech_mem.valid   = 1;
 }
 
 hal_comp_t hv_comp_struct = {

@@ -1,0 +1,7 @@
+# sim only: the simulated FANUC encoder (host/hw/encf.c) on the motor
+# shaft, and the shaft keeping its position over a drive reset
+hv0.sim_keep_pos = 1
+encf0.sim_abs_pos = hv0.sim_upos
+encf0.sim_pos = hv0.sim_pos
+encf0.sim_rev = conf0.mot_fb_rev
+encf0.sim_pp = conf0.polecount

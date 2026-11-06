@@ -95,6 +95,7 @@ SHARED_COMPS += shared/comps/mtemp.c
 SHARED_COMPS += shared/comps/vel_int.c
 SHARED_COMPS += shared/comps/gantry.c
 SHARED_COMPS += shared/comps/linrev.c
+SHARED_COMPS += shared/comps/mturn.c
 SHARED_COMPS += shared/comps/psi.c
 SHARED_COMPS += shared/comps/stp.c
 #SHARED_COMPS += shared/comps/uf.c

@@ -17,6 +17,8 @@ HAL_PIN(pos);
 HAL_PIN(abs_pos);
 HAL_PIN(state);
 HAL_PIN(turns);
+HAL_PIN(mt_ok);  // 1: the turn count is valid (indexed, battery kept): mturn0.mt_ok
+HAL_PIN(batt);   // 1: the encoder reports a battery failure (frame bit 5)
 HAL_PIN(com_pos);
 HAL_PIN(index);
 HAL_PIN(req_len);
@@ -259,6 +261,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
 
       PIN(turns)   = data.fanuc.turns;
+      PIN(mt_ok)   = data.fanuc.no_index ? 0.0 : 1.0;  // un-indexed: the turns are not tied to anything
+      PIN(batt)    = (data.fanuc.bat >> 1) & 1;          // bit 5 of the frame (bat holds bits 4..5)
       pos          = data.fanuc.com_pos;
       PIN(com_pos) = mod(pos * 2.0 * M_PI / 1024);
       PIN(error)   = 0;

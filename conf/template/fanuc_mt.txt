@@ -1,0 +1,6 @@
+mturn0.enc_pos = encf0.abs_pos
+mturn0.turns = encf0.turns
+mturn0.turns_bits = 16
+mturn0.mt_ok = encf0.mt_ok
+mturn0.batt = encf0.batt
+mturn0.error = encf0.error

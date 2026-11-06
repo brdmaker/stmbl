@@ -213,6 +213,15 @@ void cmd_lcnc(char *ptr) {
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd [acc]]], or show feedback");
 
+void cmd_lcncscale(char *ptr) {
+  float scale = 0.0f;
+  if(sscanf(ptr, " %f", &scale) == 1) {
+    sim_sserial_io.scale = scale;  // machine units per motor turn, as hm2's sserial scale parameter
+  }
+  printf("lcnc scale %f\n", (double)sim_sserial_io.scale);
+}
+COMMAND("lcncscale", cmd_lcncscale, "LinuxCNC side: lcncscale <units per motor turn> (sserial0.scale while lcnc is on)");
+
 void cmd_lcncindex(char *ptr) {
   int arm = -1;
   sscanf(ptr, " %i", &arm);

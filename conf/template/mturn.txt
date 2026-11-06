@@ -1,0 +1,9 @@
+load mturn
+mturn0.rt_prio = 2.08
+mturn0.pos = idx_home0.pos_out
+mturn0.lin_rev = linrev0.rev
+mturn0.dir = conf0.mot_fb_rev
+linrev0.rev_in = mturn0.rev
+linrev0.rev_load = mturn0.load
+sserial0.in2 = mturn0.abs_ok
+sserial0.in3 = mturn0.batt_warn

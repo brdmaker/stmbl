@@ -1,0 +1,82 @@
+# Absolute encoder faults on the CN 720's X axis (FANUC alpha-type encoder,
+# mturn; cn720_x_fanuc.conf, fanuc_sim.txt), each over a drive reset:
+# 1. the shaft turns 1.5 turns while the drive is off (battery kept):
+#    +15 mm after the reset, still absolute
+# 2. the encoder sends a turn count one off (a fault): mturn sees linrev and
+#    the encoder disagree, state 3, abs_ok 0
+# 3. the battery is out while off: the encoder is un-indexed (mt_ok 0),
+#    mturn state 2 (turn count lost), single-turn only; turning past the
+#    index makes the encoder valid again but mturn stays lost (its new count
+#    is not tied to the machine) until clear (after re-referencing)
+# The state reaches LinuxCNC on the drive's spare inputs (mturn.txt):
+# in2 = abs_ok, in3 = battery warning.
+# 4. a frame error (cable) drops abs_ok; when frames return it loads again
+#    (loads since the last reset: 2, after clear and after the error; none
+#    at boot, the count was lost)
+@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+lcncscale 10
+lcnc 0 0
+hv0.sim_upos = 62.83185
+run 0.05
+reset
+run 0.3
+linrev0.fb_out
+hv0.sim_off_move = 1.5
+run 0.05
+reset
+run 0.3
+mturn0.state
+linrev0.fb_out
+encf0.sim_turn_err = 1
+run 0.05
+mturn0.state
+mturn0.abs_ok
+sserial0.in2
+encf0.sim_turn_err = 0
+encf0.sim_batt = 0
+run 0.05
+reset
+run 0.3
+encf0.mt_ok
+mturn0.state
+mturn0.abs_ok
+hv0.sim_turn = 7
+run 2
+encf0.mt_ok
+mturn0.state
+mturn0.clear = 1
+run 0.01
+mturn0.clear = 0
+run 0.05
+mturn0.state
+mturn0.abs_ok
+sserial0.in2
+encf0.sim_batt_low = 1
+run 0.01
+sserial0.in3
+encf0.sim_batt_low = 0
+encf0.sim_fail = 1
+run 0.05
+mturn0.abs_ok
+encf0.sim_fail = 0
+run 0.05
+mturn0.abs_ok
+mturn0.loads
+@expect linrev0.fb_out[1] ~ 100 0.001
+@expect mturn0.state[1] == 1
+@expect linrev0.fb_out[2] ~ 115 0.001
+@expect mturn0.state[2] == 3
+@expect mturn0.abs_ok[1] == 0
+@expect sserial0.in2[-2] == 0
+@expect encf0.mt_ok[1] == 0
+@expect mturn0.state[3] == 2
+@expect mturn0.abs_ok[2] == 0
+@expect encf0.mt_ok[2] == 1
+@expect mturn0.state[4] == 2
+@expect mturn0.state[5] == 1
+@expect mturn0.abs_ok[3] == 1
+@expect sserial0.in2[-1] == 1
+@expect sserial0.in3[-1] == 1
+@expect mturn0.abs_ok[4] == 0
+@expect mturn0.abs_ok[5] == 1
+@expect mturn0.loads == 2

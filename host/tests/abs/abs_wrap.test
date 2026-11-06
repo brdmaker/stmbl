@@ -1,0 +1,36 @@
+# The encoder's 16-bit turn counter wraps (32767 -> -32768, the frame field
+# 0x7fff -> 0x8000): mturn takes the signed count and checks linrev against
+# it modulo 2^16, so a wrap is not a mismatch and linrev keeps counting.
+# Then the CN 720's real travel: X at 69.99 turns (699.9 mm) reads to
+# better than 1 um over the float smart-serial field.
+@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+lcncscale 10
+lcnc 0 0
+hv0.sim_upos = 3.1415927
+encf0.sim_turns = 32767
+run 0.05
+reset
+run 0.3
+encf0.turns
+linrev0.rev
+hv0.sim_turn = 6.2831853
+run 1.5
+encf0.turns
+linrev0.rev
+mturn0.state
+linrev0.fb_out
+encf0.sim_turns = -32767
+hv0.sim_upos = 439.76014
+run 0.05
+reset
+run 0.3
+mturn0.state
+linrev0.fb_out
+@expect encf0.turns[1] == 32767
+@expect linrev0.rev[1] == 32768
+@expect encf0.turns[2] == 32768
+@expect linrev0.rev[2] == 32769
+@expect mturn0.state[1] == 1
+@expect linrev0.fb_out[1] ~ 327685 0.1
+@expect mturn0.state[2] == 1
+@expect linrev0.fb_out[2] ~ 699.9 0.001
