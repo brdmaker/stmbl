@@ -62,9 +62,18 @@ function drvVer(d) {
 }
 
 // the config panel: a drive's flash config, backups, a patch for this firmware
-const dcf = { n: null, backups: [], plan: null, busy: "" };
+const dcf = { n: null, backups: [], plan: null, busy: "", cmp: null };
+// the machine folder's drives/<name>.conf against the drive (millweb conf_check)
+const DCF_STATE = {
+  match: ["ok", "✓ The drive runs the machine folder's config."],
+  differs: ["bad", "⛔ The drive's config differs from the machine folder's: the machine stays off until one is written over the other."],
+  nofile: ["bad", "⛔ The machine folder has no config for this drive: save the drive's there (the machine stays off until then)."],
+  checking: ["warn", "Checking the drive's config against the machine folder …"],
+  unchecked: ["warn", "Not checked yet (the drive hasn't answered)."],
+  error: ["bad", "⛔ The drive's config couldn't be read."],
+};
 async function drvCfgOpen(n) {
-  dcf.n = n; dcf.plan = null; dcf.busy = "";
+  dcf.n = n; dcf.plan = null; dcf.busy = ""; dcf.cmp = null;
   $("drv-cfg").hidden = false;
   renderDrvCfg();
   const r = await drvSrc().conf(n, "backups");
@@ -82,17 +91,32 @@ function renderDrvCfg() {
     ${dcf.busy ? `<p class="note">${esc(dcf.busy)}</p>` : ""}
     ${p ? `<h3>Patch v${p.from} → v${p.to}</h3><ul class="dcf-steps">${p.steps.map((s) => `<li><b>v${s.version}</b> ${esc(s.description)}${s.changes.length ? `<ul>${s.changes.map((c) => `<li><code>${esc(c)}</code></li>`).join("")}</ul>` : ""}</li>`).join("")}</ul>
       <div class="row"><button class="btn sm accent" data-dcf="patch">Write the patched config</button><button class="btn sm" data-dcf="noplan">Cancel</button></div>` : ""}
+    ${drvCfgFolder(d)}
     <h3>Backups <small class="muted">${dcf.backups.length}</small></h3>
     <ul class="cf-hist">${dcf.backups.map((b) => `<li><span><code>${esc(b.name)}</code></span><button class="btn sm" data-restore="${esc(b.name)}">Restore</button></li>`).join("") || "<li class='muted'>None yet.</li>"}</ul>`;
 }
+function drvCfgFolder(d) {
+  const c = d.conf || { state: "unchecked" }, s = DCF_STATE[c.state] || ["warn", c.state];
+  const diff = dcf.cmp && dcf.cmp.diff;
+  return `<h3>Machine folder <small class="muted"><code>${esc(c.file || "drives/" + d.n + ".conf")}</code></small></h3>
+    <p class="drv-prob ${s[0]}" data-k="confstate">${esc(s[1])}${c.err ? " " + esc(c.err) : ""}</p>
+    <div class="row"><button class="btn sm" data-dcf="check">Check again</button>${c.state === "differs" ? `<button class="btn sm" data-dcf="conf">Show the difference</button>` : ""}
+      <button class="btn sm" data-dcf="to_folder" title="The drive's flash config becomes the machine folder's (the file now goes to drives/history/)">Drive → folder…</button>
+      ${c.state !== "nofile" ? `<button class="btn sm" data-dcf="to_drive" title="The machine folder's config is written to the drive (its config now goes to its backups), then the drive restarts">Folder → drive…</button>` : ""}</div>
+    ${diff ? `<p class="note">− the machine folder, + the drive (comments and spacing don't count):</p><pre class="dcf-diff">${esc(diff)}</pre>` : ""}`;
+}
 async function drvCfgAct(act, extra = {}) {
   const n = dcf.n;
-  dcf.busy = { backup: "Reading the config …", plan: "Reading the config …", patch: "Writing (about a second a line) …", restore: "Writing (about a second a line) …", reset: "Restarting …" }[act] || "";
+  dcf.busy = { backup: "Reading the config …", plan: "Reading the config …", patch: "Writing (about a second a line) …", restore: "Writing (about a second a line) …", reset: "Restarting …",
+    check: "Reading the config …", conf: "", to_folder: "Reading the config …", to_drive: "Writing (about a second a line), then the drive restarts …" }[act] || "";
   renderDrvCfg();
   let r = await drvSrc().conf(n, act, extra);
   if (!r.ok && /^confirm:/.test(r.err || "")) {
     dcf.busy = ""; renderDrvCfg();
-    return ask(act === "reset" ? `Reset drive ${n}?` : `${act === "patch" ? "Patch" : "Restore"} drive ${n}'s config?`, r.err.replace(/^confirm: /, "").replace(/^./, (c) => c.toUpperCase()) + ". What is there now is kept as a backup first.", "", () => drvCfgAct(act, Object.assign({}, extra, { sure: true })), "confirm");
+    const title = { reset: `Reset drive ${n}?`, patch: `Patch drive ${n}'s config?`, restore: `Restore drive ${n}'s config?`,
+      to_folder: `Save drive ${n}'s config into the machine folder?`, to_drive: `Write the machine folder's config to drive ${n}?` }[act] || act;
+    if (act === "to_folder" || act === "to_drive") return ask(title, r.err.replace(/^confirm: /, "").replace(/^./, (c) => c.toUpperCase()) + ".", "", () => drvCfgAct(act, Object.assign({}, extra, { sure: true })), "confirm");
+    return ask(title, r.err.replace(/^confirm: /, "").replace(/^./, (c) => c.toUpperCase()) + ". What is there now is kept as a backup first.", "", () => drvCfgAct(act, Object.assign({}, extra, { sure: true })), "confirm");
   }
   dcf.busy = r.ok ? "" : r.err;
   if (r.ok && r.backups) dcf.backups = r.backups;
@@ -100,6 +124,10 @@ async function drvCfgAct(act, extra = {}) {
   if (act === "patch" && r.ok) { dcf.plan = null; msg(`Drive ${n}: config patched (v${r.from} → v${r.to}); it runs from the drive's next start`, "ok"); }
   if (act === "restore" && r.ok) msg(`Drive ${n}: ${extra.backup} restored; it runs from the drive's next start`, "ok");
   if (act === "backup" && r.ok) msg(`Drive ${n}: config backed up as ${r.backup}`, "ok");
+  if (act === "conf" && r.ok) dcf.cmp = r;
+  if (act === "check" && r.ok) { dcf.cmp = null; msg(`Drive ${n}: ${r.state === "match" ? "runs the machine folder's config" : "its config doesn't match the machine folder's"}`, r.state === "match" ? "ok" : "warn"); }
+  if (act === "to_folder" && r.ok) { dcf.cmp = null; msg(`Drive ${n}: its config saved into the machine folder${r.history ? " (the file before: drives/history/" + r.history + ")" : ""}`, "ok"); }
+  if (act === "to_drive" && r.ok) { dcf.cmp = null; msg(`Drive ${n}: the machine folder's config written; the drive restarts and is checked again`, "ok"); }
   renderDrvCfg();
 }
 $("drv-cfg").addEventListener("click", (e) => {
@@ -207,7 +235,7 @@ const drvSim = (() => {
   return {
     list: () => names.map((n) => {
       const p = pinsOf(n), on = st.on && !st.estop;
-      return { n, tty: "(simulation)", link: "ok", fw: "STMBL v0.9.4 (simulation)", ver: { fw: 1, hv: 1, hv_image: 1, conf: confv[n] || 0 }, fw_want: 1,
+      return { n, tty: "(simulation)", link: "ok", fw: "STMBL v0.9.4 (simulation)", ver: { fw: 1, hv: 1, hv_image: 1, conf: confv[n] || 0 }, fw_want: 1, conf: { state: "match", file: `drives/${n}.conf` },
         problems: confv[n] ? [] : [{ level: "warn", block: false, action: "patch", text: "config from before versioning, firmware v1: Patch config gives it its version line (nothing else changes)" }], age: 0.4, rx: Math.round((Date.now() - t0) / 4), tx: Math.round((Date.now() - t0) / 12),
         state: on ? "ENABLED" : "DISABLED", fault: null, last: null, dc: p["fault0.dc_volt"], hv_t: p["fault0.hv_temp"], mot_t: p["fault0.mot_temp"], ac: p["fault0.ac_cur"],
         perr: p["fault0.pos_error"], sat: 0, pd: { enable: on, fault: false, pos_fb: n === "Z" ? st.pos.z : n === "X" ? st.pos.x : st.pos.y, vel_fb: 0, current: p["fault0.ac_cur"], power: p["pe0.p_in"] } };
@@ -225,6 +253,9 @@ const drvSim = (() => {
       const bk = (sbk[n] = sbk[n] || []), stamp = () => new Date().toISOString().replace(/\D/g, "").slice(0, 14).replace(/^(\d{8})/, "$1-");
       if (act === "backups") return { ok: true, backups: bk };
       if (act === "backup") { bk.unshift({ name: `${stamp()}-fw1-conf${confv[n] || 0}-backup.conf`, size: conf.length, v: confv[n] || 0 }); return { ok: true, backups: bk, backup: bk[0].name }; }
+      if (act === "conf" || act === "check") return { ok: true, state: "match", file: `drives/${n}.conf`, diff: null };
+      if ((act === "to_folder" || act === "to_drive") && !x.sure) return { ok: false, err: act === "to_folder" ? `confirm: the drive's config replaces drives/${n}.conf` : `confirm: drives/${n}.conf replaces the drive's flash config, then the drive restarts` };
+      if (act === "to_folder" || act === "to_drive") return { ok: true, state: "match", backups: bk };
       if (act === "plan") return { ok: true, from: confv[n] || 0, to: 1, steps: (confv[n] || 0) < 1 ? [{ version: 1, direction: "up", description: "Versioned configs start: the config gets its #stmbl_conf_version line; nothing else changes", changes: [] }] : [] };
       if (!x.sure) return { ok: false, err: act === "reset" ? "confirm: the drive restarts" : `confirm: ${act} rewrites the drive's flash config` };
       if (act === "patch") { bk.unshift({ name: `${stamp()}-fw1-conf${confv[n] || 0}-beforepatch.conf`, size: conf.length, v: confv[n] || 0 }); confv[n] = 1; return { ok: true, from: 0, to: 1, steps: [], backups: bk }; }

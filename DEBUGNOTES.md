@@ -16,6 +16,34 @@ Entry format:
 
 ---
 
+## 2026-11-06  webui/mill: a drive streaming its scope was never polled (versions, values)
+- Area:    `webui/mill/server/drives.py` (DriveLink.feed / tick)
+- Status:  Fixed
+- Symptom: The new config check never started on the simulated drive:
+  `l.ver` stayed None. The link only asks (`version`, the card's pins) when
+  the console has been quiet 150 ms; the drive's term0 scope stream (0xFF +
+  8 bytes, 250 frames/s) kept it busy. The real drive's HV board streams the
+  same through hv0 all the time (DEBUGNOTES below).
+- Cause:   feed() counted every byte as the drive talking.
+- Fix:     feed() drops scope frames (0xFF and the 8 bytes after it; text
+  never has 0xFF) before the lines and before last_rx. Test: test_millweb
+  DriveWaves (fails without), ConfCheck (end to end on stmbl_host).
+
+## 2026-11-06  encmon catches a wrong commutation offset at the first enable (FANUC betaiS)
+- Area:    `shared/comps/encmon.c`, `conf/template/encmon.txt`, setup wizard
+- Status:  Note
+- Symptom: —
+- Cause:   Bench, betaiS 4/4000 #2 on fanuc_tw (hwtest/soak/runs/encmon-fanuc-*):
+  offset 0 el. quiet over 3 enables (max ratio 0.15 of the 0.30 trip), 10 deg
+  quiet (0.33 under 20 ms), 30 / 115 / 180 deg fault 18 at the enable.
+  conf0.mot_fb_offset is mechanical (x pole pairs in fb_switch): the two
+  betaiS offsets (+1.560 / -1.582) are pi apart, 4 pi electrical: the same
+  angle, FANUC aligns the encoders; either config runs either motor.
+- Fix:     The wizard links encmon into every final config and its verify
+  step reports encmon0.max_ratio (fault 18 there: "the offset or the motor
+  data don't fit"); conf/fanuc_bis4-4000*.txt link it. Test: the wizard
+  simulator (host/tests/run_wizard_sim.py) runs every motor's verify with it.
+
 ## 2026-11-06  Repo motor configs a drive refuses: comment lines over 52 characters
 - Area:    `conf/*.txt`, servoterm-cli --load, webui/mill driveconf (LINE_MAX)
 - Status:  Fixed
@@ -59,6 +87,7 @@ Entry format:
 - Fix:     Open: the F3's term should stream only when asked (send_step 0 by
   default on the F3, or a connected flag from the F4). Until then raw
   readers must drop 0xFF + 8-byte frames (hwtest/soak runs/fanuc-desk-*).
+  webui/mill's drive link drops them now (2026-11-06, entry above).
 
 ## 2026-11-05  Wizard: "the drive refused idm0.inertia = ..." in the mechanical step
 - Area:    `servoterm-cli/setup/su_steps.c` (step_mechanical), `su_link.c` (su_link_set)

@@ -252,6 +252,12 @@ char *su_build_config(const su_state_t *st, int final) {
   if(fb) {
     c = su_conf_link(c, fb->link);
   }
+  if(final) {
+    // the encoder monitor from commissioning on: a wrong commutation offset
+    // (another motor's config, a swapped drive) trips it at the first enable
+    // (FB_MON_ERROR; bench, FANUC betaiS: 30..180 deg el. caught, 0 deg quiet)
+    c = su_conf_link(c, "encmon");
+  }
   const char *lk = su_get(st, "link.kind");
   if(final && lk && strcmp(lk, "none") != 0) {
     c = su_conf_link(c, lk);
@@ -1322,12 +1328,19 @@ static su_result_t step_verify(su_wizard_t *w) {
     moved[i] = remainder(b - a, 2.0 * M_PI);
   }
   int fl = drive_fault(w, &f);
+  double mon = -1.0;  // the encoder monitor's largest residual / back-EMF
+  su_link_get(w->link, "encmon0.max_ratio", &mon);
   disable(w);
   su_link_reset(w->link, 20.0);  // the links the test overrode
   su_set_num(w->st, "verify.hold", hold);
   su_set_num(w->st, "verify.step", fmax(err[0], err[1]));
+  su_set_num(w->st, "verify.encmon_ratio", mon);
   if((int)(st + 0.5) != ST_ENABLED || fl) {
     say(w, SU_MSG_ERROR, "The drive did not enable with the final config (state %.0f, fault %.0f).", st, f);
+    if((int)(f + 0.5) == 18) {
+      say(w, SU_MSG_ERROR, "Fault 18 is the encoder monitor: the commutation offset or the motor data don't fit\n"
+                           "this motor (another motor's config?). Run the electrical step again.");
+    }
     return SU_FAIL;
   }
   if(fabs(moved[0] - step) > 0.05 || fabs(moved[1] + step) > 0.05) {
@@ -1339,6 +1352,9 @@ static su_result_t step_verify(su_wizard_t *w) {
       "Holding: position error up to %.4f rad. Steps of +-%.1f rad: moved %.3f / %.3f rad, then\n"
       "position error %.4f / %.4f rad, no fault.",
       hold, step, moved[0], moved[1], err[0], err[1]);
+  if(mon >= 0.0) {
+    say(w, SU_MSG_INFO, "Encoder monitor: largest residual %.2f of the back-EMF (it trips above 0.30).", mon);
+  }
   if(fmax(hold, fmax(err[0], err[1])) > 0.05) {
     say(w, SU_MSG_WARN, "The position error is larger than expected (> 0.05 rad): check the tuning.");
   }

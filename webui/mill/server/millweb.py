@@ -107,6 +107,9 @@ class Hub:
         self.fw_block = (cfg.get("MILLWEB", "DRIVE_FW_BLOCK", "yes") or "yes").lower() not in ("no", "0", "false")
         self.fw_said = {}            # drive -> the problems told in the event log
         self.drive_jobs = {}         # drive -> what its config job does
+        # the machine folder's drives/<name>.conf against each drive's flash config (driveconf.py)
+        self.conf_block = (cfg.get("MILLWEB", "DRIVE_CONF_BLOCK", "yes") or "yes").lower() not in ("no", "0", "false")
+        self.conf_check = {}         # drive -> {"state": checking|match|differs|nofile|error, "diff", "err", "at"}
         # run by millweb-supervisor (supervisor.py): machine.json, restarts
         # the vibration sensors, through vibmon (vibmon_link.py): [MILLWEB] VIBMON
         vpath = cfg.get("MILLWEB", "VIBMON")
@@ -287,7 +290,7 @@ class Hub:
         if m.get("on", True):
             blocked = self.drive_blockers()
             if blocked:
-                return "not with this drive firmware: %s ([MILLWEB] DRIVE_FW_BLOCK = no to allow it)" % "; ".join(blocked)
+                return "not with these drives: %s ([MILLWEB] DRIVE_FW_BLOCK / DRIVE_CONF_BLOCK = no to allow it)" % "; ".join(blocked)
         err = await self.run(self.m.cmd_power, bool(m.get("on", True)))
         if not err:
             self.event("ok", "Machine %s" % ("on" if m.get("on", True) else "off"))
@@ -616,7 +619,9 @@ class Hub:
         for l in self.links.values():
             st = l.status(pin)
             st["fw_want"] = self.fw_want
-            st["problems"] = driveconf.problems(st.get("ver"), self.fw_want)
+            st["problems"] = driveconf.problems(st.get("ver"), self.fw_want) + self.conf_problems(l)
+            st["conf"] = {k: v for k, v in self.conf_check.get(l.name, {"state": "unchecked"}).items() if k not in ("diff", "drive")}
+            st["conf"]["file"] = os.path.relpath(driveconf.conf_path(self.drive_base(), l.name), self.drive_base())
             st["job"] = self.drive_jobs.get(l.name)
             said = tuple(p["text"] for p in st["problems"])
             if said != self.fw_said.get(l.name, ()):  # new problems: into the event log, once
@@ -628,10 +633,67 @@ class Hub:
         return out
 
     def drive_blockers(self):
-        """The drives' problems that keep the machine off ([MILLWEB] DRIVE_FW_BLOCK)."""
-        if not self.fw_block:
+        """The drives' problems that keep the machine off ([MILLWEB] DRIVE_FW_BLOCK, DRIVE_CONF_BLOCK)."""
+        return ["drive %s: %s" % (st["n"], p["text"]) for st in self.drive_status() for p in st["problems"]
+                if p["block"] and (self.conf_block if p.get("kind") == "conf" else self.fw_block)]
+
+    def drive_base(self):
+        return self.conf.mdir if self.conf else self.cfg.dir
+
+    def conf_problems(self, l):
+        """The drive's config against the machine folder's drives/<name>.conf."""
+        ck = self.conf_check.get(l.name)
+        f = os.path.relpath(driveconf.conf_path(self.drive_base(), l.name), self.drive_base())
+        s = ck["state"] if ck else "unchecked"
+        if s == "match":
             return []
-        return ["drive %s: %s" % (st["n"], p["text"]) for st in self.drive_status() for p in st["problems"] if p["block"]]
+        text = {"unchecked": "its config isn't checked against %s yet" % f,
+                "checking": "checking its config against %s" % f,
+                "differs": "its config differs from %s: Config… to save it into the folder or write the folder's to the drive" % f,
+                "nofile": "no %s in the machine folder: Config… to save the drive's config there" % f,
+                "error": "its config couldn't be read (%s)" % (ck or {}).get("err")}[s]
+        return [{"level": "warn" if s in ("unchecked", "checking") else "bad", "block": True, "action": "conf", "kind": "conf", "text": text}]
+
+    async def conf_check_run(self, l):
+        """Read the drive's flash config and compare it with drives/<name>.conf."""
+        if l.name in self.drive_jobs:
+            self.conf_check.pop(l.name, None)  # busy: the drive loop tries again
+            return
+        self.drive_jobs[l.name] = "checking its config"
+        self.conf_check[l.name] = {"state": "checking", "at": time.time()}
+        l.busy = True
+        self.drive_sig = None
+        try:
+            text = await driveconf.read_conf(l)
+            disk = driveconf.read_disk_conf(self.drive_base(), l.name)
+            if not text.strip():
+                ck = {"state": "error", "err": "it answered no config (showconf)"}
+            elif disk is None:
+                ck = {"state": "nofile", "drive": text}
+            else:
+                d = driveconf.conf_diff(disk, text)
+                ck = {"state": "differs", "diff": d, "drive": text} if d else {"state": "match"}
+        except RuntimeError as e:
+            ck = {"state": "error", "err": str(e)}
+        finally:
+            l.busy = False
+            self.drive_jobs.pop(l.name, None)
+            self.drive_sig = None
+        ck["at"] = time.time()
+        self.conf_check[l.name] = ck
+        if ck["state"] != "match":
+            self.event("bad", "Drive %s: %s" % (l.name, self.conf_problems(l)[0]["text"]))
+
+    def conf_check_due(self, l):
+        """In the drive loop: a drive that restarted (versions asked again) is checked again."""
+        ck = self.conf_check.get(l.name)
+        if l.ver is None:
+            if ck and ck["state"] != "checking":
+                self.conf_check.pop(l.name, None)
+            return
+        if ck is None and l.fd is not None and l.name not in self.drive_jobs:
+            self.conf_check[l.name] = {"state": "checking", "at": time.time()}
+            asyncio.ensure_future(self.conf_check_run(l))
 
     async def drive_loop(self):
         """The drives' consoles: open, ask, and the cards twice a second."""
@@ -644,6 +706,7 @@ class Hub:
             try:
                 for l in self.links.values():
                     l.tick()
+                    self.conf_check_due(l)
                 n += 1
                 if n % 10 == 0 and self.links:
                     msg = {"t": "drv", "drives": self.drive_status()}
@@ -706,8 +769,20 @@ class Hub:
         base = self.conf.mdir if self.conf else self.cfg.dir
         if act == "backups":
             return {"backups": driveconf.list_backups(base, l.name)}
+        if act == "conf":  # the check's result, with the diff and both texts
+            ck = dict(self.conf_check.get(l.name, {"state": "unchecked"}))
+            ck["disk"] = driveconf.read_disk_conf(base, l.name)
+            ck["file"] = os.path.relpath(driveconf.conf_path(base, l.name), base)
+            return ck
+        if act == "check":
+            if l.name in self.drive_jobs:
+                return "drive %s is busy: %s" % (l.name, self.drive_jobs[l.name])
+            await self.conf_check_run(l)
+            return dict(self.conf_check.get(l.name, {}), diff=None)
+        if act in ("to_folder", "to_drive"):
+            return await self.conf_sync(c, m, l, act, base)
         if act not in ("backup", "plan", "patch", "restore", "reset"):
-            return "action: backups, backup, plan, patch, restore or reset"
+            return "action: backups, backup, plan, patch, restore, reset, conf, check, to_folder or to_drive"
         if act in ("patch", "restore", "reset"):
             if not self.drive_write:
                 return "writing to drives is off ([MILLWEB] DRIVE_WRITE = yes turns it on)"
@@ -750,12 +825,14 @@ class Hub:
                 fn = driveconf.save_backup(base, l.name, text, l.ver, "before patch")
                 await driveconf.write_conf(l, new, lambda s: self.drive_progress(l, s))
                 self.event("warn", "Drive %s: config patched v%d → v%d by %s (the one before: %s); it runs from the drive's next start" % (l.name, plan["from"], to, c.name, fn))
+                self.conf_check.pop(l.name, None)
                 return dict(plan, backup=fn, backups=driveconf.list_backups(base, l.name))
             # restore
             old = driveconf.read_backup(base, l.name, m.get("backup"))
             fn = driveconf.save_backup(base, l.name, text, l.ver, "before restore")
             await driveconf.write_conf(l, old, lambda s: self.drive_progress(l, s))
             self.event("warn", "Drive %s: config %s restored by %s (the one before: %s); it runs from the drive's next start" % (l.name, m.get("backup"), c.name, fn))
+            self.conf_check.pop(l.name, None)
             return {"backup": fn, "backups": driveconf.list_backups(base, l.name)}
         except RuntimeError as e:
             self.event("bad", "Drive %s: %s failed: %s" % (l.name, act, e))
@@ -764,6 +841,59 @@ class Hub:
             l.busy = False
             self.drive_jobs.pop(l.name, None)
             l.ver_due = min(l.ver_due, time.time() + 1)  # its versions again
+            self.drive_sig = None
+
+    async def conf_sync(self, c, m, l, act, base):
+        """to_folder: the drive's flash config into drives/<name>.conf (the old file
+        into drives/history/); to_drive: drives/<name>.conf into the drive's flash
+        (DRIVE_WRITE, the machine off; what was there into its backups), then a
+        reset so it runs it. Both with control and sure; then checked again."""
+        if self.control != c.id:
+            return "this browser doesn't have control (take it first)"
+        if act == "to_drive":
+            if not self.drive_write:
+                return "writing to drives is off ([MILLWEB] DRIVE_WRITE = yes turns it on)"
+            if self.state.get("on"):
+                return "switch the machine off first (the drive must be disabled)"
+        disk = driveconf.read_disk_conf(base, l.name)
+        if act == "to_drive" and disk is None:
+            return "there's no %s to write" % os.path.relpath(driveconf.conf_path(base, l.name), base)
+        if not m.get("sure"):
+            return ("confirm: the drive's config replaces %s (the file now is kept in drives/history/)" if act == "to_folder" else
+                    "confirm: %s replaces the drive's flash config (kept in its backups first), then the drive restarts") % os.path.relpath(driveconf.conf_path(base, l.name), base)
+        if l.name in self.drive_jobs:
+            return "drive %s is busy: %s" % (l.name, self.drive_jobs[l.name])
+        if l.fd is None:
+            return "drive %s: its console isn't open (%s)" % (l.name, l.state)
+        self.drive_jobs[l.name] = act
+        l.busy = True
+        self.drive_sig = None
+        try:
+            text = await driveconf.read_conf(l)
+            if act == "to_folder":
+                if not text.strip():
+                    return "drive %s answered no config (showconf)" % l.name
+                old = driveconf.save_disk_conf(base, l.name, text)
+                self.event("warn", "Drive %s: its config saved into %s by %s%s" % (
+                    l.name, os.path.relpath(driveconf.conf_path(base, l.name), base), c.name, " (the file before: drives/history/%s)" % old if old else ""))
+                self.conf_check[l.name] = {"state": "match", "at": time.time()}
+                return {"state": "match", "history": old}
+            fn = driveconf.save_backup(base, l.name, text, l.ver, "before folder") if text.strip() else None
+            await driveconf.write_conf(l, disk, lambda s: self.drive_progress(l, s))
+            l.user("reset")  # it runs its flash config from the start
+            l.ver = None
+            l.ver_due = time.time() + 3
+            self.conf_check.pop(l.name, None)  # checked again once it answers
+            self.event("warn", "Drive %s: %s written to it by %s (the one before: %s); the drive restarts" % (
+                l.name, os.path.relpath(driveconf.conf_path(base, l.name), base), c.name, fn))
+            return {"backup": fn, "backups": driveconf.list_backups(base, l.name)}
+        except RuntimeError as e:
+            self.event("bad", "Drive %s: %s failed: %s" % (l.name, act, e))
+            return "%s failed: %s" % (act, e)
+        finally:
+            l.busy = False
+            self.drive_jobs.pop(l.name, None)
+            l.ver_due = min(l.ver_due, time.time() + 3)
             self.drive_sig = None
 
     def drive_progress(self, l, text):

@@ -1330,6 +1330,14 @@ test("Debug page, drives (simulation): firmware versions; a config backed up, pa
   await t.click("#drv-cfg li:nth-child(2) [data-restore]");
   await t.click('#dlg-form [type="submit"]');
   t.check(await t.until(() => /config unversioned/.test(document.querySelector('.drv-card[data-n="X"] [data-k="ver"]').textContent)), "restored: unversioned again");
+  // the machine folder's drives/X.conf against the drive
+  t.check(/runs the machine folder's config/.test(await t.text('#drv-cfg [data-k="confstate"]')) && /drives\/X\.conf/.test(document.getElementById("drv-cfg").textContent), "the machine folder: drives/X.conf, the drive runs it");
+  await t.click('#drv-cfg [data-dcf="to_folder"]');
+  t.check(await t.until(() => !document.getElementById("dlg").hidden && /Save drive X's config into the machine folder/.test(document.getElementById("dlg-t").textContent)), "Drive → folder asks first");
+  await t.click('#dlg-form [type="submit"]');
+  await t.click('#drv-cfg [data-dcf="to_drive"]');
+  t.check(await t.until(() => !document.getElementById("dlg").hidden && /Write the machine folder's config to drive X/.test(document.getElementById("dlg-t").textContent)), "Folder → drive asks first");
+  await t.click('#dlg-form [type="submit"]');
   await t.click("#dcf-close");
   t.check(t.errors.length === 0, "no script errors");
 });

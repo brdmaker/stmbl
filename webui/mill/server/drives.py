@@ -91,6 +91,7 @@ class DriveLink:
         self.detached_by, self.detached_until = None, 0.0
         self.rx = self.tx = 0
         self.last_rx = self.last_tx = self.last_user = 0.0
+        self.wave_skip = 0               # scope-frame bytes still to drop (feed)
         self.pending = {}                # pin asked -> when
         self.poll_i = 0
         self.want_about = True
@@ -183,6 +184,20 @@ class DriveLink:
     def feed(self, data, now=None):
         now = now or time.time()
         self.rx += len(data)
+        # the scope stream (term0: 0xFF, then 8 channel bytes of 1..254; the HV
+        # board's comes through hv0 all the time): not text, and not activity,
+        # or the console never falls quiet and is never polled (2026-11-06)
+        text = bytearray()
+        for b in data:
+            if self.wave_skip:
+                self.wave_skip -= 1
+            elif b == 0xFF:
+                self.wave_skip = 8
+            else:
+                text.append(b)
+        if not text:
+            return
+        data = bytes(text)
         self.last_rx = now
         self.buf += data
         *lines, self.buf = self.buf.split(b"\n")

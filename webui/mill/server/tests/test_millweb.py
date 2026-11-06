@@ -5,7 +5,9 @@ import asyncio
 import base64
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -14,11 +16,13 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))  # the repo
 import fake_linuxcnc as lc  # noqa: E402
 import machine  # noqa: E402
 import preview  # noqa: E402
 import sampler  # noqa: E402
 import drives  # noqa: E402
+import driveconf  # noqa: E402
 import millweb  # noqa: E402
 import wsserver  # noqa: E402
 
@@ -1167,6 +1171,97 @@ class DriveConsole(unittest.TestCase):
         d.close()
         os.close(master)
         os.close(slave)
+
+
+class ConfCheck(Base):
+    """The machine folder's drives/<name>.conf against the drive's flash config
+    (driveconf.py), on the simulated drive (host/stmbl_host with a pty console):
+    no file or a different config keeps the machine off; to_folder and
+    to_drive make them the same."""
+
+    async def asyncSetUp(self):
+        host = os.path.join(ROOT, "host", "stmbl_host")
+        if not os.access(host, os.X_OK):
+            self.skipTest("host/stmbl_host isn't built (make -C host)")
+        self.sd = tempfile.mkdtemp(prefix="millweb-drive.")
+        self.dconf = os.path.join(self.sd, "drive.conf")
+        shutil.copy(os.path.join(ROOT, "hwtest", "burnin", "ECMA-C30604FS", "stmbl.conf"), self.dconf)
+        self.pty = os.path.join(self.sd, "con")
+        self.sim = subprocess.Popen([host, "--drive", self.dconf, "--pty", self.pty], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(100):
+            if os.path.exists(self.pty):
+                break
+            await asyncio.sleep(0.05)
+        self.INI_EXTRA = "DRIVE_LINK = X %s\nDRIVE_WRITE = yes\n" % self.pty
+        await super().asyncSetUp()
+        self.tasks.append(asyncio.ensure_future(self.hub.drive_loop()))
+
+    async def asyncTearDown(self):
+        await super().asyncTearDown()
+        self.sim.terminate()
+        self.sim.wait()
+        shutil.rmtree(self.sd, ignore_errors=True)
+
+    async def state(self, want, secs=30):
+        for _ in range(int(secs * 10)):
+            s = self.hub.conf_check.get("X", {}).get("state")
+            if s in want:
+                return s
+            await asyncio.sleep(0.1)
+        self.fail("conf check: %r, want %s" % (self.hub.conf_check.get("X"), want))
+
+    async def test_folder_and_drive_must_agree(self):
+        ws = await self.client()
+        await self.call(ws, "control", take=True)
+        await self.call(ws, "estop", on=False)
+        # no drives/X.conf: checked, and the machine stays off
+        await self.state(("nofile",))
+        r = await self.call(ws, "power", on=True)
+        self.assertIn("no drives/X.conf", r.get("err", ""))
+        # the drive's config into the folder: they agree, the machine may go on
+        self.assertIn("confirm", (await self.call(ws, "drive_conf", name="X", action="to_folder"))["err"])
+        r = await self.call(ws, "drive_conf", name="X", action="to_folder", sure=True)
+        self.assertTrue(r["ok"], r)
+        f = driveconf.conf_path(self.hub.drive_base(), "X")
+        self.assertIn("conf0.r", open(f).read())
+        self.assertEqual(self.hub.conf_check["X"]["state"], "match")
+        self.assertTrue((await self.call(ws, "power", on=True))["ok"])
+        self.assertTrue((await self.call(ws, "power", on=False))["ok"])
+        # comments and spacing don't count
+        open(f, "a").write("# a note\n")
+        r = await self.call(ws, "drive_conf", name="X", action="check")
+        self.assertEqual(r.get("state"), "match", r)
+        # the folder's file changed (another motor, say): differs, the machine stays off
+        text = open(f).read()
+        open(f, "w").write(re.sub(r"(?m)^conf0\.r = .*$", "conf0.r = 9.99", text))
+        r = await self.call(ws, "drive_conf", name="X", action="check")
+        self.assertEqual(r.get("state"), "differs", r)
+        r = await self.call(ws, "drive_conf", name="X", action="conf")
+        self.assertIn("+conf0.r", r["diff"])
+        self.assertIn("-conf0.r = 9.99", r["diff"])
+        self.assertIn("differs from drives/X.conf", (await self.call(ws, "power", on=True)).get("err", ""))
+        # the folder's into the drive: it restarts, is checked again, agrees
+        r = await self.call(ws, "drive_conf", name="X", action="to_drive", sure=True)
+        self.assertTrue(r["ok"], r)
+        self.assertIn("conf0.r = 9.99", open(self.dconf).read())  # the simulated drive's flash
+        await self.state(("match",), 60)
+        self.assertTrue((await self.call(ws, "power", on=True))["ok"])
+
+
+class DriveWaves(unittest.TestCase):
+    """drives.py feed: the scope stream (0xFF + 8 bytes) isn't text and doesn't
+    count as the drive talking (the link never polled with it: 2026-11-06)."""
+
+    def test_scope_frames_dropped(self):
+        d = drives.DriveLink("X", "/nonexistent", out=lambda l, t: None, event=lambda lvl, t: None)
+        frame = b"\xff" + b"\x80" * 8
+        d.feed(frame * 50, now=100.0)
+        self.assertEqual(d.last_rx, 0.0, "a scope stream alone is quiet")
+        d.feed(frame + b"fault0.dc_volt = 201.5\n" + frame[:4], now=101.0)
+        self.assertEqual(d.values.get("fault0.dc_volt"), 201.5)
+        self.assertEqual(d.last_rx, 101.0)
+        d.feed(frame[4:] + b"ver", now=102.0)  # a frame split over two reads
+        self.assertEqual(d.buf, b"ver")
 
 
 class DriveOps(Base):

@@ -142,6 +142,69 @@ async def write_conf(link, text, say=lambda s: None):
         raise RuntimeError("the flash doesn't read back as written (%d lines written, %d read)" % (len(lines), len(back.splitlines())))
 
 
+# ------------------------------------------- the machine folder's drive configs
+# drives/<name>.conf in the machine folder is what each drive must run: at
+# start (and after every write) the console reads the drive's flash config
+# and compares; a difference, a missing file, or a drive not checked yet
+# keeps the machine off until the drive's config is saved into the folder
+# or the folder's written to the drive ([MILLWEB] DRIVE_CONF_BLOCK = no:
+# only said).
+def conf_path(mdir, name):
+    return os.path.join(mdir, "drives", re.sub(r"[^A-Za-z0-9_.-]", "_", name) + ".conf")
+
+
+def norm_lines(text):
+    """The config's meaning, line by line: comments, blank lines and spacing
+    don't count; the #stmbl_conf_version line does (docs/firmware_versions.md)."""
+    out = []
+    for l in clean(text).splitlines():
+        s = l.strip()
+        if s.startswith("#"):
+            if s.startswith("#stmbl_conf_version"):
+                out.append(" ".join(s.split()))
+            continue
+        s = s.split("#", 1)[0].strip()
+        if not s:
+            continue
+        m = re.match(r"^(\S+)\s*=\s*(.*)$", s)
+        out.append("%s = %s" % (m.group(1), m.group(2).strip()) if m else " ".join(s.split()))
+    return out
+
+
+def conf_diff(disk, drive):
+    """None when they mean the same, else a unified diff (folder -> drive)."""
+    import difflib
+    a, b = norm_lines(disk), norm_lines(drive)
+    if a == b:
+        return None
+    return "\n".join(difflib.unified_diff(a, b, "machine folder", "drive", lineterm="", n=1))
+
+
+def read_disk_conf(mdir, name):
+    try:
+        with open(conf_path(mdir, name)) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def save_disk_conf(mdir, name, text):
+    """The drive's config into drives/<name>.conf; the file it replaces into
+    drives/history/. Returns the history file's name, or None."""
+    p = conf_path(mdir, name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    old = None
+    if os.path.exists(p):
+        h = os.path.join(os.path.dirname(p), "history")
+        os.makedirs(h, exist_ok=True)
+        old = "%s-%s.conf" % (os.path.basename(p)[:-5], datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        os.replace(p, os.path.join(h, old))
+    with open(p + ".tmp", "w") as f:
+        f.write(clean(text))
+    os.replace(p + ".tmp", p)
+    return old
+
+
 # ------------------------------------------------------------------ backups
 def backup_dir(base, name):
     return os.path.join(base, "drive-backups", re.sub(r"[^A-Za-z0-9_.-]", "_", name))
