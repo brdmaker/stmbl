@@ -3,7 +3,8 @@
 // sserialN.port, and which USART each needs: two instances can't share one. Shared by the
 // firmware and the host simulator's model (host/hw/sserial.c), so the rule is tested there.
 //
-// v4.1 (netlist hw/kicad/v4.0); pairs by RJ45 pin:
+// The wiring (RJ45 pins, MCU pins, DMA, driver enables, cables) is in src/comps/sserial.c above
+// the port table. In short, v4.1, pairs by RJ45 pin:
 //   0 CMD        RX 1/2 USART1 PA10   TX 3/6 UART4 PA0    the usual port
 //   1 enc0       RX 1/2 USART3 PC11   TX 3/6 USART3 PC10  same pairs as CMD: the same cable
 //   2 enc1       RX 1/2 USART3 PB11   TX 4/5 USART3 PB10  no UART TX on enc1's 3/6 pair

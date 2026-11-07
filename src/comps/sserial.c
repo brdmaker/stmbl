@@ -185,20 +185,43 @@ _Static_assert(sizeof(sserial_in_process_data_t) == 12, "sserial_in_process_data
    between Mesa cards (conf/template/sserial_router.txt, docs/sserial_router.md). All ports carry the
    same PTOC; each instance has its own buffers, parser, process data and writable table copy.
 
-   v4.1, from the v4.0 netlist (hw/kicad/v4.0, U26 = the F405, LQFP100), RJ45 pairs:
-     CMD   1/2 = PA10 (USART1 RX), PB4, PA15; driver CMD_12E PB6 (left off)
-           3/6 = PA0 (UART4 TX), PB3, PA8;   driver CMD_36E PB7
-     enc0  1/2 = PD12, PC7 (USART6 RX), PC11 (USART3 RX); driver PD11
-           3/6 = PD13, PC8, PC10 (USART3 TX);             driver PD10
-           4/5 = PD14, PC6 (USART6 TX), PC12;             driver PD15
-     enc1  1/2 = PE9, PB11 (USART3 RX), PB14; driver PE10
-           3/6 = PE11, PB12, PB13 (no UART TX); driver PE12
-           4/5 = PE13, PB10 (USART3 TX), PB15; driver PE14
-   Port 1 (enc0, USART3) uses the CMD port's pairs: the same cable to a Mesa port. Ports 2 (enc1)
-   and 3 (enc0 on USART6) transmit on 4/5: a cable with the Mesa's receive pair on 4/5. Ports 1
-   and 2 share USART3; for all three links take 0, 2 and 3. The other MCU pins on a used pair stay
-   inputs: no other component on that encoder port (endat and encf use PC10/PC12 as SPI3, encm
-   USART6). */
+   Wiring (v4.1 LV; from the v4.0 netlist hw/kicad/v4.0: U26 = the F405 in LQFP100, the RJ45s
+   J3 = CMD, J2 = enc0 (FB0), J1 = enc1 (FB1), one SN65176B RS-485 transceiver per pair, its
+   DE and /RE tied to the "driver" pin: high = the card drives the pair, low = it listens).
+   2.5 Mbaud 8N1 on every port.
+
+   RJ45 pin:        1 A+  2 B-   3 A+  6 B-   4 B-  5 A+   7, 8         9-12   13
+   CMD   (J3)       pair 1/2     pair 3/6     pair 4/5     pair 7/8     LEDs   shield
+   enc0, enc1       pair 1/2     pair 3/6     pair 4/5     7 analog,    LEDs   shield
+                                                           8 GND
+
+   port  conn  receive (pair 1/2)        transmit                       the other pairs' drivers
+   0     CMD   PA10 USART1 RX            pair 3/6: PA0 UART4 TX,        CMD_12E PB6 not driven
+               DMA2 Stream5 ch4          DMA1 Stream4 ch4, driver PB7   (1k pull-down: listens)
+   1     enc0  PC11 USART3 RX            pair 3/6: PC10 USART3 TX,      PD11 (1/2), PD15 (4/5) low
+               DMA1 Stream1 ch4          DMA1 Stream3 ch4, driver PD10
+   2     enc1  PB11 USART3 RX            pair 4/5: PB10 USART3 TX,      PE10 (1/2), PE12 (3/6) low
+               DMA1 Stream1 ch4          DMA1 Stream3 ch4, driver PE14
+   3     enc0  PC7 USART6 RX             pair 4/5: PC6 USART6 TX,       PD11 (1/2), PD10 (3/6) low
+               DMA2 Stream2 ch5          DMA2 Stream6 ch5, driver PD15
+
+   Cables, the Mesa side as for the CMD port:
+   - port 0 and 1: the CMD port's cable, as it is (card receives on 1/2, transmits on 3/6).
+   - port 2 and 3: transmit on 4/5, as enc1 can't on 3/6 (its 3/6 MCU pins PE11, PB12, PB13
+     have no UART TX on the F405). At the card's end, move the 3/6 wires to 4/5 keeping the
+     polarity: the wire on pin 3 (A+) to pin 5, the wire on pin 6 (B-) to pin 4. Pins 7/8 of
+     the encoder ports are not a pair (analog input, GND): leave them free.
+   - Termination: the encoder ports have 120 ohm across every pair (R109..R114), the CMD port 1k.
+     At 2.5 Mbaud that is right for the receive pair; the transmit pair's own 120 ohm plus the
+     Mesa's is within the SN65176B's 54 ohm drive.
+
+   USARTs: ports 1 and 2 both need USART3; for all three links take 0, 2 and 3. All MCU pins on a
+   pair (each pair's net reaches 2-3 of them, listed below) except the UART's stay inputs: no other
+   component on that encoder port (endat and encf use PC10/PC12 as SPI3, encm USART6, enc_fb/res
+   the timers).
+     CMD   1/2 = PA10, PB4, PA15             3/6 = PA0, PB3, PA8
+     enc0  1/2 = PD12, PC7, PC11             3/6 = PD13, PC8, PC10       4/5 = PD14, PC6, PC12
+     enc1  1/2 = PE9, PB11, PB14             3/6 = PE11, PB12, PB13      4/5 = PE13, PB10, PB15 */
 typedef struct {
   USART_TypeDef *rx_usart, *tx_usart;
   IRQn_Type rx_irq;  // the receiver's idle-line interrupt (reply_mode 1)
