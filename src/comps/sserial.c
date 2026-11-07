@@ -32,6 +32,7 @@
 #include "sscon.h"
 #include "setup.h"
 #include "sserial_sync.h"
+#include "sserial_port.h"
 #include <string.h>
 
 HAL_COMP(sserial);
@@ -41,7 +42,7 @@ HAL_PIN(error);
 HAL_PIN(crc_error);  //counts crc errors, is never reset
 HAL_PIN(connected);  //connection status TODO: not stable during startup, needs link to pd
 HAL_PIN(timeout);    // 20khz / 1khz * 2 reads = 40
-HAL_PIN(port);       // 0: the CMD port, 1: enc0 (default: the instance number), read at start
+HAL_PIN(port);       // 0 CMD, 1 enc0, 2 enc1, 3 enc0 on USART6 (shared/sserial_port.h); default: the instance number
 
 HAL_PIN(pos_cmd);
 HAL_PIN(pos_cmd_d);
@@ -179,21 +180,25 @@ _Static_assert(sizeof(sserial_in_process_data_t) == 12, "sserial_in_process_data
 //******************************************************************************
 #pragma pack(pop)
 
-/* The physical port of an instance. sserial0 is the CMD port as always; a second instance
-   (load sserial twice) runs on the enc0 (FB0) port, for a card between two Mesa cards
-   (conf/template/sserial_router.txt, docs/sserial_router.md). Both ports carry the same PTOC;
-   each instance has its own buffers, parser state, process data and writable copy of the table.
+/* The physical port of an instance (sserialN.port, shared/sserial_port.h). sserial0 is the CMD
+   port as always; more instances (load sserial again) run on the encoder ports, e.g. for a card
+   between Mesa cards (conf/template/sserial_router.txt, docs/sserial_router.md). All ports carry the
+   same PTOC; each instance has its own buffers, parser, process data and writable table copy.
 
    v4.1, from the v4.0 netlist (hw/kicad/v4.0, U26 = the F405, LQFP100), RJ45 pairs:
-     CMD   1/2 receive : PA10 USART1 RX, DMA2 Stream5 ch4; its driver (CMD_12E, PB6) is left off
-           3/6 transmit: PA0  UART4  TX, DMA1 Stream4 ch4; driver enable CMD_36E PB7 high
-     enc0  1/2 receive : PC11 USART3 RX, DMA1 Stream1 ch4; driver E12 = FB0_A_EN PD11 low
-           3/6 transmit: PC10 USART3 TX, DMA1 Stream3 ch4; driver E36 = FB0_B_EN PD10 high
-           4/5 unused  : driver E45 = FB0_Z_TXEN PD15 low
-   The same pairs as on the CMD port, so the same cable to a Mesa smart-serial port. The other MCU
-   pins on those pairs (PD12/PC7 on 1/2, PD13/PC8 on 3/6) stay inputs: no other enc0 component may
-   be loaded with the second instance (endat and encf use PC10/PC12 as SPI3).
-   (v3 boards had their FB0 UART on USART3 PB10/PB11: not these pins.) */
+     CMD   1/2 = PA10 (USART1 RX), PB4, PA15; driver CMD_12E PB6 (left off)
+           3/6 = PA0 (UART4 TX), PB3, PA8;   driver CMD_36E PB7
+     enc0  1/2 = PD12, PC7 (USART6 RX), PC11 (USART3 RX); driver PD11
+           3/6 = PD13, PC8, PC10 (USART3 TX);             driver PD10
+           4/5 = PD14, PC6 (USART6 TX), PC12;             driver PD15
+     enc1  1/2 = PE9, PB11 (USART3 RX), PB14; driver PE10
+           3/6 = PE11, PB12, PB13 (no UART TX); driver PE12
+           4/5 = PE13, PB10 (USART3 TX), PB15; driver PE14
+   Port 1 (enc0, USART3) uses the CMD port's pairs: the same cable to a Mesa port. Ports 2 (enc1)
+   and 3 (enc0 on USART6) transmit on 4/5: a cable with the Mesa's receive pair on 4/5. Ports 1
+   and 2 share USART3; for all three links take 0, 2 and 3. The other MCU pins on a used pair stay
+   inputs: no other component on that encoder port (endat and encf use PC10/PC12 as SPI3, encm
+   USART6). */
 typedef struct {
   USART_TypeDef *rx_usart, *tx_usart;
   IRQn_Type rx_irq;  // the receiver's idle-line interrupt (reply_mode 1)
@@ -256,8 +261,58 @@ static const sserial_port_t sserial_ports[] = {
         .drv_off_port[1] = FB0_Z_TXEN_PORT,  // PD15, E45
         .drv_off_pin[1]  = FB0_Z_TXEN_PIN,
     },
+    {
+        // 2: enc1. Its 3/6 pair (PE11, PB12, PB13) has no UART TX: transmit on 4/5
+        .rx_usart        = USART3,
+        .tx_usart        = USART3,
+        .rx_irq          = USART3_IRQn,
+        .rx_dma          = DMA1_Stream1,
+        .tx_dma          = DMA1_Stream3,
+        .rx_chan         = DMA_Channel_4,
+        .tx_chan         = DMA_Channel_4,
+        .tx_tcif         = DMA_FLAG_TCIF3,
+        .rx_port         = GPIOB,
+        .tx_port         = GPIOB,
+        .rx_pin          = GPIO_Pin_11,
+        .tx_pin          = GPIO_Pin_10,
+        .rx_src          = GPIO_PinSource11,
+        .tx_src          = GPIO_PinSource10,
+        .rx_af           = GPIO_AF_USART3,
+        .tx_af           = GPIO_AF_USART3,
+        .drv_on_port     = FB1_Z_TXEN_PORT,  // PE14, E45
+        .drv_on_pin      = FB1_Z_TXEN_PIN,
+        .drv_off_port[0] = FB1_A_TXEN_PORT,  // PE10, E12: the receive pair
+        .drv_off_pin[0]  = FB1_A_TXEN_PIN,
+        .drv_off_port[1] = FB1_B_TXEN_PORT,  // PE12, E36
+        .drv_off_pin[1]  = FB1_B_TXEN_PIN,
+    },
+    {
+        // 3: enc0 on USART6 (as encm uses it), TX on 4/5 as enc1: enc0 beside enc1
+        .rx_usart        = USART6,
+        .tx_usart        = USART6,
+        .rx_irq          = USART6_IRQn,
+        .rx_dma          = DMA2_Stream2,
+        .tx_dma          = DMA2_Stream6,
+        .rx_chan         = DMA_Channel_5,
+        .tx_chan         = DMA_Channel_5,
+        .tx_tcif         = DMA_FLAG_TCIF6,
+        .rx_port         = GPIOC,
+        .tx_port         = GPIOC,
+        .rx_pin          = GPIO_Pin_7,
+        .tx_pin          = GPIO_Pin_6,
+        .rx_src          = GPIO_PinSource7,
+        .tx_src          = GPIO_PinSource6,
+        .rx_af           = GPIO_AF_USART6,
+        .tx_af           = GPIO_AF_USART6,
+        .drv_on_port     = FB0_Z_TXEN_PORT,  // PD15, E45
+        .drv_on_pin      = FB0_Z_TXEN_PIN,
+        .drv_off_port[0] = FB0_A_EN_PORT,  // PD11, E12: the receive pair
+        .drv_off_pin[0]  = FB0_A_EN_PIN,
+        .drv_off_port[1] = FB0_B_EN_PORT,  // PD10, E36
+        .drv_off_pin[1]  = FB0_B_EN_PIN,
+    },
 };
-#define SSERIAL_PORTS (sizeof(sserial_ports) / sizeof(sserial_ports[0]))
+_Static_assert(sizeof(sserial_ports) / sizeof(sserial_ports[0]) == SSERIAL_PORTS, "sserial_port.h and the port table differ");
 
 struct sserial_ctx_t {
   const sserial_port_t *hw;
@@ -334,6 +389,8 @@ static void usart_clock(USART_TypeDef *u) {
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART3, ENABLE);
   } else if(u == UART4) {
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_UART4, ENABLE);
+  } else if(u == USART6) {
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART6, ENABLE);
   }
 }
 
@@ -377,9 +434,11 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   ctx->port = (uint32_t)CLAMP(PIN(port), 0, SSERIAL_PORTS - 1);
   PIN(port) = ctx->port;
-  if(port_ctx[ctx->port] && port_ctx[ctx->port] != ctx) {  //one instance a port
-    PIN(error) = 1;
-    return;
+  for(int i = 0; i < SSERIAL_PORTS; i++) {  //one instance a USART (sserial_port.h)
+    if(port_ctx[i] && port_ctx[i] != ctx && sserial_port_conflict(i, ctx->port)) {
+      PIN(error) = 1;
+      return;
+    }
   }
   ctx->hw                  = &sserial_ports[ctx->port];
   const sserial_port_t *hw = ctx->hw;
@@ -769,10 +828,15 @@ static void frt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   ctx->timeout++;
 }
 
-// the idle line after a packet (reply_mode 1): answer it now
-static void idle_irq(uint32_t port) {
-  struct sserial_ctx_t *ctx = port_ctx[port];
-  USART_TypeDef *u          = sserial_ports[port].rx_usart;
+// the idle line after a packet (reply_mode 1): answer it now. u: the interrupt's USART; the
+// port on it is the one started (ports sharing a USART can't both run)
+static void idle_irq(USART_TypeDef *u) {
+  struct sserial_ctx_t *ctx = 0;
+  for(int i = 0; i < SSERIAL_PORTS; i++) {
+    if(port_ctx[i] && sserial_ports[i].rx_usart == u) {
+      ctx = port_ctx[i];
+    }
+  }
   if(u->SR & USART_SR_IDLE) {
     (void)u->DR;  // SR then DR clears IDLE; the DMA has taken the data
     if(ctx) {
@@ -798,11 +862,15 @@ static void idle_irq(uint32_t port) {
 }
 
 void USART1_IRQHandler(void) {
-  idle_irq(0);
+  idle_irq(USART1);
 }
 
 void USART3_IRQHandler(void) {
-  idle_irq(1);
+  idle_irq(USART3);
+}
+
+void USART6_IRQHandler(void) {
+  idle_irq(USART6);
 }
 
 const hal_comp_t sserial_comp_struct = {

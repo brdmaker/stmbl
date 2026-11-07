@@ -27,6 +27,7 @@
 #include <math.h>
 
 #include "hal.h"
+#include "sserial_port.h"
 #include "commands.h"
 #include "usbd_cdc_if.h"
 #include "drive.h"
@@ -48,8 +49,9 @@ extern volatile uint64_t systime;
 // follows it exactly, and vel_cmd is what LinuxCNC sends (joint.N.vel-cmd:
 // the average over the last period).
 static int lcnc_on = 0;
-static int lcnc1_on = 0;  // a second LinuxCNC on sserial port 1 (enc0): its servo thread runs
-static long rt1_count = 0;
+// more LinuxCNCs on the other sserial ports (a router card, lcncio): their servo threads run
+static int lcncio_on[SSERIAL_PORTS];
+static long lcncio_count[SSERIAL_PORTS];
 static int rt_count = 0;
 static float lcnc_acc = 0.0f, lcnc_vel = 0.0f;
 
@@ -151,8 +153,10 @@ static void run_cycles(long n) {
     if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
       lcnc_servo();
     }
-    if(lcnc1_on && rt1_count++ % RT_PER_NRT == 0) {  // the second side: its outputs, again
-      sim_sserial_io1.seq++;
+    for(int p = 1; p < SSERIAL_PORTS; p++) {  // the other sides: their outputs, again
+      if(lcncio_on[p] && lcncio_count[p]++ % RT_PER_NRT == 0) {
+        sim_sserial_port(p)->seq++;
+      }
     }
     if(lcnc_can) {
       can_host_run(RT_PERIOD * 1e6);  // the bus during this rt period
@@ -231,11 +235,11 @@ COMMAND("lcncscale", cmd_lcncscale, "LinuxCNC side: lcncscale <units per motor t
 // lcncio <port> [on|off] [out <mask>] [pos <v>] [vel <v>]; no settings: print what that side reads
 void cmd_lcncio(char *ptr) {
   int port = -1, k = 0;
-  if(sscanf(ptr, " %i%n", &port, &k) < 1 || port < 0 || port > 1) {
-    printf("lcncio <0|1> [on|off] [out <mask>] [pos <v>] [vel <v>]\n");
+  if(sscanf(ptr, " %i%n", &port, &k) < 1 || !sim_sserial_port(port)) {
+    printf("lcncio <port 0..%i> [on|off] [out <mask>] [pos <v>] [vel <v>]\n", SSERIAL_PORTS - 1);
     return;
   }
-  sim_sserial_io_t *io = port ? &sim_sserial_io1 : &sim_sserial_io;
+  sim_sserial_io_t *io = sim_sserial_port(port);
   ptr += k;
   int set = 0;
   char word[16];
@@ -244,7 +248,7 @@ void cmd_lcncio(char *ptr) {
     ptr += k;
     set = 1;
     if(!strcmp(word, "on") || !strcmp(word, "off")) {
-      *(port ? &lcnc1_on : &lcnc_on) = word[1] == 'n';
+      *(port ? &lcncio_on[port] : &lcnc_on) = word[1] == 'n';
     } else if(sscanf(ptr, " %f%n", &v, &k) == 1) {
       ptr += k;
       if(!strcmp(word, "out")) {

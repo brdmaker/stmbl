@@ -10,6 +10,7 @@
 #include "sim_io.h"
 #include "sserial_q.h"
 #include "sscon.h"
+#include "sserial_port.h"
 
 HAL_COMP(sserial);
 
@@ -18,7 +19,7 @@ HAL_PIN(error);
 HAL_PIN(crc_error);
 HAL_PIN(connected);
 HAL_PIN(timeout);  // [20 kHz ticks], as on the drive
-HAL_PIN(port);     // 0: the CMD port (sim_sserial_io), 1: enc0 (sim_sserial_io1); default: the instance
+HAL_PIN(port);     // shared/sserial_port.h: 0 CMD, 1 enc0, 2 enc1, 3 enc0 on USART6; default: the instance
 HAL_PIN(pos_cmd);
 HAL_PIN(pos_cmd_d);
 HAL_PIN(pos_fb);
@@ -45,8 +46,32 @@ HAL_PIN(pos_advance);
 HAL_PIN(reply_mode);  // the drive: answer from the idle interrupt; here packets are taken whole anyway
 HAL_PIN(irq_count);
 
+hal_comp_t sserial_comp_struct;
+
 sim_sserial_io_t sim_sserial_io;
-sim_sserial_io_t sim_sserial_io1;
+static sim_sserial_io_t sim_sserial_other[SSERIAL_PORTS - 1];
+
+sim_sserial_io_t *sim_sserial_port(int p) {
+  if(p == 0) {
+    return &sim_sserial_io;
+  }
+  return p > 0 && p < SSERIAL_PORTS ? &sim_sserial_other[p - 1] : 0;
+}
+
+// as the drive's hw_init: the port, or 0 if an instance loaded before has its USART
+static sim_sserial_io_t *port_io(hal_pin_inst_t *pin_ptr, float port) {
+  int p = (int)CLAMP(port, 0, SSERIAL_PORTS - 1);
+  for(int i = 0; i < hal.comp_inst_count && hal.comp_insts[i].pin_insts != pin_ptr; i++) {
+    if(hal.comp_insts[i].comp == &sserial_comp_struct) {
+      struct sserial_pin_ctx_t *other = (struct sserial_pin_ctx_t *)hal.comp_insts[i].pin_insts;
+      int q = (int)CLAMP(other->port.source->value, 0, SSERIAL_PORTS - 1);
+      if(sserial_port_conflict(p, q)) {
+        return 0;
+      }
+    }
+  }
+  return sim_sserial_port(p);
+}
 
 struct sserial_ctx_t {
   sim_sserial_io_t *io;  // the port's process data
@@ -68,14 +93,20 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(port) = hal.comp_insts[i].instance;
     }
   }
-  ctx->io  = PIN(port) > 0.5 ? &sim_sserial_io1 : &sim_sserial_io;
+  ctx->io  = sim_sserial_port((int)PIN(port));
   ctx->seq = ctx->io->seq;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct sserial_ctx_t *ctx      = (struct sserial_ctx_t *)ctx_ptr;
   struct sserial_pin_ctx_t *pins = (struct sserial_pin_ctx_t *)pin_ptr;
-  sim_sserial_io_t *want = PIN(port) > 0.5 ? &sim_sserial_io1 : &sim_sserial_io;
+  sim_sserial_io_t *want = port_io(pin_ptr, PIN(port));
+  if(!want) {  // its USART is taken: no link, as on the drive
+    ctx->io        = 0;
+    PIN(connected) = 0;
+    PIN(error)     = 1;
+    return;
+  }
   if(want != ctx->io) {  // the config moved it (sserialN.port)
     ctx->io  = want;
     ctx->seq = want->seq;

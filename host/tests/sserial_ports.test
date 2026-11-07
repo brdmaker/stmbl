@@ -1,0 +1,31 @@
+# sserial on all three ports of one card (shared/sserial_port.h): sserial0
+# on CMD, sserial1 on enc0 over USART6 (port 3), sserial2 on enc1 (port 2,
+# USART3). The router template between 0 and 1, and sserial0's out2 and
+# pos_cmd also to sserial2. Then the clash: enc0 on USART3 (port 1, the
+# template's default) and enc1 (port 2) need the same USART; the one loaded
+# later gets no link (error), the others are unaffected.
+@args --drive tests/router3/stmbl.conf
+sserial1.port
+sserial2.port
+lcncio 0 on out 4 pos 42
+lcncio 3 on out 9
+lcncio 2 on
+run 0.1
+sserial0.connected
+sserial1.connected
+sserial2.connected
+lcncio 3
+lcncio 2
+lcncio 0
+lcncio 1
+@expect sserial1.port == 3
+@expect sserial2.port == 2
+@expect sserial0.connected == 1
+@expect sserial1.connected == 1
+@expect sserial2.connected == 1
+@expect lcncio3.in == 4
+@expect lcncio3.pos_fb == 42
+@expect lcncio2.in == 1
+@expect lcncio2.pos_fb == 42
+@expect lcncio0.in == 9
+@expect lcncio1.in == 0

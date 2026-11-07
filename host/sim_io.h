@@ -27,5 +27,6 @@ typedef struct {
   uint8_t index_enable_fb;  // drops to 0 when the drive found the index
 } sim_sserial_io_t;
 
-extern sim_sserial_io_t sim_sserial_io;   // sserial port 0: the CMD port
-extern sim_sserial_io_t sim_sserial_io1;  // port 1: enc0, a second sserial instance (a router card)
+extern sim_sserial_io_t sim_sserial_io;  // sserial port 0: the CMD port
+// sserial port p (shared/sserial_port.h): 0 CMD, 1 enc0, 2 enc1, 3 enc0 on USART6; 0 if none
+sim_sserial_io_t *sim_sserial_port(int p);

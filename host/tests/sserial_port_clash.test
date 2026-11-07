@@ -1,0 +1,18 @@
+# Two instances on one USART (shared/sserial_port.h): enc0 on USART3 (port
+# 1, sserial1 by default) and enc1 (port 2, sserial2 by default). The later
+# one (sserial2) gets no link and reports error; sserial0/1 run as before.
+@args --drive tests/router_clash/stmbl.conf
+lcncio 0 on out 3
+lcncio 1 on out 6
+lcncio 2 on out 15
+run 0.1
+sserial1.connected
+sserial2.connected
+sserial2.error
+lcncio 0
+lcncio 2
+@expect sserial1.connected == 1
+@expect sserial2.connected == 0
+@expect sserial2.error == 1
+@expect lcncio0.in == 6
+@expect lcncio2.in == 0
