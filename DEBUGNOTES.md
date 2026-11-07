@@ -4788,6 +4788,11 @@ Entry format:
   the same cable to a Mesa port. sserialN on port N (`sserialN.port`). Typo
   fixed. Built on master's reply_mode (idle IRQ per port: USART1_IRQHandler,
   USART3_IRQHandler). Not yet run on hardware.
+- 2026-11-07: enc1 added (port 2: USART3 RX PB11 on 1/2, TX PB10 on 4/5;
+  enc1's 3/6 pair PE11/PB12/PB13 has no UART TX on the F405) and enc0 on
+  USART6 (port 3: PC7/PC6, TX on 4/5) so enc0 and enc1 can run together.
+  Ports and their USARTs: shared/sserial_port.h; a clash errors the later
+  instance (host-tested).
 
 ## 2026-11-07  sserial: two instances can both busy-wait in one frt tick
 - Area:    `src/comps/sserial.c` (process-data RPC, reply_mode 0)
