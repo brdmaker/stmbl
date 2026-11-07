@@ -354,6 +354,9 @@ Entry format:
   `elf_to_bin`/`add_version_info.py`, include only loadable flash sections
   (ALLOC+LOAD with LMA in the flash region) and skip RAM-LMA and debug sections,
   or cap/validate the computed image size before allocating.
+- 2026-11-07: `make obj_app/stmbl.elf` (link + version patch + CRC) finished in
+  seconds with binutils 2.42 / gcc 13.2.1 in the cloud container (`.data` LMA
+  in flash, 0x0806884c). `make all` (bootloader, F3, .dfu) not tried there.
 
 ## 2026-05-24  ILP32 sscanf corruption in hal.c on 64-bit hosts
 - Area:    `shared/hal.c` (`hal_parse_`, `hal_linked_pins`)
@@ -4769,3 +4772,42 @@ Entry format:
 - Fix:     master's hv.c; sim_keep_pos restores `upos` and sets `abs0 = upos - abs_pos`
   from the static memory, so sim_abs_pos keeps its place over a reset and sim_off_move
   moves both. Host check 1476/1478 (2 known TODO), tests/abs included.
+
+## 2026-11-07  sserial on enc0 (router card): v3 pins in the first mod
+- Area:    `src/comps/sserial.c` (second instance), `inc/hw/hw.h`
+- Status:  Note
+- Symptom: A second sserial instance with RX on USART3/PB11 and TX enable PB7
+  would not hear enc0 on a v4.1 board, and drives the CMD port's transmitter.
+- Cause:   PB10/PB11 USART3 are the v3 FB0 UART. On v4 (netlist hw/kicad/v4.0)
+  enc0's pairs are: 1/2 = PD12, PC7, PC11 (driver enable PD11), 3/6 = PD13,
+  PC8, PC10 (enable PD10), 4/5 = PD14, PC6, PC12 (enable PD15). PB7 is CMD_36E,
+  the CMD port's TX driver. The TX DMA's `DMA_Mode = DMA_Priority_Low` (from
+  upstream) is a typo with the same value as `DMA_Mode_Normal`.
+- Fix:     Port table in sserial.c: port 1 = USART3 RX PC11 (DMA1 S1) on 1/2,
+  TX PC10 (DMA1 S3) on 3/6, PD10 high, PD11/PD15 low: the CMD port's pairs, so
+  the same cable to a Mesa port. sserialN on port N (`sserialN.port`). Typo
+  fixed. Built on master's reply_mode (idle IRQ per port: USART1_IRQHandler,
+  USART3_IRQHandler). Not yet run on hardware.
+
+## 2026-11-07  sserial: two instances can both busy-wait in one frt tick
+- Area:    `src/comps/sserial.c` (process-data RPC, reply_mode 0)
+- Status:  Workaround (conf/template/sserial_router.txt sets reply_mode 1)
+- Symptom: none seen (no hardware run yet): a timing risk.
+- Cause:   In reply_mode 0 each instance waits up to 5 bytes (~22 us at 2.5
+  Mbaud) for the rest of a process-data frame. sserial1's host is not
+  phase-locked to the card (io0.clock_scale follows sserial0), so both waits
+  can fall in the same 50 us frt period.
+- Fix:     The router template sets reply_mode 1 on both: each port's own
+  idle-line interrupt (USART1, USART3) answers, and the frt does not wait.
+
+## 2026-11-07  HAL: a comp without ctx shares its ctx address with the next one
+- Area:    `shared/hal.c` (load_comp), anything that finds its own instance
+- Status:  Note
+- Symptom: sserial0 (host model) found itself as instance 1 and listened on
+  port 1: CMD error at start in acc_ff_jump, mot_temp_fb.
+- Cause:   ctx = &hal.ctxs[ctx_count]; a comp with ctx_size 0 doesn't advance
+  ctx_count, so the next comp gets the same ctx pointer. Matching
+  comp_insts[i].ctx == ctx_ptr hit the earlier comp.
+- Fix:     Match `comp_insts[i].pin_insts == pin_ptr` (every comp has pins).
+  Also in the host model: take the port's seq at load (nrt_init), not at the
+  first rt, or the first packet is missed and the link starts in timeout.

@@ -12,6 +12,7 @@ Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 | [sserial_console.md](sserial_console.md) | the drive's console over smart-serial: setup with `sserialterm`, the frame and link protocol, limits, troubleshooting |
 | [capture_scope.md](capture_scope.md) | `scope0`: capture in the drive, download over any console; pins, triggers, modes, dump format |
 | [sserial_bootloader.md](sserial_bootloader.md) | firmware updates: in-band over the console (`fwup`, `servoterm-cli --update`) and recovery with `setsserial flash`; flash layout, the single-bank stall |
+| [sserial_router.md](sserial_router.md) | a card as a router between two LinuxCNC controllers: sserial on the CMD and enc0 ports, `link sserial_router`, link loss |
 
 Setup (branch `setup-wizard`):
 

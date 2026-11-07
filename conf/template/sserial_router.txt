@@ -1,0 +1,37 @@
+load sserial
+load sserial
+# a card between two Mesa smart-serial ports, no motor:
+# sserial0 on the CMD port, sserial1 on enc0. One side's
+#   out0..3          -> the other's in0..3
+#   pos_cmd, vel_cmd -> the other's pos_fb, vel_fb (as is)
+#   fault <- the other link is down: !fault = partner link OK
+# unit numbers differ by port (port << 28): which side is which
+sserial0.rt_prio = 2.0
+sserial0.frt_prio = 2.0
+sserial1.rt_prio = 2.1
+sserial1.frt_prio = 2.1
+# answer from each port's idle interrupt: no busy-wait in frt
+sserial0.reply_mode = 1
+sserial1.reply_mode = 1
+sserial1.in0 = sserial0.out0
+sserial1.in1 = sserial0.out1
+sserial1.in2 = sserial0.out2
+sserial1.in3 = sserial0.out3
+sserial0.in0 = sserial1.out0
+sserial0.in1 = sserial1.out1
+sserial0.in2 = sserial1.out2
+sserial0.in3 = sserial1.out3
+sserial1.pos_fb = sserial0.pos_cmd
+sserial1.vel_fb = sserial0.pos_cmd_d
+sserial0.pos_fb = sserial1.pos_cmd
+sserial0.vel_fb = sserial1.pos_cmd_d
+sserial0.pos_advance = 0
+sserial1.pos_advance = 0
+sserial1.fault = sserial0.error
+sserial0.fault = sserial1.error
+# the CMD side's servo thread paces the card
+io0.clock_scale = sserial0.clock_scale
+io0.cmdy = sserial0.error
+io0.cmdg = sserial0.connected
+io0.fb0y = sserial1.error
+io0.fb0g = sserial1.connected

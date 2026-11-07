@@ -1,0 +1,48 @@
+# A card as a router between two LinuxCNC controllers (the CTX twin's two sides):
+# two sserial instances, sserial0 on the CMD port and sserial1 on enc0
+# (src/comps/sserial.c), wired by conf/template/sserial_router.txt. Each side's
+# LinuxCNC is played by lcncio <port>.
+# - each instance on its own port (the instance number by default)
+# - what one side writes (out0..3, pos_cmd, vel_cmd) the other reads (in0..3,
+#   pos_fb, vel_fb), unchanged: an integer word through the float exactly
+# - one side's link lost: the other reads fault (partner link down) and its
+#   inputs drop to 0; the side's link back: fault clears, the bits come back
+# (sim_board's "not found: enc_fb0..." lines: no motor here, nothing to simulate)
+@args --drive tests/router/stmbl.conf
+sserial0.port
+sserial1.port
+lcncio 0 on out 5 pos 1234567 vel 0
+lcncio 1 on out 10 pos -7.5 vel 3.25
+run 0.1
+sserial0.connected
+sserial1.connected
+lcncio 0
+lcncio 1
+lcncio 1 off
+run 0.05
+sserial1.connected
+lcncio 0
+lcncio 1 on
+run 0.05
+lcncio 0
+lcncio 0 out 3
+run 0.01
+lcncio 1
+@expect sserial0.port == 0
+@expect sserial1.port == 1
+@expect sserial0.connected[1] == 1
+@expect sserial1.connected[1] == 1
+@expect lcncio1.in[1] == 5
+@expect lcncio1.pos_fb[1] == 1234567
+@expect lcncio1.fault[1] == 0
+@expect lcncio0.in[1] == 10
+@expect lcncio0.pos_fb[1] == -7.5
+@expect lcncio0.vel_fb[1] == 3.25
+@expect lcncio0.fault[1] == 0
+@expect sserial1.connected[2] == 0
+@expect lcncio0.fault[2] == 1
+@expect lcncio0.in[2] == 0
+@expect lcncio0.pos_fb[2] == 0
+@expect lcncio0.fault[3] == 0
+@expect lcncio0.in[3] == 10
+@expect lcncio1.in[2] == 3
