@@ -4816,3 +4816,14 @@ Entry format:
 - Fix:     Match `comp_insts[i].pin_insts == pin_ptr` (every comp has pins).
   Also in the host model: take the port's seq at load (nrt_init), not at the
   first rt, or the first packet is missed and the link starts in timeout.
+
+## 2026-11-07  Session hook: LinuxCNC restore script moved away in the repo split
+- Area:    `.claude/hooks/session-start.sh`, `hwtest/linuxcnc_restore.sh`
+- Status:  Fixed
+- Symptom: in a fresh cloud session LinuxCNC (/home/user/linuxcnc-2.9) was missing; /tmp/linuxcnc_restore.log:
+  "failed to run command .../hwtest/arcmate-sim/linuxcnc_restore.sh: No such file".
+- Cause:   the script went to brdmot with hwtest/arcmate-sim, but stmbl's own LinuxCNC tests (hwtest/*-sim,
+  host/lcnc) and the archive (orphan branch linuxcnc-bin) are here.
+- Fix:     hwtest/linuxcnc_restore.sh: restore, packages, the user lcnc, stmbl's modules (stmbl_sim, the arm,
+  sserialterm, stmblcan); the hook runs it. brdmot's script calls this one through its submodule. No automated test:
+  environment set-up, checked by running it.
