@@ -16,6 +16,18 @@ Entry format:
 
 ---
 
+## 2026-11-09  One `pid0.vel_error = -inf` read in a soak (garbled, or real?)
+- Area:    `shared/comps/pid.c`, the USB console
+- Status:  Open
+- Symptom: Verification soak (hwtest/soak/runs/fanuc-desk-20261109-151226),
+  betaiS on fanuc_tw: one sample of 3350 read `pid0.vel_error = -inf`
+  (121.6 s, just after a stop at -6 rad, dc 208 V); the rest at most 3.4
+  rad/s. No fault, no saturation, the position error 0.004 rad there.
+- Cause:   Not known. The same console garbled a reply once that day
+  ("fault0.fault = 0.1"), but "-inf" is an odd garble.
+- Fix:     Open: watch for it (scope or a min/max pin on pid0.vel_error) over
+  a longer soak before trusting it either way.
+
 ## 2026-11-09  hv_update on a v207 HV board: no code difference found; an erase race?
 - Area:    `src/comps/hv.c` (hv_update), `f3_boot/src/main.c`
 - Status:  Open
