@@ -108,7 +108,10 @@ needs an encoder that lost its position.)
 wizard): `fanuc_tw`'s position is the reply to the previous cycle's
 request, about 0.2 ms older than a resolver's, so `encmon0.delay` is
 0.00032 (the template's 0.00012 + 0.2 ms). Bench, fast moves: worst
-residual 0.22 of the 0.30 trip with 0.12 ms, 0.17 with 0.32 ms.
+residual 0.22 of the 0.30 trip with 0.12 ms, 0.17 with 0.32 ms. And `encmon0.min_bemf`
+is 10 V: near the 5 V default (~15 rad/s here) a fixed couple of volts of
+voltage error made small moves reach 0.37; at 10 V 0.22, and a 30° el.
+offset error still trips. The setup wizard sets both.
 
 Isolated bad frames keep the last good one (FANUC alarms only on errors that
 persist); on the bench 1 frame in ~900 had a flipped bit, caught by the CRC.

@@ -48,9 +48,9 @@ Entry format:
   (~5 us of rt a cycle). Next step would be timestamping the turnaround
   against the reply's first edge.
 
-## 2026-11-09  encmon near its trip level in fast moves (FANUC betaiS, soak)
-- Area:    `shared/comps/encmon.c` (thres 0.30, trip_time 20 ms), `conf/template/encmon.txt`
-- Status:  Open
+## 2026-11-09  encmon near its trip level (FANUC betaiS, soak): low speed near min_bemf, and fanuc_tw's lag
+- Area:    `shared/comps/encmon.c` (thres 0.30, trip_time 20 ms), `conf/template/encmon.txt`, setup wizard
+- Status:  Fixed
 - Symptom: The 10 min soak with encmon linked (hwtest/soak/runs/fanuc-desk-20261109-140105):
   PASS, no trip, but encmon0.max_ratio 0.41, first over 0.30 in the first
   fast moves (150 rad/s, 2000 rad/s^2, 2.9 A). The encmon test at 100 rad/s
@@ -67,9 +67,15 @@ Entry format:
   (hwtest/soak/runs/fanuc-desk-20261109-144743): worst 0.38, and its log
   shows when: at the ±0.5 rad moves (~20 rad/s, 0.1-0.2 A), just above
   min_bemf (5 V, ~15 rad/s on this motor), where a fixed ~2 V voltage error
-  (dead time, offsets) is a large part of the back-EMF. So the residual
-  ratio needs a larger min_bemf here (10 V?), then the offset test again.
-  Test: the sweep (encmon_delay_sweep.py in fanuc-desk-20261109-140105).
+  (dead time, offsets) is a large part of the back-EMF. Bench
+  (encmon_min_bemf.py in fanuc-desk-20261109-144743): small moves at
+  min_bemf 5 V 0.37 (2.6 ms over the trip), at 10 V 0.22; a 30 deg el.
+  offset error with 10 V still trips (fault 18). Now the wizard sets
+  min_bemf to 15 % of the back-EMF at top speed (5 V at least; 10.5 V on
+  the bench betaiS), the betaiS configs 10 V.
+  Tests: the bench scripts (encmon_delay_sweep.py in fanuc-desk-20261109-140105,
+  encmon_min_bemf.py); no host test (the simulator has no dead time); the
+  wizard simulator runs every motor's verify with it.
 
 ## 2026-11-06  webui/mill: a drive streaming its scope was never polled (versions, values)
 - Area:    `webui/mill/server/drives.py` (DriveLink.feed / tick)
