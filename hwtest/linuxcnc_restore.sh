@@ -1,6 +1,6 @@
 #!/bin/bash
 # Restore the prebuilt LinuxCNC 2.9 (uspace, run-in-place) used by stmbl's LinuxCNC tests
-# (hwtest/burnin-sim, mill-sim, hsm400u-sim; host/lcnc's stmbl_sim) in a fresh cloud container,
+# (hwtest/burnin-sim; brdmot's hwtest/cn720-sim, hsm400u-sim; host/lcnc's stmbl_sim) in a fresh cloud container,
 # instead of building it (~25 min). The archive lives on the orphan branch linuxcnc-bin of this
 # repository (see its README: how it was built). Idempotent; ~1 min (mostly apt). brdmot's
 # hwtest/arcmate-sim/linuxcnc_restore.sh runs this (via its stmbl submodule), then installs its own

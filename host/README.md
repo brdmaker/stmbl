@@ -254,7 +254,7 @@ back (regression test for `vel2.g` in `conf/template/pid.txt`).
 ### Arm dynamics (`shared/robot`, `tests/robot/`)
 
 `test_robot` (built and run by `make check`) tests the serial-arm dynamics
-library used by the robot work (`hwtest/arcmate/DYNAMICS.md`): against
+library used by the robot work (`brdmot's hwtest/arcmate/DYNAMICS.md`): against
 Robotics Toolbox for Python (`tests/robot/rtb_ref.txt`, regenerate with
 `python3 tests/robot/gen_robot_ref.py`, needs `roboticstoolbox-python`),
 energy, a two-link arm by hand, external forces, and the momentum observer.

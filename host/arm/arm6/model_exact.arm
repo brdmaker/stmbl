@@ -1,5 +1,5 @@
 # Collision detector model of the simulated ARC Mate: EXACTLY the
-# plant's values (arcmate.arm), for the residual floor. A real model comes
+# plant's values (arm6.arm), for the residual floor. A real model comes
 # from identification; model_perturbed.arm stands in for one.
 observer 50 0.3 0.01
 # motor torque per amp: 1.5 * pole pairs * psi (j1.conf .. j6.conf)

@@ -4,7 +4,7 @@
 # measures ~2.8: mismatch (tolerance 1 kg), off_reason 6 - before the 2.5 kg
 # error trips the collision detector.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_gripper.arm
+@args arm/arm6/arm6_gripper.arm
 @include arm/tests/inc_grip_pick.txt
 grip expect 40 2.0 0 0 0.15
 grip close

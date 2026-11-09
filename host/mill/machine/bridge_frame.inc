@@ -1,4 +1,4 @@
-# The Scripta CN 720's mechanics as an HSC conversion (cn720.mill). Masses
+# The Scripta CN 720's mechanics as an HSC conversion (bridge.mill). Masses
 # and stiffnesses are estimates.
 #
 # Masses (set before frame and bridge, which use them)

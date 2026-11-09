@@ -2,7 +2,7 @@
 # grips (fault0.mot_brake) and Z stays where it was; without a brake it
 # runs down to its end stop.
 @program mill/mill_sim
-@args mill/machine/cn720.mill
+@args mill/machine/bridge.mill
 lcnc 1
 run 0.3
 lcnc 0

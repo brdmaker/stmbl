@@ -59,7 +59,7 @@ record any debug findings in `DEBUGNOTES.md` as usual.
 - [ ] Real dock-stand parts in the cell model (docks are placeholders).
 - [ ] Check the 3D frame rate on a Raspberry Pi and a tablet.
 
-## Mikron HSM 400U retrofit (`host/mill/HSM400U.md`, `hwtest/hsm400u-sim`)
+## Mikron HSM 400U retrofit (brdmot: `sim/mill/HSM400U.md`, `hwtest/hsm400u-sim`)
 
 - [x] Rough simulation: five axes, the Siemens servos on stmbl's bus,
       glass scales; LinuxCNC runs five-axis programs on it.

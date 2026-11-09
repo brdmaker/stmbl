@@ -1,7 +1,8 @@
-# FANUC ARC Mate (A05B-1203-B255) as simulated by arm_sim, without a tool
-# (arcmate.arm adds the welding torch, arcmate_gripper.arm the gripper).
-# EVERY NUMBER IS A GUESS until hwtest/arcmate/RECORD.md has the
-# measured value; the layout is a typical 6-axis welding arm.
+# A generic 6-axis arm for arm_sim's tests, without a tool (arm6.arm adds a
+# welding torch, arm6_gripper.arm the gripper). Its numbers are a copy of the
+# FANUC ARC Mate (A05B-1203-B255)'s guesses: that arm's own model lives in
+# brdmot (sim/arm/arcmate, measured values in hwtest/arcmate/RECORD.md).
+# The layout is a typical 6-axis welding arm.
 #
 # drives: one stmbl drive per joint (motor parameters in jN.conf)
 drive 1 j1.conf sim.txt

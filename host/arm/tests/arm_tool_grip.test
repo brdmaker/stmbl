@@ -1,4 +1,4 @@
-# The gripper as tool 2 on the changer (arcmate_changer.arm: its drive,
+# The gripper as tool 2 on the changer (arm6_changer.arm: its drive,
 # jaws 190 mm out = its TCP; `gripper tool 2`): picked from its dock, a
 # 2 kg part gripped at the TCP (flange forward and up, B 45: the
 # part turned with it), weighed on the lift on top of the tool's own 1.8 kg (both
@@ -6,9 +6,9 @@
 # grip), put down, released; the gripper back in its dock: its jaws do
 # nothing there (closing empty). No collision hit, no fault.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_changer.arm
+@args arm/arm6/arm6_changer.arm
 part box1 1.15 0 1.10   0.015 0.02 0.02   2.0   0 45 0
-detector arm/arcmate/model_perturbed.arm
+detector arm/arm6/model_perturbed.arm
 lcnc 0
 run 0.5
 lcnc 1

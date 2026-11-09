@@ -1,4 +1,4 @@
-# arcmate_changer.arm: pick tool 1 from its dock (tools.txt): the bare
+# arm6_changer.arm: pick tool 1 from its dock (tools.txt): the bare
 # flange (forward and up, B 45) to the approach point behind the dock,
 # into it, lock (expecting tool 1), lift the tool out of the fork; then
 # moves on its TCP.

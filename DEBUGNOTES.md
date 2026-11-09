@@ -4901,3 +4901,14 @@ Entry format:
 - Fix:     hwtest/linuxcnc_restore.sh: restore, packages, the user lcnc, stmbl's modules (stmbl_sim, the arm,
   sserialterm, stmblcan); the hook runs it. brdmot's script calls this one through its submodule. No automated test:
   environment set-up, checked by running it.
+
+## 2026-11-09 The machines' configs and models moved to brdmot
+- Area:    hwtest/, host/mill, host/arm (repository layout)
+- Status:  Note
+- Symptom: older entries name `hwtest/mill-sim`, `hwtest/hsm400u-sim`, `hwtest/arcmate`, `host/mill/machine/cn720*.mill`,
+  `hsm400u*`, `host/mill/HSM400U.md`, `runs.py`, `hsm_runs.py`, `RESULTS.md`, `host/mill/tests/hsm_*.test`,
+  `host/arm/arcmate/`.
+- Cause:   machine configs belong with the machines (brdmot), stmbl keeps the drive.
+- Fix:     moved with their history to brdmot: `hwtest/cn720-sim` (was mill-sim), `hwtest/hsm400u-sim`, `hwtest/arcmate`,
+  `sim/mill/...`, `sim/arm/arcmate`. stmbl's tests run on generic copies: `host/mill/machine/bridge*.mill` (the CN 720's
+  data), `host/arm/arm6/` (the ARC Mate's), `host/tests/abs/mill_x_fanuc.conf`. `make -C host check` passes.

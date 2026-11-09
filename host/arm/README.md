@@ -11,14 +11,14 @@ the drive, the rotor and everything behind it are in the plant.
 ```
 make                 # libstmbl_drive.so, arm_sim
 make check           # tests/*.test (also part of make -C .. check)
-./arm_sim arcmate/arcmate.arm SCRIPT            # the arm with the torch
-./arm_sim arcmate/arcmate_gripper.arm SCRIPT    # with the electric gripper
+./arm_sim arm6/arm6.arm SCRIPT               # the arm with the torch
+./arm_sim arm6/arm6_gripper.arm SCRIPT       # with the electric gripper
 ```
 
 Arm files can `include` others (paths relative to the including file):
-`arcmate_base.arm` is the arm without a tool, `torch.tool` /
-`gripper.tool` add a tool's bodies (and drive), `arcmate.arm` and
-`arcmate_gripper.arm` put them together.
+`arm6_base.arm` is the arm without a tool, `torch.tool` /
+`gripper.tool` add a tool's bodies (and drive), `arm6.arm` and
+`arm6_gripper.arm` put them together.
 
 Per 200 µs rt cycle: rotor angle and speed into each drive (`hv0.sim_pos`,
 `hv0.sim_vel`), one drive tick, the mean electrical torque back
@@ -34,8 +34,9 @@ bearing friction and the motor brake on the rotor, both applied so they
 stop motion but never reverse it; hard stops; an external force on any
 link. Encoders are absolute (`enc_fb0.sim_absolute = 1`), as FANUC's.
 
-`arcmate/` is the ARC Mate A05B-1203-B255 with **guessed** values (see
-`hwtest/arcmate/`); replace them as `RECORD.md` fills up. Script commands
+`arm6/` is the generic 6-axis arm the tests run on. Its data are a copy of the FANUC ARC Mate A05B-1203-B255's
+**guessed** values; that arm's own models and its measurement record live in brdmot (`sim/arm/arcmate`,
+`hwtest/arcmate`). Script commands
 are listed at the top of `arm_sim.c`.
 
 Tests: `arm_move` (hold, a 1.5 s move of all joints, brakes on disable),
@@ -50,8 +51,8 @@ view) are in `docs/hmi/`.
 
 `detector FILE` runs `shared/robot/collide.c` (the code of
 `linuxcnc/armcollide`) every 1 ms on what LinuxCNC sees: each drive's
-position and speed feedback and motor current. `arcmate/model_exact.arm`
-is the plant's own model; `arcmate/model_perturbed.arm`
+position and speed feedback and motor current. `arm6/model_exact.arm`
+is the plant's own model; `arm6/model_perturbed.arm`
 (`gen_model_perturbed.py`) has identification-sized errors (masses ±10 %,
 centres of mass 1-2 cm off, inertias +15 %, rotor inertias +10 %, friction
 ±20 %) and is what the tests and `hwtest/arcmate-sim` use.
@@ -81,7 +82,7 @@ Sensitivity, force on the flange (100 mm out on its z), detection time
 
 These are simulation numbers: ideal current measurement, no torque
 ripple, a friction model of the same form as the plant's. The real arm
-will need larger thresholds; Phase 7 of `hwtest/arcmate/MEASUREMENT_PLAN.md`
+will need larger thresholds; Phase 7 of `brdmot's hwtest/arcmate/MEASUREMENT_PLAN.md`
 measures its floor.
 
 ## Cartesian moves
@@ -131,7 +132,7 @@ With `guard on` a detected collision does not estop at once: the guard
 backs the flange off 20 mm (`backoff MM T`) - back along the path if it
 was moving, else along the contact force estimated from the residuals -
 and then estops. The plant's obstacles (`obstacle ...` lines, contact
-100 N/mm) push back on the arm's bodies (`body ...` in `arcmate.arm`), so
+100 N/mm) push back on the arm's bodies (`body ...` in `arm6.arm`), so
 a tool pressed against them is really under tension: `arm_backoff.test`
 (guard off: estop, the brakes hold the wrist pressed into the wall at
 ~190 N) against `arm_backoff_guard.test` (guard on: no force left, ~15 mm
@@ -155,7 +156,7 @@ lower arm from q3 ~ 85 deg (the guessed J3 limit, 160, allows poses that
 cannot exist; the real stop will tell); reorienting the tool by 25 deg at
 (850, 0, 1150) brings the torch within 5 mm of the forearm.
 
-## Electric gripper (`arcmate_gripper.arm`)
+## Electric gripper (`arm6_gripper.arm`)
 
 A parallel gripper on the flange driven by a 7th stmbl drive
 (`gripper.conf`, `gripper drive CONF SIM` in `gripper.tool`): one motor
@@ -207,12 +208,12 @@ retract), `arm_grip_drop` (slips out mid-carry: off 7), `arm_grip_empty`,
 mass back and forth between two places) and grip_drop / grip_mismatch /
 grip_wrong / grip_empty.
 
-## Tool changer (`arcmate_changer.arm`)
+## Tool changer (`arm6_changer.arm`)
 
 A pneumatic changer on the flange (`changersim.c`): one valve drives the
 lock piston over 0.1 s. Its sensors are "locked", "unlocked", "present"
 and the tool's coded ID. The tools come from the tool table
-(`arcmate/tools.txt`, `shared/robot/tool.h`), which gives each tool its
+(`arm6/tools.txt`, `shared/robot/tool.h`), which gives each tool its
 TCP (6D, in the flange frame), mass, bodies (`body ... tool N`) and dock.
 - **Locking:** a docked tool is captured when the flange sits at its dock
   pose (2 mm / 2 deg). It then rides on the flange: its mass is the plant's

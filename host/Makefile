@@ -157,7 +157,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/test_stmblconf.py
 	@$(MAKE) -s -C ../servoterm-cli
 	@$(PYTHON) tests/test_servoterm_ident.py
-	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
+	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arm6/arm6_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
 	@$(MAKE) -s -C portal all

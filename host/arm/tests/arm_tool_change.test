@@ -1,4 +1,4 @@
-# The pneumatic tool changer (arcmate_changer.arm, tools.txt): tool 2 (the
+# The pneumatic tool changer (arm6_changer.arm, tools.txt): tool 2 (the
 # gripper) and tool 1 (a bent-neck torch: TCP 40 mm off the axis, tilted
 # 20 deg) picked from their docks and put back, collision detector and
 # prevention (10 mm, the mounted tool's bodies) on. The changer's monitor
@@ -7,8 +7,8 @@
 # torch on, Cartesian moves run on its TCP: a reorientation about the TCP
 # keeps the tip in place while the flange swings.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_changer.arm
-detector arm/arcmate/model_perturbed.arm
+@args arm/arm6/arm6_changer.arm
+detector arm/arm6/model_perturbed.arm
 lcnc 0
 run 0.5
 lcnc 1

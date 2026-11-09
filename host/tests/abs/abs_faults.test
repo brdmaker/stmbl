@@ -1,5 +1,5 @@
 # Absolute encoder faults on the CN 720's X axis (FANUC alpha-type encoder,
-# mturn; cn720_x_fanuc.conf, fanuc_sim.txt), each over a drive reset:
+# mturn; mill_x_fanuc.conf, fanuc_sim.txt), each over a drive reset:
 # 1. the shaft turns 1.5 turns while the drive is off (battery kept):
 #    +15 mm after the reset, still absolute
 # 2. the encoder sends a turn count one off (a fault): mturn sees linrev and
@@ -13,7 +13,7 @@
 # 4. a frame error (cable) drops abs_ok; when frames return it loads again
 #    (loads since the last reset: 2, after clear and after the error; none
 #    at boot, the count was lost)
-@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+@args --drive tests/abs/mill_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
 lcncscale 10
 lcnc 0 0
 hv0.sim_upos = 62.83185

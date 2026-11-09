@@ -1,5 +1,17 @@
 # stmbl — agent rules
 
+## Machines live in brdmot
+
+stmbl is the drive. Every machine's configs and models live in brdmot, stmbl's parent repository (submodule
+`stmbl/`):
+- LinuxCNC configs (`hwtest/<machine>-sim`, `hwtest/arcmate`);
+- simulator models of real machines (brdmot's `sim/`);
+- machine studies.
+
+stmbl keeps the simulators, the drive's own test rigs (`hwtest/burnin*`, `fbtest`, `phasing`, `soak`, `suite`,
+`timing`) and the generic models its tests run on (`host/mill/machine/bridge*.mill`, `host/arm/arm6/`,
+`host/portal/machine/`).
+
 ## Debug notes (keep DEBUGNOTES.md current)
 
 Whenever you discover a debug finding — a root cause, a non-obvious gotcha, a

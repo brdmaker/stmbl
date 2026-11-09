@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The servo thread under a real five-axis load: LinuxCNC with the HSM 400U's
-kinematics (xyzbc-trt-kins, the pivots of hwtest/hsm400u-sim), five joints
+kinematics (xyzbc-trt-kins, the pivots of brdmot's hwtest/hsm400u-sim), five joints
 looped back (motor-pos-cmd -> motor-pos-fb: no motors, no drives enabled),
 the hostmot2 card's read and write in the thread with the drives exchanging
 smart-serial packets, and programs running in a loop: tool-centre-point
@@ -43,7 +43,7 @@ TRT = "x-rot-point 200|y-rot-point 160|z-rot-point -450|x-offset 0|z-offset -80|
 
 HEAD = "G21 G90 G17 G64 P0.01\nG0 Z-120\nG0 B0 C0\n"
 TAIL = "G0 Z-120\nG0 B0 C0\nM2\n"
-PROGRAMS = {  # hwtest/hsm400u-sim/hsm_test.py's, and a dense circle (hsm_blocks.py)
+PROGRAMS = {  # brdmot's hwtest/hsm400u-sim/hsm_test.py's, and a dense circle (hsm_blocks.py)
     "rtcp": "G0 X230 Y180\nG1 Z-300 F1000\nG1 B30 C90 F1800\nG1 B0 C180 F1800\n",
     "wline": "G0 X210 Y160\nG1 Z-300 F1000\nG1 X250 B20 C60 F600\n",
     "circle": "G0 B20 C45\nG0 X240 Y160\nG1 Z-300 F1000\nG2 X240 Y160 I-10 J0 F3000\n",

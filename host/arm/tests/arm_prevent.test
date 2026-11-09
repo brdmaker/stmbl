@@ -5,7 +5,7 @@
 # wall (no contact force), the true clearance stays above ~5 mm, protective
 # stop (off_reason 5). Without prevention the same line hits the wall.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 @include arm/tests/inc_wall.txt
 mark
 prevent 10

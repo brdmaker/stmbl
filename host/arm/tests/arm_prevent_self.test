@@ -2,7 +2,7 @@
 # against the forearm. Prevention (margin 10 mm) stops J5 before; the true
 # torch-forearm clearance stays positive. Unfolding again is allowed.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 lcnc 0
 run 0.5
 lcnc 1

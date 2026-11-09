@@ -2,7 +2,7 @@
 # grip until the lift has measured it; the model then learns it (2 kg part:
 # ~2.8 kg with the perturbed model: its residual floor on the lift) and detection resumes.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_gripper.arm
+@args arm/arm6/arm6_gripper.arm
 @include arm/tests/inc_grip_pick.txt
 grip expect 0 0 0 0 0.15
 grip close

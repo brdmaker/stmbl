@@ -1,11 +1,13 @@
-# Scripta CN 720 as an HSC aluminium machine: the stock frame (working area
+# A generic fixed-bridge mill for mill_sim's tests: a copy of brdmot's CN 720
+# model (sim/mill/machine/cn720.mill), the Scripta CN 720 as an HSC
+# aluminium machine: the stock frame (working area
 # 700 x 430 mm, Z 200 mm, 210 kg), ball screws and SEW CMP40M servos on
 # every axis, an ISO20 ATC spindle (~10 kg with its cylinder). Masses and
 # stiffnesses are estimates, to be replaced with measurements (weigh the
 # table, the carriage and the Z slide; tap-test the head and the bridge).
 #
 # Semi-closed loop: every axis on its motor's resolver.
-include cn720_frame.inc
+include bridge_frame.inc
 #
 # Drives: config(s), sim lines, pitch [mm]
 drive x cmp40m.conf,x.conf sim.txt 10

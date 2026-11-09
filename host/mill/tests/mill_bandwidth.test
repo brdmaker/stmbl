@@ -2,7 +2,7 @@
 # screw mode (the 40 kg table on ~45 N/um) goes unstable and the drive
 # trips; mill_circle.test runs the default 500 (machine/x.conf ...).
 @program mill/mill_sim
-@args mill/machine/cn720.mill
+@args mill/machine/bridge.mill
 drv all pid0.vel_bw = 1200
 lcnc 1
 run 0.3

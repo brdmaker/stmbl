@@ -7,7 +7,7 @@
 # 10 um linear scales on X, Y and Z, blended: the loops run on the
 # resolvers, a correction low-passed over 0.2 s pulls them to the scales
 # (blend.conf, fb_switch0.joint_tc).
-include cn720_frame.inc
+include bridge_frame.inc
 #
 # Drives: config(s), sim lines, pitch [mm]
 drive x cmp40m.conf,x.conf,scale10.conf,blend.conf sim.txt 10

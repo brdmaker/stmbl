@@ -1,5 +1,5 @@
 # The tool table of the ARC Mate with the tool changer (shared/robot/tool.h):
-# arm_sim (arcmate_changer.arm), LinuxCNC's armkins / armtool and the cell
+# arm_sim (arm6_changer.arm), LinuxCNC's armkins / armtool and the cell
 # (hwtest/arcmate-sim) read it. Flange frame [mm, deg / m for masses and
 # bodies]; docks: the flange pose with the tool locked in its dock, base
 # frame, flange up; the way out is 100 mm down (the tool stays above).
@@ -13,7 +13,7 @@ toolmass 1.2   0 0.01 0.12
 dock 1000 400 1000   0 45 0   -70.71 0 -70.71   0 0 150
 body 6 capsule 0 0 0.04   0 0.03 0.27   0.025  tool 1   # torch
 #
-# tool 2: the electric gripper (its drive: arcmate_changer.arm), jaws 190 mm
+# tool 2: the electric gripper (its drive: arm6_changer.arm), jaws 190 mm
 # out (150 + the 40 mm plate)
 tool 2 gripper
 tcp 0 0 190   0 0 0

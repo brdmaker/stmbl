@@ -1,8 +1,8 @@
 # A 5 K warm X screw (57.5 um/m longer): on the resolver the tool ends
-# 37 um off at X 650 mm; the blended 10 um scale (cn720_blend.mill,
+# 37 um off at X 650 mm; the blended 10 um scale (bridge_blend.mill,
 # fb_switch0.joint_tc 0.2 s) pulls it back within a few um.
 @program mill/mill_sim
-@args mill/machine/cn720_blend.mill
+@args mill/machine/bridge_blend.mill
 trapfrac 0.1
 lcnc 1
 run 0.3

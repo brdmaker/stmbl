@@ -3,7 +3,7 @@
 # collision residuals (flange wrench), here mostly -x (the wall's normal):
 # the arm backs off 20 mm, no force left.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 @include arm/tests/inc_wall.txt
 guard on
 lmove 2 930 0 1271 0 0 0
