@@ -4769,3 +4769,17 @@ Entry format:
 - Fix:     master's hv.c; sim_keep_pos restores `upos` and sets `abs0 = upos - abs_pos`
   from the static memory, so sim_abs_pos keeps its place over a reset and sim_off_move
   moves both. Host check 1476/1478 (2 known TODO), tests/abs included.
+
+## 2026-11-09  Drive starts on a flat or charging bus (under-voltage start inhibit)
+- Area:    `shared/comps/fault.c` (`start_dc_volt`, `start_time`, `bus_ok`, `uv_inhibit`)
+- Status:  Fixed
+- Symptom: the drive enabled whenever `dc_volt` was above `min_dc_volt` (20 V): on a bus that the PSU's soft start was
+  still charging (or after a mains dip) it loaded the ramp. The PSU's BUS_READY contact was the only guard, and it is
+  removed from the PSU.
+- Cause:   no start condition on the bus voltage; the 20 V fault limit is for a lost bus, not for starting.
+- Fix:     `fault0.start_dc_volt` (default 0 = off, so 24 V stepper drives on small buses are unchanged; set 250 for a
+  230 V system) and `fault0.start_time` (0.2 s): DISABLED -> PHASING only with `bus_ok`; `uv_inhibit` shows an enable
+  held off. A bus that falls later is still `min_dc_volt`'s fault. `STMBL_FW_VERSION` is now 2 (a new pin configs may
+  set; no config change needed, no patch file). Tests: `host/tests/bus/bus_start_inhibit.test` (110 V mains: held
+  off, 230 V: starts after 0.2 s; fails without the fix: the pins do not exist) and `bus_start_noinhibit.test`
+  (default behaviour unchanged).

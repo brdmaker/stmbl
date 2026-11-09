@@ -10,5 +10,5 @@
 // its own checkout. Count it up with every firmware change a config, the HV
 // board or the console must know about; a change to the config's format also
 // gets a patch in conf/patches/ (docs/firmware_versions.md).
-#define STMBL_FW_VERSION 1
+#define STMBL_FW_VERSION 2
 #define STMBL_FW_MAGIC 0x56574653u  // "SFWV": version_info_t's fw_version is there

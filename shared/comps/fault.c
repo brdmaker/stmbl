@@ -42,6 +42,10 @@ HAL_PIN(scale);
 
 HAL_PIN(dc_volt);
 HAL_PIN(min_dc_volt);
+HAL_PIN(start_dc_volt);  // the drive enables only with the bus above this [V] (0: no check, the default)
+HAL_PIN(start_time);     // for this long [s]
+HAL_PIN(bus_ok);         // out: the bus is up to start
+HAL_PIN(uv_inhibit);     // out: enable asked, held off by the low bus
 HAL_PIN(high_dc_volt);
 HAL_PIN(max_dc_volt);
 
@@ -138,6 +142,7 @@ struct fault_ctx_t {
   float joint_fb_error;
   float hv_temp_error;
   float dc_volt_error;
+  float bus_timer; // [s] the bus has been above start_dc_volt
   float mot_temp_error;
   int stop;     // 0 none, 1 quick stop, 2 dynamic brake
   int hv_fault; // this cycle's fault came from the HV board: outputs off
@@ -197,6 +202,9 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   ctx->fault         = NO_ERROR;
   PIN(last_fault)    = NO_ERROR;
   PIN(min_dc_volt)   = 20.0;
+  PIN(start_dc_volt) = 0.0;  // off: low-voltage drives (24 V steppers) run on a small bus; set 250 for a 230 V system
+  PIN(start_time)    = 0.2;
+  ctx->bus_timer     = 0.0;
   PIN(high_dc_volt)  = 370.0;
   PIN(max_dc_volt)   = 390.0;
   PIN(max_hv_temp)   = 90.0;
@@ -216,9 +224,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   state_t before = ctx->state;
   ctx->hv_fault  = 0;
 
+  // under-voltage inhibit: the drive starts only with the bus up for start_time
+  // (the PSU's soft start charges it slowly; a drive that starts on a flat bus
+  // would load the ramp). A bus that falls later is min_dc_volt's business.
+  if(PIN(start_dc_volt) <= 0.0 || PIN(dc_volt) >= PIN(start_dc_volt)) {
+    ctx->bus_timer = MIN(ctx->bus_timer + period, 1.0e6);
+  } else {
+    ctx->bus_timer = 0.0;
+  }
+  PIN(bus_ok) = PIN(start_dc_volt) <= 0.0 || ctx->bus_timer >= PIN(start_time);
+
   switch(ctx->state) {
     case DISABLED:
-      if(PIN(en) > 0.0 && ctx->stop == 0) {  // a stop runs to its end (a brake hold doesn't)
+      if(PIN(en) > 0.0 && ctx->stop == 0 && PIN(bus_ok) > 0.0) {  // a stop runs to its end (a brake hold doesn't)
         ctx->state = PHASING;
       }
       break;
@@ -470,6 +488,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   PIN(fault) = ctx->fault;
+  PIN(uv_inhibit) = ctx->state == DISABLED && PIN(en) > 0.0 && PIN(bus_ok) <= 0.0;
   PIN(state) = ctx->state;
   PIN(scale) = scale;
 

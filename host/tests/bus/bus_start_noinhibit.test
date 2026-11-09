@@ -1,0 +1,15 @@
+# The default start_dc_volt = 0 keeps the old behaviour: the same drive on a
+# 154 V bus (110 V mains) starts at once (low-voltage drives, 24 V steppers,
+# run on small buses).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_mains = 110
+lcnc 0 0
+run 1.0
+lcnc 1 0
+run 1.0
+fault0.uv_inhibit
+fault0.bus_ok
+fault0.en_out
+@expect fault0.uv_inhibit == 0
+@expect fault0.bus_ok == 1
+@expect fault0.en_out == 1
