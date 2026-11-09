@@ -1,0 +1,15 @@
+version fw=1 hv=1 hv_image=1 conf=0
+fault0.fault = 0.000000
+fault0.state = 0.000000
+fanuc_tw0.state = 3.000000
+fanuc_tw0.rt_poll = 1.000000
+fanuc_tw0.bat_fail = 0.000000
+fanuc_tw0.nref_bit = 68.000000
+fanuc_tw0.nref = 0.000000
+encmon0.en <= fault0.en_pid = 0.000000
+hv0.dc_volt = 201.142899
+HAL state:  HAL_OK2
+rt time: 149.160706(max 162.303574)us/200.000000us = 74.580360(max 81.151787)% @ 5.000000kHz
+fanuc_tw0(1.000000) 31.886906(max 33.113094)us = 15.943453(max 16.556547)%
+encmon0(9.000000) 1.833333(max 12.452381)us = 0.916667(max 6.226191)%
+fault0(10.000000) 13.083333(max 24.000000)us = 6.541667(max 12.000000)%

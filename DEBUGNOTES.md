@@ -16,6 +16,20 @@ Entry format:
 
 ---
 
+## 2026-11-09  encmon near its trip level in fast moves (FANUC betaiS, soak)
+- Area:    `shared/comps/encmon.c` (thres 0.30, trip_time 20 ms), `conf/template/encmon.txt`
+- Status:  Open
+- Symptom: The 10 min soak with encmon linked (hwtest/soak/runs/fanuc-desk-20261109-140105):
+  PASS, no trip, but encmon0.max_ratio 0.41, first over 0.30 in the first
+  fast moves (150 rad/s, 2000 rad/s^2, 2.9 A). The encmon test at 100 rad/s
+  saw 0.15 with the right offset.
+- Cause:   Not known: the residual grows with acceleration (the delay
+  between the F3's frame and hv0.pos, encmon0.delay 0.12 ms, or l * di/dt
+  at 2.9 A?), with the offset right (0 deg el.).
+- Fix:     Open: log encmon0.ratio / err_d / err_q with the scope through a
+  fast move, check encmon0.delay for fanuc_tw (rt polling adds a cycle?),
+  before any motor runs fast with it in a machine.
+
 ## 2026-11-06  webui/mill: a drive streaming its scope was never polled (versions, values)
 - Area:    `webui/mill/server/drives.py` (DriveLink.feed / tick)
 - Status:  Fixed
