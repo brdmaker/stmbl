@@ -83,8 +83,9 @@ until the reference is passed.
 | 1 | good frames, not referenced (bit 68 set) | incremental: the drive phases the motor first |
 | 0 | `max_err` bad polls in a row (no reply, CRC or sync error), or none yet | `error` 1 → fault |
 
-**Position lost or battery alarm: no enable.** The template links `nref` to
-`fault0.mot_fb_nref` and `bat_fail` to `fault0.mot_fb_bat`. While either is
+**Position lost or battery alarm: no enable.** The template links `nref_fault`
+(`nref` unless `ref_move`) to `fault0.mot_fb_nref` and `bat_fail` to
+`fault0.mot_fb_bat`. While either is
 on the drive is in fault and won't enable: fault 20 *mot FB not
 referenced* (the encoder lost its position: turn the motor through its
 reference, about one turn, then enable) and 21 *mot FB battery alarm*
@@ -95,17 +96,31 @@ the smart-serial console (`fault0.fault`, the drive's `ERROR: Fault n`
 line; webui/mill's Drives tab names them). Unlink them in a config to run
 without the check.
 
+**Moving through the reference (`ref_move`).** In a machine the shaft may not
+turn by hand. `fanuc_tw0.ref_move = 1` holds fault 20 off while the encoder
+isn't referenced: the drive enables incrementally (state 1: `fb_switch`
+phases the motor first) and can be moved slowly up to a turn. Once the
+encoder passes its reference, the state goes to 3 (absolute) and `ref_move`
+has nothing left to do; set it back to 0. (Not yet tried on the bench: it
+needs an encoder that lost its position.)
+
+**encmon** (the encoder monitor, linked by the motor configs and the setup
+wizard): `fanuc_tw`'s position is the reply to the previous cycle's
+request, about 0.2 ms older than a resolver's, so `encmon0.delay` is
+0.00032 (the template's 0.00012 + 0.2 ms). Bench, fast moves: worst
+residual 0.22 of the 0.30 trip with 0.12 ms, 0.17 with 0.32 ms.
+
 Isolated bad frames keep the last good one (FANUC alarms only on errors that
 persist); on the bench 1 frame in ~900 had a flipped bit, caught by the CRC.
 
 ## Pins
 
 **Link:** `enable` (1), `poll_hz` (0: wake at 8 kHz, then rt; `rt_poll` shows which), `bitrate` (2721088), `req` (512),
-`max_err` (4), `nref_bit` (68; −1: ignore).
+`max_err` (4), `nref_bit` (68; −1: ignore), `ref_move` (0).
 
 **Feedback:** `pos`, `abs_pos` (rad, −π…π), `mpos` (turns·2π + position),
 `turns`, `com_pos` (the encoder's commutation field, electrical rad),
-`state`, `error`, `nref`, `bat_fail` (the battery alarm: a warning, the drive runs on; the position is lost at the next power-off).
+`state`, `error`, `nref`, `nref_fault`, `bat_fail` (the battery alarm: a warning, the drive runs on; the position is lost at the next power-off).
 
 **Counters:** `ok`, `crc_er`, `sync_er`, `noreply`, `latency_us`, `edges`.
 

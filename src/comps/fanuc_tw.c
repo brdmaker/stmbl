@@ -60,6 +60,8 @@ HAL_PIN(state);      // 0 none / error, 1 not referenced (incremental), 3 refere
 HAL_PIN(error);
 HAL_PIN(nref);       // the not-referenced bit
 HAL_PIN(bat_fail);   // the battery alarm (frame bit 6): battery missing or low, the position is lost at power-off
+HAL_PIN(ref_move);   // in: 1 lets the drive run while not referenced (incremental, phased) to move through the reference
+HAL_PIN(nref_fault); // nref and no ref_move: to fault0.mot_fb_nref (fault 20, no enable)
 
 // counters
 HAL_PIN(ok);
@@ -399,6 +401,7 @@ static void set_outputs(struct fanuc_tw_ctx_t *ctx, struct fanuc_tw_pin_ctx_t *p
   PIN(error)   = d->error;
   PIN(nref)    = d->nref;
   PIN(bat_fail) = d->bat_fail;
+  PIN(nref_fault) = d->nref_fault;
   PIN(ok)      = d->ok;
   PIN(crc_er)  = d->crc_er;
   PIN(sync_er) = d->sync_er;
@@ -589,6 +592,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct fanuc_tw_pin_ctx_t *pins = (struct fanuc_tw_pin_ctx_t *)pin_ptr;
   ctx->d.max_err  = PIN(max_err) < 1.0f ? 1 : (int)PIN(max_err);
   ctx->d.nref_bit = (int)PIN(nref_bit);
+  ctx->d.ref_move = PIN(ref_move) > 0.0f;
+  ctx->d.nref_fault = ctx->d.nref && !ctx->d.ref_move;  // at once, also between frames
   if(RISING_EDGE(PIN(chg_reset))) {
     f2w_chg_reset(&ctx->d);
   }

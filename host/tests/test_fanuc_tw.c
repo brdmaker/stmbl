@@ -213,6 +213,27 @@ int main(void) {
     CHECK(d.bat_fail == 0, "after a night without battery the alarm is off again (bit 68 says it)");
   }
 
+  // ref_move: not referenced blocks the drive (nref_fault, fault 20) unless
+  // ref_move lets it run to move through the reference; referenced, nothing blocks
+  {
+    f2w_t d;
+    f2w_init(&d, 3, 68);
+    int n = bits_of(rec[5].bits, b);  // not referenced
+    f1p_frame(b, n, &f);
+    f2w_poll(&d, F1P_OK, &f);
+    CHECK(d.nref == 1 && d.nref_fault == 1 && d.state == 1, "not referenced: nref_fault, state 1");
+    d.ref_move = 1;
+    f2w_poll(&d, F1P_OK, &f);
+    CHECK(d.nref == 1 && d.nref_fault == 0 && d.state == 1, "ref_move: no nref_fault, still incremental (state 1)");
+    n = bits_of(rec[0].bits, b);  // referenced
+    f1p_frame(b, n, &f);
+    f2w_poll(&d, F1P_OK, &f);
+    CHECK(d.nref == 0 && d.nref_fault == 0 && d.state == 3, "through the reference: state 3");
+    d.ref_move = 0;
+    f2w_poll(&d, F1P_OK, &f);
+    CHECK(d.nref_fault == 0 && d.state == 3, "ref_move off again: still fine");
+  }
+
   printf("%s test_fanuc_tw: %d/%d passed\n", fails ? "FAIL" : "ok", tests - fails, tests);
   return fails ? 1 : 0;
 }

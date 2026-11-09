@@ -257,6 +257,11 @@ char *su_build_config(const su_state_t *st, int final) {
     // (another motor's config, a swapped drive) trips it at the first enable
     // (FB_MON_ERROR; bench, FANUC betaiS: 30..180 deg el. caught, 0 deg quiet)
     c = su_conf_link(c, "encmon");
+    if(fb && strcmp(fb->id, "fanuc_tw") == 0) {
+      // its position is a cycle (0.2 ms) older than a resolver's: encmon's
+      // angle correction must allow for it (bench sweep 2026-11-09)
+      c = su_conf_set(c, "encmon0.delay", "0.00032", "fanuc_tw: +0.2 ms");
+    }
   }
   const char *lk = su_get(st, "link.kind");
   if(final && lk && strcmp(lk, "none") != 0) {
