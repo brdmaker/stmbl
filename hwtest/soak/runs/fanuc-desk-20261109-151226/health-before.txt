@@ -1,0 +1,5 @@
+fault0.fault = 0.000000
+fanuc_tw0.state = 3.000000
+encmon0.delay = 0.000320
+encmon0.min_bemf = 10.000000
+hv0.hv_temp = 28.256271

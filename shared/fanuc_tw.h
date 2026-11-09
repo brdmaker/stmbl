@@ -22,6 +22,8 @@ typedef struct {
   int have;      // a good frame since start
   int nref;      // the not-referenced bit of the last good frame
   int bat_fail;  // the battery alarm (frame bit 6) of the last good frame
+  int ref_move;  // in: allow running while not referenced, to move through the reference
+  int nref_fault;  // not referenced and no ref_move: keep the drive from enabling (fault 20)
   int state;     // 0 none / error, 1 good but not referenced (incremental), 3 good and referenced (absolute)
   int error;
   // debug: bits of each word that changed since the last f2w_chg_reset

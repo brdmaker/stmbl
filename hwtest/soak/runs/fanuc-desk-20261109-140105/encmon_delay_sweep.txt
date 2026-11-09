@@ -1,0 +1,8 @@
+{"delay": 0.00012, "max_ratio": 0.222081, "max_timer": 0.0, "fault": null}
+{"delay": 0.00032, "max_ratio": 0.173018, "max_timer": 0.0, "fault": null}
+{"delay": 0.00052, "max_ratio": 0.176149, "max_timer": 0.0, "fault": null}
+{"delay": -8e-05, "max_ratio": 0.336341, "max_timer": 0.0164, "fault": null}
+{"delay": 0.00012, "max_ratio": 0.218981, "max_timer": 0.0, "fault": null}
+{"delay": 0.00032, "max_ratio": 0.186941, "max_timer": 0.0, "fault": null}
+{"delay": 0.00012, "max_ratio": 0.21889, "max_timer": 0.0, "fault": null}
+{"delay": 0.00032, "max_ratio": 0.173697, "max_timer": 0.0, "fault": null}

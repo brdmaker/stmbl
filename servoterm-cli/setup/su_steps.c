@@ -257,6 +257,25 @@ char *su_build_config(const su_state_t *st, int final) {
     // (another motor's config, a swapped drive) trips it at the first enable
     // (FB_MON_ERROR; bench, FANUC betaiS: 30..180 deg el. caught, 0 deg quiet)
     c = su_conf_link(c, "encmon");
+    if(fb && strcmp(fb->id, "fanuc_tw") == 0) {
+      // its position is a cycle (0.2 ms) older than a resolver's: encmon's
+      // angle correction must allow for it (bench sweep 2026-11-09)
+      c = su_conf_set(c, "encmon0.delay", "0.00032", "fanuc_tw: +0.2 ms");
+    }
+    // encmon checks above min_bemf only: near it a fixed few volts of
+    // voltage error (dead time, offsets) is a large part of the back-EMF
+    // (betaiS, small moves: 0.37 of the 0.30 trip at 5 V, 0.22 at 10 V,
+    // a wrong offset still caught): 15 % of the back-EMF at top speed,
+    // 5 V at least
+    double psi = su_get_num(st, "id.psi", 0.0), pp = su_get_num(st, "id.pp", 0.0);
+    su_motor_t mm;
+    su_limits_t ll;
+    motor_from_state(st, &mm);
+    su_motor_limits(&mm, bus_of(st), &ll);
+    double vel = su_get_num(st, "limits.max_vel", ll.max_vel);
+    if(psi > 0.0 && pp > 0.0 && vel > 0.0) {
+      c = su_conf_set_num(c, "encmon0.min_bemf", fmax(5.0, 0.15 * psi * pp * vel), "15 % of top speed");
+    }
   }
   const char *lk = su_get(st, "link.kind");
   if(final && lk && strcmp(lk, "none") != 0) {

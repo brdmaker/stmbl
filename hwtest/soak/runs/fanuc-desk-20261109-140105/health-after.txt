@@ -1,0 +1,13 @@
+fault0.state = 0.000000
+fault0.fault = 0.000000
+fault0.last_fault = 0.000000
+encmon0.max_ratio = 0.000000
+fanuc_tw0.crc_er = 0.000000
+fanuc_tw0.sync_er = 0.000000
+fanuc_tw0.noreply = 1.000000
+fanuc_tw0.ok = 3225392.000000
+HAL state:  HAL_OK2
+rt time: 150.071426(max 163.297623)us/200.000000us = 75.035713(max 81.648811)% @ 5.000000kHz
+fanuc_tw0(1.000000) 30.583334(max 34.803574)us = 15.291667(max 17.401787)%
+encmon0(9.000000) 1.833333(max 12.452381)us = 0.916667(max 6.226191)%
+fault0(10.000000) 9.684525(max 24.000000)us = 4.842262(max 12.000000)%

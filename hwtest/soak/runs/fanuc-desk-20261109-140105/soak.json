@@ -1,0 +1,23 @@
+{
+ "max_err_move": 0.02188,
+ "max_err_rest": 0.002221,
+ "max_vel_err": 3.498847,
+ "max_cur": 2.874749,
+ "samples": 3328,
+ "moves": 838,
+ "max_iit": 33.333874,
+ "max_hv_temp": 66.336182,
+ "fault": 0,
+ "silent": 0,
+ "encmon_max_ratio": 0.413295,
+ "bat_fail_seen": 0,
+ "nref_seen": 0,
+ "reason": "time",
+ "duration_s": 601.3,
+ "enc_ok": 3011490.0,
+ "enc_crc_er": 0.0,
+ "enc_sync_er": 0.0,
+ "enc_noreply": 0.0,
+ "end_fault": 0.0,
+ "end_state": 0.0
+}

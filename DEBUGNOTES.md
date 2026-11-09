@@ -16,6 +16,79 @@ Entry format:
 
 ---
 
+## 2026-11-09  One `pid0.vel_error = -inf` read in a soak (garbled, or real?)
+- Area:    `shared/comps/pid.c`, the USB console
+- Status:  Open
+- Symptom: Verification soak (hwtest/soak/runs/fanuc-desk-20261109-151226),
+  betaiS on fanuc_tw: one sample of 3350 read `pid0.vel_error = -inf`
+  (121.6 s, just after a stop at -6 rad, dc 208 V); the rest at most 3.4
+  rad/s. No fault, no saturation, the position error 0.004 rad there.
+- Cause:   Not known. The same console garbled a reply once that day
+  ("fault0.fault = 0.1"), but "-inf" is an odd garble.
+- Fix:     Open: watch for it (scope or a min/max pin on pid0.vel_error) over
+  a longer soak before trusting it either way.
+
+## 2026-11-09  hv_update on a v207 HV board: no code difference found; an erase race?
+- Area:    `src/comps/hv.c` (hv_update), `f3_boot/src/main.c`
+- Status:  Open
+- Symptom: The desk drive's v207 HV board (2026-11-05): erase acked after
+  ~11 s (2 s of flash), then no write acks (FLASH_FAILED in 0.4 s).
+- Cause:   Not the bootloader's protocol or the image layout: the v207
+  bootloader (read from the board's saved flash) looks for the header at
+  0x08004188 as master's does, master's image has image_crc / image_size
+  first there, and the only f3_boot change since (4e09e2e5) writes the
+  packet CRC's start as `&buf + 1` for `&buf.header.slave_addr`, the same
+  word. Suspect: hv0 repeats ERASE_FLASH every second rt cycle until acked;
+  if the bootloader erases again for every one it takes in, it is still
+  erasing when SEND_APP starts, and the writes time out (10 rt cycles).
+- Fix:     Open: try hv_update against master's bootloader (the desk
+  drive's HV board has it since the DFU fix); if it fails the same way,
+  send ERASE_FLASH once and wait for its ack, and give SEND_APP's first
+  write a longer timeout.
+
+## 2026-11-09  fanuc_tw: the request with interrupts on, 20 % sync errors: causes ruled out
+- Area:    `src/comps/fanuc_tw.c` (transmit_and_listen)
+- Status:  Open
+- Symptom: Turning the line around from the TX DMA's complete interrupt
+  instead of a busy wait (2026-11-06) gave 20 % sync errors, also at
+  interrupt priority 0.
+- Cause:   Not found. Ruled out: nothing writes GPIOD's ODR by read-modify-
+  write, nothing else changes GPIOD's MODER at run time, the only other
+  priority-0 interrupt is frt (2-5 us) and USB is at 15: not enough to miss
+  the encoder's 8.4 us reply delay.
+- Fix:     Open (low priority): the request goes out with interrupts off
+  (~5 us of rt a cycle). Next step would be timestamping the turnaround
+  against the reply's first edge.
+
+## 2026-11-09  encmon near its trip level (FANUC betaiS, soak): low speed near min_bemf, and fanuc_tw's lag
+- Area:    `shared/comps/encmon.c` (thres 0.30, trip_time 20 ms), `conf/template/encmon.txt`, setup wizard
+- Status:  Fixed
+- Symptom: The 10 min soak with encmon linked (hwtest/soak/runs/fanuc-desk-20261109-140105):
+  PASS, no trip, but encmon0.max_ratio 0.41, first over 0.30 in the first
+  fast moves (150 rad/s, 2000 rad/s^2, 2.9 A). The encmon test at 100 rad/s
+  saw 0.15 with the right offset.
+- Cause:   Not known: the residual grows with acceleration (the delay
+  between the F3's frame and hv0.pos, encmon0.delay 0.12 ms, or l * di/dt
+  at 2.9 A?), with the offset right (0 deg el.).
+- Fix:     Partly: fanuc_tw's position is the reply to the previous rt
+  cycle's request, ~0.2 ms older than a resolver's. Sweep of encmon0.delay
+  in the same fast moves (75 s each, twice): 0.12 ms 0.22, 0.32 ms 0.17-0.19,
+  0.52 ms 0.18, -0.08 ms 0.34 (16 ms over the trip). encmon0.delay =
+  0.00032 for fanuc_tw (conf/fanuc_bis4-4000*.txt, the wizard). The soak's
+  0.41 didn't show in the sweep. The second soak with 0.32 ms
+  (hwtest/soak/runs/fanuc-desk-20261109-144743): worst 0.38, and its log
+  shows when: at the ±0.5 rad moves (~20 rad/s, 0.1-0.2 A), just above
+  min_bemf (5 V, ~15 rad/s on this motor), where a fixed ~2 V voltage error
+  (dead time, offsets) is a large part of the back-EMF. Bench
+  (encmon_min_bemf.py in fanuc-desk-20261109-144743): small moves at
+  min_bemf 5 V 0.37 (2.6 ms over the trip), at 10 V 0.22; a 30 deg el.
+  offset error with 10 V still trips (fault 18). Now the wizard sets
+  min_bemf to 15 % of the back-EMF at top speed (5 V at least; 10.5 V on
+  the bench betaiS), the betaiS configs 10 V.
+  Tests: the bench scripts (encmon_delay_sweep.py in fanuc-desk-20261109-140105,
+  encmon_min_bemf.py); no host test (the simulator has no dead time); the
+  wizard simulator runs every motor's verify with it.
+
 ## 2026-11-06  webui/mill: a drive streaming its scope was never polled (versions, values)
 - Area:    `webui/mill/server/drives.py` (DriveLink.feed / tick)
 - Status:  Fixed
@@ -75,20 +148,21 @@ Entry format:
   counted up: the codes are appended, an older console shows the number,
   and a count-up would make every HV board need hv_update for nothing.
 
-## 2026-11-05  The HV board's scope stream fills the LV console (900 bytes/s)
-- Area:    `stm32f303/src/usbd_cdc_if.c` (cdc_is_connected), `shared/comps/term.c`, `src/comps/hv.c` (nrt prints hv_rx_buf)
-- Status:  Open
+## 2026-11-05  The scope stream on the USB console (900 bytes/s): the LV board's term, by design
+- Area:    `shared/comps/term.c` (cdc_tx), `src/usb_cdc.c`
+- Status:  Known
 - Symptom: A raw reader on /dev/ttyACM0 (the fanuc_tw soak script) gets
   `FF 80 80 80 80 80 80 80 80` a hundred times a second, also idle.
-- Cause:   On the F3 cdc_is_connected() returns 1, so its term0 streams its
-  8 waves (send_step 50) into tx_buf; ls sends them one byte per packet to
-  the F4, whose hv0 prints them on its console. servoterm-cli takes
-  0xFF-framed bytes as scope data and hides them, so its users never see it.
-- Fix:     Open: the F3's term should stream only when asked (send_step 0 by
-  default on the F3, or a connected flag from the F4). Until then raw
-  readers must drop 0xFF + 8-byte frames (hwtest/soak runs/fanuc-desk-*).
-  webui/mill's drive link drops them now (2026-11-06, entry above).
-
+- Cause:   First taken for the HV board's term (wrong). Bench 2026-11-09:
+  `term0.send_step = 0` on the LV board stops it, `hv term0.send_step = 0`
+  doesn't. The LV term0 streams its 8 waves (send_step 50: every 50 rt
+  cycles) to USB while a terminal is connected: the servoterm GUI's scope.
+  0x80 = waves not linked in this config. cdc_tx is USB only: the
+  smart-serial console (LinuxCNC, webui/mill on a machine) never gets it.
+- Fix:     None needed in the drive. Raw USB readers drop 0xFF + 8-byte
+  frames (servoterm-cli does; webui/mill's drive link does since
+  2026-11-06; brdmot tools/bench/f2w_trace.py), or set term0.send_step = 0
+  (the setup wizard does).
 ## 2026-11-05  Wizard: "the drive refused idm0.inertia = ..." in the mechanical step
 - Area:    `servoterm-cli/setup/su_steps.c` (step_mechanical), `su_link.c` (su_link_set)
 - Status:  Open
