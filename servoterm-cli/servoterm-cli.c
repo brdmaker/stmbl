@@ -1102,6 +1102,7 @@ static int scope_capture(int fd, const char *path, int arm, double timeout) {
 
 #define FW_LINE 30   // bytes per fwdata line: the console's 63 characters
 #define FW_WINDOW 3  // lines in flight: the smart-serial console buffers 256 bytes
+#define FW_STUCK 15  // s busy without progress: give up (the rt loop drains the queue in ms)
 
 static unsigned long fw_crc32(const unsigned char *d, size_t n) {
   unsigned long c = 0xffffffffUL;
@@ -1155,7 +1156,7 @@ static int fw_update(int fd, const char *path, int apply) {
   }
   // a window of lines in flight (the drive's console buffers a few); every
   // reply carries the drive's position, the last one says where to go on
-  double t0 = now();
+  double t0 = now(), moved = now();
   int retries = 0, busy = 0, last_pct = -1;
   while(off < size && !stop_req) {
     int k = 0;
@@ -1214,6 +1215,7 @@ static int fw_update(int fd, const char *path, int apply) {
     if(pos > off && pos <= size && pos % FW_LINE == 0) {
       off     = pos;
       retries = 0;
+      moved   = now();
     } else if(pos >= 0 && pos <= size && pos % FW_LINE == 0 && bad == 0) {
       off = pos;  // no progress (busy): again
       pump(fd, 0.01);
@@ -1221,6 +1223,16 @@ static int fw_update(int fd, const char *path, int apply) {
       off = size;
     } else if(++retries > 10) {
       fprintf(stderr, "servoterm-cli: fwdata at %ld: no progress (%s)\n", off, cap_buf ? cap_buf : "no reply");
+      free(img);
+      return -1;
+    }
+    if(now() - moved > FW_STUCK) {
+      // busy for ever: the drive's realtime loop programs the queued lines,
+      // and it stopped (seen 2026-11-10: RT_TOO_LONG, the update hung)
+      fprintf(stderr,
+              "servoterm-cli: fwdata at %ld: the drive stays busy for %d s: its realtime loop doesn't\n"
+              "  program the staged lines (`hal`: RT_TOO_LONG?). Reset the drive, lighten its config, again.\n",
+              off, FW_STUCK);
       free(img);
       return -1;
     }

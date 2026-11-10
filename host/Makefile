@@ -120,6 +120,10 @@ test_fanuc1p: tests/test_fanuc1p.c ../shared/fanuc1p.c ../shared/fanuc1p.h
 test_fanuc_tw: tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc1p.h ../shared/fanuc_tw.c ../shared/fanuc_tw.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc_tw.c -lm
 
+# shared/yaskawa_abs.c: the Yaskawa Sigma-II absolute encoder's reply on recorded frames (src/comps/yaskawa_abs.c)
+test_yaskawa_abs: tests/test_yaskawa_abs.c ../shared/yaskawa_abs.c ../shared/yaskawa_abs.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_yaskawa_abs.c ../shared/yaskawa_abs.c -lm
+
 # shared/wdog.h: reset cause, watchdog feeding, the breathing LED (src/wdog.c)
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
@@ -134,9 +138,10 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_yaskawa_abs
 	@./test_fanuc1p
 	@./test_fanuc_tw
+	@./test_yaskawa_abs
 	@./test_ssq
 	@./test_adc_sum
 	@./test_sscon
@@ -157,6 +162,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/test_stmblconf.py
 	@$(MAKE) -s -C ../servoterm-cli
 	@$(PYTHON) tests/test_servoterm_ident.py
+	@$(PYTHON) tests/test_servoterm_update.py
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all

@@ -156,6 +156,9 @@ static void test_feedback(void) {
   ok(su_fb_counts(cnt, 1, 65536, &counts, &dir) == -1, "feedback: one pulse is not enough");
   ok(su_fb_lines(10000) == 2500 && su_fb_lines(10002) == 0, "feedback: lines");
   ok(su_fb_find("enc") && su_fb_find("resolver") && !su_fb_find("nope"), "feedback: types");
+  ok(su_fb_find("yaskawa_abs") && strcmp(su_fb_find("yaskawa_abs")->link, "yaskawa_abs_fb0") == 0 &&
+         su_fb_find("yaskawa_abs")->res == SU_FB_RES_FIXED,
+     "feedback: yaskawa_abs, its template");
   for(int i = 0; i < su_fb_ntypes; i++) {
     char *t = su_wiring_feedback(su_fb_types[i].wiring_col);
     char what[96];

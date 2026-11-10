@@ -1,0 +1,10 @@
+load yaskawa_abs
+yaskawa_abs0.rt_prio = 1
+fb_switch0.mot_pos = yaskawa_abs0.pos
+fb_switch0.mot_abs_pos = yaskawa_abs0.abs_pos
+fb_switch0.mot_state = yaskawa_abs0.state
+fb_switch0.mot_polecount = 1
+fault0.mot_fb_error = yaskawa_abs0.error
+conf0.mot_fb_res = 1048576
+io0.fb0y = yaskawa_abs0.error
+io0.fb0g = 1

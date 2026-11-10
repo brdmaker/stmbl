@@ -261,6 +261,10 @@ char *su_build_config(const su_state_t *st, int final) {
       // its position is a cycle (0.2 ms) older than a resolver's: encmon's
       // angle correction must allow for it (bench sweep 2026-11-09)
       c = su_conf_set(c, "encmon0.delay", "0.00032", "fanuc_tw: +0.2 ms");
+    } else if(fb && strcmp(fb->id, "yaskawa_abs") == 0) {
+      // the same: read in one rt cycle, used in the next (guess: as
+      // fanuc_tw, not swept on this encoder yet)
+      c = su_conf_set(c, "encmon0.delay", "0.00032", "yaskawa_abs: +0.2 ms");
     }
     // encmon checks above min_bemf only: near it a fixed few volts of
     // voltage error (dead time, offsets) is a large part of the back-EMF

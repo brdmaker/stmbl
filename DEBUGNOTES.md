@@ -16,6 +16,66 @@ Entry format:
 
 ---
 
+## 2026-11-10  yaskawa_abs: no frame at all (the decoder waited for a long preamble)
+- Area:    `shared/yaskawa_abs.c`
+- Status:  Fixed
+- Symptom: First run on the SGMAH-08A1A61D (drive 207D35A05631): replies came
+  (~200 edges each), but every poll counted a frame error.
+- Cause:   The decoder synced on 8 long intervals in a row (the preamble).
+  The drive starts listening when its request is out, and by then the
+  encoder's preamble is mostly sent: a capture (`yaskawa_abs0.dump`)
+  began a bit or two before the flag. A run of 9 inside the data was taken
+  for the preamble instead, and no flag followed.
+- Fix:     Sync on the first long interval (both its edges are mid-bit). If
+  no flag follows in the first 48 bits, try again from the next long
+  interval, up to 3 times. Test: host/tests/test_yaskawa_abs.c, the bench
+  capture plus replies with 0-19 preamble bits and a stray edge first.
+  The old rule fails 361 of these checks.
+
+## 2026-11-10  yaskawa_abs: RT_TOO_LONG (the decode 57-80 us, the request busy-waited)
+- Area:    `src/comps/yaskawa_abs.c`, `shared/yaskawa_abs.c`
+- Status:  Fixed
+- Symptom: With pid and pmsm loaded, rt stopped (`hal`: RT_TOO_LONG, 198 us)
+  as soon as frames decoded. Before that it was during a firmware update:
+  fwup's flash writes (+18 us) on top of yaskawa_abs's 72 us.
+- Cause:   The decode alone took 57 us: the edges went to a bit array, then
+  a separate HDLC pass. A failed reply cost up to 80 us, because each new
+  sync attempt ran over the whole capture again; this happened in bursts
+  after a reset. The request (14 us) was sent by busy-waiting for the DMA.
+- Fix:     Edges to bytes in one pass. The flag search ends after 48 bits,
+  and there is no new sync attempt after the flag. A table CRC. The
+  request goes out by DMA while rt decodes the previous reply, and the
+  DMA's interrupt turns the line around into the other of two capture
+  buffers. Bench: 46 us average, 52 us at most; rt 155 / 162 us at most, over
+  4 resets, and through `make update`. Pins us_col / us_dec / us_tx. Test:
+  host/tests/test_yaskawa_abs.c (decode and CRC); the timing has no host
+  test (it needs the F4). Still open: with id_mot (commissioning). With
+  fanuc_tw, id_mot added ~40 us.
+
+## 2026-11-10  servoterm-cli --update hangs for ever on a drive whose rt stopped
+- Area:    `servoterm-cli/servoterm-cli.c` (fw_update)
+- Status:  Fixed
+- Symptom: `make update` with yaskawa_abs loaded sat at ~18 KB for 17
+  minutes, with no message.
+- Cause:   rt had stopped (RT_TOO_LONG), so fwup's queue was never
+  programmed. The drive answered each window "fw busy" plus "fw err -3 at
+  GOT". That counts as "no progress, again", with no limit.
+- Fix:     Give up after 15 s without progress: "the drive stays busy ...
+  (`hal`: RT_TOO_LONG?)". Test: host/tests/test_servoterm_update.py, a fake
+  drive on a pty answering as fwstage does with its queue full. It times
+  out at 60 s without the fix.
+
+## 2026-11-10  RT_TOO_LONG leaves fault0.fault at 0
+- Area:    `shared/hal.c`, `shared/comps/fault.c`
+- Status:  Open
+- Symptom: rt stopped (RT_TOO_LONG, `hal`), and `fault0.fault` still read 0.
+  Only `hal` showed it.
+- Cause:   fault0 runs in rt: once rt stops, nothing updates it. hv0 stops
+  too, so the HV board sees the F4 gone and brakes.
+- Fix:     Open: have the nrt loop or the console show the HAL state (e.g.
+  a fault code set from nrt when hal.hal_state != HAL_OK2), so LinuxCNC and
+  the web UI see it.
+
 ## 2026-11-09  One `pid0.vel_error = -inf` read in a soak (garbled, or real?)
 - Area:    `shared/comps/pid.c`, the USB console
 - Status:  Open
@@ -28,7 +88,7 @@ Entry format:
 - Fix:     Open: watch for it (scope or a min/max pin on pid0.vel_error) over
   a longer soak before trusting it either way.
 
-## 2026-11-09  hv_update on a v207 HV board: no code difference found; an erase race?
+## 2026-11-09  hv_update on a v207 HV board: no code difference found; long bootloader ops?
 - Area:    `src/comps/hv.c` (hv_update), `f3_boot/src/main.c`
 - Status:  Open
 - Symptom: The desk drive's v207 HV board (2026-11-05): erase acked after
@@ -45,6 +105,29 @@ Entry format:
   drive's HV board has it since the DFU fix); if it fails the same way,
   send ERASE_FLASH once and wait for its ack, and give SEND_APP's first
   write a longer timeout.
+  2026-11-10, drive 207D35A05631 (HV board v207, bootloader
+  v0.9.18-207-ga779298d, 2025-01-22): erase and all writes acked, then
+  FLASH_FAILED at CRC_CHECK, and the board stayed in its bootloader. DFU
+  dump before reflashing (~/stmbl-firmware/newdrive-207D35A05631/
+  f3-flash-stuck-20261110.bin):
+  - The app area equals obj_hvf3/hvf3.bin byte for byte, and its STM32 CRC
+    is 0.
+  - The bootloader's binary checks just what its source says: image_size
+    at 0x0800418C, the range, HAL_CRC_Calculate over the app, OK if 0.
+
+  So it most likely sent OK, and the F4 didn't get it. New suspect, for
+  this and the erase case: the bootloader handles a packet inside its TIM8
+  interrupt, and the CRC over 113 KB (ms) or the erase (s) blocks there.
+  Meanwhile hv0 keeps sending a request every other rt cycle. The F3's
+  USART may then overrun (ORE is never cleared, the code is commented
+  out), and the one late reply arrives at a random point in the F4's
+  receive. A bootloader deaf from then on would explain why it never
+  takes the DO_RESET and stays put.
+  Next:
+  - hv_update on this board, now on master's bootloader (same code: if the
+    timing is it, that can fail too).
+  - Then hv0: send ERASE_FLASH and CRC_CHECK once and only listen until
+    the reply comes.
 
 ## 2026-11-09  fanuc_tw: the request with interrupts on, 20 % sync errors: causes ruled out
 - Area:    `src/comps/fanuc_tw.c` (transmit_and_listen)

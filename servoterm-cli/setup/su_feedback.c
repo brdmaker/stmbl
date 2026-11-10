@@ -20,6 +20,10 @@ const su_fb_type_t su_fb_types[] = {
      NULL, "encf0.abs_pos", SU_FB_RES_FIXED, "FANUC", 1, "fanuc_mt"},
     {"fanuc_tw", "FANUC 2-wire serial pulsecoder (betaiA128 etc., 1 pair RD/*RD)", "fanuc_tw_fb0", NULL,
      "fanuc_tw0.pos", SU_FB_RES_FIXED, "FANUC-2wire", 0},
+    // multi-turn not tied to mturn yet: its status bits (battery, turns
+    // valid) aren't known (docs/yaskawa_abs.md)
+    {"yaskawa_abs", "Yaskawa Sigma-II serial encoder (SGMAH-xxA1..., 20 bits a turn)", "yaskawa_abs_fb0", NULL,
+     "yaskawa_abs0.pos", SU_FB_RES_FIXED, "Yaskawa", 0},
 };
 const int su_fb_ntypes = sizeof(su_fb_types) / sizeof(su_fb_types[0]);
 

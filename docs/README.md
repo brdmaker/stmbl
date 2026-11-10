@@ -49,6 +49,7 @@ FANUC motors on hand:
 |---|---|
 | [fanuci.md](fanuci.md) | `fanuci`: experimental probe for FANUC 1-pair (αi / βi) serial pulsecoders on FB0, how to find the protocol on the bench and turn it into a driver |
 | [fanuc_tw.md](fanuc_tw.md) | `fanuc_tw`: the feedback driver for FANUC 2-wire pulsecoders (βiA128): wiring, the frame, pins, debugging the unknown bits |
+| [yaskawa_abs.md](yaskawa_abs.md) | `yaskawa_abs`: the feedback driver for Yaskawa Σ-II serial absolute encoders (SGMAH-xxA1): wiring, the frame, pins, bench numbers |
 | [fanuc/](fanuc/README.md) | moved to the private repository `brdmaker/brdmot`: the FANUC motors on hand, their encoders, the `encf` bench test, FANUC manuals as text |
 
 Tools: `servoterm-cli/README.md`, `linuxcnc/sserialterm/README.md`.

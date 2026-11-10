@@ -51,6 +51,7 @@ else
 	SRC_COMPS += src/comps/fbtx.c
 	SRC_COMPS += src/comps/sserial.c
 	SRC_COMPS += src/comps/yaskawa.c
+	SRC_COMPS += src/comps/yaskawa_abs.c
 	SRC_COMPS += src/comps/fanuci.c
 	SRC_COMPS += src/comps/fanuc_tw.c
 	SRC_COMPS += src/comps/encs.c
@@ -156,6 +157,7 @@ SOURCES += src/syscalls.c
 SOURCES += shared/crc.c
 SOURCES += shared/crc8.c
 SOURCES += shared/yaskawa_crc16.c
+SOURCES += shared/yaskawa_abs.c
 SOURCES += shared/fanuc1p.c
 SOURCES += shared/fanuc_tw.c
 SOURCES += shared/endat.c
@@ -328,6 +330,8 @@ $(OBJDIR)/shared/commands.o: inc/commandslist.h
 # the FANUC 2-wire decoder runs every rt cycle (fanuc_tw): -O3, the firmware's
 # -O1 made it ~35 us of the 200 us rt (RT_TOO_LONG with id_mot, 2026-11-05)
 $(OBJDIR)/shared/fanuc1p.o $(OBJDIR)/shared/fanuc_tw.o $(OBJDIR)/src/comps/fanuc_tw.o: OPT = -O3
+# the same for the Yaskawa decoder (yaskawa_abs), every rt cycle too
+$(OBJDIR)/shared/yaskawa_abs.o $(OBJDIR)/src/comps/yaskawa_abs.o: OPT = -O3
 
 inc/commandslist.h: tools/create_cmd.py $(SOURCES) Makefile
 	@echo Generating commands list
