@@ -16,6 +16,34 @@ Entry format:
 
 ---
 
+## 2026-11-10  yaskawa_abs: 3-5 % frame errors once the motor was wired (a late edge); bad sound in id_mot
+- Area:    `shared/yaskawa_abs.c`
+- Status:  Fixed (decoder); Open (the line, the rt cost)
+- Symptom: Commissioning the SGMAH-08A1 (wizard): id_mot made a very bad
+  sound. yaskawa_abs0.frame_er 78148 of 2.24 M polls (3.5 %), and 5 % with
+  the drive disabled at that shaft position. Earlier, at another position,
+  it was 0.008 %.
+- Cause:   Captures (`dump`) of the failing frames show two edges with the
+  same timestamp. A short half-bit right after a long one arrived ~10 ticks
+  (120 ns) late, on top of the next edge (intersymbol interference: the
+  line hasn't settled after the long level). Moving that edge back half a
+  bit gives a CRC-good frame. It depends on the bit pattern, so on the
+  shaft position. Every bad frame held the last position, and the jump on
+  the next good one made velocity spikes: the sound.
+- Fix:     The decoder reads a long interval followed by a near-zero one
+  (< 1/4 bit) as two shorts, or as a short in the short-short step; the
+  CRC still checks the frame. Bench: 1 frame error in 52 000 at the same
+  position. Test: host/tests/test_yaskawa_abs.c, the two failing bench
+  captures (both fail without the fix).
+  Open:
+  - The decode now takes ~45 us on the wizard's config (35 us measured
+    before, on the test config). Neither -O2 nor the capture buffers in
+    SRAM2 changed it. With id_mot loaded rt reached 189.6 us of 200
+    before this fix: a faster decoder is needed.
+  - The line itself: a scope on Z+/Z- at FB0, and its termination.
+  - The HV supply (lab, 1 A limit) collapsed to 18 V in the second id_mot
+    run: fault 11.
+
 ## 2026-11-10  yaskawa_abs: no frame at all (the decoder waited for a long preamble)
 - Area:    `shared/yaskawa_abs.c`
 - Status:  Fixed

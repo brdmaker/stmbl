@@ -106,15 +106,23 @@ static int decode_from(const uint16_t *t, int n, int tpb, int from, uint8_t *byt
       break;  // the reply ended (or a gap)
     }
     if(4 * d > lim4) {
-      i += 1;
-      level ^= 1;
+      // a short half-bit after a long one can arrive late, on top of the
+      // next edge (the line not settled: bench, SGMAH, 2026-11-10, ~5 % of
+      // frames at some positions): a long and then ~0 is two shorts (and
+      // in the short branch below, a long then ~0 is a short)
+      if(i + 2 < n && 4u * (uint16_t)(t[i + 2] - t[i + 1]) < (unsigned)tpb) {
+        i += 2;
+      } else {
+        i += 1;
+        level ^= 1;
+      }
     } else {
       if(i + 2 >= n) {
         break;
       }
       unsigned d2 = (uint16_t)(t[i + 2] - t[i + 1]);
-      if(4 * d2 > lim4) {
-        return YAB_MANCHESTER;  // short, long: not Manchester
+      if(4 * d2 > lim4 && !(i + 3 < n && 4u * (uint16_t)(t[i + 3] - t[i + 2]) < (unsigned)tpb)) {
+        return YAB_MANCHESTER;  // short, long: not Manchester (unless a late edge, above)
       }
       i += 2;
     }
