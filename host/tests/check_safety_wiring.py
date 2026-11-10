@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Source checks for safety wiring that no simulator runs (DEBUGNOTES
+2026-11-10, from comparing with the stmbl_freak fork):
+
+1. Every F3 comparator routed to a TIM8 break input (COMPx OUTSEL in
+   stm32f303/src/main.c) has that break enabled in stm32f303/src/tim.c.
+   Phase W's COMP1 goes to BKIN2, which was disabled: a phase W
+   overcurrent never cut the PWM in hardware.
+2. The F4's io (src/comps/hw/io4.c) has an rt_stop that drives the brake
+   output PE4 low, so a stopped hal grips the holding brake (the host
+   stand-in host/hw/io.c is tested in tests/ebrake/hal_stop_brake.test).
+"""
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+
+
+def read(rel):
+    with open(os.path.join(ROOT, rel)) as f:
+        return f.read()
+
+
+def strip_comments(s):
+    s = re.sub(r"/\*.*?\*/", "", s, flags=re.S)
+    return re.sub(r"//[^\n]*", "", s)
+
+
+# RM0316 COMPx_CSR OUTSEL (bits 13:10) -> TIM8 break input, for the
+# comparators the F3 uses (COMP1, COMP2, COMP4: 0011 = TIM8_BKIN,
+# 0100 = TIM8_BKIN2, 0101 = TIM1_BKIN2 + TIM8_BKIN2)
+OUTSEL_BREAK = {3: "BKIN", 4: "BKIN2", 5: "BKIN2"}
+
+n = 0
+fails = 0
+
+
+def ok(c, name, detail=""):
+    global n, fails
+    n += 1
+    fails += not c
+    print("%s %d - safety_wiring: %s" % ("ok" if c else "not ok", n, name))
+    if not c and detail:
+        print("#   " + detail)
+
+
+main = strip_comments(read("stm32f303/src/main.c"))
+tim = strip_comments(read("stm32f303/src/tim.c"))
+
+routed = {}
+for m in re.finditer(r"COMP(\d)->CSR\s*=\s*([^;]+);", main):
+    comp, expr = m.group(1), m.group(2)
+    outsel = 0
+    for b in re.findall(r"COMP%s_CSR_COMP%sOUTSEL_(\d)" % (comp, comp), expr):
+        outsel |= 1 << int(b)
+    brk = OUTSEL_BREAK.get(outsel)
+    if brk:
+        routed.setdefault(brk, []).append("COMP" + comp)
+
+ok(sorted(routed) == ["BKIN", "BKIN2"], "the three phase comparators feed TIM8 BKIN and BKIN2",
+   "routed: %r" % routed)
+
+
+def field(name):
+    m = re.search(r"sBreakDeadTimeConfig\.%s\s*=\s*(\w+)\s*;" % name, tim)
+    return m.group(1) if m else None
+
+
+state = {"BKIN": field("BreakState"), "BKIN2": field("Break2State")}
+need = {"BKIN": "TIM_BREAK_ENABLE", "BKIN2": "TIM_BREAK2_ENABLE"}
+for brk, comps in sorted(routed.items()):
+    ok(state[brk] == need[brk], "TIM8 %s (%s) is enabled" % (brk, ", ".join(comps)),
+       "tim.c sets it to %s" % state[brk])
+# the same glitch filter on both, so a phase trips at the same pulse width
+ok(field("Break2Filter") == field("BreakFilter"), "BKIN2 filtered as BKIN",
+   "BreakFilter %s, Break2Filter %s" % (field("BreakFilter"), field("Break2Filter")))
+
+io4 = strip_comments(read("src/comps/hw/io4.c"))
+m = re.search(r"\.rt_stop\s*=\s*(\w+)", io4)
+fn = m.group(1) if m else "0"
+ok(fn != "0", "io4 has an rt_stop")
+body = ""
+if fn != "0":
+    b = re.search(r"static void %s\s*\([^)]*\)\s*\{(.*?)\n\}" % fn, io4, re.S)
+    body = b.group(1) if b else ""
+ok(re.search(r"GPIO_ResetBits\(\s*GPIOE\s*,\s*GPIO_Pin_4\s*\)", body) is not None,
+   "io4's rt_stop drives PE4 (DIO0, the brake release) low")
+ok("TIM9->CCR1 = 0" in body and "TIM9->CCR2 = 0" in body, "io4's rt_stop stops the out1/out2 PWM")
+
+print("1..%d" % n)
+sys.exit(1 if fails else 0)

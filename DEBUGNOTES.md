@@ -4922,16 +4922,51 @@ Entry format:
   `light_glink.portal` (pcbdrill's), `slow_glink.portal` (cmm's). `make -C host check` passes.
 
 ## 2026-11-10 Safety gaps found by comparing with the stmbl_freak fork
-- Area:    stm32f303/src/comps/io.c, stm32f303/src/tim.c, stm32f303 (watchdog, PVD, CSS), src/comps/hw/io4.c,
-  src/config.c, shared/ringbuf.c, shared/comps/iit.c
+- Area:    stm32f303 (rt stop, watchdog, PVD, CSS), shared/ringbuf.c, shared/comps/iit.c
 - Status:  Open
-- Symptom: (from reading, not seen on hardware) checked in our code:
-  - the F3 software overcurrent trip is `MAX3(ABS(PIN(iu)), PIN(iv), PIN(iw))` (io.c:242): negative V/W currents
-    never trip it;
-  - COMP1 (phase W) is routed to TIM8 BKIN2 but `Break2State = TIM_BREAK2_DISABLE` (tim.c:94);
-  - `io4` has no `rt_stop` (io4.c:533): a released brake on out0 stays released when the hal stops;
-  - `appendconf`'s `strncat(config, ptr, sizeof(config) - 1)` (config.c:116) bounds the append, not the total.
-  From the fork's analysis, not yet checked here: the F3 keeps the last PWM when its rt stops; no F3 IWDG and an
-  unbounded ADC DMA wait; no PVD / CSS; ringbuf's `len` written by both IRQ and main loop; `iit` NaN at max_cur 0.
+- Symptom: (from the fork's analysis, not yet checked here) the F3 keeps the last PWM when its rt stops; no F3 IWDG
+  and an unbounded ADC DMA wait; no PVD / CSS; ringbuf's `len` written by both IRQ and main loop; `iit` NaN at
+  max_cur 0. The four confirmed in our code are fixed, see the entries below.
 - Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed each.
 - Fix:     none yet. The plan, their commits and how to test each: brdmot `docs/stmbl_freak.md` section 4.2 / 6.
+
+## 2026-11-10 F3 software overcurrent trip missed negative V/W currents
+- Area:    stm32f303/src/comps/io.c, shared/iabs.h
+- Status:  Fixed (host test; not yet seen on hardware)
+- Symptom: `iabs = MAX3(ABS(iu), iv, iw)`: only U's magnitude, so a negative V or W current (e.g. V shorted to
+  ground) never tripped HV_OVERCURRENT_PEAK / HV_OVERCURRENT_RMS; only the hardware comparators were left.
+- Cause:   a missing ABS, inherited from upstream.
+- Fix:     `phase_iabs()` (shared/iabs.h) takes the magnitude of all three. Test: host/tests/test_iabs.c
+  (`make -C host check`; -V, -W and a lone -V fault failed before).
+
+## 2026-11-10 Phase W's comparator never cut the PWM (TIM8 Break2 disabled)
+- Area:    stm32f303/src/tim.c, stm32f303/src/main.c
+- Status:  Fixed (source check); bench check open
+- Symptom: COMP1 (phase W, PA1) is routed to TIM8 BKIN2 (OUTSEL 0100), but tim.c had
+  `Break2State = TIM_BREAK2_DISABLE`: a phase W overcurrent only tripped the software check, a cycle or more late.
+- Cause:   inherited from upstream.
+- Fix:     Break2 enabled, filter 0xa as BKIN; MOE cleared by either break shows as HV_OVERCURRENT_HW as before.
+  Test: host/tests/check_safety_wiring.py (every COMPx routed to a TIM8 break has it enabled; no simulator runs
+  the F3's timer). Still to do on the bench (hwtest/suite): a W overcurrent trips, and no false trip from ringing
+  at the comparator level (dac 1560).
+
+## 2026-11-10 Brake stayed released when the F4's hal stopped (io4 had no rt_stop)
+- Area:    src/comps/hw/io4.c, host/hw/io.c
+- Status:  Fixed (host test + source check); bench check open
+- Symptom: console `stop` or a hal fault while enabled: rt stops, PE4 (DIO0, fault0.mot_brake) kept its last
+  level, so a released holding brake stayed released with the motor unpowered (a vertical axis could drop).
+- Cause:   `io_comp_struct.rt_stop = 0`.
+- Fix:     io4's rt_stop drives PE4 low and TIM9 CCR1/CCR2 (out1/out2) to 0; the host stand-in does the same to
+  out0_state. Tests: host/tests/ebrake/hal_stop_brake.test (out0_state stayed 1 after `stop` before),
+  host/tests/check_safety_wiring.py (io4's rt_stop resets PE4).
+
+## 2026-11-10 appendconf could write past config[]
+- Area:    src/config.c, host/drive.c, vibsensor/src/config.c, brdstepper/src/config.c, shared/conf_append.h
+- Status:  Fixed
+- Symptom: with the RAM config nearly full, `appendconf` wrote past `config[]` (15 kB on the F4) into whatever
+  follows it in RAM; the other targets' versions truncated mid-line, and with a full config their
+  `sizeof - strlen - 2` wrapped around to a huge count.
+- Cause:   strncat's count is the room left, not the buffer size (`strncat(config, ptr, sizeof(config) - 1)`).
+- Fix:     `conf_append()` (shared/conf_append.h) appends line + '\n' only if it fits whole, else prints
+  "config full, not added" and leaves the config unchanged; all four targets use it. Test:
+  host/tests/test_conf_append.c (canary past the buffer; overflowed before: glibc's fortify aborted).

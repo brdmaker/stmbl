@@ -32,6 +32,7 @@
 #include "drive.h"
 #include "version_number.h"
 #include "confident.h"
+#include "conf_append.h"
 
 // 1 kHz millisecond counter that the firmware exposes via SysTick.
 volatile uint64_t systime = 0;
@@ -143,8 +144,9 @@ COMMAND("showconf", showconf, "show config");
 
 void appendconf(char *ptr) {
   printf("adding %s\n", ptr);
-  strncat(config, ptr, sizeof(config) - strlen(config) - 1);
-  strncat(config, "\n", sizeof(config) - strlen(config) - 1);
+  if(conf_append(config, sizeof(config), ptr)) {
+    printf("config full, not added\n");
+  }
 }
 COMMAND("appendconf", appendconf, "append string to config");
 

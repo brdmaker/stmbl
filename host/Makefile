@@ -121,6 +121,14 @@ test_fanuc_tw: tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc1p.h ../
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_fanuc_tw.c ../shared/fanuc1p.c ../shared/fanuc_tw.c -lm
 
 # shared/wdog.h: reset cause, watchdog feeding, the breathing LED (src/wdog.c)
+# shared/iabs.h (the F3's overcurrent trip) and shared/conf_append.h
+# (appendconf), safety fixes of 2026-11-10
+test_iabs: tests/test_iabs.c ../shared/iabs.h ../shared/defines.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_iabs.c -lm
+
+test_conf_append: tests/test_conf_append.c ../shared/conf_append.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_conf_append.c
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -134,7 +142,9 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append
+	@./test_iabs
+	@./test_conf_append
 	@./test_fanuc1p
 	@./test_fanuc_tw
 	@./test_ssq
@@ -153,6 +163,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
+	@$(PYTHON) tests/check_safety_wiring.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
 	@$(MAKE) -s -C ../servoterm-cli

@@ -8,6 +8,7 @@
 #include "f3hw.h"
 #include "common.h"
 #include "cur_offset.h"
+#include "iabs.h"
 
 HAL_COMP(io);
 
@@ -239,7 +240,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(v)        = VOLT(adc_12_buf[5] >> 16) * 0.05 + PIN(v) * 0.95;
     PIN(u)        = VOLT(adc_34_buf[5] & 0xFFFF) * 0.05 + PIN(u) * 0.95;
     PIN(udc)      = VOLT(adc_34_buf[5] >> 16) * 0.05 + PIN(udc) * 0.95;
-    PIN(iabs)     = MAX3(ABS(PIN(iu)), PIN(iv), PIN(iw));
+    PIN(iabs)     = phase_iabs(PIN(iu), PIN(iv), PIN(iw));
     ctx->hv_temp  = adc_34_buf[0];
     ctx->mot_temp = adc_34_buf[3];
 

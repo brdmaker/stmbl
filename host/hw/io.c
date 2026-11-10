@@ -81,6 +81,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(fb1) = r1 <= -1.5 ? vs : rpull_v(r1, vs, 10000.0, 11000.0);
 }
 
+// as io4's rt_stop: the hal stopped, DIO0 drops and the brake grips
+static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
+  (void)ctx_ptr;
+  PIN(out0_state) = 0.0;
+}
+
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
   PIN(sim_fb0_r) = -2.0;
@@ -96,7 +103,7 @@ hal_comp_t io_comp_struct = {
     .nrt_init  = nrt_init,
     .rt_start  = 0,
     .frt_start = 0,
-    .rt_stop   = 0,
+    .rt_stop   = rt_stop,
     .frt_stop  = 0,
     .ctx_size  = 0,
     .pin_count = sizeof(struct io_pin_ctx_t) / sizeof(struct hal_pin_inst_t),

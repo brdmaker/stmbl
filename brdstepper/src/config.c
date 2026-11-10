@@ -9,6 +9,7 @@
 #include "hal.h"
 #include "commands.h"
 #include "flash.h"
+#include "conf_append.h"
 
 char config[15 * 1024];
 static const char *config_ro = (const char *)FLASH_CONF;
@@ -69,8 +70,9 @@ COMMAND("showconf", showconf, "show config");
 
 void appendconf(char *ptr) {
   printf("adding %s\n", ptr);
-  strncat(config, ptr, sizeof(config) - strlen(config) - 2);
-  strncat(config, "\n", sizeof(config) - strlen(config) - 1);
+  if(conf_append(config, sizeof(config), ptr)) {
+    printf("config full, not added\n");
+  }
 }
 COMMAND("appendconf", appendconf, "append string to config");
 

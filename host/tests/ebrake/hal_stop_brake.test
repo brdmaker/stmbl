@@ -1,0 +1,18 @@
+# The hal stops (console "stop", or a fault that stops the hal) while the
+# drive is enabled: the F4's io rt_stop drops DIO0 so the holding brake
+# grips. Before 2026-11-10 io4 had no rt_stop and PE4 kept its last level,
+# so the brake stayed released with the outputs off (DEBUGNOTES).
+# host/hw/io.c mirrors io4 (out0_state = what PE4 drives); tests/
+# check_safety_wiring.py checks that io4's rt_stop really drives PE4 low.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 60
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+io0.out0_state
+stop
+run 0.1
+io0.out0_state
+@expect io0.out0_state[1] == 1
+@expect io0.out0_state[2] == 0
