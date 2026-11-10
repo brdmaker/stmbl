@@ -4920,3 +4920,18 @@ Entry format:
 - Fix:     moved with their history to brdmot's `sim/portal/retrofit` and `sim/portal/tests` (`make sim-check` there).
   The gantry-link tests run on generic copies: `host/portal/machine/gantry/heavy_glink.portal` (laser3015's),
   `light_glink.portal` (pcbdrill's), `slow_glink.portal` (cmm's). `make -C host check` passes.
+
+## 2026-11-10 Safety gaps found by comparing with the stmbl_freak fork
+- Area:    stm32f303/src/comps/io.c, stm32f303/src/tim.c, stm32f303 (watchdog, PVD, CSS), src/comps/hw/io4.c,
+  src/config.c, shared/ringbuf.c, shared/comps/iit.c
+- Status:  Open
+- Symptom: (from reading, not seen on hardware) checked in our code:
+  - the F3 software overcurrent trip is `MAX3(ABS(PIN(iu)), PIN(iv), PIN(iw))` (io.c:242): negative V/W currents
+    never trip it;
+  - COMP1 (phase W) is routed to TIM8 BKIN2 but `Break2State = TIM_BREAK2_DISABLE` (tim.c:94);
+  - `io4` has no `rt_stop` (io4.c:533): a released brake on out0 stays released when the hal stops;
+  - `appendconf`'s `strncat(config, ptr, sizeof(config) - 1)` (config.c:116) bounds the append, not the total.
+  From the fork's analysis, not yet checked here: the F3 keeps the last PWM when its rt stops; no F3 IWDG and an
+  unbounded ADC DMA wait; no PVD / CSS; ringbuf's `len` written by both IRQ and main loop; `iit` NaN at max_cur 0.
+- Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed each.
+- Fix:     none yet. The plan, their commits and how to test each: brdmot `docs/stmbl_freak.md` section 4.2 / 6.
