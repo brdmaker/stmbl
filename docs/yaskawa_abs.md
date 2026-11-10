@@ -135,10 +135,14 @@ too short), `noreply`.
 ## Bench (2026-11-10, SGMAH-08A1A61D, drive 207D35A05631)
 
 With pid and pmsm loaded, motor not enabled:
-- `yaskawa_abs0` takes 46 µs of rt on average, 52 µs at most (the decode
-  ~35 µs). rt is 155 µs on average, 162 µs at most, of 200.
+- `yaskawa_abs0` takes 38 µs of rt on average, 39 µs at most (the decode
+  ~30 µs, 4400 cycles). rt is 149 µs on average, 151 µs at most, of 200
+  (the setup wizard's config).
 - Errors: 0 CRC errors, and 8 frame errors in 100 000 polls. The old
   comp counted 1.7 % CRC errors. Single bursts after a reset: up to 2000.
+- With the motor wired, a short half-bit after a long one sometimes comes
+  ~120 ns late (5 % of frames at some shaft positions). The decoder reads
+  it; 1 frame error in 52 000 there.
 - A firmware update (`make update`) with it loaded: fine (111 s).
 
 Still to do:

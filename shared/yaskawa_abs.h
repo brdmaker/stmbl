@@ -32,8 +32,11 @@ int yab_request_chips(uint8_t *chips, int max);
  * the opening flag (either line polarity), removes the stuffed bits up to
  * the closing flag and packs the data MSB first into bytes; no 14 bytes:
  * again from the next long interval, a few times. Returns the number of
- * data bytes, or a YAB_ error (< 0). */
-int yab_decode(const uint16_t *t, int n, int ticks_per_bit, uint8_t *bytes, int maxbytes);
+ * data bytes, or a YAB_ error (< 0).
+ * t needs room for n + 2 values: the two after the last edge are written
+ * (sentinels). The times must not wrap within the reply (the comp starts
+ * its timer at 0 for each capture). */
+int yab_decode(uint16_t *t, int n, int ticks_per_bit, uint8_t *bytes, int maxbytes);
 
 typedef struct {
   uint8_t b[YAB_BYTES];

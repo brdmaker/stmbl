@@ -18,7 +18,7 @@ Entry format:
 
 ## 2026-11-10  yaskawa_abs: 3-5 % frame errors once the motor was wired (a late edge); bad sound in id_mot
 - Area:    `shared/yaskawa_abs.c`
-- Status:  Fixed (decoder); Open (the line, the rt cost)
+- Status:  Fixed (decoder, the rt cost); Open (the line)
 - Symptom: Commissioning the SGMAH-08A1 (wizard): id_mot made a very bad
   sound. yaskawa_abs0.frame_er 78148 of 2.24 M polls (3.5 %), and 5 % with
   the drive disabled at that shaft position. Earlier, at another position,
@@ -35,11 +35,19 @@ Entry format:
   CRC still checks the frame. Bench: 1 frame error in 52 000 at the same
   position. Test: host/tests/test_yaskawa_abs.c, the two failing bench
   captures (both fail without the fix).
+  The decode then cost ~45 us on the wizard's config, and with id_mot rt
+  stopped (RT_TOO_LONG, 198 us). Measured on target in rt (DWT cycles, a
+  temporary bench): 7400 cycles a frame. Not flash wait states: the same
+  code from RAM took 11500, and neither -O2 nor the buffers in SRAM2 helped.
+  The bit loop kept its counters and limits on the stack. Rewritten for
+  registers: the 21-tick timing a constant (inlined), sentinel edges
+  instead of bounds checks, plain differences (the timer starts at 0 for
+  each capture: no wrap), bytes through a pointer, a sentinel bit for a
+  full byte; the fields by `rbit` instead of bit by bit. Now 4400 cycles;
+  yaskawa_abs 37.6 us of rt (was 56), rt 149 / 151 us at most on the
+  wizard's config (was 167 / 170). Two tries that were slower on target:
+  a branch-free two-pass version (9600) and a chip stream (15300).
   Open:
-  - The decode now takes ~45 us on the wizard's config (35 us measured
-    before, on the test config). Neither -O2 nor the capture buffers in
-    SRAM2 changed it. With id_mot loaded rt reached 189.6 us of 200
-    before this fix: a faster decoder is needed.
   - The line itself: a scope on Z+/Z- at FB0, and its termination.
   - The HV supply (lab, 1 A limit) collapsed to 18 V in the second id_mot
     run: fault 11.

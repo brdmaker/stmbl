@@ -21,12 +21,17 @@ int yab_request_chips(uint8_t *chips, int max) {
   return n;
 }
 
-#define YAB_MAXBITS 256
-#define YAB_TRIES 3  // every rt cycle: few
+#define YAB_TRIES 3      // every rt cycle: few
 #define YAB_FLAGBITS 48  // the opening flag within this many bits (the preamble is 19)
 
-// One pass over the edges (this runs every rt cycle, ~200 edges: no bit
-// array between the steps).
+// One pass over the edges. It runs every rt cycle (~200 edges, 5000/s) on
+// the F4, so it is written for registers: the bit timing a constant (the
+// comp's 21 ticks: inlined below), sentinel edges instead of bounds checks,
+// plain differences (no 16-bit wrap), the bytes through a pointer, a
+// sentinel bit in acc for "a byte full". (The first version kept counters
+// and limits on the stack: ~50 cycles a bit, 7400 a frame; RT_TOO_LONG with
+// id_mot, bench 2026-11-10.)
+//
 // Manchester: edges at every mid-bit, and at bit boundaries between equal
 // bits. From a mid-bit edge, a long interval (a bit) reaches the next
 // mid-bit edge; a short one (half a bit) reaches a boundary edge, and a
@@ -39,102 +44,117 @@ int yab_request_chips(uint8_t *chips, int max) {
 // edges are mid-bit). Not a long preamble: the drive starts listening while
 // the encoder already sends it (a capture on the bench, 2026-11-10, began
 // a bit or two before the flag). *next: where to look again.
-// HDLC: after the flag, a 0 after five 1s is stuffed; six 1s are the
-// closing flag, its leading 0 the last data bit taken.
-// rt pays for the worst case: no flag in the first YAB_FLAGBITS bits ends
-// it, and *late tells the caller the flag was found (no retry: one pass at
-// most over a bad frame; three full passes cost 80 us, RT_TOO_LONG, bench).
-static int decode_from(const uint16_t *t, int n, int tpb, int from, uint8_t *bytes, int maxbytes, int *next, int *late) {
+// A short half-bit right after a long one can arrive late, on top of the
+// next edge (the line not settled: bench, SGMAH, 2026-11-10, ~5 % of frames
+// at some positions): a long and then ~0 is two shorts, and in the
+// short-short step a long then ~0 is a short.
+// The times don't wrap within a reply (the comp starts its timer at 0 for
+// each capture; a reply is ~3000 of 65536 ticks). Two sentinel edges after
+// the last one, a gap each, end the steps.
+// HDLC: the flag within YAB_FLAGBITS bits, then a 0 after five 1s is
+// stuffed; six 1s are the closing flag, its leading 0 the last data bit
+// taken. *late: the flag was found (a failure from there is the frame's: no
+// new start, so rt pays one pass at most over a bad frame).
+static inline __attribute__((always_inline)) int decode_from(uint16_t *t, int n, const int tpb, int from,
+                                                             uint8_t *bytes, int maxbytes, int *next, int *late) {
   const unsigned lim4 = (unsigned)tpb * 3;  // 4 * the threshold: 3/4 of a bit, between short (1/2) and long (1)
   const unsigned gap  = (unsigned)(tpb + tpb / 2);
-  int s               = -1;
-  for(int i = from; i + 1 < n; i++) {
-    unsigned d = (uint16_t)(t[i + 1] - t[i]);
-    if(4 * d > lim4 && d <= gap) {
-      s = i;
-      break;
-    }
-  }
-  if(s < 0) {
+  const unsigned tiny = (unsigned)tpb;  // 4 * an interval below it: ~0, a late edge
+  if(n < 2) {
     return YAB_NOSYNC;
   }
-  *next          = s + 1;
-  unsigned sr    = 0;  // flag search: the last 8 bits
-  int inv        = -1;  // polarity, once the flag is found
-  int ones = 0, nbits = 0, nraw = 0;
-  unsigned level = 0;  // the bit for edge i: level before it, for level 0 before edge s
-  unsigned acc   = 0;
-  int i          = s;
-  while(1) {
-    unsigned b = level;
-    if(inv < 0) {
-      sr = ((sr << 1) | b) & 0xff;
-      if(++nraw >= 8 && (sr == 0x7e || sr == 0x81)) {
-        inv   = sr == 0x81;
-        *late = 1;  // a failure from here on is the frame's: no new start
-      } else if(nraw > YAB_FLAGBITS) {
-        return YAB_NOFLAG;
-      }
-    } else {
-      b ^= (unsigned)inv;
-      if(ones == 5) {
-        ones = 0;
-        if(b) {
-          return nbits / 8;  // six 1s: the closing flag
-        }
-        // stuffed 0: skipped
-      } else {
-        ones = b ? ones + 1 : 0;
-        acc  = (acc << 1) | b;
-        if((++nbits & 7) == 0) {
-          if(nbits / 8 <= maxbytes) {
-            bytes[nbits / 8 - 1] = (uint8_t)acc;
-          }
-          acc = 0;
-        }
-        if(nbits > YAB_MAXBITS) {
-          return YAB_NOFLAG;
-        }
-      }
-    }
-    // to the next mid-bit edge
-    if(i + 1 >= n) {
+  t[n]              = (uint16_t)(t[n - 1] + 4 * tpb);  // the sentinels
+  t[n + 1]          = (uint16_t)(t[n] + 4 * tpb);
+  const uint16_t *p = t + from, *end = t + n - 1;  // end: the last edge
+  while(p < end && !(4u * ((unsigned)p[1] - p[0]) > lim4 && (unsigned)p[1] - p[0] <= gap)) {
+    p++;
+  }
+  if(p >= end) {
+    return YAB_NOSYNC;
+  }
+  *next          = (int)(p - t) + 1;
+  unsigned level = 0;
+
+// to the next mid-bit edge (p); the reply's end (a gap, the sentinels): goto out
+#define YAB_STEP(out)                                                       \
+  do {                                                                      \
+    unsigned d_ = (unsigned)p[1] - p[0];                                    \
+    if(d_ > gap) {                                                          \
+      goto out;                                                             \
+    }                                                                       \
+    if(4 * d_ > lim4) {                                                     \
+      if(4 * ((unsigned)p[2] - p[1]) < tiny) {                              \
+        p += 2; /* a late edge: two shorts */                               \
+      } else {                                                              \
+        p += 1;                                                             \
+        level ^= 1;                                                         \
+      }                                                                     \
+    } else {                                                                \
+      unsigned d2_ = (unsigned)p[2] - p[1];                                 \
+      if(d2_ > gap) {                                                       \
+        goto out;                                                           \
+      }                                                                     \
+      if(4 * d2_ > lim4 && 4 * ((unsigned)p[3] - p[2]) >= tiny) {           \
+        return YAB_MANCHESTER; /* short, long (not a late edge): broken */  \
+      }                                                                     \
+      p += 2;                                                               \
+    }                                                                       \
+  } while(0)
+
+  // the opening flag
+  unsigned sr = 0, inv = 0;
+  for(int k = 1;; k++) {
+    sr = ((sr << 1) | level) & 0xff;
+    if(k >= 8 && (sr == 0x7e || sr == 0x81)) {
+      inv = sr == 0x81;
       break;
     }
-    unsigned d = (uint16_t)(t[i + 1] - t[i]);
-    if(d > gap) {
-      break;  // the reply ended (or a gap)
+    if(k >= YAB_FLAGBITS) {
+      return YAB_NOFLAG;
     }
-    if(4 * d > lim4) {
-      // a short half-bit after a long one can arrive late, on top of the
-      // next edge (the line not settled: bench, SGMAH, 2026-11-10, ~5 % of
-      // frames at some positions): a long and then ~0 is two shorts (and
-      // in the short branch below, a long then ~0 is a short)
-      if(i + 2 < n && 4u * (uint16_t)(t[i + 2] - t[i + 1]) < (unsigned)tpb) {
-        i += 2;
-      } else {
-        i += 1;
-        level ^= 1;
+    YAB_STEP(noflag);
+  }
+  *late = 1;
+  // the data
+  {
+    uint8_t *o = bytes, *oend = bytes + maxbytes;
+    unsigned ones = 0, acc = 1;  // acc: the bits under a sentinel 1; at bit 8 a byte is full
+    while(1) {
+      YAB_STEP(noflag);
+      unsigned b = level ^ inv;
+      if(ones == 5) {
+        if(b) {
+          return (int)(o - bytes);  // six 1s: the closing flag
+        }
+        ones = 0;  // a stuffed 0
+        continue;
       }
-    } else {
-      if(i + 2 >= n) {
-        break;
+      ones = b ? ones + 1 : 0;
+      acc  = (acc << 1) | b;
+      if(acc & 0x100) {
+        if(o == oend) {
+          return YAB_NOFLAG;  // longer than any reply
+        }
+        *o++ = (uint8_t)acc;
+        acc  = 1;
       }
-      unsigned d2 = (uint16_t)(t[i + 2] - t[i + 1]);
-      if(4 * d2 > lim4 && !(i + 3 < n && 4u * (uint16_t)(t[i + 3] - t[i + 2]) < (unsigned)tpb)) {
-        return YAB_MANCHESTER;  // short, long: not Manchester (unless a late edge, above)
-      }
-      i += 2;
     }
   }
-  return YAB_NOFLAG;  // no closing flag
+noflag:
+  return YAB_NOFLAG;  // no flag, or no closing flag
+#undef YAB_STEP
 }
 
-int yab_decode(const uint16_t *t, int n, int ticks_per_bit, uint8_t *bytes, int maxbytes) {
+static int decode_any(uint16_t *t, int n, int tpb, int from, uint8_t *bytes, int maxbytes, int *next, int *late) {
+  return decode_from(t, n, tpb, from, bytes, maxbytes, next, late);
+}
+
+int yab_decode(uint16_t *t, int n, int ticks_per_bit, uint8_t *bytes, int maxbytes) {
   int from = 0, r = YAB_NOSYNC;
   for(int tries = 0; tries < YAB_TRIES; tries++) {  // a stray edge first: sync again from the next long interval
     int next = n, late = 0;
-    int nb   = decode_from(t, n, ticks_per_bit, from, bytes, maxbytes, &next, &late);
+    int nb   = ticks_per_bit == 21 ? decode_from(t, n, 21, from, bytes, maxbytes, &next, &late)
+                                   : decode_any(t, n, ticks_per_bit, from, bytes, maxbytes, &next, &late);
     if(nb == YAB_NOSYNC) {
       return tries ? r : nb;
     }
@@ -190,25 +210,35 @@ uint16_t yab_crc16(const uint8_t *data, int n) {
   return c ^ 0xffff;
 }
 
+// bit-reversed: on the F4 one instruction
+static inline uint32_t rev32(uint32_t x) {
+#ifdef __arm__
+  __asm__("rbit %0, %1" : "=r"(x) : "r"(x));
+  return x;
+#else
+  x = ((x >> 1) & 0x55555555u) | ((x & 0x55555555u) << 1);
+  x = ((x >> 2) & 0x33333333u) | ((x & 0x33333333u) << 2);
+  x = ((x >> 4) & 0x0f0f0f0fu) | ((x & 0x0f0f0f0fu) << 4);
+  x = ((x >> 8) & 0x00ff00ffu) | ((x & 0x00ff00ffu) << 8);
+  return (x >> 16) | (x << 16);
+#endif
+}
+
 int yab_frame(const uint8_t *bytes, int nbytes, yab_frame_t *f) {
   // the data ends with the closing flag's leading 0: one bit more than 14 bytes
   if(nbytes < YAB_BYTES) {
     return YAB_LEN;
   }
-  uint32_t pos = 0, turns = 0;
   for(int i = 0; i < YAB_BYTES; i++) {
     f->b[i] = bytes[i];
   }
-  for(int i = 0; i < 20; i++) {
-    pos |= (uint32_t)yab_bit(bytes, 56 + i) << i;
-  }
-  for(int i = 0; i < 16; i++) {
-    turns |= (uint32_t)yab_bit(bytes, 76 + i) << i;
-  }
-  f->pos    = pos;
-  f->turns  = (int16_t)turns;
-  f->crc    = yab_crc16(bytes, 12);
-  f->crc_rx = (uint16_t)((bytes[12] << 8) | bytes[13]);
+  // received bits 56-87 (bytes 7-10, MSB first) reversed: bit 56 + j at j
+  uint32_t r1 = rev32((uint32_t)bytes[7] << 24 | (uint32_t)bytes[8] << 16 | (uint32_t)bytes[9] << 8 | bytes[10]);
+  uint32_t r2 = rev32((uint32_t)bytes[11] << 24);  // bits 88-95
+  f->pos      = r1 & 0xfffff;                                           // bits 56-75
+  f->turns    = (int16_t)(uint16_t)((r1 >> 20) | ((r2 & 0xf) << 12));  // bits 76-91
+  f->crc      = yab_crc16(bytes, 12);
+  f->crc_rx   = (uint16_t)((bytes[12] << 8) | bytes[13]);
   return f->crc == f->crc_rx ? YAB_OK : YAB_CRC;
 }
 

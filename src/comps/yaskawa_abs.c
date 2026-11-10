@@ -57,7 +57,7 @@ HAL_PIN(dump);       // rising edge: print the next capture's edge times, result
 #define ZPIN_N FB0_Z_PIN_SOURCE
 
 // two capture buffers: rt decodes one while the other takes the next reply
-static volatile uint16_t rxbuf[2][YAB_RXN];
+static volatile uint16_t rxbuf[2][YAB_RXN + 2];  // + the decoder's two sentinels
 static volatile uint32_t txbuf[YAB_TXN];
 
 struct yaskawa_abs_ctx_t {
@@ -209,7 +209,7 @@ static inline float us_since(uint32_t t0) {
 }
 
 // the reply in buffer k, n edges
-static void collect(struct yaskawa_abs_ctx_t *ctx, struct yaskawa_abs_pin_ctx_t *pins, const uint16_t *buf, int n) {
+static void collect(struct yaskawa_abs_ctx_t *ctx, struct yaskawa_abs_pin_ctx_t *pins, uint16_t *buf, int n) {
   PIN(edges) = n;
   int res    = YAB_NOREPLY;
   yab_frame_t f;
@@ -274,7 +274,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
   PIN(us_tx) = us_since(t0);
   if(had) {
-    collect(ctx, pins, (const uint16_t *)rxbuf[k], n);
+    collect(ctx, pins, (uint16_t *)rxbuf[k], n);
   }
   PIN(us_col) = us_since(t0);
 }

@@ -139,7 +139,7 @@ int main(void) {
     for(int inv = 0; inv < 2; inv++) {
       for(int trial = 0; trial < 40; trial++) {
         uint16_t t[601];
-        int ne = reply_edges(b, inv, trial % 20, 2.0f, 65000u + trial * 97, t, 600);  // ±2 ticks an edge
+        int ne = reply_edges(b, inv, trial % 20, 2.0f, 100u + trial * 97, t, 590);  // ±2 ticks an edge; from 0, as the comp's timer
         int nb = yab_decode(t, ne, 21, out, sizeof(out));
         yab_frame_t g;
         int r = nb >= YAB_BYTES ? yab_frame(out, nb, &g) : nb;
@@ -157,7 +157,9 @@ int main(void) {
   }
   // the bench capture
   {
-    int nb = yab_decode(cap1, sizeof(cap1) / sizeof(cap1[0]), 21, out, sizeof(out));
+    uint16_t t[sizeof(cap1) / sizeof(cap1[0]) + 2];
+    memcpy(t, cap1, sizeof(cap1));
+    int nb = yab_decode(t, sizeof(cap1) / sizeof(cap1[0]), 21, out, sizeof(out));
     int r  = nb >= YAB_BYTES ? yab_frame(out, nb, &f) : nb;
     hex2(cap1_hex, b);
     CHECK(r == YAB_OK && memcmp(out, b, YAB_BYTES) == 0, "bench capture: %d bytes, result %d", nb, r);
@@ -167,7 +169,9 @@ int main(void) {
     const uint16_t *caps[] = {cap_late1, cap_late2};
     int ns[]               = {sizeof(cap_late1) / sizeof(cap_late1[0]), sizeof(cap_late2) / sizeof(cap_late2[0])};
     for(int k = 0; k < 2; k++) {
-      int nb = yab_decode(caps[k], ns[k], 21, out, sizeof(out));
+      uint16_t t[300];
+      memcpy(t, caps[k], sizeof(t[0]) * ns[k]);
+      int nb = yab_decode(t, ns[k], 21, out, sizeof(out));
       int r  = nb >= YAB_BYTES ? yab_frame(out, nb, &f) : nb;
       hex2(cap_late_hex[k], b);
       CHECK(r == YAB_OK && memcmp(out, b, YAB_BYTES) == 0, "bench capture with a late edge %d: %d bytes, result %d", k,
@@ -194,7 +198,7 @@ int main(void) {
   CHECK(yab_frame(b, YAB_BYTES, &f) == YAB_CRC, "a flipped bit fails the CRC");
   // nothing but noise: no sync
   {
-    uint16_t t[50];
+    uint16_t t[52];
     for(int i = 0; i < 50; i++) {
       t[i] = (uint16_t)(i * 7 + (i % 3));
     }
