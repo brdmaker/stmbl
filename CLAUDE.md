@@ -10,7 +10,7 @@ stmbl is the drive. Every machine's configs and models live in brdmot, stmbl's p
 
 stmbl keeps the simulators, the drive's own test rigs (`hwtest/burnin*`, `fbtest`, `phasing`, `soak`, `suite`,
 `timing`) and the generic models its tests run on (`host/mill/machine/bridge*.mill`, `host/arm/arm6/`,
-`host/portal/machine/`).
+`host/portal/machine/portal*.portal`, `host/portal/machine/gantry/`).
 
 ## Debug notes (keep DEBUGNOTES.md current)
 

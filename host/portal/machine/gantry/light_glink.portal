@@ -1,3 +1,5 @@
+# A generic gantry with the gantry link for stmbl's tests (portal_gantry*.test): a light, stiff gantry,
+# a copy of brdmot's imaginary retrofit machine pcbdrill (sim/portal/retrofit/pcbdrill_glink.portal).
 # pcbdrill with the gantry link between its Y drives (the default gains)
 # pcbdrill: an imaginary PCB drilling machine, 700 x 600 mm, on a cast
 # iron base, retrofitted with stmbl. A short, stiff gantry on two Baldor
@@ -5,9 +7,9 @@
 # LMCF12E. Point-to-point at 2 g: what counts is how fast each hole's
 # position settles. Numbers are made up.
 #@dynwiz 20000 20000 1200
-drive y1 pcbdrill_y_glink.conf ../sim.txt 60.96
-drive y2 pcbdrill_y_glink.conf ../sim.txt 60.96
-drive x pcbdrill_x.conf ../sim.txt 60.96
+drive y1 light_y_glink.conf ../sim.txt 60.96
+drive y2 light_y_glink.conf ../sim.txt 60.96
+drive x light_x.conf ../sim.txt 60.96
 origin 350 300
 stroke -5 605 -5 705
 frame 1800 500 20 18 22 0.06

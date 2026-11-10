@@ -4912,3 +4912,11 @@ Entry format:
 - Fix:     moved with their history to brdmot: `hwtest/cn720-sim` (was mill-sim), `hwtest/hsm400u-sim`, `hwtest/arcmate`,
   `sim/mill/...`, `sim/arm/arcmate`. stmbl's tests run on generic copies: `host/mill/machine/bridge*.mill` (the CN 720's
   data), `host/arm/arm6/` (the ARC Mate's), `host/tests/abs/mill_x_fanuc.conf`. `make -C host check` passes.
+
+## 2026-11-10 The retrofit portal machines moved to brdmot
+- Area:    host/portal/machine, host/portal/tests (repository layout)
+- Status:  Note
+- Symptom: older entries name `host/portal/machine/retrofit/...` and `portal_retrofit*.test`.
+- Fix:     moved with their history to brdmot's `sim/portal/retrofit` and `sim/portal/tests` (`make sim-check` there).
+  The gantry-link tests run on generic copies: `host/portal/machine/gantry/heavy_glink.portal` (laser3015's),
+  `light_glink.portal` (pcbdrill's), `slow_glink.portal` (cmm's). `make -C host check` passes.

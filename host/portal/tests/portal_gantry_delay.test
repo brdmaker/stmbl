@@ -3,7 +3,7 @@
 # cycles, sampled at 1 kHz: a relay through LinuxCNC and smart-serial)
 # brings the fight back. Hence a drive-to-drive link (CAN), not LinuxCNC.
 @program portal/portal_sim
-@args portal/machine/retrofit/laser3015_glink.portal
+@args portal/machine/gantry/heavy_glink.portal
 glink 15 5
 run 0.05
 lcnc 1

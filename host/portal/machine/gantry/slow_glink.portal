@@ -1,12 +1,15 @@
+# A generic gantry with the gantry link for stmbl's tests (portal_gantry*.test): a slow, gentle gantry,
+# a copy of brdmot's imaginary retrofit machine cmm (sim/portal/retrofit/cmm_glink.portal).
+# cmm with the gantry link between its Y drives (the default gains)
 # cmm: an imaginary bridge-type coordinate measuring machine on a granite
 # table (1000 x 800 mm), on air bearings, retrofitted with ironless linear
 # motors and stmbl for fast scanning. Air bearings have almost no friction,
 # so nothing damps the probe's long Z ram: low, lightly damped modes. The
 # granite stands stiffly on three feet. Numbers are made up.
 #@dynwiz 3000 3000 500
-drive y1 cmm_y.conf ../sim.txt 60.96
-drive y2 cmm_y.conf ../sim.txt 60.96
-drive x cmm_x.conf ../sim.txt 60.96
+drive y1 slow_y_glink.conf ../sim.txt 60.96
+drive y2 slow_y_glink.conf ../sim.txt 60.96
+drive x slow_x.conf ../sim.txt 60.96
 origin 400 500
 stroke -5 1005 -5 805
 frame 2500 900 25 22 28 0.04
@@ -18,4 +21,6 @@ head 10 0.05 22 26 17 0.012
 guidey 0.5 5
 guidex 0.3 3
 bus 1410 230 1.0
+# the Y drives' gantry link: 600 us latency, a frame every 400 us (2.5 kHz CAN)
+glink 3 2
 home 400 500

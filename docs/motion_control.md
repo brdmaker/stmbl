@@ -161,7 +161,7 @@ gantry0.en = fault0.en_pid
 gantry0.r_vel = 0.4
 ```
 
-In the simulator (`glink DELAY EVERY` in a portal file; `machine/retrofit/*_glink.portal`, at the default gains):
+In the simulator (`glink DELAY EVERY` in a portal file; brdmot's retrofit machines `sim/portal/retrofit/*_glink.portal`, at the default gains; stmbl's tests run on generic copies of three of them, `host/portal/machine/gantry/`):
 
 | machine | without the link | with it (`glink 3 2`) |
 |---|---|---|
@@ -173,7 +173,7 @@ In the simulator (`glink DELAY EVERY` in a portal file; `machine/retrofit/*_glin
 - **Stability rule:** keep the yaw's velocity bandwidth `vel_bw · r_vel / (m_yaw / m_side)` below about 1.8 × `cur_bw`.
 - **The link must be fast:** at most about 1 ms. At 2 ms the fight starts to return; at 3 ms, as a relay through LinuxCNC and smart-serial would take, it is back in full (`tests/portal_gantry_delay.test`).
 - **So it has to be drive to drive.** The intended transport is classic CAN between the two Y drives: stmbl v4's P10 has CAN1, and needs a transceiver board (can-support branch). An 8-byte frame each way every 400 µs is 68 % of 1 Mbit/s, with about 600 µs latency. That transport isn't written yet: without a link (`rx_ok` 0) the component passes the feedback through unchanged.
-- **Until then:** `conf0.cur_bw = 2000` or a lower vel_bw (`machine/retrofit/README.md`). dynwiz detects the fight.
+- **Until then:** `conf0.cur_bw = 2000` or a lower vel_bw (brdmot's `sim/portal/retrofit/README.md`). dynwiz detects the fight.
 
 **What doesn't help:**
 - **The pid's inertia split** (`j_mot`/`j_sys`/`j_lpf`) can't tell the modes apart.
@@ -223,13 +223,13 @@ All in one HAL `sampler` row per servo cycle:
 
 Everything below runs without hardware. The drives are the real drive code (`libstmbl_drive.so`); the machines are simulated plants.
 
-Besides the portal (`host/portal/machine/portal.portal`) there are four imaginary retrofit machines in `host/portal/machine/retrofit`:
+Besides the portal (`host/portal/machine/portal.portal`) and the generic gantries with the gantry link (`host/portal/machine/gantry/`: heavy, light, slow), brdmot has four imaginary retrofit machines (`sim/portal/retrofit`):
 - a 3 × 1.5 m laser on iron-core motors;
 - a dispenser with one Y motor and an idler rail;
 - a CMM on air bearings;
 - a 2 g PCB driller.
 
-Their README has what each needed. `linuxcnc/dynwiz`'s `make test-sim` runs the wizard on all of them and checks what it finds against their files; `make -C hwtest/portal-sim dynwiz` runs it through LinuxCNC.
+Their README has what each needed. brdmot's `linuxcnc/dynwiz` `make test-sim` runs the wizard on all of them and checks what it finds against their files; `make -C hwtest/portal-sim dynwiz` runs it through LinuxCNC.
 
 ### Host suite
 

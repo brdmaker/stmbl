@@ -1,8 +1,8 @@
-# The gantry link on the PCB driller (machine/retrofit/pcbdrill_glink.portal,
+# The gantry link on the PCB driller (machine/gantry/light_glink.portal,
 # the default current loop): a 2 g move, then a slow pass back (where the Y
 # drives fell into a 227 Hz fight without the link).
 @program portal/portal_sim
-@args portal/machine/retrofit/pcbdrill_glink.portal
+@args portal/machine/gantry/light_glink.portal
 run 0.05
 lcnc 1
 run 0.3
