@@ -16,6 +16,29 @@ Entry format:
 
 ---
 
+## 2026-11-10  id_mot: a step of up to pi rad at enable (fb_switch aligned to the wrong command)
+- Area:    `conf/template/id_mot.txt`, `shared/comps/fb_switch.c`
+- Status:  Fixed (id_mot); Open (id_pid?)
+- Symptom: Setup wizard, Yaskawa SGMAH on a 200 V lab supply limited to 1 A:
+  the mechanical step's first, gentle id_mot run (250 rad/s^2, 25 rad/s)
+  ended in fault 11 twice, the bus at 18-20 V. By hand, with the current
+  capped at 6 A (tools/bench/idm_probe.py in brdmot): pid0.pos_error was
+  -2.23 rad at enable and took ~0.3 s to close. The rest of the run drew
+  0.2 A.
+- Cause:   With track_fb 0, fb_switch shifts its pos_fb while disabled so
+  that it equals cmd_pos at enable. pid.txt links cmd_pos to
+  reslimit0.pos_out, LinuxCNC's command chain (0 on the bench). id_mot
+  makes the position loop follow idm0.pos_cmd instead: 0, or where idm's
+  last run ended. With absolute feedback the shaft rests anywhere, so the
+  loop got a step of up to pi rad and drove the peak current at it (18.9 A
+  configured: ~650 W of copper loss, the supply collapsed).
+- Fix:     id_mot.txt links fb_switch0.cmd_pos = idm0.pos_cmd. Test:
+  host/tests/drive_id_mot_start.test (the shaft at 2.5 rad: max pos_error
+  1.57 rad before, 0.036 after); drive_id_mot still fits j, d, f.
+  Open: id_pid has the same pattern (pid0.pos_ext_cmd = ids0.pos_cmd), but
+  the same link there made ids tune vel_bw 77 instead of 500
+  (drive_id_pid.test): left as it was; watch the wizard's tuning step.
+
 ## 2026-11-10  yaskawa_abs: 3-5 % frame errors once the motor was wired (a late edge); bad sound in id_mot
 - Area:    `shared/yaskawa_abs.c`
 - Status:  Fixed (decoder, the rt cost); Open (the line)

@@ -1,0 +1,23 @@
+# id_mot with the shaft away from 0: fb_switch aligns the feedback at enable
+# to its cmd_pos, which was LinuxCNC's command chain (reslimit0.pos_out, 0),
+# while the position loop followed idm0.pos_cmd (0, or where idm's last run
+# ended). The loop saw a step of up to pi rad at enable and drove the peak
+# current at it: on the bench (Yaskawa SGMAH, 18.9 A peak, a 200 V lab supply
+# at 1 A) the bus collapsed, fault 11 (DEBUGNOTES 2026-11-10). The id_mot
+# template now links fb_switch0.cmd_pos = idm0.pos_cmd.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_pos = 2.5
+debug_level 1
+link id_mot
+relink
+start
+debug_level 0
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fb_switch0.pos_fb
+fault0.en = 1
+@sample pid0.pos_error 0.002 1.0
+fault0.fault
+@expect max|pid0.pos_error| < 0.2
+@expect fault0.fault == 0

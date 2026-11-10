@@ -4,6 +4,8 @@ idm0.rt_prio = 4
 
 idm0.en = fault0.en_out
 pid0.pos_ext_cmd = idm0.pos_cmd
+# fb_switch aligns the feedback to this at enable
+fb_switch0.cmd_pos = idm0.pos_cmd
 pid0.vel_ext_cmd = idm0.vel_cmd
 pid0.acc_ext_cmd = idm0.acc_cmd
 
