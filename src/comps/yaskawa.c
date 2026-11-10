@@ -32,6 +32,7 @@ HAL_PIN(probe5);
 HAL_PIN(send);
 HAL_PIN(crc_ok);
 HAL_PIN(crc_error);
+HAL_PIN(seq);        // rising edge: record the next 32 good frames (consecutive rt cycles) and print them (bench)
 
 //TODO: use context
 static volatile uint32_t txbuf[128];
@@ -43,6 +44,10 @@ static volatile uint16_t tim_data[300];
 static DMA_InitTypeDef DMA_InitStructuretx;
 static DMA_InitTypeDef DMA_InitStructurerx;
 static uint8_t yaskawa_reply[14];
+// seq: consecutive good frames for working out a frame layout on the bench
+#define YSEQ_N 32
+static uint8_t yseq[YSEQ_N][14];
+static volatile int yseq_n = YSEQ_N;  // frames recorded; YSEQ_N: idle / done
 //uint8_t yaskara_reply_len;
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -256,6 +261,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     if(data == crc) {
       PIN(crc_ok)
       ++;
+      if(yseq_n < YSEQ_N) {
+        for(int i = 0; i < 14; i++) {
+          yseq[yseq_n][i] = yaskawa_reply[i];
+        }
+        yseq_n++;
+      }
     } else {
       PIN(crc_error)
       ++;
@@ -343,6 +354,21 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // struct yaskawa_ctx_t *ctx      = (struct yaskawa_ctx_t *)ctx_ptr;
   struct yaskawa_pin_ctx_t *pins = (struct yaskawa_pin_ctx_t *)pin_ptr;
+  static int yseq_print = 0;
+  if(RISING_EDGE(PIN(seq))) {
+    yseq_n     = 0;  // rt records from now
+    yseq_print = 1;
+  }
+  if(yseq_print && yseq_n >= YSEQ_N) {
+    for(int k = 0; k < YSEQ_N; k++) {
+      printf("yseq %2d", k);
+      for(int i = 0; i < 14; i++) {
+        printf(" %02x", yseq[k][i]);
+      }
+      printf("\n");
+    }
+    yseq_print = 0;
+  }
   if(RISING_EDGE(PIN(dump))) {
     for(int i = 0; i < 14; i++) {
       for(int j = 0; j < 8; j++) {
