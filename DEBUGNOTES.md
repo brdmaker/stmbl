@@ -5085,3 +5085,15 @@ Entry format:
   (replies built with stuffing and CRC, jitter, timer wrap, a glitch, a reply with no end; the old decoder
   overflowed on a good reply and on the endless one), host/tests/check_yaskawa.py. Bench: watch the counters to
   see which noise it is; try ic_filter 3 (~95 ns) if err_code climbs.
+
+## 2026-11-11 biquad / frf (from stmbl_freak): two things to know
+- Area:    shared/comps/biquad.c, shared/comps/frf.c, conf/template/filters.txt, id_frf.txt
+- Status:  Note
+- Symptom: (1) a biquad low pass (type 2) at its default q 2 doubles the signal at its corner instead of -3 dB.
+  (2) frf's two-mass fit reads the motor inertia ~25 % high in the simulator (0.000055 against 0.000044) at any
+  sweep band, while the anti-resonance (14.7-14.9 against 15.0 Hz) and the load inertia (+12 %) are right.
+- Cause:   (1) a biquad low pass has gain q at f0; q is shared with the notch. (2) the measured response falls
+  off at high frequency, and the fit counts that as inertia.
+- Fix:     (1) q 0.707 for a plain corner (noted in filters.txt, docs/motion_control.md; host/tests/biquad.test).
+  (2) use frf for f_anti (conf0.j_lpf) and f_res (the notch), not for conf0.j; host/tests/frf_two_mass.test
+  checks f_anti to 5 %, the inertias loosely.

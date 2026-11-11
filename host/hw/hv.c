@@ -180,6 +180,12 @@ HAL_PIN(sim_max_pos);
 HAL_PIN(sim_stop_hits);  // end stop contacts
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
+// a load behind a coupling (two-mass): off while sim_jl is 0. Anti-resonance
+// sqrt(kl / jl), resonance that * sqrt(1 + jl / sim_j) (rad/s). frf, biquad, dob
+HAL_PIN(sim_jl);    // load inertia [kg*m^2]
+HAL_PIN(sim_kl);    // coupling stiffness [Nm/rad]
+HAL_PIN(sim_dl);    // coupling damping [Nm/(rad/s)]
+HAL_PIN(sim_lvel);  // out: load speed [rad/s]
 HAL_PIN(sim_turn); // a hand on the shaft: turns it by this much [rad], at 1 rev/s, counting down to 0
 HAL_PIN(sim_acc);
 HAL_PIN(sim_upos);  // unwrapped mechanical position [rad] (sim_pos = mod(sim_upos))
@@ -206,6 +212,8 @@ HAL_PIN(sim_slip);    // induction: slip, electrical [rad/s]
 #define FB_DELAY_MAX 4
 
 struct hv_ctx_t {
+  double defl;  // two-mass: load position - rotor position [rad]
+  float wl;     // two-mass: load speed [rad/s]
   float fb[FB_DELAY_MAX + 1][4];  // id, iq, ud, uq of the last cycles
   unsigned fb_pos;
   uint32_t rnd;  // noise generator state
@@ -292,6 +300,14 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
   float tf     = PIN(sim_f) + (PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0);
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
+  float ts     = 0.0;  // the coupling's torque on the rotor
+  if(PIN(sim_jl) > 0.0) {
+    ts = PIN(sim_kl) * (float)ctx->defl + PIN(sim_dl) * (ctx->wl - v);
+    torque += ts;
+  } else {
+    ctx->defl = 0.0;
+    ctx->wl   = v;
+  }
   if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside
     ctx->upos     = PIN(sim_upos);
     ctx->upos_pin = PIN(sim_upos);
@@ -340,6 +356,11 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_dist) += (float)(ctx->upos - was);
     PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
   }
+  if(PIN(sim_jl) > 0.0) {  // the load: only the coupling acts on it
+    ctx->wl -= ts / PIN(sim_jl) * dt;
+    ctx->defl += (ctx->wl - PIN(sim_vel)) * dt;
+  }
+  PIN(sim_lvel) = ctx->wl;
   PIN(sim_pos)     = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
   PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
   PIN(sim_torque)  = te;

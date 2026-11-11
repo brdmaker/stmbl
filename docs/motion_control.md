@@ -7,6 +7,7 @@ How to get accuracy at speed out of stmbl drives under LinuxCNC. It covers two d
 - [What limits accuracy at speed](#what-limits-accuracy-at-speed)
 - [Drive settings](#drive-settings)
 - [Tuning procedure](#tuning-procedure)
+- [Torque-command filters and FRF: biquad, dob, frf](#torque-command-filters-and-frf-biquad-dob-frf)
 - [pcomp: model-based command conditioning](#pcomp-model-based-command-conditioning)
 - [Gantry-aware control](#gantry-aware-control)
 - [Measuring the machine](#measuring-the-machine)
@@ -91,6 +92,31 @@ For each drive, after the motor is identified (setup wizard or `rlpsij`):
 4. **Judge the tuning while moving, not at standstill.** Guide friction acts as heavy damping around zero speed, so a loop that rings in motion can hold perfectly still. Run constant-speed moves and acceleration steps, and watch `pid0.pos_error` and the current.
 5. **Raise vel_bw until the first mechanical resonance shows** (ringing at a fixed frequency after acceleration steps), then back off 30 %. On a gantry this is often the racking mode: the two Y loops against the bridge's yaw. In the yaw each Y motor moves only `2 J / L²` of the bridge, a quarter or less of the mass it is tuned for, so its loop is that much faster there. With the default current loop (`cur_bw` 1000 rad/s) four of the five simulated gantries fought at 160–235 Hz with vel_bw 500: raise `conf0.cur_bw` to 2000 or lower vel_bw (`host/portal/machine/retrofit/README.md`). `dynwiz mass` and `dynwiz cogging` detect it.
 6. **Then pos_bw:** typically vel_bw/5 to vel_bw/4.
+
+## Torque-command filters and FRF: biquad, dob, frf
+
+Three opt-in components from the stmbl_freak fork, between `pid0` and the torque controller.
+
+| Component | What | Template |
+|---|---|---|
+| `frf` | Stepped-sine frequency response with the loop running, and a two-mass fit: anti-resonance (`f_anti`, the `conf0.j_lpf` corner), resonance (`f_res`), motor and load inertia, crossover and phase margin | `link id_frf` (creeps the axis back and forth itself; run before `id_pid`) |
+| `biquad` | Notch (`type` 1) or low pass (`type` 2) on the torque command | `link filters` |
+| `dob` | Disturbance observer: estimates the load torque (`d_est`) and cancels it (`k` 1) | `link filters` |
+
+**Order of work:**
+1. `link id_frf` on the free axis; it prints the table, the fit and a `conf0.j_lpf` line.
+2. Set `conf0.j_lpf` to the anti-resonance, then tune with `id_pid`.
+3. A resonance above the crossover that still rings: `link filters`, then `biquad0.type = 1`, `biquad0.f0 = <f_res>`, `q` 2, `depth` 0–0.1.
+4. Load disturbances (cutting forces): `dob0.j` the total inertia, `dob0.k = 1`. Turn the friction feedforward off (`conf0.f`, `d`, `o` = 0): `dob` estimates friction too.
+
+**Things to know:**
+- A biquad low pass has gain `q` at its corner. Use `q` 0.707 for a plain −3 dB corner; the default `q` 2 (set for the notch) gives a ×2 peak.
+- Templates loaded at runtime need `stop`, `link filters`, `start`: a component loaded while the hal runs never gets its `rt_prio`.
+
+**Results in the simulator** (`host/hw/hv.c` two-mass load: `hv0.sim_jl`, `sim_kl`, `sim_dl`):
+- **`frf`** (`tests/frf_two_mass.test`): anti-resonance 14.7–14.9 Hz against 15.0 true; resonance 25.8 against 27.1; load inertia within 12 %. The motor inertia reads about 25 % high whatever the band: the measured response falls off at high frequency, and the fit counts that as inertia.
+- **`dob`** (`tests/dob_load_step.test`, 0.3 Nm step on the burn-in motor): the position error dropped from 0.075 to 0.050 rad at `bw` 50 Hz (0.040 at 200 Hz). The fork reports 2.5–3× on its Y axis; our burn-in loop is already stiff.
+- **`biquad`:** `tests/biquad.test`.
 
 ## pcomp: model-based command conditioning
 

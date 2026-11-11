@@ -1,0 +1,52 @@
+# biquad (shared/comps/biquad.c, from stmbl_freak), stand-alone on sim0's
+# sine at 5 kHz (sim0 glides to a new freq/amp in ~1 s: 1.5 s waits): the notch takes out its centre frequency and passes the
+# rest, the low pass is -3 dB at its corner, type 0 passes through, and a
+# NaN in does not latch.
+@timeout 60
+load sim
+load biquad
+sim0.rt_prio = 1
+biquad0.rt_prio = 2
+biquad0.in = sim0.sin
+sim0.amp = 1
+start
+# pass-through
+sim0.freq = 80
+run 1.5
+@sample biquad0.out 0.0002 0.05
+# notch at 80 Hz, q 2: the sine at 80 Hz goes, at 20 and 320 Hz it stays
+biquad0.type = 1
+biquad0.f0 = 80
+biquad0.q = 2
+run 1.5
+@sample biquad0.out 0.0002 0.05
+sim0.freq = 20
+run 1.5
+@sample biquad0.out 0.0002 0.1
+sim0.freq = 320
+run 1.5
+@sample biquad0.out 0.0002 0.05
+# notch with depth 0.3: 30 % left at the centre
+biquad0.depth = 0.3
+sim0.freq = 80
+run 1.5
+@sample biquad0.out 0.0002 0.05
+# low pass, 50 Hz: its gain at the corner is q (2 peaks); q 0.707 is
+# -3 dB there (Butterworth), about -36 dB at 400
+biquad0.type = 2
+biquad0.f0 = 50
+biquad0.q = 0.7071
+biquad0.depth = 0
+sim0.freq = 50
+run 1.5
+@sample biquad0.out 0.0002 0.05
+sim0.freq = 400
+run 1.5
+@sample biquad0.out 0.0002 0.05
+@expect max|biquad0.out[1:250]| ~ 1 0.02
+@expect max|biquad0.out[251:500]| < 0.02
+@expect max|biquad0.out[501:1000]| ~ 1 0.05
+@expect max|biquad0.out[1001:1250]| ~ 1 0.05
+@expect max|biquad0.out[1251:1500]| ~ 0.3 0.03
+@expect max|biquad0.out[1501:1750]| ~ 0.707 0.03
+@expect max|biquad0.out[1751:2000]| < 0.08

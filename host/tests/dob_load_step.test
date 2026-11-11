@@ -1,0 +1,31 @@
+# dob (shared/comps/dob.c, from stmbl_freak; conf/template/filters.txt) on
+# the burn-in axis: a 0.3 Nm load step at standstill, with the observer
+# off (dob0.k 0) and on (k 1). It cancels the load before the velocity
+# integrator has to. On this (already stiff) loop: 0.075 rad without it,
+# 0.050 with it at bw 50 Hz (0.040 at 200 Hz); stmbl_freak reports 2.5-3
+# times less on their Y axis.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+stop
+link filters
+start
+dob0.j = conf0.j
+dob0.bw = 50
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+# k 0: estimate only
+hv0.sim_load = 0.3
+@sample pid0.pos_error 0.0002 0.3
+hv0.sim_load = 0
+run 1
+dob0.d_est
+dob0.k = 1
+run 1
+hv0.sim_load = 0.3
+@sample pid0.pos_error 0.0002 0.3
+dob0.d_est
+@expect max|pid0.pos_error[1:1500]| > 0.07
+@expect max|pid0.pos_error[1501:3000]| < 0.055
+@expect dob0.d_est[-1] ~ 0.3 20%

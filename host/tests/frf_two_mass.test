@@ -1,0 +1,38 @@
+# frf (shared/comps/frf.c, from stmbl_freak; conf/template/id_frf.txt) on
+# the burn-in motor with a load behind a coupling (hv0.sim_jl/kl/dl): the
+# stepped-sine sweep and its two-mass fit find the simulated mechanics.
+# True: motor 0.000044 kgm^2 (hv0.sim_j = conf0.j), load 0.0001 behind
+# 0.888 Nm/rad: anti-resonance sqrt(kl / jl) 15.0 Hz (what conf0.j_lpf
+# wants), resonance 15 * sqrt(1 + jl / j) = 27.1 Hz (a biquad notch).
+# Found (2026-11-11): 14.9 / 25.9 Hz, load 0.000111; the motor inertia
+# reads ~25 % high (0.000055) whatever the band: the measured response
+# falls off at high frequency, which the fit counts as inertia.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 600
+hv0.sim_jl = 0.0001
+hv0.sim_kl = 0.888
+hv0.sim_dl = 0.001
+conf0.j_sys = 0.0001
+stop
+link id_frf
+start
+frf0.points = 24
+frf0.f_start = 5
+frf0.f_end = 100
+frf0.amp = 0.5
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 120
+frf0.state
+frf0.f_anti
+frf0.f_res
+frf0.j_mot
+frf0.j_load
+frf0.fit_err
+@expect frf0.state == 2
+@expect frf0.f_anti ~ 15.0 5%
+@expect frf0.f_res ~ 27.1 10%
+@expect frf0.j_load ~ 0.0001 20%
+@expect frf0.j_mot ~ 0.000044 40%
+@expect frf0.fit_err < 0.15
