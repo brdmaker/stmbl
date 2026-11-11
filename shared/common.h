@@ -129,6 +129,7 @@ typedef union {
     float y;
     uint32_t uid[3];  // the F3's 96-bit unique ID (0x1FFFF7AC), raw words
     uint32_t fw_version;  // the F3's STMBL_FW_VERSION (an F3 from before sends none: its rotation ends before this word)
+    uint32_t link_to;     // the F3's rt ticks in link timeout since boot (ls0.timeout; F4: hv0.link_to, shared/hv_link.h)
   } pins;
   float data[sizeof(struct f3_state_data_temp) / 4];
   uint32_t u32[sizeof(struct f3_state_data_temp) / 4];  // the same, sent bit for bit

@@ -311,6 +311,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     state.pins.mot_temp  = PIN(mot_temp);
     state.pins.core_temp = PIN(core_temp);
     state.pins.y         = PIN(y);
+    state.pins.link_to   = (uint32_t)PIN(timeout);  // dropouts that took the gates off (hv0.link_drops)
     state.pins.dc_volt   = PIN(dc_volt);
     state.pins.pwm_volt  = PIN(pwm_volt);
 

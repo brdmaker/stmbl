@@ -18,7 +18,7 @@ counted up, and everything checks it:
 | # | change | configs |
 |---|---|---|
 | 1 | the first versioned firmware | — |
-| 2 | HV fault `HV_UNDERVOLT_ERROR` (22): the HV board's 3.3 V fell below its PVD (2.7 V) and TIM8 broke; CSS and core lockup also stop the bridge (2026-11-11) | unchanged, no patch |
+| 2 | HV fault `HV_UNDERVOLT_ERROR` (22): the HV board's 3.3 V fell below its PVD (2.7 V) and TIM8 broke; CSS and core lockup also stop the bridge; the HV board reports its link timeouts (state word `link_to`: `hv0.link_to`, `hv0.link_drops`); `hv_verify` (2026-11-11) | unchanged, no patch |
 
 ## Config patches
 

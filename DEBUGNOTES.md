@@ -5103,3 +5103,19 @@ Entry format:
 - Fix:     (1) q 0.707 for a plain corner (noted in filters.txt, docs/motion_control.md; host/tests/biquad.test).
   (2) use frf for f_anti (conf0.j_lpf) and f_res (the notch), not for conf0.j; host/tests/frf_two_mass.test
   checks f_anti to 5 %, the inertias loosely.
+
+## 2026-11-11 hv: state words wrote past hv_uid[3]; short HV link drops went unseen
+- Area:    src/comps/hv.c, stm32f303/src/comps/ls.c, shared/hv_link.h, shared/common.h (f3_state_data_t)
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading) (1) every state word from the uid on went into hv_uid[a - 9] with no upper bound:
+  fw_version (word 12) wrote hv_uid[3], one past the array, each time it came round. (2) (stmbl_freak d683d54) the
+  F3 drops its gates after ~0.33 ms without packets, the F4 faults only after 3 rt ticks (0.6 ms): a short dropout
+  stopped the bridge and the F4 never knew.
+- Cause:   (1) a lower bound only, since fw_version (STMBL_FW_VERSION 1) was added after the uid. (2) the F3 kept
+  its timeout count to itself.
+- Fix:     (1) the uid words only. (2) the F3 sends its link-timeout ticks (state word link_to, part of
+  STMBL_FW_VERSION 2); the F4 counts a rise while enabled in hv0.link_drops and holds HV_TIMEOUT_ERROR until the
+  enable drops, unless the F3 reports a fault of its own (that code wins). Also `hv_verify` (from the fork): with
+  the drive disabled, reads the F3 app back from its bootloader and lists the words that differ from the image
+  the F4 carries. Tests: host/tests/test_hv_link.c, host/tests/check_hv.py (all five failed on the old code).
+  Bench: hv_verify on a board left in its bootloader by a failed hv_update.
