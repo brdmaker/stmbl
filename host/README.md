@@ -378,7 +378,14 @@ to test an autotune), override those pins with `--sim FILE`.
   sends the held command and advances `pos_cmd` by `vel_cmd`; with `acc` it
   moves with constant acceleration like LinuxCNC's planner, `vel_cmd` being
   the average over each period (as joint.N.vel-cmd). `lcnc` on its own prints
-  the feedback.
+  the feedback. `lcnc_jitter <ticks> [lost %] [seed]` makes the servo thread
+  late or early by up to that many rt ticks (0.2 ms each) and loses some
+  updates; `lcnc_stats` counts them (`tests/lcnc_jitter.test`).
+- **Mechanics beyond the rigid rotor:** `hv0.sim_fs` (breakaway friction),
+  `sim_vs` (the Stribeck speed it falls to coulomb `sim_f` over) and
+  `sim_fneg` (coulomb for negative speeds), `tests/friction_stribeck.test`;
+  a load behind a coupling, `sim_jl`/`sim_kl`/`sim_dl` (`tests/frf_two_mass.test`).
+  All off while 0.
 - **With `--pty`:** the drive runs in real time, 1 ms per ms, and its USB
   console is the pty. `reset` reboots the simulated drive, and
   `flashsaveconf` writes back to CONF, so `servoterm-cli --load ... -c reset`

@@ -5136,3 +5136,15 @@ Entry format:
   main.c) and hal.c against host/f3sim/stm32f3xx_hal.h: offsets, A1 on every phase and sign, A3 (any hal stop:
   MOE and HV_EN off, re-arm after restart), A4 (a stalled ADC DMA stops the hal, bridge off), A5 (16 / 22, the
   latch). Against the io.c before the fixes (332ade1) it fails A1 -V/-W and A3, and hangs at A4.
+
+## 2026-11-11 LinuxCNC servo jitter and lost updates raise the following error a lot
+- Area:    the drive's command path from smart-serial (sserial0 -> linrev / vel_int, the command interpolation of
+  2026-10 "exact command interpolation"), host/main.c lcnc_jitter
+- Status:  Open
+- Symptom: in the host simulation (tests/lcnc_jitter.test, burn-in axis at 100 rad/s), pid0.pos_error: steady
+  updates 0.0006 rad; +-0.2 ms jitter 0.018; +-0.4 ms 0.041; 5 % of updates lost 0.038; 20 % lost 0.10. No faults.
+- Cause:   (suspected) the drive takes each update when it arrives: an early, late or missing one reads as a
+  speed change, a lost one as a double step (about one period's travel). Not looked into further yet.
+- Fix:     Open. Ideas: extrapolate across a missing update with pos_cmd_d, place updates by their LinuxCNC time
+  rather than their arrival. Measure the bench Pi's servo-thread jitter (latency-histogram) first: the real one
+  is probably tens of us, below this simulation's 0.2 ms resolution. tests/lcnc_jitter.test holds today's numbers.

@@ -31,6 +31,7 @@
 #include "commands.h"
 #include "usbd_cdc_if.h"
 #include "drive.h"
+#include "defines.h"
 #include "pty.h"
 #include "sim_io.h"
 #include "sscon.h"
@@ -148,10 +149,67 @@ static void lcnc_servo(void) {
   io->seq++;
 }
 
+// LinuxCNC's servo thread with timing jitter (lcnc_jitter): each period's
+// update arrives up to lcnc_jit rt ticks (0.2 ms) early or late, in order,
+// or (lcnc_drop %) not at all; its commands stay on the nominal 1 ms grid
+static int lcnc_jit = 0, lcnc_drop = 0;
+static long lcnc_due = 0;       // the rt tick the next update arrives at
+static long lcnc_nominal = 0;   // its nominal tick
+static uint32_t lcnc_rnd = 1;
+static int lcnc_rand(int n) {  // 0..n-1
+  lcnc_rnd = lcnc_rnd * 1103515245u + 12345u;
+  return (int)((lcnc_rnd >> 16) % (uint32_t)n);
+}
+long lcnc_updates, lcnc_dropped;
+
+static void lcnc_tick(void) {
+  long t = rt_count++;
+  if(!lcnc_jit && !lcnc_drop) {
+    if(t % RT_PER_NRT == 0) {
+      lcnc_servo();
+      lcnc_updates++;
+    }
+    lcnc_nominal = lcnc_due = t - t % RT_PER_NRT + RT_PER_NRT;
+    return;
+  }
+  if(t < lcnc_due) {
+    return;
+  }
+  lcnc_nominal += RT_PER_NRT;
+  if(lcnc_drop && lcnc_rand(100) < lcnc_drop) {
+    // lost: LinuxCNC still moves its command on, the drive doesn't see it
+    sim_sserial_io.pos_cmd += sim_sserial_io.vel_cmd * 0.001;
+    lcnc_dropped++;
+  } else {
+    lcnc_servo();
+    lcnc_updates++;
+  }
+  long next = lcnc_nominal + lcnc_rand(2 * lcnc_jit + 1) - lcnc_jit;
+  lcnc_due  = next > t ? next : t + 1;
+}
+
+void cmd_lcnc_jitter(char *ptr) {
+  int j = 0, d = 0;
+  unsigned s = 1;
+  sscanf(ptr, " %i %i %u", &j, &d, &s);
+  lcnc_jit  = CLAMP(j, 0, RT_PER_NRT - 1);
+  lcnc_drop = CLAMP(d, 0, 100);
+  lcnc_rnd  = s ? s : 1;
+  lcnc_nominal = lcnc_due = rt_count;
+  printf("lcnc_jitter %i ticks (%.1f ms), %i %% lost\n", lcnc_jit, lcnc_jit * RT_PERIOD * 1e3, lcnc_drop);
+}
+COMMAND("lcnc_jitter", cmd_lcnc_jitter, "LinuxCNC servo jitter: lcnc_jitter <rt ticks 0..4> [lost %] [seed]");
+
+void cmd_lcnc_stats(char *ptr) {
+  (void)ptr;
+  printf("lcnc_updates = %ld\nlcnc_dropped = %ld\n", lcnc_updates, lcnc_dropped);
+}
+COMMAND("lcnc_stats", cmd_lcnc_stats, "LinuxCNC updates sent and lost (lcnc_jitter)");
+
 static void run_cycles(long n) {
   for(long i = 0; i < n; i++) {
-    if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
-      lcnc_servo();
+    if(lcnc_on) {
+      lcnc_tick();
     }
     for(int p = 1; p < SSERIAL_PORTS; p++) {  // the other sides: their outputs, again
       if(lcncio_on[p] && lcncio_count[p]++ % RT_PER_NRT == 0) {

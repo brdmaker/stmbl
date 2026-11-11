@@ -1,0 +1,28 @@
+# The simulated motor's friction beyond coulomb (host/hw/hv.c: hv0.sim_fs,
+# sim_vs, sim_fneg; from the stmbl_freak fork's plant). Drive disabled, an
+# external torque on the shaft (hv0.sim_load): coulomb 0.038 Nm (conf0.f),
+# damping 0.0001 Nm s/rad (conf0.d), inertia 0.000044.
+# 1. breakaway 0.06: 0.05 Nm holds the rotor (it is above coulomb);
+# 2. 0.07 breaks it away; at speed friction falls to coulomb, so it runs
+#    to (0.07 - 0.038) / 0.0001 = 320 rad/s;
+# 3. coulomb 0.057 for negative speeds: -0.07 runs to -(0.07 - 0.057) /
+#    0.0001 = -130 rad/s.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+hv0.sim_fs = 0.06
+hv0.sim_vs = 1
+hv0.sim_fneg = 0.057
+hv0.sim_load = 0.05
+run 1
+hv0.sim_vel
+hv0.sim_load = 0.07
+run 3
+hv0.sim_vel
+hv0.sim_load = 0
+run 3
+hv0.sim_load = -0.07
+run 3
+hv0.sim_vel
+@expect hv0.sim_vel[1] == 0
+@expect hv0.sim_vel[2] ~ 320 3%
+@expect hv0.sim_vel[3] ~ -130 5%

@@ -111,6 +111,12 @@ HAL_PIN(sim_pp);     // pole pairs
 HAL_PIN(sim_j);      // inertia [kg*m^2]
 HAL_PIN(sim_d);      // damping [Nm/(rad/s)]
 HAL_PIN(sim_f);      // coulomb friction [Nm]
+// friction beyond coulomb (off while 0): breakaway (static) friction, the
+// Stribeck speed it falls to coulomb over, and coulomb for negative speeds
+// (fc + (fs - fc) * exp(-(v / vs)^2), Karnopp stick below fs)
+HAL_PIN(sim_fs);     // breakaway friction [Nm] (0: = coulomb)
+HAL_PIN(sim_vs);     // Stribeck speed [rad/s] (0: 0.1)
+HAL_PIN(sim_fneg);   // coulomb for negative speeds [Nm] (0: = sim_f)
 HAL_PIN(sim_load);   // external load torque [Nm]
 HAL_PIN(sim_brake);  // holding brake torque [Nm], applied while not released
 HAL_PIN(sim_brake_release);  // brake output (io0.out0), 1 = released
@@ -297,7 +303,6 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_torque)  = te;
     return;
   }
-  float tf     = PIN(sim_f) + (PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0);
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
   float ts     = 0.0;  // the coupling's torque on the rotor
@@ -317,7 +322,15 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     ctx->abs0_set = 1;
   }
   // coulomb friction: holds the rotor when the other torques can't beat it
-  if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
+  // friction: the direction it acts against, its coulomb and breakaway
+  // levels there, and the Stribeck curve between them
+  float brake = PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0;
+  float dir   = fabsf(v) < 1e-4 ? SIGN(torque) : SIGN(v);
+  float fc    = dir < 0.0 && PIN(sim_fneg) > 0.0 ? PIN(sim_fneg) : PIN(sim_f);
+  float fs    = MAX(PIN(sim_fs), fc);
+  float vs    = PIN(sim_vs) > 0.0 ? PIN(sim_vs) : 0.1;
+  float tf    = fc + (fs - fc) * expf(-(v / vs) * (v / vs)) + brake;
+  if(fabsf(v) < 1e-4 && fabsf(torque) <= fs + brake) {
     PIN(sim_vel) = 0.0;
     PIN(sim_acc) = 0.0;
   } else {
