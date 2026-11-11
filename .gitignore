@@ -51,6 +51,7 @@ host/test_yaskawa_frame
 host/test_boot_logic
 host/test_hv_link
 host/test_f3_io
+host/test_cdc_in
 host/gen_f3/
 host/test_errlog
 host/test_adc_sum

@@ -874,17 +874,22 @@ Entry format:
   unreliable j shows. 5000 was fine on the bench motor (no faults).
 
 ## 2026-10-14  USB text and scope frames mix when the drive's TX buffer overflows
-- Area:    `src/syscalls.c` (`_write`), `src/usb_cdc.c` (`cdc_tx`), USB VCP
-- Status:  Open
+- Area:    `src/syscalls.c` (`_write`), `src/usb_cdc.c` (`cdc_tx`), USB VCP, shared/cdc_in.h
+- Status:  Fixed (unit test + source check); bench check open
 - Symptom: Scope bytes inside text: `[..] ?zy?L?{??conf0.j = ...` while
   logging 9-byte frames at 5 kHz (most frames were lost too), and 2 of 141
   `servoterm-cli --dump` reads with 9 text bytes missing or 1 replaced.
-- Cause:   Probably `_write`/`cdc_tx` writing into APP_Rx_Buffer without
-  checking how much is still unsent, so the write pointer laps unsent data
-  when the host doesn't keep up. Not confirmed.
-- Fix:     Idea: drop (or block for) data that doesn't fit, frame-atomic for
-  scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
-  and `--load` verifies by reading back, so a garbled read can't go to flash.
+- Cause:   (confirmed 2026-11-11) `_write` and `cdc_tx` wrote into APP_Rx_Buffer
+  without checking the free space: the write pointer lapped bytes the USB
+  interrupt hadn't sent yet when the host didn't keep up. Both run in the
+  main loop (one writer), so it was only the missing check.
+- Fix:     2026-11-11: both through `cdc_in_put` (shared/cdc_in.h): a scope
+  frame goes whole or not at all, text as much as fits; `_write` waits up to
+  20 ms in the main loop (feeding the watchdog) for the host, then drops.
+  `usbdiag` shows `dropped`. Tests: host/tests/test_cdc_in.c (a simulated
+  USB interrupt draining slower than the writers; the old code overwrote
+  unsent bytes and split frames), host/tests/check_usb.py. Bench: scope at
+  5 kHz while dumping the config: no text garbled, `dropped` counts the loss.
 
 ## 2026-10-18  setsserial could not flash through the smart-serial loader
 - Area:    `shared/lbp_dev.c`, `bootloader/src/main.c` (sserial_loader),

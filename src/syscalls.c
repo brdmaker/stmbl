@@ -7,6 +7,7 @@
 #include "stm32f4xx.h"
 #include "usbd_cdc_if.h"
 #include "sscon.h"
+#include "cdc_in.h"
 
 //int __errno;
 size_t __malloc_margin = 256;
@@ -112,20 +113,23 @@ int _write(int fd, const char *ptr, int len) {
   if(!USB_CDC_is_connected()) {
     return len;
   }
-  char *c = (char *)ptr;
   (void)fd;
-  int sent = 0;
-
-  while(len--) {
-    // send a queued byte - copy to usb stack buffer
-    APP_Rx_Buffer[APP_Rx_ptr_in++] = *c;
-    c++;
-
-    // To avoid buffer overflow
-    if(APP_Rx_ptr_in >= APP_RX_DATA_SIZE) {
-      APP_Rx_ptr_in = 0;
+  // Never over unsent bytes (shared/cdc_in.h, DEBUGNOTES 2026-10-14): from
+  // the main loop wait up to 20 ms for the host to read (the watchdog fed),
+  // then drop the rest; from an interrupt never wait.
+  const uint8_t *c   = (const uint8_t *)ptr;
+  uint32_t left      = len;
+  uint64_t t0        = systime;
+  int may_wait       = __get_IPSR() == 0;
+  for(;;) {
+    uint32_t w = cdc_in_put(APP_Rx_Buffer, APP_RX_DATA_SIZE, &APP_Rx_ptr_in, CDC_IN_OUT, c, left, 0);
+    c += w;
+    left -= w;
+    if(!left || !may_wait || systime - t0 > 20 || !USB_CDC_is_connected()) {
+      break;
     }
-    sent++;
+    wdog_poll();
   }
-  return sent;
+  usb_tx_dropped += left;
+  return len;
 }

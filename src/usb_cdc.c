@@ -22,6 +22,9 @@ volatile uint8_t usb_dtr = 0;  // see VCP_Ctrl
 #include "commands.h"
 #include "errlog.h"
 #include "main.h"
+#include "cdc_in.h"
+
+volatile uint32_t usb_tx_dropped;  // bytes the host read too slowly for (shared/cdc_in.h)
 extern uint8_t USB_Tx_State;
 extern uint32_t APP_Rx_ptr_in, APP_Rx_ptr_out, APP_Rx_length;
 extern volatile uint32_t usb_tx_healed, usb_sof_count;
@@ -38,8 +41,8 @@ void usbdiag(char *ptr) {
   uint32_t sofs = usb_sof_count - sof0;  // ~20 while the host keeps the bus up
   errlog_note(1, USB_Tx_State | (sofs & 0xff) << 8 | (usb_tx_healed & 0xffff) << 16, APP_Rx_ptr_in << 16 | (APP_Rx_ptr_out & 0xffff), APP_Rx_length | (uint32_t)usb_dtr << 31);
   errlog_note(2, ctl, siz, ints);
-  printf("usb: dtr %u, tx state %u, sofs/20ms %lu, healed %lu, in %lu out %lu len %lu, diepctl %08lx dieptsiz %08lx diepint %08lx\n",
-         usb_dtr, USB_Tx_State, sofs, usb_tx_healed, APP_Rx_ptr_in, APP_Rx_ptr_out, APP_Rx_length, ctl, siz, ints);
+  printf("usb: dtr %u, tx state %u, sofs/20ms %lu, healed %lu, in %lu out %lu len %lu, dropped %lu, diepctl %08lx dieptsiz %08lx diepint %08lx\n",
+         usb_dtr, USB_Tx_State, sofs, usb_tx_healed, APP_Rx_ptr_in, APP_Rx_ptr_out, APP_Rx_length, usb_tx_dropped, ctl, siz, ints);
 }
 COMMAND("usbdiag", usbdiag, "the USB console's send state, also into the error log");
 
@@ -189,16 +192,10 @@ int cdc_tx(void *data, uint32_t len) {
   if(!cdc_is_connected()){
     return 0;
   }
-  while(len--) {
-    // send a queued byte - copy to usb stack buffer
-    APP_Rx_Buffer[APP_Rx_ptr_in++] = *(uint8_t *)data;
-    data++;
-    // To avoid buffer overflow
-    if(APP_Rx_ptr_in >= APP_RX_DATA_SIZE) {
-      APP_Rx_ptr_in = 0;
-    }
-  }
-  return len;
+  // a scope frame whole or not at all, never over unsent bytes (shared/cdc_in.h)
+  uint32_t w = cdc_in_put(APP_Rx_Buffer, APP_RX_DATA_SIZE, &APP_Rx_ptr_in, CDC_IN_OUT, data, len, 1);
+  usb_tx_dropped += len - w;
+  return w;
 }
 
 int cdc_getline(char *ptr, int len) {

@@ -166,6 +166,10 @@ gen_f3/io_comp.h: $(ROOT)/stm32f303/src/comps/io.c
 test_f3_io: tests/test_f3_io.c gen_f3/io_comp.h $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c f3sim/stm32f3xx_hal.h ../shared/hal.c ../shared/f3_safety.h ../shared/iabs.h
 	$(CC) -O1 -g -std=gnu11 -Wall -Wno-format -Wno-pointer-to-int-cast -Igen_f3 -If3sim -I../shared -o $@ tests/test_f3_io.c $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c ../shared/angle.c -lm
 
+# shared/cdc_in.h: the USB IN buffer, never over unsent bytes (2026-11-11)
+test_cdc_in: tests/test_cdc_in.c ../shared/cdc_in.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_cdc_in.c
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -179,8 +183,9 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic test_hv_link test_f3_io
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic test_hv_link test_f3_io test_cdc_in
 	@./test_iabs
+	@./test_cdc_in
 	@./test_f3_io
 	@./test_hv_link
 	@./test_boot_logic
@@ -214,6 +219,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_boot.py
 	@$(PYTHON) tests/check_faults.py
 	@$(PYTHON) tests/check_hv.py
+	@$(PYTHON) tests/check_usb.py
 	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
