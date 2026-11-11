@@ -220,6 +220,8 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_faults.py
 	@$(PYTHON) tests/check_hv.py
 	@$(PYTHON) tests/check_usb.py
+	@$(PYTHON) tests/test_comp_docs.py
+	@$(PYTHON) ../tools/comp_docs.py --check
 	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py

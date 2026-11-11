@@ -5,6 +5,8 @@ pinout, supply, motor and feedback setup, tuning, commands, servoterm.
 `linuxcnc/` holds the LinuxCNC side: the example configuration (`config/`),
 `sserialterm` and `stmblcan` ([linuxcnc/README.md](../linuxcnc/README.md)).
 
+**Component reference:** [components/](components/README.md), every HAL component with its description, pins and the templates that use it, generated from the sources by `tools/comp_docs.py` (kept current by `make -C host check`).
+
 Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 
 | doc | what |
