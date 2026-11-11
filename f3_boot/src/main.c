@@ -24,6 +24,7 @@
 #include "common.h"
 #include "f3hw.h"
 #include "tim.h"
+#include "boot_logic.h"
 
 uint32_t systick_freq;
 CRC_HandleTypeDef hcrc;
@@ -52,6 +53,19 @@ static int app_ok(void) {
     return 0;
   }
   return 1;
+}
+
+static const uint32_t *f3_flash_at(uint32_t a) {
+  return (const uint32_t *)a;
+}
+
+static int f3_flash_erase(uint32_t a) {
+  FLASH_EraseInitTypeDef e;
+  uint32_t err = 0;
+  e.TypeErase   = FLASH_TYPEERASE_PAGES;
+  e.PageAddress = a;
+  e.NbPages     = 1;
+  return HAL_FLASHEx_Erase(&e, &err) != HAL_OK;
 }
 
 void TIM8_UP_IRQHandler() {
@@ -112,20 +126,11 @@ void TIM8_UP_IRQHandler() {
           break;
 
         case BOOTLOADER_OPCODE_PAGEERASE:
+          // page by page, blank pages skipped: hv0 repeats this command
+          // until it sees the answer, and each one erased all 56 pages
+          // again (1-2 s) while the writes timed out (shared/boot_logic.h)
           HAL_FLASH_Unlock();
-          uint32_t NbOfPages = 0;
-          uint32_t PageError = 0;
-          /* Variable contains Flash operation status */
-          FLASH_EraseInitTypeDef eraseinitstruct;
-          //TODO: only erase APP pages
-          /* Get the number of sector to erase from 1st sector*/
-          NbOfPages = (APP_END - APP_START) / FLASH_PAGE_SIZE;
-          //NbOfPages                 = 1;
-          eraseinitstruct.TypeErase = FLASH_TYPEERASE_PAGES;
-          //eraseinitstruct.PageAddress = USBD_DFU_APP_DEFAULT_ADD;
-          eraseinitstruct.PageAddress = APP_START;
-          eraseinitstruct.NbPages     = NbOfPages;
-          status                      = HAL_FLASHEx_Erase(&eraseinitstruct, &PageError);
+          status = boot_erase_pages(APP_START, APP_END, FLASH_PAGE_SIZE, f3_flash_at, f3_flash_erase) < 0 ? HAL_ERROR : HAL_OK;
           break;
 
         case BOOTLOADER_OPCODE_CRCCHECK:

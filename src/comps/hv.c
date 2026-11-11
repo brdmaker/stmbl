@@ -8,6 +8,7 @@
 #include "hw/hw.h"
 #include "common.h"
 #include "main.h"
+#include "boot_logic.h"
 #include "ringbuf.h"
 #include <stddef.h>
 #include "fwver.h"
@@ -475,7 +476,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       // flash_state = SLAVE_IN_APP;
 
-      if(ctx->timeout > 20000) {
+      // 12 s: a full erase takes 1-2 s, a lost answer costs another round
+      // (shared/boot_logic.h; was 20000, 4 s)
+      if(ctx->timeout > BOOT_ERASE_TICKS) {
         ctx->timeout = 0;
         flash_state  = FLASH_FAILED;
       }
@@ -536,6 +539,16 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->send_state = 0;
   }
   ctx->send_state++;
+
+  // CRC_CHECK: send it once, then listen (the F3 bootloader answers after
+  // computing the CRC, 2-3 ms; a new request re-arms our receive and lost
+  // that answer). shared/boot_logic.h
+  static uint32_t crc_wait;
+  if(flash_state != CRC_CHECK) {
+    crc_wait = 0;
+  } else if(tx_size && !boot_crc_send(&crc_wait)) {
+    tx_size = 0;
+  }
 
   if(PIN(drop_link) > 0.0) {  // the F3 sees the F4 gone; it comes back by itself
     PIN(drop_link) = MAX(PIN(drop_link) - period, 0.0);

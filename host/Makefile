@@ -149,6 +149,10 @@ test_encf_frame: tests/test_encf_frame.c ../shared/encf_frame.h
 test_yaskawa_frame: tests/test_yaskawa_frame.c ../shared/yaskawa_frame.h ../shared/yaskawa_crc16.c
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_yaskawa_frame.c ../shared/yaskawa_crc16.c
 
+# shared/boot_logic.h: PA13 DFU check, F3 erase, hv_update pacing (2026-11-11)
+test_boot_logic: tests/test_boot_logic.c ../shared/boot_logic.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_boot_logic.c
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -162,8 +166,9 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic
 	@./test_iabs
+	@./test_boot_logic
 	@./test_yaskawa_frame
 	@./test_encf_frame
 	@./test_ringbuf
@@ -191,6 +196,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_safety_wiring.py
 	@$(PYTHON) tests/check_encf.py
 	@$(PYTHON) tests/check_yaskawa.py
+	@$(PYTHON) tests/check_boot.py
 	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py

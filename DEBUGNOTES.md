@@ -45,6 +45,12 @@ Entry format:
   drive's HV board has it since the DFU fix); if it fails the same way,
   send ERASE_FLASH once and wait for its ack, and give SEND_APP's first
   write a longer timeout.
+- Also:    2026-11-11, from stmbl_freak (which fixed this): f3_boot erases a page at a time and skips blank pages,
+  so a repeated ERASE answers in ms instead of erasing all 56 pages again; hv_update allows 12 s for the erase
+  (BOOT_ERASE_TICKS, was 4 s) and sends CRC_CHECK once, then listens 100 sending ticks (a request every tick
+  re-armed the receive and could lose the answer: the old-bootloader CRC_CHECK entry below may be the same).
+  shared/boot_logic.h; tests host/tests/test_boot_logic.c, host/tests/check_boot.py. Needs the new f3_boot on
+  the HV board (`make f3_boot_btburn`, DFU) and a bench hv_update to close.
 
 ## 2026-11-09  fanuc_tw: the request with interrupts on, 20 % sync errors: causes ruled out
 - Area:    `src/comps/fanuc_tw.c` (transmit_and_listen)
@@ -4113,6 +4119,11 @@ Entry format:
   read, then leave) until it starts. Next: reproduce on a drive with the
   debugger, check whether the bootloader's clear reaches CCM before the ROM
   jump.
+- Also:    2026-11-11, another cause that fits (stmbl_freak's fix): the bootloader read PA13 (SWDIO, pull-up) once,
+  right after turning the pull-up on; a pin still charging read low = "DFU requested". Now low on all 100
+  samples (~2-20 ms) and never under a debugger (C_DEBUGEN), and RCC_DeInit before the ROM jump (AN2606: the ROM
+  expects the reset clocks). Tests: host/tests/test_boot_logic.c, host/tests/check_boot.py. Needs the new
+  bootloader on a drive (`make boot_btburn`) and a few btburn cycles to close.
 
 ## 2026-10-29  Bench: a new drive dropped off USB for good
 - Area:    hardware (drive with USB serial 207D35A45631)
