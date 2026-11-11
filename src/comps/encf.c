@@ -7,6 +7,7 @@
 #include "stm32f4xx_conf.h"
 #include "hw/hw.h"
 #include <string.h>
+#include "encf_frame.h"
 
 HAL_COMP(encf);
 
@@ -33,6 +34,7 @@ HAL_PIN(bit_ticks);
 static volatile uint32_t sendf;
 static uint32_t send_counterf;
 static volatile uint16_t tim_data[160];
+static uint16_t cap[160];  // rt's copy of tim_data, decoded after the next request is out
 
 #pragma pack(push, 1)
 typedef struct {
@@ -191,54 +193,35 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   uint32_t count = ARRAY_SIZE(tim_data) - DMA1_Stream0->NDTR;
   PIN(dma)       = count;
 
-  for(int i = 0; i < 10; i++) {
-    data.enc_data[i] = 0;
+  // Request the next frame first, at a fixed point after the rt starts. The
+  // encoder latches its position on the request; sent at the end, after the
+  // decode, its time wandered with the frame's bit pattern (stmbl_freak
+  // 2963ea4: ~1 us rms, 0.24 rad/s of vel noise at 126 rad/s on an alpha 3).
+  // The captures are copied out before the DMA restarts over them.
+  count = MIN(count, ARRAY_SIZE(cap));
+  memcpy(cap, (void *)tim_data, count * sizeof(cap[0]));
+  FB0_ENC_TIM->CNT  = 0;
+  FB0_ENC_TIM->CCR1 = 0;
+  FB0_ENC_TIM->CR1 |= TIM_CR1_CEN;  // enable tim
+  SPI3->DR = PIN(req_len);          // request, 1/(42e6/32)*11 = 8.4 us
+  DMA_Cmd(DMA1_Stream0, DISABLE);
+  for(int i = 0; i < 100 && (DMA1_Stream0->CR & DMA_SxCR_EN); i++) {  // RM0090 10.3.17: EN reads 0 once stopped
   }
+  DMA_ClearFlag(DMA1_Stream0, DMA_FLAG_FEIF0 | DMA_FLAG_DMEIF0 | DMA_FLAG_TEIF0 | DMA_FLAG_HTIF0 | DMA_FLAG_TCIF0);
+  DMA_Cmd(DMA1_Stream0, ENABLE);
 
   //1 bit = 80 ticks 82e6/1.024e6
   PIN(bit_ticks) = 82000000 / PIN(freq);
 
-  uint8_t bits_sum = 0;
-  for(int i = 1; i < count; i++) {  //each capture form dma
-    //calculate time between edges
-    uint16_t diff = tim_data[i] - tim_data[i - 1];
-    //number of bits to set
-    int bits = (float)diff / PIN(bit_ticks) + 0.5;
-    if(i % 2 == 0) {  //line starts high, set every even numbered captures to 1
-      for(int j = bits_sum; j < bits + bits_sum; j++) {
-        data.enc_data[j / 8] |= (1 << j % 8);
-      }
-    }
-    bits_sum += bits;
-  }
-  //set remaining bits to 1
-  for(int j = bits_sum; j < 77; j++) {
-    data.enc_data[j / 8] |= (1 << j % 8);
-  }
+  // bounded: never past the frame (shared/encf_frame.h, DEBUGNOTES 2026-11-11)
+  int bits_sum = encf_decode(cap, count, PIN(bit_ticks), data.enc_data);
 
   if(!sendf) {
     memcpy((void *)print_buf, (void *)data.enc_data, 10);
     sendf = 1;
   }
   if(bits_sum > 50) {
-    //check crc. TODO: use result, change to word/byte algorithm
-    //http://freeby.mesanet.com/fabsread.pas
-    uint8_t crc[5]    = {0, 0, 0, 0, 0};
-    uint8_t oldcrc[5] = {0, 0, 0, 0, 0};
-    for(uint8_t i = 76; i >= 1; i--) {
-      uint8_t bit = (data.enc_data[i / 8] & (1 << i % 8)) ? 1 : 0;
-      crc[0]      = oldcrc[4] ^ bit;
-      crc[1]      = oldcrc[0];
-      crc[2]      = oldcrc[1] ^ bit ^ oldcrc[4];
-      crc[3]      = oldcrc[2];
-      crc[4]      = oldcrc[3] ^ bit ^ oldcrc[4];
-      oldcrc[0]   = crc[0];
-      oldcrc[1]   = crc[1];
-      oldcrc[2]   = crc[2];
-      oldcrc[3]   = crc[3];
-      oldcrc[4]   = crc[4];
-    }
-    if(crc[0] == 0 && crc[1] == 0 && crc[2] == 0 && crc[3] == 0 && crc[4] == 0) {
+    if(encf_crc_ok(data.enc_data)) {
       PIN(crc_ok)++;
       int32_t pos = data.fanuc.pos_lo + (data.fanuc.pos_hi << 6);
       PIN(index) = data.fanuc.no_index;
@@ -276,17 +259,6 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(state)    = 1;
     state_counter = 0;
   }
-  //reset timer
-  FB0_ENC_TIM->CNT  = 0;
-  FB0_ENC_TIM->CCR1 = 0;
-  FB0_ENC_TIM->CR1 |= TIM_CR1_CEN;  // enable tim
-
-  //send request, 1/(42e6/32)*11 = 8.4uS
-  SPI3->DR = PIN(req_len);
-  //start DMA
-  DMA_Cmd(DMA1_Stream0, DISABLE);
-  DMA_ClearFlag(DMA1_Stream0, DMA_FLAG_TCIF0);
-  DMA_Cmd(DMA1_Stream0, ENABLE);
 }
 
 static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {

@@ -3572,6 +3572,9 @@ Entry format:
   CMP40M) merged with master: mill_move's following error 16.9 / 17.2 um
   against 15 (the branch: under 15); with pos_advance 0.0006 10/10. Marked
   @todo there too.
+- Also:    2026-11-11, tools/sserial_advance.py (from stmbl_freak) fits it from LinuxCNC's following error. On the
+  simulated drive (hwtest/burnin-sim `make test-advance`) it gives 0.00059 with 0.0006 configured (-9 us, inside
+  the scatter) and finds a 0.5 ms error put in over the console. Run it on the bench drive to close this.
 
 ## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
 - Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
@@ -5037,3 +5040,18 @@ Entry format:
 - Cause:   no guard on max_e (or high_temp <= amb_temp); a float state, whose per-period increment rounded away.
 - Fix:     no model (temp = amb_temp, state 0) while max_e or high_temp - amb_temp is not > 0; the state is a double.
   Tests: host/tests/iit_guard.test, host/tests/iit_long.test (both failed before).
+
+## 2026-11-11 encf: a noisy or broken line wrote past the 10-byte frame; request time wandered
+- Area:    src/comps/encf.c (FANUC alpha, aA64: our alpha2/3000), shared/encf_frame.h
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading) the decoder turned each gap between edges into `bits` and set them without a limit: a
+  long gap in a run of ones (a dropout, a broken cable) or too many edges wrote past `data.enc_data[10]` into the
+  RAM after it, and its uint8_t bit count could wrap. Also (stmbl_freak 2963ea4, measured there on an alpha 3):
+  the request for the next frame went out at the end of rt, after the decode, so the time the encoder latched its
+  position wandered with the frame's bit pattern, ~1 us rms: 0.24 rad/s of velocity noise at 126 rad/s.
+- Cause:   inherited from upstream.
+- Fix:     the decoder is shared/encf_frame.h, bounded to the frame's 77 bits; rt copies the captures, sends the
+  request at its start, then decodes the copy; the DMA re-arm waits for EN = 0 (bounded) and clears all its
+  flags. Tests: host/tests/test_encf_frame.c (frames built with their CRC, 3 % rate error, timer wrap; long gaps
+  and noise wrote past the frame before), host/tests/check_encf.py (request before decode). Bench: fbtest /
+  velocity noise on the alpha2/3000 before and after. The fork's req_sync (request from the frt timer) not taken.
