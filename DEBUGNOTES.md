@@ -16,6 +16,28 @@ Entry format:
 
 ---
 
+## 2026-11-11  FANUC α: what id_* reads against the datasheet (stmbl_freak)
+- Area:    `conf/fanuc_a2-3000.txt`, `host/tests/motors.py`
+- Status:  Note
+- Symptom: stmbl_freak's commissioned α3/3000 and α6/3000 (annotated
+  `[plate]`/`[id]`) differ from FANUC's datasheet in a steady way.
+- Cause:   psi 0.91 x the datasheet; r 1.16 x (cable, warm winding); j
+  1.16 x, 1.29 x with the brake; Ld < Lq (mtpa pays); L/R ~3-6 ms.
+- Fix:     Used as the expected values in the α2/3000 starting config (not
+  commissioned yet, so not on hardware). host/tests/test_motor_table.py
+  checks its derived lines and that motors.py rows match their configs;
+  motor_fanuc_a2_3000.test (autotune), soak and ebrake run it.
+
+## 2026-11-11  A stale `__pycache__` hid an edit to `host/tests/motors.py`
+- Area:    host python tests (`tests/motors.py` is imported)
+- Status:  Known
+- Symptom: After editing and reverting a motors.py value within one second,
+  `make check` still saw the edited value.
+- Cause:   Python's .pyc check compares source mtime (in whole seconds) and
+  size; the revert kept both, so the stale .pyc was used.
+- Fix:     `rm -rf host/tests/__pycache__` after quick scripted edits. Not a
+  problem for edits made by hand.
+
 ## 2026-11-09  One `pid0.vel_error = -inf` read in a soak (garbled, or real?)
 - Area:    `shared/comps/pid.c`, the USB console
 - Status:  Open

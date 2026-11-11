@@ -225,6 +225,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
+	@$(PYTHON) tests/test_motor_table.py
 	@$(MAKE) -s -C ../servoterm-cli
 	@$(PYTHON) tests/test_servoterm_ident.py
 	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arm6/arm6_base.arm
