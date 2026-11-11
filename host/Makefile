@@ -129,6 +129,17 @@ test_iabs: tests/test_iabs.c ../shared/iabs.h ../shared/defines.h
 test_conf_append: tests/test_conf_append.c ../shared/conf_append.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_conf_append.c
 
+# shared/ringbuf.c with a concurrent writer and reader (two threads),
+# shared/hal.c's stop paths, shared/f3_safety.h (2026-11-11)
+test_ringbuf: tests/test_ringbuf.c ../shared/ringbuf.c ../shared/ringbuf.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_ringbuf.c ../shared/ringbuf.c -lpthread
+
+test_hal_stop: tests/test_hal_stop.c ../shared/hal.c ../shared/hal.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wno-format -I../shared -o $@ tests/test_hal_stop.c -lm
+
+test_f3_safety: tests/test_f3_safety.c ../shared/f3_safety.h ../shared/wdog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_f3_safety.c
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -142,8 +153,11 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety
 	@./test_iabs
+	@./test_ringbuf
+	@./test_hal_stop
+	@./test_f3_safety
 	@./test_conf_append
 	@./test_fanuc1p
 	@./test_fanuc_tw

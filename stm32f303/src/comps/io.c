@@ -9,6 +9,7 @@
 #include "common.h"
 #include "cur_offset.h"
 #include "iabs.h"
+#include "f3_safety.h"
 
 HAL_COMP(io);
 
@@ -198,9 +199,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_ctx_t *ctx      = (struct io_ctx_t *)ctx_ptr;
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
 
-  while(!(DMA1->ISR & DMA_ISR_TCIF1)) {
-  }
-  while(!(DMA2->ISR & DMA_ISR_TCIF5)) {
+  // A stalled ADC DMA used to hang this wait for good, the rt interrupt
+  // with it, and the bridge kept its last PWM (A4, DEBUGNOTES 2026-11-11).
+  // Give up within the rt period: the hal stops (its rt_stop turns the
+  // bridge off and no later component runs) and the watchdog resets the F3.
+  if(!f3_wait_flags(&DMA1->ISR, DMA_ISR_TCIF1, &DMA2->ISR, DMA_ISR_TCIF5, F3_ADC_WAIT_POLLS)) {
+    hal_stop();
+    hal.hal_state = MISC_ERROR;
+    return;
   }
 
   DMA1->IFCR = DMA_IFCR_CTCIF1;
@@ -336,6 +342,18 @@ void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(mot_temp) = MOT_R(MOT_REF(ADC(ctx->mot_temp >> 16)));
 }
 
+void bridge_off(void);  // main.c
+
+// The rt stopped (any way: hal.c runs this on every stop path): bridge off,
+// and forget it was enabled, so a restart re-arms MOE on the next enable
+// (A3, DEBUGNOTES 2026-11-11, host/tests/check_safety_wiring.py).
+static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct io_ctx_t *ctx = (struct io_ctx_t *)ctx_ptr;
+  (void)pin_ptr;
+  bridge_off();
+  ctx->enabled = 0;
+}
+
 hal_comp_t io_comp_struct = {
     .name      = "io",
     .nrt       = nrt_func,
@@ -344,7 +362,7 @@ hal_comp_t io_comp_struct = {
     .nrt_init  = nrt_init,
     .rt_start  = 0,
     .frt_start = 0,
-    .rt_stop   = 0,
+    .rt_stop   = rt_stop,
     .frt_stop  = 0,
     .ctx_size  = sizeof(struct io_ctx_t),
     .pin_count = sizeof(struct io_pin_ctx_t) / sizeof(struct hal_pin_inst_t),

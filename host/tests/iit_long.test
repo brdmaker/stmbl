@@ -1,0 +1,19 @@
+# iit (shared/comps/iit.c) with a motor-length time constant: max_time
+# 600 s gives 600 * (high - amb) / (max - amb) = 429 s. With a float state
+# one period's increment rounded away near the end, and temp stalled short
+# of its final value (stmbl_freak 4d7d311; DEBUGNOTES 2026-11-11).
+@timeout 120
+load iit
+iit0.rt_prio = 1
+iit0.amb_temp = 30
+iit0.high_temp = 80
+iit0.max_temp = 100
+iit0.cur_boost = 1
+iit0.max_time = 600
+iit0.max_cur = 2
+# half the rated current: steady state amb + (high - amb) / 4 = 42.5
+iit0.cur = 1
+start
+run 3500
+iit0.temp
+@expect iit0.temp ~ 42.5 0.1

@@ -4926,13 +4926,15 @@ Entry format:
   `light_glink.portal` (pcbdrill's), `slow_glink.portal` (cmm's). `make -C host check` passes.
 
 ## 2026-11-10 Safety gaps found by comparing with the stmbl_freak fork
-- Area:    stm32f303 (rt stop, watchdog, PVD, CSS), shared/ringbuf.c, shared/comps/iit.c
+- Area:    stm32f303 (PVD, CSS)
 - Status:  Open
-- Symptom: (from the fork's analysis, not yet checked here) the F3 keeps the last PWM when its rt stops; no F3 IWDG
-  and an unbounded ADC DMA wait; no PVD / CSS; ringbuf's `len` written by both IRQ and main loop; `iit` NaN at
-  max_cur 0. The four confirmed in our code are fixed, see the entries below.
-- Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed each.
-- Fix:     none yet. The plan, their commits and how to test each: brdmot `docs/stmbl_freak.md` section 4.2 / 6.
+- Symptom: (from the fork's analysis, not yet checked here) no F3 undervoltage break (PVD) and no clock security
+  (CSS): a sagging 3.3 V or a failed crystal leaves the bridge to chance. The other findings are fixed, see the
+  2026-11-10 and 2026-11-11 entries (iabs, Break2, io4 rt_stop, appendconf; hal stop paths / F3 bridge off,
+  F3 watchdog and ADC wait, ringbuf, iit).
+- Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed it.
+- Fix:     none yet: a new fault code and a `STMBL_FW_VERSION` bump. Their commits: brdmot `docs/stmbl_freak.md`
+  section 4.2 (A5).
 
 ## 2026-11-10 F3 software overcurrent trip missed negative V/W currents
 - Area:    stm32f303/src/comps/io.c, shared/iabs.h
@@ -4986,3 +4988,52 @@ Entry format:
 - Fix:     `deploy` runs the stages one after another (each still parallel inside). Test: the CI firmware job runs
   `make -j"$(nproc)" deploy` from a clean checkout (.github/workflows/ci.yml); failed here before, three clean
   -j8 runs pass after.
+
+## 2026-11-11 Overrun and interrupted-run stops skipped every rt_stop (F3 kept its PWM, F4 its brake output)
+- Area:    shared/hal.c (`hal_run_rt`, `hal_run_frt`), stm32f303/src/main.c, stm32f303/src/comps/io.c
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading; stmbl_freak's A3) an rt or frt overrun (RT_TOO_LONG / FRT_TOO_LONG seen by the hal) or a
+  run that never finished (MISC_ERROR) set RT_STOP without calling hal_stop, so no component's rt_stop ran: the
+  F4's io4 brake output (fixed 2026-11-10) stayed as it was, and the F3, which had no rt_stop at all, kept TIM8
+  switching its last compares with no current loop behind them.
+- Cause:   the "// call stop" paths in hal.c only set the states; the F3's io had no rt_stop.
+- Fix:     those paths call hal_stop (`hal_stop_with`), and the rt/frt loops stop calling components once the hal
+  is stopped mid-run. The F3: io's rt_stop runs `bridge_off()` (MOE off, HV_EN low) and clears `enabled`, and
+  the PWM interrupt calls `bridge_off()` on every tick while the rt is stopped. Tests: host/tests/test_hal_stop.c
+  (the real hal.c, rt_stop/frt_stop on all six stop paths; four failed before), host/tests/check_safety_wiring.py
+  (the F3 wiring). Bench: stop the F3 (`stop` on its USB console) while enabled, the phase current goes to 0.
+
+## 2026-11-11 F3: no watchdog, and a stalled ADC DMA hung the rt for good
+- Area:    stm32f303/src/main.c, stm32f303/src/comps/io.c, shared/f3_safety.h
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading; stmbl_freak's A4) io's rt waited `while(!(DMA1->ISR & DMA_ISR_TCIF1))` with no limit: a
+  stalled ADC DMA hung the TIM8 interrupt with the bridge on. And the F3 had no watchdog to end any hang.
+- Cause:   inherited from upstream.
+- Fix:     `f3_wait_flags` gives up after F3_ADC_WAIT_POLLS (~60 us, under the 66.7 us rt) and the hal stops with
+  MISC_ERROR (bridge off, see above). The F3 starts its IWDG (20 ms) before the main loop, fed only through
+  `f3_wdog_may_feed`: while the rt runs or after a console `stop`; an error stop, a stuck interrupt or a hung main
+  loop resets the F3 (it then comes back with the bridge off; the F4 sees the link drop). Tests:
+  host/tests/test_f3_safety.c, host/tests/check_safety_wiring.py. Bench (hwtest/suite): no reset in normal running
+  and under console traffic, a reset after `stop` is not expected, and an F3 hang (debugger halt aside) resets.
+
+## 2026-11-11 ringbuf: the USB interrupt and the main loop both changed `len`
+- Area:    shared/ringbuf.c, shared/ringbuf.h, src/syscalls.c, host/cdc_host.c
+- Status:  Fixed
+- Symptom: (from reading; stmbl_freak's A8) the console's RX buffer (`usb_rx_buf`, written in the USB interrupt)
+  and the F4<->F3 text buffers: `len++` in the writer and `len--` in the reader are read-modify-writes, so one
+  could be lost: bytes dropped, repeated or read before written, or the buffer stuck "full" or "empty". In the
+  host stress test the reader got unwritten bytes within the first 50.
+- Cause:   one shared length counter changed by both sides.
+- Fix:     the writer owns `wr`, the reader owns `rd` (both mod 2 * bufsize, acquire/release), no shared field;
+  `rb_len()` / `rb_free()` replace `.len`. Test: host/tests/test_ringbuf.c (a writer and a reader thread, 20 M
+  bytes in order, no stall; failed before; ThreadSanitizer clean after).
+
+## 2026-11-11 iit: NaN at max_cur 0, and a long time constant stalled short of its final value
+- Area:    shared/comps/iit.c
+- Status:  Fixed
+- Symptom: (stmbl_freak's A9) with `max_cur` 0 (before conf0.max_ac_cur is set) `temp` was 0/0 = NaN, and stayed NaN
+  (in the state) after max_cur was set: every limit compared against it was false. With max_time 600 s the
+  estimate stalled at 41.55 instead of 42.5 C.
+- Cause:   no guard on max_e (or high_temp <= amb_temp); a float state, whose per-period increment rounded away.
+- Fix:     no model (temp = amb_temp, state 0) while max_e or high_temp - amb_temp is not > 0; the state is a double.
+  Tests: host/tests/iit_guard.test, host/tests/iit_long.test (both failed before).

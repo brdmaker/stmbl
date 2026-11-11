@@ -341,6 +341,15 @@ uint32_t load_comp(hal_comp_t *comp) {
   return (1);
 }
 
+// Every stop goes through hal_stop, so the components' rt_stop/frt_stop
+// turn their outputs off (the F3's bridge, the F4's brake output). The
+// overrun and interrupted-run paths below only set RT_STOP before
+// 2026-11-11 (DEBUGNOTES, host/tests/test_hal_stop.c).
+static void hal_stop_with(int state) {
+  hal_stop();
+  hal.hal_state = state;
+}
+
 void hal_run_rt() {
 #ifdef HAL_CALC_TIME
   uint32_t hal_start = hal_get_systick_value();
@@ -349,16 +358,12 @@ void hal_run_rt() {
   switch(hal.rt_state) {
     case RT_STOP:
       return;
-    case RT_CALC:  // call stop
-      hal.rt_state  = RT_STOP;
-      hal.hal_state = RT_TOO_LONG;
-      hal.frt_state = RT_STOP;
+    case RT_CALC:  // the last run hasn't finished: an overrun
+      hal_stop_with(RT_TOO_LONG);
       return;
     case RT_SLEEP:
-      if(hal.active_rt_func > -1) {  // call stop
-        hal.rt_state  = RT_STOP;
-        hal.hal_state = MISC_ERROR;
-        hal.frt_state = RT_STOP;
+      if(hal.active_rt_func > -1) {  // a run that never finished (a fault in it)
+        hal_stop_with(MISC_ERROR);
         return;
       }
       hal.rt_state = RT_CALC;
@@ -368,7 +373,9 @@ void hal_run_rt() {
   uint32_t start = hal_get_systick_value();
 #endif
 
-  for(hal.active_rt_func = 0; hal.active_rt_func < hal.rt_comp_count; hal.active_rt_func++) {
+  // stops once a component stopped the hal (io's ADC timeout, an overrun
+  // seen inside): the later ones would write outputs after their rt_stop
+  for(hal.active_rt_func = 0; hal.active_rt_func < hal.rt_comp_count && hal.rt_state != RT_STOP; hal.active_rt_func++) {
     hal.rt_comps[hal.active_rt_func]->comp->rt(hal.rt_period, hal.rt_comps[hal.active_rt_func]->ctx, hal.rt_comps[hal.active_rt_func]->pin_insts);
 #ifdef HAL_COMP_CALC_TIME
     uint32_t end_ticks = hal_get_systick_value();
@@ -409,15 +416,11 @@ void hal_run_frt() {
     case RT_STOP:
       return;
     case RT_CALC:
-      hal.rt_state  = RT_STOP;
-      hal.hal_state = FRT_TOO_LONG;
-      hal.frt_state = RT_STOP;
+      hal_stop_with(FRT_TOO_LONG);
       return;
     case RT_SLEEP:
       if(hal.active_frt_func > -1) {
-        hal.rt_state  = RT_STOP;
-        hal.hal_state = MISC_ERROR;
-        hal.frt_state = RT_STOP;
+        hal_stop_with(MISC_ERROR);
         return;
       }
       hal.frt_state = RT_CALC;
@@ -427,7 +430,7 @@ void hal_run_frt() {
   uint32_t start = hal_get_systick_value();
 #endif
 
-  for(hal.active_frt_func = 0; hal.active_frt_func < hal.frt_comp_count; hal.active_frt_func++) {
+  for(hal.active_frt_func = 0; hal.active_frt_func < hal.frt_comp_count && hal.frt_state != RT_STOP; hal.active_frt_func++) {
     hal.frt_comps[hal.active_frt_func]->comp->frt(hal.frt_period, hal.frt_comps[hal.active_frt_func]->ctx, hal.frt_comps[hal.active_frt_func]->pin_insts);
 #ifdef HAL_COMP_CALC_TIME
     uint32_t end_ticks = hal_get_systick_value();

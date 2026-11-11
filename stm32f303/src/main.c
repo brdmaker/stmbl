@@ -34,6 +34,7 @@
 #include "common.h"
 #include "commands.h"
 #include "f3hw.h"
+#include "f3_safety.h"
 
 #include "usbd_cdc_if.h"
 #ifdef USB_TERM
@@ -71,6 +72,20 @@ uint32_t hal_get_systick_freq() {
 void SystemClock_Config(void);
 void Error_Handler(void);
 
+// The bridge off: TIM8's outputs off (as a comparator break does) and the
+// gate driver's enable low. TIM8 runs on its own: with the rt stopped the
+// last compares stayed latched with no current loop behind them
+// (DEBUGNOTES 2026-11-11, A3). io's rt_stop and the PWM interrupt call it.
+void bridge_off(void) {
+  TIM8->BDTR &= ~TIM_BDTR_MOE;
+#ifdef HV_EN_PIN
+  HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
+#endif
+}
+
+// rt runs counted for the watchdog (shared/f3_safety.h)
+static volatile uint32_t rt_count;
+
 void TIM8_UP_IRQHandler() {
   GPIOA->BSRR |= GPIO_PIN_9;
   __HAL_TIM_CLEAR_IT(&htim8, TIM_IT_UPDATE);
@@ -79,7 +94,31 @@ void TIM8_UP_IRQHandler() {
     hal_stop();
     hal.hal_state = RT_TOO_LONG;
   }
+  // whatever stopped the rt (hal.c runs io's rt_stop on every stop path;
+  // this is the second line): no PWM without the current loop
+  if(hal.rt_state == RT_STOP) {
+    bridge_off();
+  } else {
+    rt_count++;
+  }
   GPIOA->BSRR |= GPIO_PIN_9 << 16;
+}
+
+// The independent watchdog (shared/f3_safety.h, A4): 20 ms. RM0316 26.3:
+// KR 0xCCCC starts it (from then on only a reset stops it), 0x5555 unlocks
+// PR and RLR; any other KR write in between re-locks them, so no
+// interrupt. Frozen while a debugger halts the core.
+static void wdog_start(void) {
+  DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_IWDG_STOP;
+  __disable_irq();
+  IWDG->KR  = 0xCCCC;
+  IWDG->KR  = 0x5555;
+  IWDG->PR  = 0;  // LSI / 4: 0.1 ms a count
+  IWDG->RLR = F3_WDOG_RLR;
+  while(IWDG->SR) {
+  }
+  IWDG->KR = 0xAAAA;
+  __enable_irq();
 }
 
 void about(char *ptr) {
@@ -359,9 +398,16 @@ int main(void) {
   // error foo
   hal_start();
 
+  wdog_start();
+  wdog_feed_t feed = {0};
   while(1) {
     hal_run_nrt();
     cdc_poll();
+    // fed while the rt runs, or after a console `stop`; an rt stopped by an
+    // error, a stuck interrupt or a hung main loop: reset (f3_safety.h)
+    if(f3_wdog_may_feed(&feed, rt_count, hal.rt_state == RT_STOP, hal.hal_state == HAL_OK2, (uint32_t)systime)) {
+      IWDG->KR = 0xAAAA;
+    }
     HAL_Delay(1);
   }
 }

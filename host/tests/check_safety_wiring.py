@@ -9,6 +9,13 @@
 2. The F4's io (src/comps/hw/io4.c) has an rt_stop that drives the brake
    output PE4 low, so a stopped hal grips the holding brake (the host
    stand-in host/hw/io.c is tested in tests/ebrake/hal_stop_brake.test).
+3. (A3, 2026-11-11) The F3 turns its bridge off when its rt stops: io's
+   rt_stop clears TIM8's MOE and HV_EN, and the PWM interrupt does the same
+   on every tick while the rt is stopped (whatever stopped it). shared/hal.c
+   runs rt_stop on every stop path (tests/test_hal_stop.c).
+4. (A4, 2026-11-11) The F3's io waits for the ADC DMA with a limit
+   (shared/f3_safety.h, tests/test_f3_safety.c), and main.c starts the
+   independent watchdog and feeds it only through f3_wdog_may_feed.
 """
 import os
 import re
@@ -87,6 +94,37 @@ if fn != "0":
 ok(re.search(r"GPIO_ResetBits\(\s*GPIOE\s*,\s*GPIO_Pin_4\s*\)", body) is not None,
    "io4's rt_stop drives PE4 (DIO0, the brake release) low")
 ok("TIM9->CCR1 = 0" in body and "TIM9->CCR2 = 0" in body, "io4's rt_stop stops the out1/out2 PWM")
+
+# ---- the F3 (A3, A4) ----
+f3io = strip_comments(read("stm32f303/src/comps/io.c"))
+f3main = strip_comments(read("stm32f303/src/main.c"))
+
+
+def body_of(src, fn):
+    b = re.search(r"\b%s\s*\([^)]*\)\s*\{(.*?)\n\}" % fn, src, re.S)
+    return b.group(1) if b else ""
+
+
+m = re.search(r"\.rt_stop\s*=\s*(\w+)", f3io)
+fn = m.group(1) if m else "0"
+ok(fn != "0", "F3 io has an rt_stop")
+stop = body_of(f3io, fn) if fn != "0" else ""
+bo = body_of(f3main, "bridge_off")
+ok("bridge_off()" in stop or "TIM_BDTR_MOE" in stop, "F3 io's rt_stop turns the bridge off")
+ok("enabled" in stop, "F3 io's rt_stop forgets it was enabled (a restart re-arms MOE)")
+ok(re.search(r"BDTR\s*&=\s*~\s*TIM_BDTR_MOE", bo) is not None, "bridge_off clears TIM8 MOE")
+ok(re.search(r"HV_EN_PIN\s*,\s*GPIO_PIN_RESET", bo) is not None, "bridge_off drops HV_EN")
+isr = body_of(f3main, "TIM8_UP_IRQHandler")
+ok(re.search(r"rt_state\s*==\s*RT_STOP[^;]*\)\s*\{?\s*bridge_off\(\)", isr, re.S) is not None,
+   "F3 PWM interrupt: bridge off on every tick while the rt is stopped")
+
+rt = body_of(f3io, "rt_func")
+ok(re.search(r"while\s*\(\s*!\s*\(\s*DMA[12]->ISR", rt) is None, "F3 io: no unbounded ADC DMA wait")
+ok("f3_wait_flags(" in rt and "hal_stop()" in rt, "F3 io: bounded wait, stops the hal when it gives up")
+ok(re.search(r"IWDG->KR\s*=\s*0xCCCC", f3main) is not None, "F3 starts its independent watchdog")
+feeds = re.findall(r"IWDG->KR\s*=\s*0xAAAA", f3main)
+ok(len(feeds) == 2 and "f3_wdog_may_feed(" in f3main,
+   "F3 feeds it only at the start and through f3_wdog_may_feed")
 
 print("1..%d" % n)
 sys.exit(1 if fails else 0)

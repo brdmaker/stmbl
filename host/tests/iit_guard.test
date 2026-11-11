@@ -1,0 +1,23 @@
+# iit (motor I^2*t temperature model, shared/comps/iit.c), stand-alone.
+# max_cur 0 (a config before conf0.max_ac_cur is set) made max_e 0, and
+#    temp = 0/0 = NaN: every limit compared against it (mtemp, fault) was
+#    then false. temp stays at amb_temp.
+@timeout 120
+load iit
+iit0.rt_prio = 1
+iit0.amb_temp = 30
+iit0.high_temp = 80
+iit0.max_temp = 100
+iit0.cur_boost = 1
+iit0.max_time = 10
+iit0.max_cur = 0
+iit0.cur = 2
+start
+run 0.5
+iit0.temp
+# max_cur set later: the model starts from a number and runs
+iit0.max_cur = 2
+run 60
+iit0.temp
+@expect iit0.temp[1] ~ 30 0.01
+@expect iit0.temp[2] ~ 80 0.5
