@@ -1,7 +1,7 @@
-![Build Status](https://travis-ci.org/rene-dev/stmbl.svg)
+[![CI](https://github.com/brdmaker/stmbl/actions/workflows/ci.yml/badge.svg)](https://github.com/brdmaker/stmbl/actions/workflows/ci.yml)
 [![Join the chat at https://gitter.im/rene-dev/stmbl](https://badges.gitter.im/rene-dev/stmbl.svg)](https://gitter.im/rene-dev/stmbl?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Build Log: https://travis-ci.org/rene-dev/stmbl
+CI (`.github/workflows/ci.yml`): the host simulator's `make -C host check` and the firmware build (`make deploy`, vibsensor, brdstepper; the images are kept as artifacts) on every push and pull request.
 
 DISCLAIMER
 ===

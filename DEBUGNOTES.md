@@ -415,7 +415,7 @@ Entry format:
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
-- Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)
+- Status:  Workaround (Debian 12's binutils 2.40 builds fine; 2.42 on Ubuntu 24.04 builds fine too since 2026-11-11)
 - Symptom: `make` (and the bootloader/f3 sub-makes) hang after linking, in the
   CRC/version post-processing step. The python process spins at ~800 MB RSS and
   never finishes. The C compiles fine; only this post-link step hangs.
@@ -431,6 +431,10 @@ Entry format:
 - 2026-11-07: `make obj_app/stmbl.elf` (link + version patch + CRC) finished in
   seconds with binutils 2.42 / gcc 13.2.1 in the cloud container (`.data` LMA
   in flash, 0x0806884c). `make all` (bootloader, F3, .dfu) not tried there.
+
+- 2026-11-11: the full `make deploy` (both bootloaders, F3, F4, f3/f4/stmbl .dfu) builds in ~5 s with Ubuntu
+  24.04's gcc-arm-none-eabi 13.2.1 / binutils 2.42, three clean runs; no hang. The CI firmware job
+  (.github/workflows/ci.yml) builds it on every push, so a return of the hang shows up there.
 
 ## 2026-05-24  ILP32 sscanf corruption in hal.c on 64-bit hosts
 - Area:    `shared/hal.c` (`hal_parse_`, `hal_linked_pins`)
@@ -4970,3 +4974,15 @@ Entry format:
 - Fix:     `conf_append()` (shared/conf_append.h) appends line + '\n' only if it fits whole, else prints
   "config full, not added" and leaves the config unchanged; all four targets use it. Test:
   host/tests/test_conf_append.c (canary past the buffer; overflowed before: glibc's fortify aborted).
+
+## 2026-11-11 `make -j deploy` failed: stages raced each other
+- Area:    Makefile (`deploy`)
+- Status:  Fixed
+- Symptom: `make -j8 deploy` from a clean tree: "No rule to make target 'obj_f3_boot/f3_boot.bin', needed by
+  'f3.bin'", or, once that was ordered, undefined `HAL_TIM_*` when linking obj_hvf3/hvf3.elf.
+- Cause:   `deploy: f3_boot f3 boot build binall` as prerequisites: with -j, binall ran before the f3_boot sub-make
+  had made f3_boot.bin (no rule for it at the top level), and `f3` and build's `hv_firmware.o` ran the F3 sub-make
+  into the same obj_hvf3/ at once.
+- Fix:     `deploy` runs the stages one after another (each still parallel inside). Test: the CI firmware job runs
+  `make -j"$(nproc)" deploy` from a clean checkout (.github/workflows/ci.yml); failed here before, three clean
+  -j8 runs pass after.

@@ -450,7 +450,18 @@ all_flash: f4.bin
 f3_all_flash: f3.bin
 	@$(ST-FLASH) --reset write f3.bin 0x08000000
 
-deploy: f3_boot f3 boot build binall
+# One stage at a time (each builds in parallel inside). Listed as
+# prerequisites, -j raced them: f3 and build's hv_firmware.o ran the F3
+# sub-make into the same obj_hvf3/ at once (undefined HAL_TIM_* at link),
+# and binall's f3.bin needs obj_f3_boot/f3_boot.bin, which only the f3_boot
+# sub-make builds (DEBUGNOTES 2026-11-11; .github/workflows/ci.yml runs
+# make -j deploy).
+deploy:
+	$(MAKE) f3_boot
+	$(MAKE) f3
+	$(MAKE) boot
+	$(MAKE) build
+	$(MAKE) binall
 
 f4.bin: obj_boot/blboot.bin conf/festo.txt $(TARGET).bin
 	cat obj_boot/blboot.bin /dev/zero | head -c 32768 > f4.bin
