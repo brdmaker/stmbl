@@ -72,16 +72,7 @@ uint32_t hal_get_systick_freq() {
 void SystemClock_Config(void);
 void Error_Handler(void);
 
-// The bridge off: TIM8's outputs off (as a comparator break does) and the
-// gate driver's enable low. TIM8 runs on its own: with the rt stopped the
-// last compares stayed latched with no current loop behind them
-// (DEBUGNOTES 2026-11-11, A3). io's rt_stop and the PWM interrupt call it.
-void bridge_off(void) {
-  TIM8->BDTR &= ~TIM_BDTR_MOE;
-#ifdef HV_EN_PIN
-  HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
-#endif
-}
+void bridge_off(void);  // comps/io.c
 
 // rt runs counted for the watchdog (shared/f3_safety.h)
 static volatile uint32_t rt_count;

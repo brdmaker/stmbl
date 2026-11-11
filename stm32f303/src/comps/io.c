@@ -303,6 +303,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     } else {
       ctx->enabled = 0;
       ctx->fault   = NO_ERROR;
+      f3_pvd_latch(&ctx->pvd, 0, 0);  // a dip while enabled is that enable's (host/tests/test_f3_io.c)
 #ifdef HV_EN_PIN
       //clear driver enable pin
       HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
@@ -345,7 +346,17 @@ void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(mot_temp) = MOT_R(MOT_REF(ADC(ctx->mot_temp >> 16)));
 }
 
-void bridge_off(void);  // main.c
+// The bridge off: TIM8's outputs off (as a comparator break does) and the
+// gate driver's enable low. TIM8 runs on its own: with the rt stopped the
+// last compares stayed latched with no current loop behind them
+// (DEBUGNOTES 2026-11-11, A3). io's rt_stop, the PWM interrupt (main.c) and
+// the CSS NMI call it; here so host/tests/test_f3_io.c runs it.
+void bridge_off(void) {
+  TIM8->BDTR &= ~TIM_BDTR_MOE;
+#ifdef HV_EN_PIN
+  HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
+#endif
+}
 
 // The rt stopped (any way: hal.c runs this on every stop path): bridge off,
 // and forget it was enabled, so a restart re-arms MOE on the next enable

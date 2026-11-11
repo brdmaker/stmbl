@@ -157,6 +157,15 @@ test_boot_logic: tests/test_boot_logic.c ../shared/boot_logic.h
 test_hv_link: tests/test_hv_link.c ../shared/hv_link.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_hv_link.c
 
+# the F3's real io.c on a register stand-in (f3sim/), with the real hal.c:
+# A1, A3, A4, A5 run (2026-11-11). Its io_comp.h is the F3's, not hw/io.c's.
+gen_f3/io_comp.h: $(ROOT)/stm32f303/src/comps/io.c
+	@mkdir -p gen_f3
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
+
+test_f3_io: tests/test_f3_io.c gen_f3/io_comp.h $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c f3sim/stm32f3xx_hal.h ../shared/hal.c ../shared/f3_safety.h ../shared/iabs.h
+	$(CC) -O1 -g -std=gnu11 -Wall -Wno-format -Wno-pointer-to-int-cast -Igen_f3 -If3sim -I../shared -o $@ tests/test_f3_io.c $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c ../shared/angle.c -lm
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -170,8 +179,9 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic test_hv_link
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic test_hv_link test_f3_io
 	@./test_iabs
+	@./test_f3_io
 	@./test_hv_link
 	@./test_boot_logic
 	@./test_yaskawa_frame

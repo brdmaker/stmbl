@@ -51,7 +51,7 @@ extern PCD_HandleTypeDef hpcd_USB_FS;
 /**
 * @brief This function handles Non maskable interrupt.
 */
-void bridge_off(void);  // main.c
+void bridge_off(void);  // comps/io.c
 
 void NMI_Handler(void) {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */

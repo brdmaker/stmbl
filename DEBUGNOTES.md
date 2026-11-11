@@ -5119,3 +5119,15 @@ Entry format:
   the drive disabled, reads the F3 app back from its bootloader and lists the words that differ from the image
   the F4 carries. Tests: host/tests/test_hv_link.c, host/tests/check_hv.py (all five failed on the old code).
   Bench: hv_verify on a board left in its bootloader by a failed hv_update.
+
+## 2026-11-11 The F3's io.c runs on the host; it found the PVD latch kept across a disable
+- Area:    stm32f303/src/comps/io.c, host/f3sim/ (register stand-in), host/tests/test_f3_io.c
+- Status:  Fixed
+- Symptom: the F3 fixes of 2026-11-10/11 had only source checks (no simulator ran F3 code). Running the real io.c
+  showed: after one PVD dip while enabled, every later TIM8 break (a real overcurrent too, after a disable and
+  enable) was reported as HV_UNDERVOLT_ERROR (22).
+- Cause:   the latch was cleared only in rt_stop, not on disable (my A5 change of the same day).
+- Fix:     cleared on disable as well. host/tests/test_f3_io.c compiles the real io.c (bridge_off moved there from
+  main.c) and hal.c against host/f3sim/stm32f3xx_hal.h: offsets, A1 on every phase and sign, A3 (any hal stop:
+  MOE and HV_EN off, re-arm after restart), A4 (a stalled ADC DMA stops the hal, bridge off), A5 (16 / 22, the
+  latch). Against the io.c before the fixes (332ade1) it fails A1 -V/-W and A3, and hangs at A4.

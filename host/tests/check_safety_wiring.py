@@ -109,7 +109,7 @@ m = re.search(r"\.rt_stop\s*=\s*(\w+)", f3io)
 fn = m.group(1) if m else "0"
 ok(fn != "0", "F3 io has an rt_stop")
 stop = body_of(f3io, fn) if fn != "0" else ""
-bo = body_of(f3main, "bridge_off")
+bo = body_of(f3io, "bridge_off")
 ok("bridge_off()" in stop or "TIM_BDTR_MOE" in stop, "F3 io's rt_stop turns the bridge off")
 ok("enabled" in stop, "F3 io's rt_stop forgets it was enabled (a restart re-arms MOE)")
 ok(re.search(r"BDTR\s*&=\s*~\s*TIM_BDTR_MOE", bo) is not None, "bridge_off clears TIM8 MOE")
