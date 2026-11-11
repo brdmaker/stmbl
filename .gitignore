@@ -47,6 +47,7 @@ host/test_ringbuf
 host/test_hal_stop
 host/test_f3_safety
 host/test_encf_frame
+host/test_yaskawa_frame
 host/test_errlog
 host/test_adc_sum
 host/m4/*.elf

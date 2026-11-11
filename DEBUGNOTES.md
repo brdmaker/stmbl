@@ -5055,3 +5055,22 @@ Entry format:
   flags. Tests: host/tests/test_encf_frame.c (frames built with their CRC, 3 % rate error, timer wrap; long gaps
   and noise wrote past the frame before), host/tests/check_encf.py (request before decode). Bench: fbtest /
   velocity noise on the alpha2/3000 before and after. The fork's req_sync (request from the frt timer) not taken.
+
+## 2026-11-11 yaskawa: noise wrote past the reply buffers and a bad reply's position was used
+- Area:    src/comps/yaskawa.c (Yaskawa Sigma serial encoders: conf/sgmph-*.txt, sda_b.txt), shared/yaskawa_frame.h
+- Status:  Fixed (unit test + source check); bench check open (the encoder noise being debugged now)
+- Symptom: (from reading, and the open noise trouble on a Yaskawa axis) a noisy reply moved the axis: its position
+  was used even when its CRC failed (crc_error only counted); a Manchester code error set `error` and the next
+  lines set it back to 0. The decoder wrote bits without a limit: every good reply wrote its end flag one byte past
+  `yaskawa_reply[14]`, a reply with no end flag (noise) wrote up to bit ~276 past `m_data[150]`, and it read one
+  capture past the last. The capture input had no digital filter, so a spike was an edge.
+- Cause:   an experimental driver from upstream.
+- Fix:     shared/yaskawa_frame.h: a bounded decoder that rejects a reply with no sync, a code error, no end flag
+  or too few bits, or a bad CRC; `yask_track` reports a bad reply as the last position moved on by the last step
+  and raises `error` (fault0.mot_fb_error) only after more than `max_bad` (default 2) bad replies in a row. New
+  pins: `max_bad`, `bad`, counters `err_short`, `err_sync`, `err_code`, `err_frame` (with crc_ok / crc_error),
+  `ic_filter` (IC3F, default 2: ~48 ns; a half bit is 125 ns). DMA re-arms wait for EN = 0 and clear the right
+  flags; the request wait is bounded. Tests: host/tests/test_yaskawa_frame.c under AddressSanitizer and UBSan
+  (replies built with stuffing and CRC, jitter, timer wrap, a glitch, a reply with no end; the old decoder
+  overflowed on a good reply and on the endless one), host/tests/check_yaskawa.py. Bench: watch the counters to
+  see which noise it is; try ic_filter 3 (~95 ns) if err_code climbs.

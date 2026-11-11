@@ -7,6 +7,7 @@
 #include "stm32f4xx_conf.h"
 #include "hw/hw.h"
 #include "yaskawa_crc16.h"
+#include "yaskawa_frame.h"
 
 HAL_COMP(yaskawa);
 
@@ -33,16 +34,25 @@ HAL_PIN(send);
 HAL_PIN(crc_ok);
 HAL_PIN(crc_error);
 
+// noise diagnosis and handling (shared/yaskawa_frame.h, 2026-11-11)
+HAL_PIN(max_bad);    // bad replies in a row before error (default 2; 0: every one)
+HAL_PIN(bad);        // bad replies in a row now
+HAL_PIN(err_short);  // counts: no reply (80 edges or fewer)
+HAL_PIN(err_sync);   // no start flag
+HAL_PIN(err_code);   // not Manchester: a glitch on the line
+HAL_PIN(err_frame);  // no end flag / too few bits
+HAL_PIN(ic_filter);  // capture input filter, TIMx_CCMR2 IC3F 0..15 (default 2: 4 samples at 84 MHz, ~48 ns)
+
 //TODO: use context
 static volatile uint32_t txbuf[128];
 static int pos;
 static int dfdf;
-static volatile char m_data[150];
-static volatile char m_data2[150];
+static volatile char m_data2[YASK_BITS_MAX + 1];
+static yask_frame_t frame;
+static yask_track_t track;
 static volatile uint16_t tim_data[300];
 static DMA_InitTypeDef DMA_InitStructuretx;
 static DMA_InitTypeDef DMA_InitStructurerx;
-static uint8_t yaskawa_reply[14];
 //uint8_t yaskara_reply_len;
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -54,6 +64,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(len3) = 57;
   PIN(len4) = 58;
   PIN(len5) = 59;
+  PIN(max_bad)   = 2;
+  PIN(ic_filter) = 2;
 }
 
 static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -180,6 +192,13 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   dfdf = 0;
 }
 
+// RM0090 10.3.17: a stream is stopped once EN reads back 0 (bounded)
+static void dma_stop(DMA_Stream_TypeDef *s) {
+  s->CR &= ~DMA_SxCR_EN;
+  for(int i = 0; i < 100 && (s->CR & DMA_SxCR_EN); i++) {
+  }
+}
+
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   // struct yaskawa_ctx_t *ctx      = (struct yaskawa_ctx_t *)ctx_ptr;
   struct yaskawa_pin_ctx_t *pins = (struct yaskawa_pin_ctx_t *)pin_ptr;
@@ -190,107 +209,45 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   int count = ARRAY_SIZE(tim_data) - DMA1_Stream7->NDTR;
   DMA_Cmd(DMA1_Stream7, DISABLE);
 
-  uint16_t bit_time = 15;
+  // decode bounded, and use a reply only with its CRC (shared/yaskawa_frame.h)
+  int st = yask_decode((const uint16_t *)tim_data, count, 15, &frame);
+  switch(st) {
+    case YASK_OK:
+      PIN(crc_ok)++;
+      break;
+    case YASK_CRC:
+      PIN(crc_error)++;
+      break;
+    case YASK_SHORT:
+      PIN(err_short)++;
+      break;
+    case YASK_NO_SYNC:
+      PIN(err_sync)++;
+      break;
+    case YASK_CODE:
+      PIN(err_code)++;
+      break;
+    default:
+      PIN(err_frame)++;
+  }
+  int len    = CLAMP((int)PIN(len), 1, 31);
+  int error  = 0;
+  uint32_t p = yask_track(&track, st == YASK_OK, yask_bits(&frame, (int)PIN(off), len), len, MAX(PIN(max_bad), 0), &error);
+  PIN(pos)   = (float)p / (float)(1u << len) * M_PI * 2.0 - M_PI;
+  PIN(error) = error;
+  PIN(bad)   = track.bad;
+  if(st == YASK_OK) {
+    PIN(probe2) = yask_bits(&frame, (int)PIN(off2), CLAMP((int)PIN(len2), 0, 31));
+    PIN(probe3) = yask_bits(&frame, (int)PIN(len3), 1);
+    PIN(probe4) = yask_bits(&frame, (int)PIN(len4), 1);
+    PIN(probe5) = yask_bits(&frame, (int)PIN(len5), 1);
+  }
 
-  if(count > 80) {
-    int pol          = 0;
-    int read_counter = 0;
-    int counter      = 0;
-
-    for(int i = 0; i < ARRAY_SIZE(yaskawa_reply); i++) {
-      yaskawa_reply[i] = 0;
+  if(dfdf < 1 && frame.nbits > 0) {
+    for(int i = 0; i <= frame.nbits && i < ARRAY_SIZE(m_data2); i++) {
+      m_data2[i] = frame.m[i];
     }
-
-    for(int i = 1; i < count; i++) {
-      if(tim_data[i + 1] - tim_data[i] < bit_time) {
-        counter++;
-      } else if(counter == 10) {
-        read_counter = i + 1;
-        pol          = 0;
-        break;
-      } else {
-        counter = 0;
-      }
-    }
-
-    int write_counter2 = 0;
-    for(int i = read_counter; i < count; i++) {
-      if(tim_data[i + 1] - tim_data[i] < bit_time) {
-        i++;
-        if(tim_data[i + 1] - tim_data[i] < bit_time) {
-          //data[write_counter++] = '0' + pol;
-        } else {
-          //error
-          PIN(error) = 1.0;
-          break;
-        }
-
-      } else {
-        pol = 1 - pol;
-        //data[write_counter++] = '0' + pol;
-      }
-
-      if(pol == 1) {
-        counter++;
-        m_data[write_counter2] = '1';
-        yaskawa_reply[write_counter2 / 8] |= 1 << (7 - (write_counter2 % 8));
-        write_counter2++;
-      } else if(counter == 5) {
-        counter = 0;
-        // unstuff
-      } else if(counter == 6) {
-        // hldc
-        m_data[write_counter2++] = 'H';
-        break;
-      } else {
-        counter                  = 0;
-        m_data[write_counter2++] = '0';
-      }
-    }
-
-    yaskawa_crc16_t crc;
-    yaskawa_crc16_t data = (yaskawa_reply[13] & 0xff) | (yaskawa_reply[12] << 8);
-    crc                  = yaskawa_crc16_init();
-    crc                  = yaskawa_crc16_update(crc, yaskawa_reply, 12);
-    crc                  = yaskawa_crc16_finalize(crc);
-    if(data == crc) {
-      PIN(crc_ok)
-      ++;
-    } else {
-      PIN(crc_error)
-      ++;
-    }
-
-    m_data[write_counter2] = 0;
-
-    uint32_t pos = 0;
-    //extract position data
-    for(int i = 0; i < PIN(len); i++) {
-      pos += (m_data[i + (int)PIN(off)] == '1') << i;
-    }
-
-    uint32_t probe = 0;
-    for(int i = 0; i < PIN(len2); i++) {
-      probe += (m_data[i + (int)PIN(off2)] == '1') << i;
-    }
-
-    PIN(pos)    = (float)pos / (float)(1 << (int)PIN(len)) * M_PI * 2.0 - M_PI;
-    PIN(probe2) = probe;
-
-    PIN(probe3) = m_data[(int)PIN(len3)] == '1';
-    PIN(probe4) = m_data[(int)PIN(len4)] == '1';
-    PIN(probe5) = m_data[(int)PIN(len5)] == '1';
-    PIN(error)  = 0.0;
-
-    if(dfdf < 1) {
-      for(int i = 0; i < ARRAY_SIZE(m_data2); i++) {
-        m_data2[i] = m_data[i];
-      }
-      dfdf = 1;
-    }
-  } else {
-    PIN(error) = 1.0;
-    // error
+    dfdf = 1;
   }
 
   // PIN(send) = send;
@@ -299,10 +256,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   FB0_Z_PORT->MODER &= ~GPIO_MODER_MODER14_1;
   FB0_Z_PORT->MODER |= GPIO_MODER_MODER14_0;  //set tx pin to output
 
-  DMA_Cmd(DMA2_Stream1, DISABLE);
+  dma_stop(DMA2_Stream1);
   DMA_DeInit(DMA2_Stream1);
   DMA_Init(DMA2_Stream1, &DMA_InitStructuretx);
-  DMA_ClearFlag(DMA2_Stream1, DMA_FLAG_TCIF7);
+  DMA_ClearFlag(DMA2_Stream1, DMA_FLAG_FEIF1 | DMA_FLAG_DMEIF1 | DMA_FLAG_TEIF1 | DMA_FLAG_HTIF1 | DMA_FLAG_TCIF1);
   DMA_Cmd(DMA2_Stream1, ENABLE);  //transmit request
 
   TIM8->CR1 &= ~TIM_CR1_CEN;  // disable tim
@@ -313,20 +270,22 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   TIM8->CNT = 0;
   TIM8->CR1 |= TIM_CR1_CEN;
 
-  DMA_Cmd(DMA1_Stream7, DISABLE);
-  DMA_ClearFlag(DMA1_Stream7, DMA_FLAG_TCIF7);
+  dma_stop(DMA1_Stream7);
+  DMA_ClearFlag(DMA1_Stream7, DMA_FLAG_FEIF7 | DMA_FLAG_DMEIF7 | DMA_FLAG_TEIF7 | DMA_FLAG_HTIF7 | DMA_FLAG_TCIF7);
   DMA_Cmd(DMA1_Stream7, ENABLE);
 
   FB0_ENC_TIM->CR1 &= ~TIM_CR1_CEN;
-  FB0_ENC_TIM->CCMR2 = TIM_CCMR2_CC3S_0;                                // cc3 input ti3
+  // cc3 input ti3, digital filter IC3F: a spike shorter than the filter is
+  // no edge (a half bit is ~10.5 counts, 125 ns)
+  FB0_ENC_TIM->CCMR2 = TIM_CCMR2_CC3S_0 | ((CLAMP((uint32_t)PIN(ic_filter), 0, 15)) << 4);
   FB0_ENC_TIM->CCER  = TIM_CCER_CC3E | TIM_CCER_CC3P | TIM_CCER_CC3NP;  // cc3 en, rising edge, falling edge
   FB0_ENC_TIM->ARR   = 65535;
   FB0_ENC_TIM->DIER  = TIM_DIER_CC3DE;  // cc3 dma
   FB0_ENC_TIM->CNT   = 0;
   FB0_ENC_TIM->CCR3  = 0;
 
-  while(!(DMA2->LISR & DMA_FLAG_TCIF1))
-    ;  //wait for request
+  for(int i = 0; i < 20000 && !(DMA2->LISR & DMA_FLAG_TCIF1); i++) {
+  }  //wait for request (~16 us), bounded
 
   FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;     //TX disable
   FB0_Z_PORT->MODER &= ~GPIO_MODER_MODER14_0;  //set tx pin to af
