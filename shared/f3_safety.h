@@ -29,6 +29,18 @@ static inline int f3_wait_flags(volatile const uint32_t *a, uint32_t am, volatil
 // console (`stop`, hal_state still HAL_OK2). Stopped by an error (overrun,
 // ADC timeout, fault): no feed, and the F3 resets and comes back clean.
 #define F3_WDOG_RLR 200
+
+// A5 (stmbl_freak d515232): the PVD (2.7 V) drives TIM8's break like the
+// comparators. PVDO clears again 100 mV above its level, so io's rt
+// latches it while enabled; a break that came with it is undervoltage
+// (HV_UNDERVOLT_ERROR), not overcurrent. The latch clears on disable.
+static inline void f3_pvd_latch(uint32_t *latch, int pvdo, int enabled) {
+  if(!enabled) {
+    *latch = 0;
+  } else if(pvdo) {
+    *latch = 1;
+  }
+}
 static inline int f3_wdog_may_feed(wdog_feed_t *f, uint32_t rt_count, int rt_stopped, int hal_ok, uint32_t ms) {
   return wdog_may_feed(f, rt_count, rt_stopped && hal_ok, ms);
 }

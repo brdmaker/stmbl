@@ -50,6 +50,16 @@ int main(void) {
   }
   ok(fed == 1, "main loop hung (time stands still): fed once at most, then the watchdog resets");
   ok(F3_WDOG_RLR * 0.1 >= 10 && F3_WDOG_RLR <= 4095, "timeout 10..409 ms, in RLR's range");
+
+  // A5: the PVD latch
+  uint32_t pvd = 0;
+  f3_pvd_latch(&pvd, 0, 1);
+  ok(pvd == 0, "PVD: 3.3 V fine, no latch");
+  f3_pvd_latch(&pvd, 1, 1);
+  f3_pvd_latch(&pvd, 0, 1);  // PVDO clears 100 mV above the level
+  ok(pvd == 1, "PVD: a dip latches, though PVDO clears again (the break is undervoltage)");
+  f3_pvd_latch(&pvd, 0, 0);
+  ok(pvd == 0, "PVD: cleared on disable");
   printf("1..%d\n", n);
   return fails != 0;
 }

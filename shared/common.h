@@ -171,6 +171,7 @@ typedef enum {
   HV_VERSION_ERROR,  // the HV board's firmware isn't this LV firmware's (hv_update)
   MOT_FB_NREF_ERROR,  // absolute feedback not referenced: its position was lost (fanuc_tw nref)
   MOT_FB_BAT_ERROR,   // absolute feedback battery alarm: it would lose the position at power-off (fanuc_tw bat_fail)
+  HV_UNDERVOLT_ERROR,  // the HV board's 3.3 V fell below the PVD (2.7 V): TIM8 broke (STMBL_FW_VERSION 2)
 } fault_t;
 
 //check if structs can be send at 5kHz with DATABAUD

@@ -197,6 +197,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/check_encf.py
 	@$(PYTHON) tests/check_yaskawa.py
 	@$(PYTHON) tests/check_boot.py
+	@$(PYTHON) tests/check_faults.py
 	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py

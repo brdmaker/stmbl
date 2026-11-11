@@ -51,8 +51,16 @@ extern PCD_HandleTypeDef hpcd_USB_FS;
 /**
 * @brief This function handles Non maskable interrupt.
 */
+void bridge_off(void);  // main.c
+
 void NMI_Handler(void) {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
+  // the clock security system (A5): the crystal failed. The flag must be
+  // cleared or the NMI comes back at once; the bridge goes off now.
+  if(RCC->CIR & RCC_CIR_CSSF) {
+    RCC->CIR |= RCC_CIR_CSSC;
+    bridge_off();
+  }
   hal_error(NMI);
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */

@@ -4941,14 +4941,20 @@ Entry format:
 
 ## 2026-11-10 Safety gaps found by comparing with the stmbl_freak fork
 - Area:    stm32f303 (PVD, CSS)
-- Status:  Open
-- Symptom: (from the fork's analysis, not yet checked here) no F3 undervoltage break (PVD) and no clock security
-  (CSS): a sagging 3.3 V or a failed crystal leaves the bridge to chance. The other findings are fixed, see the
-  2026-11-10 and 2026-11-11 entries (iabs, Break2, io4 rt_stop, appendconf; hal stop paths / F3 bridge off,
-  F3 watchdog and ADC wait, ringbuf, iit).
+- Status:  Fixed (unit tests + source checks); bench check open
+- Symptom: (from the fork's analysis) no F3 undervoltage break (PVD) and no clock security (CSS): a sagging 3.3 V
+  or a failed crystal left the bridge to chance. The other findings are fixed, see the 2026-11-10 and 2026-11-11
+  entries (iabs, Break2, io4 rt_stop, appendconf; hal stop paths / F3 bridge off, F3 watchdog and ADC wait,
+  ringbuf, iit).
 - Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed it.
-- Fix:     none yet: a new fault code and a `STMBL_FW_VERSION` bump. Their commits: brdmot `docs/stmbl_freak.md`
-  section 4.2 (A5).
+- Fix:     2026-11-11 (A5): the PVD (level 6, ~2.7 V) and a core lockup break TIM8 (SYSCFG_CFGR2 PVD_LOCK,
+  LOCKUP_LOCK); io latches PVDO while enabled and reports the break as HV_UNDERVOLT_ERROR (22, new;
+  STMBL_FW_VERSION 2, docs/firmware_versions.md) instead of HV_OVERCURRENT_HW. CSS on; its NMI clears CSSF and
+  turns the bridge off before hal_error (the F3 then runs on HSI, the link with it, so the F4 sees
+  HV_TIMEOUT_ERROR; the watchdog resets it). Tests: host/tests/test_f3_safety.c (PVD latch),
+  check_safety_wiring.py (PVD, locks, CSS, NMI), check_faults.py (fault lists in step; soak.py lacked 19-21),
+  tests/ebrake/estop_hv_undervolt.test (the F4 names 22 and turns the outputs off). Bench: a slow HV ramp down
+  with the drive enabled should end in fault 22, not 16.
 
 ## 2026-11-10 F3 software overcurrent trip missed negative V/W currents
 - Area:    stm32f303/src/comps/io.c, shared/iabs.h

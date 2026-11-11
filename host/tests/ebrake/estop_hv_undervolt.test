@@ -1,0 +1,22 @@
+# The HV board's new fault HV_UNDERVOLT_ERROR (22, STMBL_FW_VERSION 2): its
+# 3.3 V fell below the PVD and TIM8 broke (stm32f303/src/comps/io.c). The
+# F4 takes the code as it comes, treats it as an HV board fault (outputs
+# off, no stop: the power stage can't be trusted), and names it.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 100
+run 0.5
+hv0.sim_fault = 22
+run 0.004
+fault0.stop
+run 0.3
+fault0.fault
+fault0.en_out
+@expect fault0.fault == 22
+@expect fault0.stop[1] == 0
+@expect fault0.en_out == 0
+@match HV undervoltage

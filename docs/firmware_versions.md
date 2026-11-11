@@ -13,6 +13,13 @@ counted up, and everything checks it:
 | **`version`** | A console command, machine-readable: `version fw=1 hv=1 hv_image=1 conf=1`, then `hv_mismatch`, `conf_old` or `conf_newer` if so. Firmware from before versioning answers `not found: version`. `about` prints the versions too. |
 | **the console** | webui/mill expects the firmware of its own checkout (or `[MILLWEB] DRIVE_FW`; machine.json `stmbl.fw`). The Drives tab shows each drive's versions and what is wrong; a drive with another firmware, an HV board with another one, or a config that needs a patch keeps the machine off (`DRIVE_FW_BLOCK = no`, machine.json `stmbl.block: false`, only says so). |
 
+## Versions
+
+| # | change | configs |
+|---|---|---|
+| 1 | the first versioned firmware | — |
+| 2 | HV fault `HV_UNDERVOLT_ERROR` (22): the HV board's 3.3 V fell below its PVD (2.7 V) and TIM8 broke; CSS and core lockup also stop the bridge (2026-11-11) | unchanged, no patch |
+
 ## Config patches
 
 `conf/patches/NNNN.json` says how a config for version N-1 becomes one for N,

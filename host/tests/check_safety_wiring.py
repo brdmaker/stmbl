@@ -126,5 +126,17 @@ feeds = re.findall(r"IWDG->KR\s*=\s*0xAAAA", f3main)
 ok(len(feeds) == 2 and "f3_wdog_may_feed(" in f3main,
    "F3 feeds it only at the start and through f3_wdog_may_feed")
 
+# ---- A5: PVD and lockup break TIM8, CSS on, its NMI turns the bridge off ----
+ok(re.search(r"PWR_CR_PLS_LEV6[^;]*PWR_CR_PVDE|PWR_CR_PVDE[^;]*PWR_CR_PLS_LEV6", f3main) is not None,
+   "F3: PVD on at level 6 (~2.7 V)")
+ok(re.search(r"SYSCFG->CFGR2\s*\|=[^;]*PVD_LOCK", f3main) is not None, "F3: the PVD breaks TIM8 (PVD_LOCK)")
+ok(re.search(r"SYSCFG->CFGR2\s*\|=[^;]*LOCKUP_LOCK", f3main) is not None, "F3: a core lockup breaks TIM8")
+ok(re.search(r"RCC->CR\s*\|=\s*RCC_CR_CSSON", f3main) is not None, "F3: clock security system on")
+it = strip_comments(read("stm32f303/src/stm32f3xx_it.c"))
+nmi = body_of(it, "NMI_Handler")
+ok("RCC_CIR_CSSC" in nmi and "bridge_off()" in nmi, "F3 NMI: CSS flag cleared, bridge off")
+ok(re.search(r"pvd\s*\?\s*HV_UNDERVOLT_ERROR\s*:\s*HV_OVERCURRENT_HW", f3io) is not None,
+   "F3 io: a break with the PVD latched is HV_UNDERVOLT_ERROR")
+
 print("1..%d" % n)
 sys.exit(1 if fails else 0)

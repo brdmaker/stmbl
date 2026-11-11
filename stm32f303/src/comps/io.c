@@ -75,6 +75,7 @@ struct io_ctx_t {
   uint32_t mot_temp;
   uint32_t fault;
   uint32_t enabled;
+  uint32_t pvd;  // the PVD (3.3 V below 2.7 V) seen since enable (f3_safety.h)
 };
 
 #define ARES 4096.0  // analog resolution, 12 bit
@@ -287,8 +288,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 #endif
         //Master out enable is cleared by timer break input.
         //Timer break input is connected to comperators
+        // (or the PVD: the 3.3 V collapsing with the DC bus, A5)
+        f3_pvd_latch(&ctx->pvd, (PWR->CSR & PWR_CSR_PVDO) != 0, 1);
         if(!(TIM8->BDTR & TIM_BDTR_MOE)) {
-          ctx->fault = HV_OVERCURRENT_HW;
+          ctx->fault = ctx->pvd ? HV_UNDERVOLT_ERROR : HV_OVERCURRENT_HW;
         }
       } else {
         ctx->fault_pin_error = 0;
@@ -352,6 +355,7 @@ static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   (void)pin_ptr;
   bridge_off();
   ctx->enabled = 0;
+  f3_pvd_latch(&ctx->pvd, 0, 0);
 }
 
 hal_comp_t io_comp_struct = {

@@ -193,6 +193,14 @@ int main(void) {
 #endif
 
   MX_TIM8_Init();
+  // A5 (stmbl_freak d515232, 6595dbc): the PVD at level 6 (falls at ~2.7 V,
+  // DS9118) and a core lockup break TIM8 as the comparators do. PVD_LOCK
+  // also freezes PVDE/PLS until reset. The 3.3 V comes from the DC bus: a
+  // collapsing bus takes it down; io reports HV_UNDERVOLT_ERROR.
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
+  PWR->CR = (PWR->CR & ~PWR_CR_PLS) | PWR_CR_PLS_LEV6 | PWR_CR_PVDE;
+  SYSCFG->CFGR2 |= SYSCFG_CFGR2_PVD_LOCK | SYSCFG_CFGR2_LOCKUP_LOCK;
   MX_ADC1_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
@@ -468,6 +476,12 @@ void SystemClock_Config(void) {
 
   /* SysTick_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+
+  // A5: the clock security system: a failed crystal switches to the HSI
+  // and raises the NMI (stm32f3xx_it.c: bridge off, hal stopped; the
+  // watchdog then resets, and a dead crystal stops in Error_Handler with
+  // the LED on: the F4 sees HV_TIMEOUT_ERROR, the link can't run on HSI)
+  RCC->CR |= RCC_CR_CSSON;
 }
 
 /**

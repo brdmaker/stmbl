@@ -120,6 +120,7 @@ static const char* fault_string[] = {
   "HV firmware version: the HV board runs another firmware than this one carries (hv_update, or hv0.fw_check = 0)",
   "mot FB not referenced: the absolute position was lost (encoder battery); turn the motor through its reference",
   "mot FB battery alarm: the encoder's battery is missing or low",
+  "HV undervoltage: the HV board's 3.3 V fell below 2.7 V (its supply from the DC bus collapsed); the PWM was cut",
 };
 
 // the error log prints them (src/errlog_f4.c)

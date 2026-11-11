@@ -4,5 +4,5 @@
 lcnc 0 0
 run 0.2
 version
-@match ^WARNING: the config is for firmware v5, this is v1: it may use pins this one lacks$
-@match ^version fw=1 hv=1 hv_image=1 conf=5 conf_newer$
+@match ^WARNING: the config is for firmware v5, this is v2: it may use pins this one lacks$
+@match ^version fw=2 hv=2 hv_image=2 conf=5 conf_newer$
