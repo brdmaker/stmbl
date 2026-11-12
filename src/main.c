@@ -29,6 +29,7 @@
 #include "main.h"
 #include "commands.h"
 #include "version_number.h"
+#include "encf_req.h"
 
 extern RCC_ClocksTypeDef RCC_Clocks;
 
@@ -59,8 +60,16 @@ void SysTick_Handler(void) {
   systime++;
 }
 
+// encf's request when encf0.req_sync = 1 (shared/encf_req.h): sent first
+// thing, a fixed time after the timer edge
+volatile uint16_t encf_req_word;
+
 //20kHz
 void TIM_SLAVE_HANDLER(void) {
+  uint16_t req = encf_req_take(&encf_req_word);
+  if(req) {
+    SPI3->DR = req;
+  }
   TIM_ClearITPendingBit(TIM_SLAVE, TIM_IT_Update);
   hal_run_frt();
   wdog_crumb();

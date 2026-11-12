@@ -2,7 +2,7 @@
 
 Every HAL component of the firmware, generated from its source by `tools/comp_docs.py` (`make -C host check` fails while a page is out of date). Describe a component in a comment before its pins and each pin in a comment after it; then run `tools/comp_docs.py`.
 
-112 components, 532 of 2033 pins described.
+112 components, 534 of 2035 pins described.
 
 ## F4 and F3 (shared)
 
@@ -103,7 +103,7 @@ Every HAL component of the firmware, generated from its source by `tools/comp_do
 | [dmm](dmm.md) | 1/5 |  |
 | [enc_cmd](enc_cmd.md) | 2/8 |  |
 | [enc_fb](enc_fb.md) | 2/22 |  |
-| [encf](encf.md) | 3/16 |  |
+| [encf](encf.md) | 5/18 |  |
 | [encm](encm.md) | 0/12 |  |
 | [encs](encs.md) | 0/3 | Sanyo denki absolute encoder, tested with PA035C |
 | [endat](endat.md) | 0/21 |  |

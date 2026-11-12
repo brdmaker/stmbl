@@ -8,6 +8,7 @@
 #include "hw/hw.h"
 #include <string.h>
 #include "encf_frame.h"
+#include "encf_req.h"
 
 HAL_COMP(encf);
 
@@ -30,6 +31,8 @@ HAL_PIN(crc_er);
 
 HAL_PIN(freq);
 HAL_PIN(bit_ticks);
+HAL_PIN(req_sync);   // 1: the request goes out at the next frt timer update (shared/encf_req.h), 0: from rt (default)
+HAL_PIN(req_phase);  // out: TIM_SLAVE count when rt armed it, how far before that update
 
 static volatile uint32_t sendf;
 static uint32_t send_counterf;
@@ -184,6 +187,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(req_len)  = 2046;
   state_counter = 0;
   PIN(freq) = 1024000;
+  PIN(req_sync) = 0.0;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -203,7 +207,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   FB0_ENC_TIM->CNT  = 0;
   FB0_ENC_TIM->CCR1 = 0;
   FB0_ENC_TIM->CR1 |= TIM_CR1_CEN;  // enable tim
-  SPI3->DR = PIN(req_len);          // request, 1/(42e6/32)*11 = 8.4 us
+  // request, 1/(42e6/32)*11 = 8.4 us: now, or at the next frt update
+  uint16_t req   = encf_req_arm(&encf_req_word, (uint16_t)PIN(req_len), PIN(req_sync) > 0.0);
+  PIN(req_phase) = TIM_SLAVE->CNT;
+  if(req) {
+    SPI3->DR = req;
+  }
   DMA_Cmd(DMA1_Stream0, DISABLE);
   for(int i = 0; i < 100 && (DMA1_Stream0->CR & DMA_SxCR_EN); i++) {  // RM0090 10.3.17: EN reads 0 once stopped
   }

@@ -144,6 +144,9 @@ test_f3_safety: tests/test_f3_safety.c ../shared/f3_safety.h ../shared/wdog.h
 test_encf_frame: tests/test_encf_frame.c ../shared/encf_frame.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_encf_frame.c
 
+test_encf_req: tests/test_encf_req.c ../shared/encf_req.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_encf_req.c
+
 # shared/yaskawa_frame.h, the Yaskawa Sigma reply decoder (2026-11-11),
 # with AddressSanitizer: a read or write past a buffer fails it
 test_yaskawa_frame: tests/test_yaskawa_frame.c ../shared/yaskawa_frame.h ../shared/yaskawa_crc16.c
@@ -183,7 +186,7 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_yaskawa_frame test_boot_logic test_hv_link test_f3_io test_cdc_in
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_encf_req test_yaskawa_frame test_boot_logic test_hv_link test_f3_io test_cdc_in
 	@./test_iabs
 	@./test_cdc_in
 	@./test_f3_io
@@ -191,6 +194,7 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@./test_boot_logic
 	@./test_yaskawa_frame
 	@./test_encf_frame
+	@./test_encf_req
 	@./test_ringbuf
 	@./test_hal_stop
 	@./test_f3_safety

@@ -47,6 +47,7 @@ host/test_ringbuf
 host/test_hal_stop
 host/test_f3_safety
 host/test_encf_frame
+host/test_encf_req
 host/test_yaskawa_frame
 host/test_boot_logic
 host/test_hv_link

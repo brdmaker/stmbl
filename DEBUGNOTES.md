@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-11-12  encf: request from the frt timer (`encf0.req_sync`), unproven here
+- Area:    `src/comps/encf.c`, `src/main.c` (TIM_SLAVE_HANDLER), `shared/encf_req.h`
+- Status:  Open
+- Symptom: The rt code starts a few us of jitter after the timer edge, so the
+  encoder's latch time (on the request) jitters with it. stmbl_freak's α3:
+  vel noise above 200 Hz 0.14 -> 0.105 rad/s, iq 0.45 -> 0.37 A with req_sync.
+- Cause:   rt writes SPI3 itself. TIM_SLAVE (TIM2, frt, priority 0) counts
+  TIM_MASTER (TIM4), which triggers the ADC that paces rt, so its next update
+  after rt is always at the same time after the edge.
+- Fix:     `encf0.req_sync = 1` arms the word; the frt interrupt sends it
+  first thing. `req_phase` shows TIM_SLAVE's count at arming. Default 0
+  until a bench run here: compare vel1/iq noise and `sserial_advance.py`'s
+  pos_advance with 0 and 1 on the α2/3000, then make 1 the default if it
+  helps. Tests: host/tests/test_encf_req.c (mailbox), check_encf.py 6-9
+  (wiring; they fail on the sources before).
+
 ## 2026-11-11  FANUC α: what id_* reads against the datasheet (stmbl_freak)
 - Area:    `conf/fanuc_a2-3000.txt`, `host/tests/motors.py`
 - Status:  Note
