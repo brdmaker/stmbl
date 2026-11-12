@@ -195,7 +195,8 @@ void cmd_lcnc_jitter(char *ptr) {
   lcnc_jit  = CLAMP(j, 0, RT_PER_NRT - 1);
   lcnc_drop = CLAMP(d, 0, 100);
   lcnc_rnd  = s ? s : 1;
-  lcnc_nominal = lcnc_due = rt_count;
+  // the grid keeps its phase (lcnc_tick keeps lcnc_nominal on it): LinuxCNC's
+  // servo thread doesn't restart when its timing gets worse
   printf("lcnc_jitter %i ticks (%.1f ms), %i %% lost\n", lcnc_jit, lcnc_jit * RT_PERIOD * 1e3, lcnc_drop);
 }
 COMMAND("lcnc_jitter", cmd_lcnc_jitter, "LinuxCNC servo jitter: lcnc_jitter <rt ticks 0..4> [lost %] [seed]");

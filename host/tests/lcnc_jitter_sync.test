@@ -1,0 +1,42 @@
+# vel_int0.sync 1 (shared/comps/vel_int.c): LinuxCNC's updates placed on its
+# 1 ms grid instead of at their arrival (DEBUGNOTES 2026-11-11 "LinuxCNC
+# jitter"). The same jog at 100 rad/s as lcnc_jitter.test (sync 0: steady
+# 0.0006 rad, +-0.2 ms 0.018, +-0.4 ms 0.041, 5 % lost 0.038), here with
+# sync 1 and wd 0.003 (rides through one lost update): 0.0006, 0.0019,
+# 0.0038, 0.0013, and 0.0031 for +-0.4 ms with 5 % lost.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+vel_int0.sync = 1
+vel_int0.wd = 0.003
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 1.5
+lcnc 1 100
+run 1
+@sample pid0.pos_error 0.0002 0.5
+lcnc_jitter 1 0 7
+run 0.2
+@sample pid0.pos_error 0.0002 0.5
+lcnc_jitter 2 0 7
+run 0.2
+@sample pid0.pos_error 0.0002 0.5
+lcnc_jitter 0 5 7
+run 0.2
+@sample pid0.pos_error 0.0002 0.5
+lcnc_jitter 2 5 7
+run 0.2
+@sample pid0.pos_error 0.0002 0.5
+sserial0.error
+fault0.fault
+vel_int0.sync_lost
+vel_int0.sync_resyncs
+@expect sserial0.error == 0
+@expect fault0.fault == 0
+@expect vel_int0.sync_lost > 10
+@expect vel_int0.sync_resyncs == 0
+@expect max|pid0.pos_error[1:2500]| < 0.002
+@expect max|pid0.pos_error[2501:5000]| < 0.004
+@expect max|pid0.pos_error[5001:7500]| < 0.006
+@expect max|pid0.pos_error[7501:10000]| < 0.004
+@expect max|pid0.pos_error[10001:12500]| < 0.006

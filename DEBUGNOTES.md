@@ -5178,11 +5178,17 @@ Entry format:
 ## 2026-11-11 LinuxCNC servo jitter and lost updates raise the following error a lot
 - Area:    the drive's command path from smart-serial (sserial0 -> linrev / vel_int, the command interpolation of
   2026-10 "exact command interpolation"), host/main.c lcnc_jitter
-- Status:  Open
+- Status:  Workaround (2026-11-12: `vel_int0.sync = 1`, opt-in until the bench)
 - Symptom: in the host simulation (tests/lcnc_jitter.test, burn-in axis at 100 rad/s), pid0.pos_error: steady
   updates 0.0006 rad; +-0.2 ms jitter 0.018; +-0.4 ms 0.041; 5 % of updates lost 0.038; 20 % lost 0.10. No faults.
-- Cause:   (suspected) the drive takes each update when it arrives: an early, late or missing one reads as a
-  speed change, a lost one as a double step (about one period's travel). Not looked into further yet.
-- Fix:     Open. Ideas: extrapolate across a missing update with pos_cmd_d, place updates by their LinuxCNC time
-  rather than their arrival. Measure the bench Pi's servo-thread jitter (latency-histogram) first: the real one
-  is probably tens of us, below this simulation's 0.2 ms resolution. tests/lcnc_jitter.test holds today's numbers.
+  vel_int mode 1 (acceleration feedforward) with 5 % lost: 0.48 rad.
+- Cause:   vel_int takes each update at its arrival: early or late by d moves the command by vel x d. A lost one
+  leaves a 2.4 ms gap, past the 2 ms watchdog (mode 0 stops extrapolating); mode 1 takes the two periods' step
+  as one period: twice the speed and an acceleration spike (the 0.48 rad).
+- Fix:     vel_int0.sync 1: track LinuxCNC's grid (dead reckoning on the locked clock, phase pulled toward the
+  arrivals by sync_k), place each update on it, count a gap's periods. With wd 0.003: 0.0019 / 0.0038 / 0.0013
+  (mode 0 and 1). Rounding the arrival gap without the grid made mode 1 worse (a late then an early update are
+  1.8 ms apart). Tests: tests/lcnc_jitter_sync.test and tests/lcnc_lost_mode1.test (both fail on the old
+  vel_int); lcnc_jitter.test keeps sync 0's numbers. Also fixed: host lcnc_jitter reset LinuxCNC's grid phase.
+  Bench: measure the Pi's servo jitter (latency-histogram), run with sync 1 and wd 0.003, then make it the
+  default in conf/template/sserial.txt if it holds.

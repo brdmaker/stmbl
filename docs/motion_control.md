@@ -64,6 +64,26 @@ d1 and d0 are the last two position steps. Between packets the command is interp
 
 In mode 0 (the default) `acc_out` passes `vel0.acc` through, so configs with `vel0.en = 1` keep working.
 
+### `vel_int0.sync = 1`: updates on LinuxCNC's grid
+
+LinuxCNC computes its positions on an exact 1/`cmd_freq` grid, but they reach the drive with the servo thread's
+and the link's timing jitter. With `sync` 0 each update counts from its arrival, so one that is δ early or late
+moves the command by vel·δ. In mode 1 a lost update also makes the next step look like one period when it spans
+two, which doubles the velocity. With `sync` 1 the drive tracks the grid's phase (its clock is locked to
+LinuxCNC's, a slow loop pulls the phase toward the arrivals with `sync_k` 0.02) and places each update on it,
+counting a gap as the periods it spans. In the host simulation, at 100 rad/s:
+
+| | sync 0 | sync 1 |
+|---|---|---|
+| ±0.2 ms jitter | 0.018 rad | 0.0019 |
+| ±0.4 ms jitter | 0.041 | 0.0038 |
+| 5 % lost, mode 0 / mode 1 | 0.038 / 0.48 | 0.0013 / 0.0013 |
+
+- `cmd_freq` must be LinuxCNC's servo rate. If it is set lower, `sync_resyncs` counts up and it does worse than 0.
+- `wd 0.003` rides through one lost update (two periods plus the jitter); 0.002 stops the extrapolation.
+- `sync_dev` shows the last arrival's offset from the grid, `sync_lost` the updates the grid says went missing.
+- Off by default until it has run on the bench (DEBUGNOTES 2026-11-12).
+
 ### `vel1.bc = 1` (`shared/comps/vel.c`)
 
 Adds the observer's proportional correction to the reported velocity, so it is the derivative of the observer's own position estimate. The 2·d·a/w lag disappears. `vel_bw` then is the real bandwidth, and the w/(2d) ceiling no longer applies.
