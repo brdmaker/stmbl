@@ -16,6 +16,26 @@ Entry format:
 
 ---
 
+## 2026-11-13  Velocity observer ignores the load inertia (`conf0.j_sys`)
+- Area:    `shared/comps/vel.c`, `conf/template/pid.txt` (`vel1.j = conf0.j`), `conf/template/obs_load.txt`
+- Status:  Workaround (opt-in `link obs_load`; the default is unchanged)
+- Symptom: On a loaded axis the observer's estimate is off by up to 6.7 rad/s on 1000 rad/s^2 ramps (burn-in
+  motor + 5x inertia, stiff coupling, host sim), and id_pid leaves vel_d at its bound 1.
+- Cause:   vel1/vel2 predict torque / j (motor only), while pid0 splits at j_lpf (j + j_sys below it); between
+  the observer's 50 Hz and j_lpf the prediction is (j + j_sys) / j too high.
+- Fix:     vel.c pins j_sys, j_lpf (the same split as pid0; 0: as before). `link obs_load` links them: estimate
+  3.6 rad/s, id_pid finds vel_d 6.7, following error 0.032 -> 0.022 rad rms (a light soft load: 0.016 ->
+  0.024). Not the default: gains tuned with the old observer went into a 12 Hz limit cycle with the new model,
+  and the simulator machines (host/mill, portal) set j_sys with gains tuned without it. Re-run id_pid after
+  linking it. Test: host/tests/vel_obs_load.test (6.7 on the old vel.c). Bench: try on a loaded axis.
+
+## 2026-11-13  A fresh container lacks libGLU for gmsh (`make -C host check` fails at test_step2cell.py)
+- Area:    host check environment (`tests/robot/test_step2cell.py`, gmsh)
+- Status:  Workaround
+- Symptom: `OSError: libGLU.so.1: cannot open shared object file`, make check stops.
+- Cause:   gmsh from pip loads libGLU; the session image doesn't have it (CI installs it).
+- Fix:     `apt-get install -y libglu1-mesa`.
+
 ## 2026-11-12  encf: request from the frt timer (`encf0.req_sync`), unproven here
 - Area:    `src/comps/encf.c`, `src/main.c` (TIM_SLAVE_HANDLER), `shared/encf_req.h`
 - Status:  Open

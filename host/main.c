@@ -281,6 +281,16 @@ void cmd_lcnc(char *ptr) {
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd [acc]]], or show feedback");
 
+void cmd_lcncacc(char *ptr) {
+  float acc = 0.0f;
+  if(sscanf(ptr, " %f", &acc) == 1) {
+    lcnc_vel = sim_sserial_io.vel_cmd;
+    lcnc_acc = acc;  // ramps from where the command is, as LinuxCNC's planner
+  }
+  printf("lcnc acc %f vel %f\n", (double)lcnc_acc, (double)lcnc_vel);
+}
+COMMAND("lcncacc", cmd_lcncacc, "LinuxCNC side: lcncacc <rad/s^2>: ramp the speed from where it is (0: hold it)");
+
 void cmd_lcncscale(char *ptr) {
   float scale = 0.0f;
   if(sscanf(ptr, " %f", &scale) == 1) {

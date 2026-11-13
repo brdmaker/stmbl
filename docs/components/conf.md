@@ -4,7 +4,7 @@
 
 *(no description in the source yet: a comment before its pins)*
 
-**Config templates:** `acim`, `acvf`, `com_test`, `conf`, `dc`, `enc_cmd`, `enc_fb0`, `encdmm_fb0`, `encm_fb0`, `encmon`, `encs_fb0`, `fanuc_fb0`, `fanuc_io`, `fanuc_tw_fb0`, `filters`, `id_acim`, `id_frf`, `id_mot`, `id_pid`, `id_pmsm`, `id_sys`, `linkv3`, `mpid`, `mpmsm`, `mturn`, `pid`, `pmsm`, `psi`, `res_fb0`, `rl`, `smartabs_fb0`, `stepper`, `uf`, `uvw_fb0`, `uvw_fb1`
+**Config templates:** `acim`, `acvf`, `com_test`, `conf`, `dc`, `enc_cmd`, `enc_fb0`, `encdmm_fb0`, `encm_fb0`, `encmon`, `encs_fb0`, `fanuc_fb0`, `fanuc_io`, `fanuc_tw_fb0`, `filters`, `id_acim`, `id_frf`, `id_mot`, `id_pid`, `id_pmsm`, `id_sys`, `linkv3`, `mpid`, `mpmsm`, `mturn`, `obs_load`, `pid`, `pmsm`, `psi`, `res_fb0`, `rl`, `smartabs_fb0`, `stepper`, `uf`, `uvw_fb0`, `uvw_fb1`
 
 ## Pins (57, 57 described)
 

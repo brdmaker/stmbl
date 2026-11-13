@@ -380,7 +380,8 @@ to test an autotune), override those pins with `--sim FILE`.
   the average over each period (as joint.N.vel-cmd). `lcnc` on its own prints
   the feedback. `lcnc_jitter <ticks> [lost %] [seed]` makes the servo thread
   late or early by up to that many rt ticks (0.2 ms each) and loses some
-  updates; `lcnc_stats` counts them (`tests/lcnc_jitter.test`).
+  updates; `lcnc_stats` counts them (`tests/lcnc_jitter.test`). `lcncacc
+  <rad/s^2>` ramps the speed from where the command is (0 holds it).
 - **Mechanics beyond the rigid rotor:** `hv0.sim_fs` (breakaway friction),
   `sim_vs` (the Stribeck speed it falls to coulomb `sim_f` over) and
   `sim_fneg` (coulomb for negative speeds), `tests/friction_stribeck.test`;

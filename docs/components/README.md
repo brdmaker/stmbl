@@ -2,7 +2,7 @@
 
 Every HAL component of the firmware, generated from its source by `tools/comp_docs.py` (`make -C host check` fails while a page is out of date). Describe a component in a comment before its pins and each pin in a comment after it; then run `tools/comp_docs.py`.
 
-112 components, 539 of 2041 pins described.
+112 components, 541 of 2043 pins described.
 
 ## F4 and F3 (shared)
 
@@ -84,7 +84,7 @@ Every HAL component of the firmware, generated from its source by `tools/comp_do
 | [uf](uf.md) | 0/8 |  |
 | [uf2](uf2.md) | 0/12 |  |
 | [uvw](uvw.md) | 1/20 | u,v,w inputs |
-| [vel](vel.md) | 2/16 |  |
+| [vel](vel.md) | 4/18 |  |
 | [vel_int](vel_int.md) | 5/17 |  |
 | [velbuf](velbuf.md) | 0/6 |  |
 | [veltime](veltime.md) | 0/6 |  |

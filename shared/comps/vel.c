@@ -23,12 +23,20 @@ HAL_PIN(en);
 HAL_PIN(pos_error);
 HAL_PIN(bc);     // velocity bias correction (0 off, 1 on)
 HAL_PIN(bc_lp);  // its low-pass [Hz] (0: none)
+// The torque model, as pid0 splits it: below j_lpf the motor carries the
+// load (j + j_sys), above it the coupling gives and the motor turns alone
+// (j). With j alone a loaded axis read (j + j_sys) / j times too much
+// acceleration between lp and j_lpf (tests/vel_obs_load.test). j_sys 0:
+// the motor alone at every frequency, as before.
+HAL_PIN(j_sys);  // load inertia seen at the motor [kg m^2]
+HAL_PIN(j_lpf);  // [Hz] where the load decouples (conf0.j_lpf; 0: never)
 
 struct vel_ctx_t {
   float last_acc;
   float acc_sum;
   float vel_sum;
   float corr;  // the proportional correction, low-passed (bc)
+  float t_lp;  // torque below j_lpf
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -63,7 +71,15 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float g         = PIN(g);
   float lp        = LP_HZ(PIN(lp));
   float j         = MAX(PIN(j), 0.0000001);
-  float acc       = g * PIN(torque) / j;
+  float acc;
+  if(PIN(j_sys) > 0.0) {  // j_lpf 0: the load at every frequency, as in pid0
+    float c   = LP_HZ(MAX(PIN(j_lpf), 0.0));
+    ctx->t_lp = PIN(torque) * c + (1.0 - c) * ctx->t_lp;
+    acc       = g * (ctx->t_lp / (j + PIN(j_sys)) + (PIN(torque) - ctx->t_lp) / j);
+  } else {
+    ctx->t_lp = PIN(torque);
+    acc       = g * PIN(torque) / j;
+  }
 
   ctx->last_acc = acc * lp + (1.0 - lp) * ctx->last_acc;
 

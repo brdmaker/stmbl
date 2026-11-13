@@ -1,0 +1,42 @@
+# The velocity observer with the load (conf/template/obs_load.txt,
+# shared/comps/vel.c j_sys / j_lpf): the burn-in motor with 5x its inertia
+# behind a stiff coupling (hv0.sim_jl, sim_kl), the gains id_pid found for
+# this observer, 1000 rad/s^2 ramps to +-200 rad/s. The estimate (vel1.vel)
+# against the simulated rotor speed: within 3.6 rad/s; the motor-only model
+# (without obs_load) 6.7. id_pid with it: vel_d 6.7; without: its bound 1
+# (DEBUGNOTES 2026-11-13).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+@timeout 120
+stop
+load mad
+mad0.rt_prio = 14
+link obs_load
+start
+mad0.in = hv0.sim_vel
+mad0.mult = -1
+mad0.add = vel1.vel
+hv0.sim_jl = 0.00022
+hv0.sim_kl = 3000
+hv0.sim_dl = 0.001
+conf0.j_sys = 0.00022
+conf0.j_lpf = 500
+conf0.pos_bw = 26.6
+conf0.vel_bw = 500
+conf0.vel_d = 6.66
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 2.2
+lcncacc 1000
+@sample mad0.out 0.0002 0.2
+lcncacc -1000
+@sample mad0.out 0.0002 0.4
+lcncacc 1000
+@sample mad0.out 0.0002 0.2
+lcncacc 0
+@sample mad0.out 0.0002 0.1
+vel1.j_sys
+fault0.fault
+@expect max|mad0.out| < 4.5
+@expect fault0.fault == 0
+@expect vel1.j_sys ~ 0.00022 1%

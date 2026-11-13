@@ -90,6 +90,16 @@ Adds the observer's proportional correction to the reported velocity, so it is t
 
 `bc_lp` filters the correction if encoder quantization makes it noisy; 300 Hz cost nothing in the tests.
 
+### `link obs_load`: the observer with the load (`conf/template/obs_load.txt`)
+
+By default the observers (`vel1`, `vel2`) predict acceleration from torque / `conf0.j`, the motor alone. On an axis with `conf0.j_sys` set, the motor accelerates at torque / (j + j_sys) up to where the coupling gives (`conf0.j_lpf`). Between the observer's own 50 Hz and that point, it reads (j + j_sys) / j times too much acceleration. `link obs_load` gives them `pid0`'s split: motor plus load below `j_lpf`, the motor alone above it.
+
+- **What it does** (host simulation; burn-in motor with 5× its inertia behind a stiff coupling, each variant tuned by id_pid):
+  - The estimate stays within 3.6 rad/s of the true speed, against 6.7 with the motor-only model (`host/tests/vel_obs_load.test`).
+  - id_pid finds damping (`vel_d` 6.7) instead of stopping at its bound of 1.
+  - Following error: 0.032 → 0.022 rad RMS on that axis. On a light, softer load (2× inertia, 400 Hz coupling) it was 0.016 → 0.024.
+- **Run id_pid again after linking it.** The loop sees a different plant. Gains tuned with the motor-only observer went into a 12 Hz limit cycle with it in the simulation. That is why it is opt-in rather than in `pid.txt`.
+
 ### Linear motors: `conf0.j` is the whole moving mass
 
 The observer predicts acceleration from torque / `conf0.j`. On a rotary motor j is the rotor, and the load sits behind a coupling. A linear motor's coil is bolted to its load, so:
