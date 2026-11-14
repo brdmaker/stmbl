@@ -16,6 +16,14 @@
  *                                  with the tool on (out of the fork):
  *                                  dock + s (default d) [mm, base frame]
  *   body ... tool ID               its bodies (geom.h)
+ *   changer via dx dy dz           (anywhere) where a tool change passes on
+ *                                  its way to and from a dock: the dock's
+ *                                  way out (dock + s) + this [mm, base
+ *                                  frame], in front of the dock row, so the
+ *                                  moves between the docks and the work
+ *                                  don't sweep past the other docked tools
+ *                                  (they are obstacles for the guard,
+ *                                  geom.h). Default 0: the way out itself
  * Tool 0 is "no tool": the TCP is the flange.
  *
  * The changer: a master plate on the flange with a pneumatic lock (one
@@ -49,6 +57,7 @@ typedef struct {
 typedef struct {
   rb_tool t[RB_MAXTOOL];  // indexed by ID; t[0] is "no tool"
   int cur;                // the tool the next lines belong to
+  double via[3];          // changer via [m]: a dock's via point is dock + slide + via
 } rb_tools;
 
 void rb_tools_init(rb_tools *tt);
