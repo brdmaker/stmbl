@@ -885,6 +885,58 @@ static void tool_tests(void) {
   ok(w.body[0].tool == 5 && w.body[1].tool == 0 && d5 < d0 && d2 == d0,
      "geometry: a tool's bodies count while it is mounted", d5 - d0, 0);
 
+  // a tool's dock (tool table lines): its stand and the tool standing in it are
+  // obstacles, except while the tool is mounted or the arm works at that dock
+  {
+    gm_world dk;
+    gm_init(&dk);
+    gm_line(&dk, "body 6 sphere 0 0 0.02 0.04   # master plate");
+    gm_line(&dk, "tool 3 torch");
+    gm_line(&dk, "dock 1000 400 600   0 0 0   0 0 -100   0 0 -150");
+    gm_line(&dk, "body 6 capsule 0 0 0 0 0 0.2 0.03 tool 3");
+    gm_line(&dk, "obstacle shelf box 0.5 0.5 0.5 0.1 0.1 0.1 dock 3");
+    int plate = -1, post = -1, tool = -1, shelf = -1;
+    for(int k = 0; k < dk.no; k++) {
+      plate = !strcmp(dk.obs[k].name, "dock3.plate") ? k : plate;
+      post = !strcmp(dk.obs[k].name, "dock3.post") ? k : post;
+      tool = !strcmp(dk.obs[k].name, "dock3.tool") ? k : tool;
+      shelf = !strcmp(dk.obs[k].name, "shelf") ? k : shelf;
+    }
+    // flange up at (1, 0.4, 0.6): the stand 90 mm above it less 50, the tool from 0.6 to 0.8
+    double pe = fabs(dk.obs[plate].a[2] - (0.6 + 0.09 - 0.05 - 0.006)) + fabs(dk.obs[post].b[2] - (0.6 + 0.09 - 0.05 - 0.012)) +
+                fabs(dk.obs[tool].a[2] - 0.6) + fabs(dk.obs[tool].b[2] - 0.8) + fabs(dk.obs[tool].a[0] - 1.0);
+    ok(dk.no == 4 && plate >= 0 && post >= 0 && tool >= 0 && shelf >= 0 && dk.obs[shelf].dock == 3 && dk.obs[tool].dock == 3 &&
+           dk.obs[tool].tool == 0 && dk.nb == 2,
+       "geometry: a dock line adds its stand (plate, post) and the docked tool's bodies", dk.no, 4);
+    ok(pe < 1e-9, "  ...placed from the dock pose", pe, 1e-9);
+    gm_line(&dk, "obstacle near sphere 0 0 0.3 0.01");  // always there: the arm's reference for "no dock counts"
+    double qd[6] = {0};
+    gm_update(&dk, &ref, qd);
+    // the arm far from the dock: compare which obstacles count by moving the dock's tool onto the flange's ball
+    gm_shape keep = dk.obs[tool];
+    for(int i = 0; i < 3; i++) {
+      dk.obs[tool].a[i] = dk.body[0].wa[i];
+      dk.obs[tool].b[i] = dk.body[0].wa[i];
+    }
+    dk.tool = 0, dk.dock = 0;
+    double on = gm_clearance(&dk, NULL);
+    dk.tool = 3;
+    double mounted = gm_clearance(&dk, NULL);
+    dk.tool = 0, dk.dock = 3;
+    double working = gm_clearance(&dk, NULL);
+    dk.dock = 2;
+    double other = gm_clearance(&dk, NULL);
+    dk.dock = -1;
+    double plant = gm_clearance(&dk, NULL);
+    gm_pair cp[4];
+    int nc = gm_contacts(&dk, cp, 4);
+    dk.dock = 0;
+    int nc0 = gm_contacts(&dk, cp, 4);
+    dk.obs[tool] = keep;
+    ok(on < 0 && other < 0 && mounted > 0 && working > 0 && plant > 0 && nc == 0 && nc0 >= 1,
+       "  ...counting unless the tool is mounted, the arm works at the dock, or dock -1 (the plant)", on, 0);
+  }
+
   // the detector's model: tool payload added and removed again
   rb_collide det;
   memset(&det, 0, sizeof(det));

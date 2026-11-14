@@ -18,6 +18,7 @@ void plant_defaults(arm_plant *p, int n) {
   p->kstop = 1e5;
   p->cstop = 500.0;
   gm_init(&p->geo);
+  p->geo.dock = -1;  // the docks' obstacles are the guard's (geom.h): the plant's arm docks into them
 }
 
 // Solve A x = b (n x n, partial pivoting); 0 or -1 if singular.

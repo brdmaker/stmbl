@@ -73,7 +73,58 @@ int gm_line(gm_world *w, const char *line) {
       return -1;
     }
     w->nb++;
+    // a tool's body with a dock: also the tool standing in its dock (an obstacle)
+    if(s->tool > 0 && s->tool < GM_MAXTOOL && w->has_dock[s->tool] && w->no < GM_MAXOBS) {
+      gm_shape *o = &w->obs[w->no++];
+      *o = *s;
+      o->link = -1, o->tool = 0, o->dock = s->tool;
+      snprintf(o->name, sizeof(o->name), "dock%d.tool", s->tool);
+      for(int i = 0; i < 3; i++) {
+        o->a[i] = w->dock_p[s->tool][i], o->b[i] = w->dock_p[s->tool][i];
+        for(int k = 0; k < 3; k++) {
+          o->a[i] += w->dock_R[s->tool][i][k] * s->a[k];
+          o->b[i] += w->dock_R[s->tool][i][k] * s->b[k];
+        }
+      }
+    }
     return 1;
+  }
+  if(!strcmp(kw, "tool")) {  // the tool table: which tool the next lines are about
+    int t;
+    w->cur_tool = sscanf(p, " %d", &t) == 1 && t > 0 && t < GM_MAXTOOL ? t : 0;
+    return 0;  // the tool table's line (tool.h reads it)
+  }
+  if(!strcmp(kw, "dock")) {  // tool.h's dock line: the stand, as the console draws it
+    int t = w->cur_tool;
+    if(t <= 0 || nums(p, v, 6) != 6 || w->no + 2 > GM_MAXOBS) {
+      return 0;
+    }
+    double rpy[3] = {v[3] * D2R, v[4] * D2R, v[5] * D2R};
+    w->has_dock[t] = 1;
+    rb_R_from_rpy(rpy, w->dock_R[t]);
+    double at[3];
+    for(int i = 0; i < 3; i++) {
+      w->dock_p[t][i] = v[i] / 1000.0;
+      at[i] = w->dock_p[t][i] + w->dock_R[t][i][2] * 0.09;  // 90 mm out along the flange's z
+    }
+    double top = at[2] - 0.05;
+    gm_shape *o = &w->obs[w->no++];  // the fork plate, 110 x 110 x 12 mm
+    memset(o, 0, sizeof(*o));
+    o->type = GM_BOX, o->link = -1, o->dock = t;
+    snprintf(o->name, sizeof(o->name), "dock%d.plate", t % 100);
+    o->a[0] = at[0], o->a[1] = at[1], o->a[2] = top - 0.006;
+    o->b[0] = o->b[1] = 0.055, o->b[2] = 0.006;
+    double zero[3] = {0, 0, 0};
+    rb_R_from_rpy(zero, o->R);
+    if(top > 0.02) {  // the post, 50 mm, from the floor
+      o = &w->obs[w->no++];
+      memset(o, 0, sizeof(*o));
+      o->type = GM_CAPSULE, o->link = -1, o->dock = t, o->r = 0.025;
+      snprintf(o->name, sizeof(o->name), "dock%d.post", t % 100);
+      o->a[0] = o->b[0] = at[0], o->a[1] = o->b[1] = at[1];
+      o->a[2] = 0.0, o->b[2] = top - 0.012;
+    }
+    return 0;  // the tool table's line too
   }
   if(!strcmp(kw, "obstacle")) {
     int o2;
@@ -115,6 +166,13 @@ int gm_line(gm_world *w, const char *line) {
         s->b[i] = v[3 + i] / l;
       }
     } else {
+      return -1;
+    }
+    char rest[256];
+    snprintf(rest, sizeof(rest), "%s", p + o2);
+    rest[strcspn(rest, "#")] = 0;
+    const char *d = strstr(rest, "dock");
+    if(d && sscanf(d, "dock %d", &s->dock) != 1) {
       return -1;
     }
     w->no++;
@@ -330,6 +388,9 @@ double gm_clearance(const gm_world *w, gm_pair *best) {
       continue;
     }
     for(int j = 0; j < w->no; j++) {
+      if(!GM_OBS_ACTIVE(w, j)) {
+        continue;
+      }
       double d = gm_dist(&w->body[i], &w->obs[j], 0, &p);
       if(d < dmin) {
         dmin = d;
@@ -365,7 +426,7 @@ int gm_contacts(const gm_world *w, gm_pair *out, int max) {
       continue;
     }
     for(int j = 0; j < w->no && n < max; j++) {
-      if(gm_dist(&w->body[i], &w->obs[j], 0, &p) < 0.0) {
+      if(GM_OBS_ACTIVE(w, j) && gm_dist(&w->body[i], &w->obs[j], 0, &p) < 0.0) {
         p.body = i, p.other = j, p.self = 0;
         out[n++] = p;
       }
