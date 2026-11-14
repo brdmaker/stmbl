@@ -16,6 +16,19 @@ Entry format:
 
 ---
 
+## 2026-11-14  stmbl_arm built from mixed objects after a header change (empty drive library path)
+- Area:    `host/arm/lcnc/Makefile` (the LinuxCNC module stmbl_arm), `host/arm/Makefile` (arm_sim)
+- Status:  Fixed
+- Symptom: brdmot's `make test-hmi`: "armcore: dlmopen : ...: cannot read file data", "bad line: drive 1
+  j1.conf": stmbl_arm saw an empty `lib=` although the INI and even a literal path gave it one.
+- Cause:   the rules listed headers by hand and missed some: after geom.h and tool.h grew (dock obstacles,
+  dockvia), make rebuilt geom.o / tool.o / plant.o / changersim.o but kept armcore.o and stmbl_arm_rt.o with the
+  old struct layouts; the module then wrote past its structs (the library path among the victims). The session
+  hook's LinuxCNC restore installs this build, so it came back after a restart.
+- Fix:     `-MMD -MP` and `-include *.d`: gcc's own header lists. arm_sim depends on every shared/robot header.
+  brdmot's linuxcnc/arm* modules the same. Test: host/tests/test_arm_makedeps.py (make -n -W <header>: every
+  object that includes it rebuilds; it failed on the old Makefile: geom.o alone; skipped without LinuxCNC).
+
 ## 2026-11-14  Tool docks as obstacles for the guard (shared/robot geom.c); `dockvia`
 - Area:    `shared/robot/geom.c` / `geom.h`, `tool.c` / `tool.h`, `host/arm/plant.c`
 - Status:  Fixed

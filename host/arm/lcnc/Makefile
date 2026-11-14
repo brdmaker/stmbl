@@ -10,7 +10,10 @@
 ROOT = ../../..
 MODINC ?= $(firstword $(wildcard $(HOME)/linuxcnc-2.9/src/Makefile.modinc /home/user/linuxcnc-2.9/src/Makefile.modinc) /usr/share/linuxcnc/Makefile.modinc)
 
-ARM_CFLAGS = -O2 -g -fPIC -std=gnu11 -Wall -D_GNU_SOURCE -I.. -I../../lcnc -I$(ROOT)/shared/robot
+# -MMD -MP: gcc writes each object's headers into its .d file (included below), so a changed header rebuilds
+# every object that includes it. The rules' hand-made lists missed some: after geom.h and tool.h grew,
+# armcore.o and stmbl_arm_rt.o kept the old struct layouts (DEBUGNOTES 2026-11-14, tests/test_arm_makedeps.py)
+ARM_CFLAGS = -O2 -g -fPIC -std=gnu11 -Wall -D_GNU_SOURCE -MMD -MP -I.. -I../../lcnc -I$(ROOT)/shared/robot
 
 obj-m += stmbl_arm.o
 stmbl_arm-objs := stmbl_arm_rt.o armcore.o plant.o robot.o kin.o geom.o gripsim.o changersim.o tool.o
@@ -23,7 +26,7 @@ all: stmbl_arm.so ../libstmbl_drive.so
 	$(MAKE) -C .. libstmbl_drive.so
 
 stmbl_arm_rt.o: stmbl_arm.c ../armcore.h ../plant.h ../changersim.h ../../lcnc/stmbl_sim_api.h
-	$(CC) -o $@ $(EXTRA_CFLAGS) -I.. -I../../lcnc -I$(ROOT)/shared/robot -c $<
+	$(CC) -o $@ $(EXTRA_CFLAGS) -MMD -MP -I.. -I../../lcnc -I$(ROOT)/shared/robot -c $<
 armcore.o: ../armcore.c ../armcore.h ../plant.h ../gripsim.h ../changersim.h ../../lcnc/stmbl_sim_api.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 plant.o: ../plant.c ../plant.h
@@ -42,6 +45,8 @@ tool.o: $(ROOT)/shared/robot/tool.c $(ROOT)/shared/robot/tool.h
 	$(CC) $(ARM_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f *.o *.so *.tmp *.ver
+	rm -f *.o *.d *.so *.tmp *.ver
 
 .PHONY: all clean
+
+-include $(wildcard *.d)

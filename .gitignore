@@ -139,3 +139,4 @@ hwtest/soak/runs/
 *.ver
 *.sym
 hwtest/burnin-sim/adv_move.ngc
+host/arm/lcnc/*.d
