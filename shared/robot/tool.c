@@ -38,8 +38,8 @@ int rb_tools_line(rb_tools *tt, const char *line) {
   }
   const char *p = line + off;
   rb_tool *t = &tt->t[tt->cur];
-  if(!strcmp(kw, "changer")) {
-    if(sscanf(p, " via %lf %lf %lf", &v[0], &v[1], &v[2]) != 3) {
+  if(!strcmp(kw, "dockvia")) {  // not "changer": host/arm's changersim has that
+    if(sscanf(p, " %lf %lf %lf", &v[0], &v[1], &v[2]) != 3) {
       return -1;
     }
     for(int k = 0; k < 3; k++) {

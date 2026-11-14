@@ -833,10 +833,10 @@ static void tool_tests(void) {
   ok(!bad && rb_tool_get(&tt, 5)->id == 5 && rb_tool_get(&tt, 3)->id == 0 && rb_tool_get(&tt, 2)->m == 1.8,
      "tools: table lines read", bad, 0);
   double via0 = fabs(tt.via[0]) + fabs(tt.via[1]) + fabs(tt.via[2]);
-  int vr = rb_tools_line(&tt, "changer via -200 0 15"), vb = rb_tools_line(&tt, "changer via 1 2");
+  int vr = rb_tools_line(&tt, "dockvia -200 0 15"), vb = rb_tools_line(&tt, "dockvia 1 2");
   ok(via0 == 0 && vr == 1 && vb == -1 && fabs(tt.via[0] + 0.2) < 1e-12 && fabs(tt.via[2] - 0.015) < 1e-12 &&
          rb_tool_get(&tt, 5)->id == 5,
-     "tools: changer via (default 0, mm to m, a bad one refused)", tt.via[0], -0.2);
+     "tools: dockvia (default 0, mm to m, a bad one refused)", tt.via[0], -0.2);
   // TCP = flange * T; back to the flange; IK on the TCP
   const rb_tool *t = rb_tool_get(&tt, 5);
   double e1 = 0, e2 = 0;
