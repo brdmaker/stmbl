@@ -16,6 +16,17 @@ Entry format:
 
 ---
 
+## 2026-11-14  Tool docks as obstacles for the guard (shared/robot geom.c); `dockvia`
+- Area:    `shared/robot/geom.c` / `geom.h`, `tool.c` / `tool.h`, `host/arm/plant.c`
+- Status:  Fixed
+- Symptom: brdmot's ARC Mate: the docks (stands, docked tools) were only in the console's drawing; armguard's
+  collision prevention didn't know them.
+- Cause:   the cell had no obstacles for them; the tool table's dock lines were read only by tool.h.
+- Fix:     a dock line adds its stand and the tool standing in it as obstacles tagged `dock T`; they count
+  unless T is mounted or `gm_world.dock` (the dock being worked at) is T; `dock -1` (the plant): none.
+  `dockvia dx dy dz` in the tool table: where tool changes pass in front of the docks (not `changer`: host/arm's
+  changersim reads that). Tests: tests/robot/test_robot.c (dock obstacles, dockvia); brdmot `make test-tool`.
+
 ## 2026-11-13  Velocity observer ignores the load inertia (`conf0.j_sys`)
 - Area:    `shared/comps/vel.c`, `conf/template/pid.txt` (`vel1.j = conf0.j`), `conf/template/obs_load.txt`
 - Status:  Workaround (opt-in `link obs_load`; the default is unchanged)
