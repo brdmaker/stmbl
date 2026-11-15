@@ -16,6 +16,15 @@ Entry format:
 
 ---
 
+## 2026-11-15  "HV CRC error" (fault 8) is never raised
+- Area:    `src/comps/hv.c` (the F3 link), `shared/comps/fault.c`
+- Status:  Known
+- Symptom: brdmot's console help lists the drive faults; HV CRC error can't occur on this firmware.
+- Cause:   the line that would set it is commented out in hv.c: a bad packet from the HV board is counted
+  (`crc_error`) and dropped; enough of them in a row end as "HV timeout" (fault 9).
+- Fix:     none needed: the console's help says that a CRC problem shows as HV timeout. If CRC errors should fault
+  on their own, that's a decision (with a test) for hv.c.
+
 ## 2026-11-14  stmbl_arm built from mixed objects after a header change (empty drive library path)
 - Area:    `host/arm/lcnc/Makefile` (the LinuxCNC module stmbl_arm), `host/arm/Makefile` (arm_sim)
 - Status:  Fixed
