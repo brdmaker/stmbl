@@ -62,7 +62,7 @@ after enable.
    (`arm_sim`, `armcore.c`, `plant.c`).
 3. `hwtest/arcmate-sim`: LinuxCNC 2.9 (genserkins) as the master through
    the `stmbl_arm` module; prebuilt LinuxCNC for cloud sessions on the
-   orphan branch `linuxcnc-bin`.
+   orphan branches `linuxcnc-bin-2.9.10-<date>` of brdmaker/linuxcnc.
 4. `linuxcnc/armcollide` (`shared/robot/collide.c`): the collision
    detector; host tests (no false trips over a motion suite with a
    perturbed model, detection while moving and at rest) and the LinuxCNC
