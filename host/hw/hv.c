@@ -495,6 +495,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(PIN(rev) > 0.0) {
     q_cmd *= -1.0;
     pos = minus(0, pos);
+    // the speed too: the F3 advances the angle by it between packets
+    // (ls.c) and its current predictor uses it for the back-EMF
+    // (curpid.c, indq = vel * psi). Unflipped, the predictor erred by
+    // 2 vel psi / l dt: the current fell short in proportion to the speed
+    // (simulated SGMPH-like motor: 0.062 of 0.184 A at 25 rad/s), on every
+    // motor with out_rev = 1 (DEBUGNOTES 2026-11-16).
+    vel = -vel;
   }
   if(!en) {
     d_cmd = 0.0;

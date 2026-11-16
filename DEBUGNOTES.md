@@ -16,6 +16,25 @@ Entry format:
 
 ---
 
+## 2026-11-16  out_rev = 1: the F4 sent the F3 the speed unflipped (current short at speed)
+- Area:    `src/comps/hv.c` (and the simulator's `host/hw/hv.c`), the F3's `ls.c` / `curpid.c`
+- Status:  Fixed (F4 and simulator; real hardware not yet checked)
+- Symptom: Simulated setup wizard: on motors whose phases come out reversed
+  (`conf0.out_rev = 1`), the current fell short of the command in proportion
+  to the speed (bench motor model at 94 rad/s: 0.133 A measured, 0.229 A
+  commanded; another at 25 rad/s: 0.062 of 0.184 A, with 8.7 of 177 V used).
+  The pid winds up, tracking at speed is poor, fast identification moves lost
+  the track.
+- Cause:   With rev, hv.c flips the q current and the angle it sends the F3,
+  not the speed. The F3 advances the angle by that speed between packets
+  (ls.c) and uses it in its current predictor for the back-EMF (curpid.c:
+  indq = vel psi): the prediction errs by 2 vel psi / l dt and the current
+  loop regulates the wrong current.
+- Fix:     hv.c flips vel with rev too (the simulator the same). Test:
+  host/tests/drive_rev_vel.test (fails without: 0.133 for 0.229 A). Real
+  drives with out_rev = 1 should improve at speed: check one on the bench
+  (the Delta bench config has out_rev 0).
+
 ## 2026-11-16  hwtest/phasing: once the HAL session did not come up after a drive reset
 - Area:    `hwtest/phasing/phasing.py` (hal_start), hostmot2 after a drive reset
 - Status:  Open

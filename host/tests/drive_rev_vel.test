@@ -1,0 +1,22 @@
+# out_rev = 1 (the phases in the other order, as id_pmsm finds them): the F4
+# flipped the q current and the angle for the F3, but not the speed. The F3
+# advances the angle by that speed between packets and uses it in its
+# current predictor for the back-EMF (curpid.c): unflipped, the current fell
+# short in proportion to the speed (2 vel psi / l dt). At 150 mm/s on the
+# bench motor: 0.133 A measured for 0.229 A commanded (the pid wound up);
+# now 0.141 for 0.130 (DEBUGNOTES 2026-11-16).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_phase_rev = 1
+conf0.out_rev = 1
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 3
+lcnc 1 150
+run 2
+pmsm_ttc0.cur
+hv0.iq_fb
+vel1.vel
+fault0.fault
+@expect hv0.iq_fb ~ =pmsm_ttc0.cur 15%
+@expect fault0.fault == 0
