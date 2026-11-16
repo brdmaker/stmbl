@@ -45,6 +45,12 @@ Entry format:
   2-8 % / ~1-16 % on 35 of 38 simulated motors), stiff loops (15/150,
   30/300, 40/500), following-error limits 0.2 and 1 rad, sizing the second
   run's acceleration by friction: none kept every motor on track.
+  On the SGMAH with the new firmware (7b5f9fe5): idm's gentle run (250
+  rad/s^2, 25 rad/s, its loops 5 / 40) reached 1.42 rad following error
+  from the wizard's small starting inertia (4e-5), 0.79 rad from the real
+  one (1.1e-4): the soft loops alone lose most of a radian against
+  friction. The wizard's verify step on the commissioned config: 0.0004
+  rad holding, +-0.5 rad steps exact.
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
