@@ -9,4 +9,4 @@
  * Bump it when any of these change in a way the wizard has to follow.
  */
 #pragma once
-#define STMBL_SETUP_API 2  // 2: the temperature sensor (mtemp0)
+#define STMBL_SETUP_API 3  // 2: the temperature sensor (mtemp0); 3: idm err_max / trip_*, ready / pos_fb in id_mot and id_pid

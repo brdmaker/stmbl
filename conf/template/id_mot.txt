@@ -3,6 +3,13 @@ load idm
 idm0.rt_prio = 4
 
 idm0.en = fault0.en_out
+idm0.ready = fb_switch0.state
+idm0.pos_fb = fb_switch0.pos_fb
+idm0.exact = fb_switch0.com_exact
+# the following-error limit: off while phasing
+fault0.max_pos_error = idm0.err_limit
+# the following error, for idm0.max_err (the wizard)
+idm0.pos_err = pid0.pos_error
 pid0.pos_ext_cmd = idm0.pos_cmd
 # fb_switch aligns the feedback to this at enable
 fb_switch0.cmd_pos = idm0.pos_cmd
@@ -31,7 +38,6 @@ idm0.acc_fb = vel1.acc
 vel1.torque = 0
 vel2.torque = 0
 
-conf0.max_pos_error = 0
 conf0.max_sat = 10
 conf0.vel_g = 1
 

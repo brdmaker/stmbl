@@ -6,6 +6,25 @@
 HAL_COMP(ids);
 
 HAL_PIN(en);
+// > 0: commutation known (fb_switch0.state). An incremental encoder phases
+// at enable; moving the command meanwhile (the motor not under control) left
+// a following error of 0.4 rad and more at the start (setup wizard,
+// simulator, 2026-11-16). Default 1.
+HAL_PIN(ready);
+HAL_PIN(pos_fb);  // the motor's position (fb_switch0.pos_fb): the moves start there once ready
+// ready for `settle` s before the moves (the phasing swing settles under
+// pid first: 0.27 rad on a simulated e240, any config); err_limit (for
+// fault0.max_pos_error): 0 = off until then, max_err once moving
+HAL_PIN(settle);
+// until commutation is exact (fb_switch0.com_exact: the index seen, or an
+// absolute encoder) the limit is max_err_ph: the switch from autophasing's
+// estimate kicks the rotor (0.25 rad on a simulated e240, any config).
+// err_max and the level guard count once it is exact. Default 1.
+HAL_PIN(exact);
+HAL_PIN(max_err_ph);
+HAL_PIN(max_err);  // the following error that is a fault while moving (0 = off)
+HAL_PIN(ready_time);
+HAL_PIN(err_limit);
 
 HAL_PIN(state);
 HAL_PIN(param);
@@ -63,6 +82,9 @@ HAL_PIN(warm);  // warm-up cycles left: run, but neither score nor step
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //struct ids_ctx_t * ctx = (struct ids_ctx_t *)ctx_ptr;
   struct ids_pin_ctx_t *pins = (struct ids_pin_ctx_t *)pin_ptr;
+  PIN(ready) = 1.0;
+  PIN(settle) = 0.5;
+  PIN(exact) = 1.0;
   PIN(pos_bw) = 10.0;
   PIN(vel_bw) = 100.0;
   PIN(vel_d) = 10.0;
@@ -126,9 +148,12 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //struct ids_ctx_t * ctx = (struct ids_ctx_t *)ctx_ptr;
   struct ids_pin_ctx_t *pins = (struct ids_pin_ctx_t *)pin_ptr;
 
-  if(PIN(en) <= 0.0){
+  PIN(ready_time) = (PIN(en) > 0.0 && PIN(ready) > 0.0) ? PIN(ready_time) + period : 0.0;
+  if(PIN(ready_time) < PIN(settle)){  // not yet: hold, start once ready and settled
     PIN(state) = 0.0;
   }
+  // max_err 0: no limit at all (also not before commutation is exact)
+  PIN(err_limit) = PIN(state) > 0.0 && PIN(max_err) > 0.0 ? (PIN(exact) > 0.0 ? PIN(max_err) : MAX(PIN(max_err), PIN(max_err_ph))) : 0.0;
 
   switch((int)(PIN(state) * 10.0 + 0.5)){
     case 0:
@@ -160,6 +185,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       if(PIN(en) > 0.0){
         PIN(state) = 1.0;
+        // from where the motor stands (phasing may have moved it): no step
+        PIN(pos) = PIN(pos_fb);
+        PIN(pos_cmd) = mod(PIN(pos));
       }
     break;
 

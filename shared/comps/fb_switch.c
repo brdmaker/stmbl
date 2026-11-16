@@ -73,6 +73,7 @@ HAL_PIN(offset);
 HAL_PIN(id);
 
 HAL_PIN(current_com_pos);
+HAL_PIN(com_exact);  // 1: commutation from an absolute angle or the index, 0: autophasing's estimate (or none)
 
 HAL_PIN(en);
 
@@ -484,6 +485,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     }
   }
   PIN(current_com_pos) = ctx->current_com_pos;
+  PIN(com_exact) = PIN(state) > 0.0 && ctx->current_com_pos <= 3;
   PIN(offset) = ctx->com_offset;
 }
 

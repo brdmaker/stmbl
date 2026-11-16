@@ -141,6 +141,7 @@ SHARED_COMPS += shared/comps/th.c
 SHARED_COMPS += shared/comps/idpmsm.c
 SHARED_COMPS += shared/comps/iddc.c
 SHARED_COMPS += shared/comps/idm.c
+SHARED_COMPS += shared/comps/idjf.c
 SHARED_COMPS += shared/comps/ids.c
 SHARED_COMPS += shared/comps/qstop.c
 SHARED_COMPS += shared/comps/dbrake.c

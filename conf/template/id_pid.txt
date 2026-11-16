@@ -3,6 +3,11 @@ load ids
 ids0.rt_prio = 4
 
 ids0.en = fault0.en_out
+ids0.ready = fb_switch0.state
+ids0.pos_fb = fb_switch0.pos_fb
+ids0.exact = fb_switch0.com_exact
+# the following-error limit: off while phasing
+fault0.max_pos_error = ids0.err_limit
 pid0.pos_ext_cmd = ids0.pos_cmd
 pid0.vel_ext_cmd = ids0.vel_cmd
 pid0.acc_ext_cmd = ids0.acc_cmd
@@ -19,7 +24,6 @@ ids0.max_torque = conf0.max_force
 ids0.j = conf0.j
 ids0.mot_max_vel = conf0.max_vel
 
-conf0.max_pos_error = 0
 conf0.max_sat = 10
 conf0.vel_g = 1
 

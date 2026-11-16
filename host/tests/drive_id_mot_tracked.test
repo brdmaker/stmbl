@@ -1,0 +1,40 @@
+# id_mot as the setup wizard runs it since 2026-11-16: stiff loops, S-curve
+# moves (the acceleration ramped over 20 ms), a following-error fault at
+# 0.2 rad, and idm stops raising the acceleration once a level passes half
+# of it. Before (soft loops 5 / 40, a torque step at each reversal, no
+# error limit) a Yaskawa SGMAH lost the track at 10000 rad/s^2 on the
+# bench. The fit (measured torque and motion) must stay as good: the
+# simulated motor j 0.00003, d 0.0001, f 0.02 (drive_id_mot.test). The
+# same run with the old settings: the same fit, following error 0.338 rad.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_j = 0.00003
+hv0.sim_f = 0.02
+debug_level 1
+link id_mot
+relink
+start
+debug_level 0
+idm0.pos_bw = 15
+idm0.vel_bw = 150
+idm0.max_acc = 3000
+idm0.max_vel = 60
+idm0.max_jerk = 150000
+idm0.max_err = 0.2
+conf0.max_pos_error = 0.2
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 150
+idm0.state
+idm0.ls_j
+idm0.ls_d
+idm0.ls_f
+idm0.err_max
+idm0.level
+fault0.fault
+@expect idm0.state == 1.5
+@expect idm0.ls_j ~ 0.000033 10%
+@expect idm0.ls_f ~ 0.02 10%
+@expect idm0.err_max < 0.15
+@expect fault0.fault == 0

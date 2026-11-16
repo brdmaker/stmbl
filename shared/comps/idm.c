@@ -8,6 +8,24 @@
 HAL_COMP(idm);
 
 HAL_PIN(en);
+// > 0: commutation known (fb_switch0.state). An incremental encoder phases
+// at enable; moving the command meanwhile (the motor not under control) left
+// a following error of 0.4 rad and more at the start (setup wizard,
+// simulator, 2026-11-16). Default 1.
+HAL_PIN(ready);
+HAL_PIN(pos_fb);  // the motor's position (fb_switch0.pos_fb): the moves start there once ready
+// ready for `settle` s before the moves (the phasing swing settles under
+// pid first: 0.27 rad on a simulated e240, any config); err_limit (for
+// fault0.max_pos_error): 0 = off until then, max_err once moving
+HAL_PIN(settle);
+// until commutation is exact (fb_switch0.com_exact: the index seen, or an
+// absolute encoder) the limit is max_err_ph: the switch from autophasing's
+// estimate kicks the rotor (0.25 rad on a simulated e240, any config).
+// err_max and the level guard count once it is exact. Default 1.
+HAL_PIN(exact);
+HAL_PIN(max_err_ph);
+HAL_PIN(ready_time);
+HAL_PIN(err_limit);
 
 HAL_PIN(state);
 HAL_PIN(sub_state);
@@ -84,6 +102,29 @@ HAL_PIN(ls_lp);
 // sys mode: motor inertia (conf0.j); j_sys = fitted inertia - j_mot
 HAL_PIN(j_mot);
 
+// Smooth, tracked moves (not used by the setup wizard yet, DEBUGNOTES
+// 2026-11-16: S-curves biased the friction fit): max_jerk > 0 ramps the
+// acceleration (an S-curve; the braking curve allows for the ramp), so the
+// torque doesn't step at a reversal. pos_err (pid0.pos_error) is watched:
+// state 1.2 raises the acceleration level by level (1/5 .. 5/5 of max_acc);
+// if a level's following error passed max_err / 2, it stops there and 1.3
+// runs at that level (level). err_max: the run's largest |pos_err|.
+// 0 = off (the old moves). A soft loop and a torque step at each reversal
+// lost the track on the bench (Yaskawa SGMAH, 10000 rad/s^2, 2026-11-16).
+HAL_PIN(max_jerk);
+HAL_PIN(pos_err);
+HAL_PIN(max_err);
+HAL_PIN(err_max);
+HAL_PIN(err_at);  // where err_max was: state * 10 + level (12.3: 1.2, level 3), and its time in that state
+HAL_PIN(err_time);
+// the first time |pos_err| passed err_limit (the fault): kept until cleared
+// from outside (trip_err = 0), not by a new start (a soft fault re-enables)
+HAL_PIN(trip_err);
+HAL_PIN(trip_at);
+HAL_PIN(trip_time);
+HAL_PIN(trip_exact);
+HAL_PIN(level);
+
 #define LS_N 4
 #define LS_BLOCK 256
 
@@ -97,6 +138,7 @@ struct idm_ctx_t {
   double a[LS_N][LS_N];
   double b[LS_N];
   int stroke;
+  float lvl_err;  // the largest |pos_err| in this level of 1.2
   float lpf[LS_N][2];  // two first-order stages per signal: acc, vel, sign, torque
 };
 
@@ -198,6 +240,9 @@ static void ls_sample(float period, struct idm_ctx_t *ctx, struct idm_pin_ctx_t 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct idm_ctx_t *ctx      = (struct idm_ctx_t *)ctx_ptr;
   struct idm_pin_ctx_t *pins = (struct idm_pin_ctx_t *)pin_ptr;
+  PIN(ready) = 1.0;
+  PIN(settle) = 0.5;
+  PIN(exact) = 1.0;
   ls_reset(ctx);
   PIN(fi) = 0.001;
   PIN(li) = 0.01;
@@ -215,6 +260,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(ls_lp) = 20.0;
   PIN(vel_steps) = 5.0;
   PIN(ls_fb) = 1.0;
+  PIN(level) = 5.0;
 }
 
 static void nrt(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -295,18 +341,54 @@ static void nrt(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 }
 
+// one period of the move to target: at most max_acc and max_vel, the
+// acceleration ramped at max_jerk (> 0). Braking: the speed that can still
+// stop at the target, v = a * (sqrt(r^2 + 2 d / a) - r), r = a / (2 jerk)
+// (v = sqrt(2 a d) without the ramp). snap: at the target, stop exactly there.
+static void profile(struct idm_pin_ctx_t *pins, float period, float max_acc, float max_vel, int snap) {
+  PIN(pos) += PIN(vel_cmd) * period + PIN(acc_cmd) * period * period / 2.0;
+  PIN(pos_cmd) = mod(PIN(pos));
+  PIN(vel_cmd) += PIN(acc_cmd) * period;
+  float to_go = PIN(target) - PIN(pos);
+  float d     = ABS(to_go);
+  float jerk  = PIN(max_jerk);
+  float v;
+  if(jerk > 0.0) {
+    float r = max_acc / (2.0 * jerk);
+    v       = max_acc * (sqrtf(r * r + 2.0 * d / max_acc) - r);
+  } else {
+    v = sqrtf(2.0 * d * max_acc);
+  }
+  v       = LIMIT(v * SIGN(to_go), max_vel);
+  float a = LIMIT((v - PIN(vel_cmd)) / period, max_acc);
+  if(jerk > 0.0) {
+    a = CLAMP(a, PIN(acc_cmd) - jerk * period, PIN(acc_cmd) + jerk * period);
+  }
+  PIN(acc_cmd) = a;
+  if(snap && sqrtf(2.0 * d / max_acc) < period && (jerk <= 0.0 || ABS(PIN(vel_cmd)) < max_acc * period)) {
+    PIN(acc_cmd) = 0.0;
+    PIN(pos)     = PIN(target);
+    PIN(vel_cmd) = 0.0;
+  }
+}
+
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct idm_ctx_t *ctx      = (struct idm_ctx_t *)ctx_ptr;
   struct idm_pin_ctx_t *pins = (struct idm_pin_ctx_t *)pin_ptr;
 
-  if(PIN(en) <= 0.0){
+  PIN(ready_time) = (PIN(en) > 0.0 && PIN(ready) > 0.0) ? PIN(ready_time) + period : 0.0;
+  if(PIN(ready_time) < PIN(settle)){  // not yet: hold, start once ready and settled
     PIN(state) = 0.0;
   }
+  // max_err 0: no limit at all (also not before commutation is exact)
+  PIN(err_limit) = PIN(state) > 0.0 && PIN(max_err) > 0.0 ? (PIN(exact) > 0.0 ? PIN(max_err) : MAX(PIN(max_err), PIN(max_err_ph))) : 0.0;
+  if(PIN(err_limit) > 0.0 && ABS(PIN(pos_err)) > PIN(err_limit) && PIN(trip_err) <= 0.0) {
+    PIN(trip_err)   = ABS(PIN(pos_err));
+    PIN(trip_at)    = PIN(state) * 100.0 + (PIN(state) < 1.25 ? PIN(sub_state) : PIN(level));
+    PIN(trip_time)  = PIN(timer);
+    PIN(trip_exact) = PIN(exact);
+  }
 
-  float to_go;
-  float time_to_go;
-  float acc;
-  float vel;
   float max_acc;
   float max_vel;
 
@@ -319,6 +401,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       if(PIN(en) > 0.0){
         PIN(state) = 1.0;
+        // from where the motor stands (phasing may have moved it): no step
+        PIN(pos) = PIN(pos_fb);
+        PIN(pos_cmd) = mod(PIN(pos));
         PIN(sub_state) = 1.0;
         PIN(timer) = 0.0;
 
@@ -332,6 +417,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
         ls_reset(ctx);
         PIN(ls_n) = 0.0;
+        PIN(err_max) = 0.0;
+        PIN(level) = 5.0;
+        ctx->lvl_err = 0.0;
       }
     break;
 
@@ -339,23 +427,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       max_acc = PIN(max_acc) / 5.0 * PIN(sub_state);
       max_vel = PIN(max_vel) / 5.0 * PIN(sub_state);
 
-      PIN(pos) += PIN(vel_cmd) * period + PIN(acc_cmd) * period * period / 2.0;
-      PIN(pos_cmd) = mod(PIN(pos));
-      PIN(vel_cmd) += PIN(acc_cmd) * period;
-      to_go = PIN(target) - PIN(pos);
-      time_to_go = sqrtf(2.0 * ABS(to_go) / max_acc);
-      acc = max_acc * SIGN(to_go);
-      vel = acc * time_to_go;
-      vel = LIMIT(vel, max_vel);
-      acc = (vel - PIN(vel_cmd)) / period;
-      PIN(acc_cmd) = LIMIT(acc, max_acc);
-
-      if(time_to_go < period){
-        time_to_go = 0.0;
-        to_go = 0.0;
-        PIN(acc_cmd) = 0.0;
-        PIN(pos) = PIN(target);
-        PIN(vel_cmd) = 0.0;
+      profile(pins, period, max_acc, max_vel, 1);
+      float e = PIN(exact) > 0.0 ? ABS(PIN(pos_err)) : 0.0;  // counted once commutation is exact
+      ctx->lvl_err = MAX(ctx->lvl_err, e);
+      if(e > PIN(err_max)) {
+        PIN(err_max)  = e;
+        PIN(err_at)   = 120.0 + PIN(sub_state);
+        PIN(err_time) = PIN(timer);
       }
 
       if(ABS(PIN(acc_cmd)) > 0.0){
@@ -398,7 +476,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       }
       if(PIN(timer) > 2.0 * (ABS(PIN(max_pos) - PIN(min_pos)) / max_vel + 2.0 * max_vel / max_acc)){
         PIN(timer) = 0.0;
-        PIN(sub_state)++;
+        if(PIN(max_err) > 0.0 && ctx->lvl_err > 0.5 * PIN(max_err)) {
+          PIN(level) = PIN(sub_state);  // tracking got worse: no higher, 1.3 at this level
+          PIN(sub_state) = 6.0;
+        } else {
+          PIN(sub_state)++;
+        }
+        ctx->lvl_err = 0.0;
       }
 
       if(PIN(sub_state) > 5.0){
@@ -420,22 +504,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     break;
 
     case 13: // j, d, f
-      max_vel = PIN(max_vel);
+      max_acc = PIN(max_acc) / 5.0 * PIN(level);
+      max_vel = PIN(max_vel) / 5.0 * PIN(level);
       if(PIN(vel_steps) >= 1.0){
         int n = (int)PIN(vel_steps);
-        max_vel = PIN(max_vel) * (float)(ctx->stroke % n + 1) / (float)n;
+        max_vel = max_vel * (float)(ctx->stroke % n + 1) / (float)n;
       }
 
-      PIN(pos) += PIN(vel_cmd) * period + PIN(acc_cmd) * period * period / 2.0;
-      PIN(pos_cmd) = mod(PIN(pos));
-      PIN(vel_cmd) += PIN(acc_cmd) * period;
-      to_go = PIN(target) - PIN(pos);
-      time_to_go = sqrtf(2.0 * ABS(to_go) / PIN(max_acc));
-      acc = PIN(max_acc) * SIGN(to_go);
-      vel = acc * time_to_go;
-      vel = LIMIT(vel, max_vel);
-      acc = (vel - PIN(vel_cmd)) / period;
-      PIN(acc_cmd) = LIMIT(acc, PIN(max_acc));
+      profile(pins, period, max_acc, max_vel, 0);
+      if(PIN(exact) > 0.0 && ABS(PIN(pos_err)) > PIN(err_max)) {
+        PIN(err_max)  = ABS(PIN(pos_err));
+        PIN(err_at)   = 130.0 + PIN(level);
+        PIN(err_time) = PIN(timer);
+      }
 
       if(ABS(PIN(max_pos) - PIN(pos)) < 0.1 && PIN(target) != PIN(min_pos)){
         PIN(target) = PIN(min_pos);

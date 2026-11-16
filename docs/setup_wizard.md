@@ -124,6 +124,17 @@ from a quarter turn.
     up to 4× too high (the friction's sign changes often at low speed,
     and the fit puts the misfit into j); the second run gets within
     ~20–30 %.
+  - Both runs wait until the commutation is known (an incremental encoder
+    phases at enable) and settled, and start where the motor stands.
+  - The report gives each run's largest following error. **The second run
+    can lose the track:** a Yaskawa SGMAH did on the bench (10000 rad/s²,
+    a lot of current), and in the simulator many motors do. The fit uses
+    measured torque and motion, so the result stays right, but on a large
+    motor or a fixed axis that is dangerous. Keeping it on track is open
+    (DEBUGNOTES 2026-11-16): `idm` has a following-error limit
+    (`max_err`, off), S-curve moves (`max_jerk`, off: they bias the
+    friction fit) and a torque-mode probe for friction and inertia
+    (`conf/template/id_jf.txt`) ready for it.
 - **`id_pid`** tunes the loops on the measured motor.
 
 ## Holding brake
@@ -233,8 +244,9 @@ an NTC near 25 degC. Enough for a trip, not for a thermometer.
 The wizard is built against one configuration interface: the template
 names, the `conf0` pins, and the identification components' pins and
 states. `shared/setup_api.h` numbers it (`STMBL_SETUP_API`), and the
-drive prints it in `about` ("setup api 2"; 2 added the motor
-temperature sensor).
+drive prints it in `about` ("setup api 3"; 2 added the motor
+temperature sensor, 3 the identification's following-error pins and its
+wait for the commutation).
 
 | Drive | Wizard |
 |---|---|
@@ -353,6 +365,14 @@ firmware's own tools (DEBUGNOTES):
 - **`idm`:** its inertia floor was 5e-6; a 4e-7 motor got gains 500× too
   high and saturated. Now 1e-7, and the wizard starts the adaptive inertia
   low.
+- **`hv`, `out_rev = 1`:** the F4 flipped the q current and the angle
+  for the F3, not the speed; the F3's current predictor then regulated the
+  wrong current, short in proportion to the speed (a third of it at
+  25 rad/s on one motor). Fixed in 2026-11.
+- **`idm`, `ids`:** they moved while an incremental encoder was still
+  phasing, and started from their own position rather than the motor's.
+  They now wait for the commutation (`ready`, `settle`) and start where the
+  motor stands.
 - **`fault`:** `brake_time` (above), so a vertical axis doesn't drop
   while the brake closes.
 - **`mtemp`:** the motor's temperature sensor (above). Before it, the

@@ -16,6 +16,43 @@ Entry format:
 
 ---
 
+## 2026-11-16  Identification: the motor can lose the track (id_mot's fast run); what was found
+- Area:    `shared/comps/idm.c`, `ids.c`, `conf/template/id_mot.txt`, `id_pid.txt`, the setup wizard
+- Status:  Open (keeping it on track); Fixed (the parts below)
+- Symptom: Yaskawa SGMAH on the bench: id_mot's second run (10000 rad/s^2,
+  94 rad/s) lost the track and pulled a lot of current. In the simulator,
+  with a following-error limit added, most of the 36 wizard motors exceed
+  1 rad in that run, and some in the gentle first run (an e240: pi rad).
+  The old wizard had no limit, so this went unseen: the fit (measured torque
+  and motion) stays right.
+- Cause:   Several, found one by one (simulator, idm0.trip_* / err_max):
+  1. idm and ids started moving while an incremental encoder was still
+     phasing (0.37 rad at the start); fixed: `ready` (fb_switch0.state),
+     `settle` 0.5 s, and they start from fb_switch0.pos_fb.
+  2. The switch from autophasing's estimate to the exact angle at the
+     index kicks the rotor (0.25-0.27 rad on a simulated e240, also with the
+     plain config): a limit needs to be looser until then
+     (fb_switch0.com_exact, idm/ids `max_err_ph`).
+  3. out_rev = 1: the current fell short at speed (its own entry): fixed.
+  4. pid's stiffness scales with its inertia: started small and blind, the
+     loop is soft against friction; stiff fixed gains instead made the loop
+     ring on others. With id_mot's model-free vel1 / vel2 the loop lags; made
+     model-based, the fit drifted (j and f 30-80 % off).
+  5. S-curve moves (idm `max_jerk`) bias the friction fit +30-45 % on four
+     simulated motors.
+  Tried and left out of the wizard: a torque-mode probe for friction,
+  offset and inertia before id_mot (idjf, conf/template/id_jf.txt: within
+  2-8 % / ~1-16 % on 35 of 38 simulated motors), stiff loops (15/150,
+  30/300, 40/500), following-error limits 0.2 and 1 rad, sizing the second
+  run's acceleration by friction: none kept every motor on track.
+- Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
+  each run's largest following error; idm's limit, S-curve and the probe
+  are available, off. Tests: drive_id_mot_start (ready, start position),
+  drive_id_mot_tracked (limit, guard, S-curve), drive_id_jf (the probe),
+  drive_rev_vel; the wizard suite 508/520 as before. Open: a way to keep
+  the fast run on track on every motor (a smoother, lower excitation that
+  still fits j; or tighter, model-aware loops), then a limit in the wizard.
+
 ## 2026-11-16  out_rev = 1: the F4 sent the F3 the speed unflipped (current short at speed)
 - Area:    `src/comps/hv.c` (and the simulator's `host/hw/hv.c`), the F3's `ls.c` / `curpid.c`
 - Status:  Fixed (F4 and simulator; real hardware not yet checked)

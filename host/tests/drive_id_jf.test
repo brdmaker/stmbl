@@ -1,0 +1,33 @@
+# idjf (conf/template/id_jf.txt): friction, offset and inertia in torque
+# mode, with the encoder only watching, before any closed-loop
+# identification. The simulated motor: j 0.00003, f 0.02, d 0.0001.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_j = 0.00003
+hv0.sim_f = 0.02
+debug_level 1
+link id_jf
+relink
+start
+debug_level 0
+idjf0.max_torque = 0.9
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 20
+idjf0.state
+idjf0.error
+idjf0.friction
+idjf0.offset
+idjf0.j
+idjf0.j_pos
+idjf0.j_neg
+idjf0.travel
+fault0.fault
+@expect idjf0.state == 10
+@expect idjf0.error == 0
+@expect idjf0.friction ~ 0.02 15%
+@expect idjf0.offset ~ 0 0.005
+@expect idjf0.j ~ 0.00003 25%
+@expect idjf0.travel < 3
+@expect fault0.fault == 0

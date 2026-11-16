@@ -892,16 +892,29 @@ static su_result_t step_electrical(su_wizard_t *w) {
   return SU_OK;
 }
 
-// one idm run at max_acc / max_vel; the fit's results. 0 ok
-static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d, double *f, double *o) {
+// one idm run at max_acc / max_vel; the fit's results and the largest
+// following error while it measured. 0 ok
+static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d, double *f, double *o, double *err) {
   set_num(w, "idm0.max_acc", acc);
   set_num(w, "idm0.max_vel", vel);
+  set_num(w, "idm0.trip_err", 0.0);
   if(enable(w) < 0) {
     return -1;
   }
   int r = wait_state(w, "idm0.state", 1.5, 600.0, "id_mot");
+  if(r == -2) {  // a fault: idm's record of a following error over its limit (idm0.max_err), if that was it
+    double te = 0, ta = 0, tt = 0;
+    get(w, "idm0.trip_err", &te);
+    get(w, "idm0.trip_at", &ta);
+    get(w, "idm0.trip_time", &tt);
+    if(te > 0.0) {
+      say(w, SU_MSG_INFO, "id_mot (%.0f rad/s^2, %.0f rad/s): following error %.3f rad over the limit in state %.0f, %.3f s in.",
+          acc, vel, te, ta, tt);
+    }
+  }
   if(r == 0 &&
-     (get(w, "idm0.ls_j", j) || get(w, "idm0.ls_d", d) || get(w, "idm0.ls_f", f) || get(w, "idm0.ls_o", o))) {
+     (get(w, "idm0.ls_j", j) || get(w, "idm0.ls_d", d) || get(w, "idm0.ls_f", f) || get(w, "idm0.ls_o", o) ||
+      get(w, "idm0.err_max", err))) {
     r = -1;
   }
   disable(w);
@@ -918,6 +931,9 @@ static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d,
 // sign changes often; the fit puts the misfit into j (4x on a 1e-5 kg m^2
 // motor). The second run accelerates with 30 % of the peak torque for that
 // (high) estimate, so it can't saturate, and runs faster: within ~20 %.
+// The largest following error of each run is reported (idm0.err_max): the
+// second run can lose the track (a Yaskawa SGMAH on the bench, the simulator
+// on many motors, DEBUGNOTES 2026-11-16); keeping it on track is open.
 static su_result_t step_mechanical(su_wizard_t *w) {
   if(apply_config(w, 0) < 0 || load_template(w, "id_mot") < 0) {
     return SU_FAIL;
@@ -934,25 +950,27 @@ static su_result_t step_mechanical(su_wizard_t *w) {
   // its default, made a 4e-7 motor's gains 500x too high: saturation)
   set_num(w, "idm0.inertia", fmin(2e-4, 5e-6 * fmax(lim.max_force, 0.01)));
   say(w, SU_MSG_INFO, "Measuring inertia, friction and damping (moves +-%.1f turns, twice)...", travel / 2.0 / M_PI);
-  double j, d, f, o;
-  if(run_idm(w, 250.0, 25.0, &j, &d, &f, &o) < 0) {
+  double j, d, f, o, err1, err2;
+  if(run_idm(w, 250.0, 25.0, &j, &d, &f, &o, &err1) < 0) {
     return SU_FAIL;
   }
   double acc = fmin(fmax(0.3 * lim.max_force / j, 250.0), 10000.0);
   double vel = fmin(fmax(0.3 * lim.max_vel, 25.0), 200.0);
   vel        = fmin(vel, sqrt(acc * travel));  // reached within the travel
   double j1 = j;
-  if(run_idm(w, acc, vel, &j, &d, &f, &o) < 0) {
+  if(run_idm(w, acc, vel, &j, &d, &f, &o, &err2) < 0) {
     return SU_FAIL;
   }
   su_set_num(w->st, "mech.j", j);
   su_set_num(w->st, "mech.d", fmax(d, 0.0));
   su_set_num(w->st, "mech.f", fmax(f, 0.0));
   su_set_num(w->st, "mech.o", o);
+  su_set_num(w->st, "mech.err1", err1);
+  su_set_num(w->st, "mech.err2", err2);
   say(w, SU_MSG_INFO,
       "j = %.4g kg m^2 (first run %.4g), friction %.4g Nm, damping %.4g Nm s/rad, offset %.4g Nm\n"
-      "(second run at %.0f rad/s^2, %.0f rad/s).",
-      j, j1, f, d, o, acc, vel);
+      "(second run at %.0f rad/s^2, %.0f rad/s; largest following error %.3f rad, the first run %.3f).",
+      j, j1, f, d, o, acc, vel, err2, err1);
   if(j < 1e-5) {
     say(w, SU_MSG_WARN, "The console prints 6 decimals: an inertia of %.2g is known to about %.0f %%.", j,
         0.5e-6 / j * 100.0);
