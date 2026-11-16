@@ -16,6 +16,19 @@ Entry format:
 
 ---
 
+## 2026-11-16  hwtest/phasing: once the HAL session did not come up after a drive reset
+- Area:    `hwtest/phasing/phasing.py` (hal_start), hostmot2 after a drive reset
+- Status:  Open
+- Symptom: Phasing suite on the Delta ECMA, drive 207D35A05631 (firmware
+  5e477625): 1 case of 36 failed "HAL session did not come up". halcmd
+  never saw the hm2 pos_fb pin within 20 s after the drive's reset. The
+  drive was never enabled in that case. The case before and the 11 after
+  ran normally.
+- Cause:   Not known: a halrun / hm2_spix start that hung or failed once
+  (its output goes to /dev/null).
+- Fix:     Open: log halrun's output into the run directory, and retry the
+  start once before failing the case.
+
 ## 2026-11-10  id_mot: a step of up to pi rad at enable (fb_switch aligned to the wrong command)
 - Area:    `conf/template/id_mot.txt`, `shared/comps/fb_switch.c`
 - Status:  Fixed (id_mot); Open (id_pid?)
