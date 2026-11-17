@@ -16,6 +16,20 @@ Entry format:
 
 ---
 
+## 2026-11-17  A following-error limit of pi or more never trips (pos_error wraps)
+- Area:    `shared/comps/pid.c` (pos_error), `fault.c` (max_pos_error), configs
+- Status:  Open
+- Symptom: SGMAH, id_mot with idm0.max_err 6 (fault0.max_pos_error 6): the
+  motor lost the track (idm0.err_max 3.14) and no fault 5 came.
+- Cause:   pid0.pos_error = minus(cmd, fb) wraps to +-pi; fault.c compares
+  |pos_error| with max_pos_error. A limit >= pi can't trip, and a motor
+  that slips past pi reads a small error again. conf/weiler-spindle.txt
+  sets conf0.max_pos_error = 5: effectively off. idm's err_max saturates
+  at pi the same way.
+- Fix:     None yet (options: count turns of the error in pid, or refuse a
+  limit >= pi when the config loads). LinuxCNC's own following error
+  (multi-turn) still covers machines run from it.
+
 ## 2026-11-16  Identification: the motor can lose the track (id_mot's fast run); what was found
 - Area:    `shared/comps/idm.c`, `ids.c`, `conf/template/id_mot.txt`, `id_pid.txt`, the setup wizard
 - Status:  Open (keeping it on track); Fixed (the parts below)
@@ -69,8 +83,17 @@ Entry format:
      j 9.8e-5; the estimate holds steady through the accelerations
      (jrate-fast.csv) but creeps up to 3e-4 (3x) over state 1.3, so the
      acceleration feedforward overshoots: 1.03 rad. The gentle run: 1.47 rad
-     at level 1 (soft loop against friction, 4). Next: set the estimate
-     from the least-squares fit at the end of state 1.2 and hold it in 1.3.
+     at level 1 (soft loop against friction, 4).
+     Tried and dropped (2026-11-17): set the inertia (and d, f, o) from the
+     least-squares fit at the end of 1.2 / of each level and hold it in
+     1.3, fits taken only if precise and excited (j a >= 2 f). The same
+     SGMAH fast run, the same start (1.94e-4): held at the fit's 9.5e-5,
+     1.3 lost the track (pi); adaptive (up to 3e-4), 1.03 rad. In the
+     simulator with stiff loops: 0.43 vs 0.14 rad. pid0.j_mot scales the
+     loop's gain: the drift up is the adaptive law stiffening a soft loop
+     (and covering the current loop's lag), not the cause of the error.
+     The gentle run's fit is biased, not noisy: 4.6e-5 (true ~1e-4) at a
+     standard error of 0.7 %.
   7. The current loop on the SGMAH had no back-EMF feedforward
      (`conf0.cur_ind = 0`, `cur_ff = 0`). During a 6000 rad/s^2 ramp the
      integrator lags (psi pp acc ~1700 V/s against cur_bw r ~1220 V/(A s)):
