@@ -344,6 +344,19 @@ char *su_build_config(const su_state_t *st, int final) {
   c = put(c, st, "id.offset", "conf0.mot_fb_offset", "id_pmsm");
   c = put(c, st, "id.out_rev", "conf0.out_rev", "id_pmsm");
   c = put(c, st, "id.psi", "conf0.psi", "id_pmsm");
+  // The current loop feeds forward the resistive drop and the back-EMF:
+  // without it the integrator lags any speed change (SGMAH, 6000 rad/s^2:
+  // ~1.4 A short, half the torque; a bench motor at 288 rad/s lost current
+  // control, DEBUGNOTES 2026-10-14). On the SGMAH's tuned loop at 200 rad/s:
+  // torque 87 % of the command in the ramps instead of 43 %, following error
+  // 0.48 rad instead of 0.56. From id_pid on (mech.j known), not in id_mot:
+  // there id_mot's soft loops lean on the adaptive inertia's drift, which the
+  // current loop's lag drives; with the feedforward the fast run lost more
+  // (1.83 rad instead of 1.03, DEBUGNOTES 2026-11-16).
+  if(su_get_num(st, "id.psi", 0.0) > 0.0 && su_get_num(st, "id.r", 0.0) > 0.0 && su_get_num(st, "mech.j", 0.0) > 0.0) {
+    c = su_conf_set_num(c, "conf0.cur_ff", 1.0, "r feedforward");
+    c = su_conf_set_num(c, "conf0.cur_ind", 1.0, "back-EMF feedforward");
+  }
   c = put(c, st, "mech.j", "conf0.j", "id_mot");
   c = put(c, st, "mech.d", "conf0.d", "id_mot");
   c = put(c, st, "mech.f", "conf0.f", "id_mot");

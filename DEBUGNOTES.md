@@ -99,6 +99,12 @@ Entry format:
      integrator lags (psi pp acc ~1700 V/s against cur_bw r ~1220 V/(A s)):
      ~1.4 A short, measured torque half the command (runout-scurve.csv).
      With both on, measured torque follows the command (runout-curind.csv).
+     But not during id_mot (2026-11-17): it removes the lag that drives the
+     adaptive inertia up, and with it the stiffening the soft 5/40 loops
+     rely on. SGMAH fast run (same start): 1.83 rad instead of 1.03. Wizard
+     simulator, the second run's largest errors summed over 32 motors: 76
+     rad instead of 35, many lost (pi); p50b's j and syn_servo_2kw's f out
+     of tolerance. So the wizard sets them from id_pid on only.
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
@@ -1468,16 +1474,19 @@ Entry format:
 
 ## 2026-10-14  cur_ind = 0 loses current control at high electrical speed
 - Area:    hv current loop, `conf0.cur_ind` (default 0 in all configs)
-- Status:  Open
+- Status:  Fixed for wizard configs (2026-11-17); hand-made configs in conf/ still have 0
 - Symptom: Bench motor (l 0.023, pp 5) at 288 rad/s: braking current
   requested, current stayed positive, voltage at the 164 V limit; speed
   overshoot to 388 rad/s, ferror 0.71 rad. With cur_ind = 1: 302 rad/s,
   0.12 rad.
 - Cause:   Without back-EMF/cross-coupling feedforward, w_el * l (33 ohm at
   1440 rad/s) exceeds the PI's proportional gain cur_bw * l (23 V/A).
-- Fix:     The soak sets conf0.cur_ind = 1. Consider defaulting cur_ind to 1
-  (needs a correct hv0.psi and, now, the vel2.g fix) or documenting it for
-  high-speed use.
+- Fix:     The soak sets conf0.cur_ind = 1. The setup wizard sets
+  conf0.cur_ff = 1 and cur_ind = 1 from id_pid on (r, psi and j measured):
+  SGMAH at 200 rad/s, torque 87 % of the command in the ramps instead of
+  43 %, following error 0.48 rad instead of 0.56. Test: servoterm-cli
+  `make check` ("build: r and back-EMF feedforward ..."). Not in id_mot:
+  "Identification: the motor can lose the track" (7).
 
 ## 2026-10-14  id_pid tunes some motors too soft / underdamped
 - Area:    `shared/comps/ids.c` (id_pid), `conf/template/id_pid.txt`,

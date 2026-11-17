@@ -270,6 +270,20 @@ static void test_build(void) {
   ok(su_conf_get(c, "conf0.max_vel", v, sizeof(v)) == 0 && strcmp(v, "300") == 0, "build: the chosen top speed");
   ok(su_conf_get(c, "conf0.max_force", v, sizeof(v)) == 0, "build: torque limit once psi is known");
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: the final config fits the drive");
+  // the current loop's r and back-EMF feedforward: not in id_mot (its soft
+  // loops tracked worse with it), from id_pid on (mech.j known)
+  ok(su_conf_get(c, "conf0.cur_ff", v, sizeof(v)) < 0 && su_conf_get(c, "conf0.cur_ind", v, sizeof(v)) < 0,
+     "build: no current feedforward before id_mot is done");
+  free(c);
+  su_state_parse(s, "mech.j = 0.00011\n");
+  c = su_build_config(s, 1);
+  ok(su_conf_get(c, "conf0.cur_ff", v, sizeof(v)) == 0 && strcmp(v, "1") == 0 &&
+         su_conf_get(c, "conf0.cur_ind", v, sizeof(v)) == 0 && strcmp(v, "1") == 0,
+     "build: r and back-EMF feedforward once r, psi and j are known");
+  ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: with them the config fits the drive");
+  free(c);
+  su_state_parse(s, "mech.j = 0\n");
+  c = su_build_config(s, 1);
   free(c);
 
   // the temperature sensor on a feedback port's pin 7 (docs/motor_temp_lv.md)

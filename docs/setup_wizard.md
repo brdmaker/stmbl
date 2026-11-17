@@ -134,8 +134,22 @@ from a quarter turn.
     (DEBUGNOTES 2026-11-16): `idm` has a following-error limit
     (`max_err`, off), S-curve moves (`max_jerk`, off: they bias the
     friction fit) and a torque-mode probe for friction and inertia
-    (`conf/template/id_jf.txt`) ready for it.
+    (`conf/template/id_jf.txt`) ready for it. `idm`'s adaptive inertia
+    sets the loop's gain during the runs. Its change is limited to
+    `j_rate` (1/s) times itself per second: it used to collapse within
+    milliseconds at the second run's acceleration, which tripped the
+    SGMAH.
 - **`id_pid`** tunes the loops on the measured motor.
+- **Current feedforward:** from `id_pid` on (once `r`, `psi` and `j` are
+  known) the config sets `conf0.cur_ff = 1` and `conf0.cur_ind = 1`. The
+  current loop then feeds forward the resistive drop and the back-EMF
+  instead of making its integrator follow every speed change. SGMAH,
+  tuned loop, 200 rad/s at 10000 rad/s²: the torque reaches 87 % of the
+  command in the ramps instead of 43 %, and the following error is
+  0.48 rad instead of 0.56. Not during `id_mot`: its soft loops tracked
+  worse with it. On the SGMAH the fast run reached 1.8 rad instead of
+  1.0, and in the simulator most motors lost the track. The fit stays the
+  same either way.
 
 ## Holding brake
 
