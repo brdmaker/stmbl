@@ -1,0 +1,32 @@
+# idm's adaptive inertia sets pid0.j_mot (the loop's gain). Its gradient law
+# speeds up with acc_cmd^2: in a fast id_mot run (10000 rad/s^2) it swung
+# the estimate by 5x within milliseconds and the loop lost its torque
+# (Yaskawa SGMAH, bench 2026-11-17, DEBUGNOTES "Identification: the motor
+# can lose the track"). idm0.j_rate (default 1/s) limits its change to
+# j_rate times itself per second. Simulated motor j 0.00003, started there:
+# with j_rate 0 (as before) it ends at 0.00017; with the limit near
+# 0.00006. The fit stays right either way.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_j = 0.00003
+hv0.sim_f = 0.02
+debug_level 1
+link id_mot
+relink
+start
+debug_level 0
+idm0.inertia = 0.00003
+idm0.max_acc = 10000
+idm0.max_vel = 94
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 150
+idm0.state
+idm0.inertia
+idm0.ls_j
+idm0.ls_f
+@expect idm0.state ~ 1.5 0.01
+@expect idm0.inertia ~ 0.00005 60%
+@expect idm0.ls_j ~ 0.00003 15%
+@expect idm0.ls_f ~ 0.02 10%

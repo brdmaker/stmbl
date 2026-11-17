@@ -62,6 +62,15 @@ Entry format:
      reads 2e-6 to 4e-6 after the trip. The same run with
      `idm0.ji = 1e6` (j held at 1.1e-4) completes: largest error 0.29 rad,
      fit j 1.04e-4 (runout-jfrozen.csv).
+     Fixed in part: idm `j_rate` (default 1/s) limits the estimate's change
+     to j_rate times itself per second (test drive_id_mot_jrate: without it
+     the simulated estimate ends at 5.7x, with it ~2x). SGMAH, the wizard's
+     runs (5 / 40, no feedforward), 3 rad trip: the fast run completes, fit
+     j 9.8e-5; the estimate holds steady through the accelerations
+     (jrate-fast.csv) but creeps up to 3e-4 (3x) over state 1.3, so the
+     acceleration feedforward overshoots: 1.03 rad. The gentle run: 1.47 rad
+     at level 1 (soft loop against friction, 4). Next: set the estimate
+     from the least-squares fit at the end of state 1.2 and hold it in 1.3.
   7. The current loop on the SGMAH had no back-EMF feedforward
      (`conf0.cur_ind = 0`, `cur_ff = 0`). During a 6000 rad/s^2 ramp the
      integrator lags (psi pp acc ~1700 V/s against cur_bw r ~1220 V/(A s)):

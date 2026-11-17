@@ -47,6 +47,13 @@ HAL_PIN(vel_cmd);
 HAL_PIN(acc_cmd);
 
 HAL_PIN(ji);
+// the adaptive inertia (it sets pid0.j_mot, the loop's gain) may change by
+// at most j_rate times itself per second (1/s). The gradient law's speed grows
+// with acc_cmd^2: at 6000 rad/s^2 it swung the estimate 5x within 20 ms and
+// down to 2e-6 (1.1e-4 real), the pid's torque fell to ~0 and the motor lost
+// the track (Yaskawa SGMAH, bench 2026-11-17). At 250 rad/s^2 it moves <1 %/s.
+// Default 1; 0 = no limit (as before).
+HAL_PIN(j_rate);
 HAL_PIN(fi);
 HAL_PIN(di);
 HAL_PIN(li);
@@ -248,6 +255,7 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(li) = 0.01;
   PIN(di) = 1.0;
   PIN(ji) = 10.0;
+  PIN(j_rate) = 1.0;
   PIN(pos_bw) = 5.0;
   PIN(vel_bw) = 40.0;
   PIN(vel_d) = 4.0;
@@ -372,6 +380,14 @@ static void profile(struct idm_pin_ctx_t *pins, float period, float max_acc, flo
   }
 }
 
+static void adapt_inertia(struct idm_pin_ctx_t *pins, float period) {
+  float dj = period / PIN(ji) * PIN(fb_torque) * PIN(acc_cmd) * period;
+  if(PIN(j_rate) > 0.0) {
+    dj = LIMIT(dj, ABS(PIN(inertia)) * PIN(j_rate) * period);
+  }
+  PIN(inertia) += dj;
+}
+
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct idm_ctx_t *ctx      = (struct idm_ctx_t *)ctx_ptr;
   struct idm_pin_ctx_t *pins = (struct idm_pin_ctx_t *)pin_ptr;
@@ -450,7 +466,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       PIN(time) += period;
       PIN(offset_sum) += PIN(torque) * period;
       
-      PIN(inertia) += period / PIN(ji) * PIN(fb_torque) * PIN(acc_cmd) * period;
+      adapt_inertia(pins, period);
       PIN(damping) += period / PIN(di) * PIN(fb_torque) * PIN(vel_cmd) * period;
       PIN(friction) += period / PIN(fi) * PIN(fb_torque) * SIGN(PIN(vel_cmd)) * period;
       PIN(offset) += period / PIN(li) * PIN(fb_torque) * period;
@@ -527,7 +543,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         ctx->stroke++;
       }
 
-      PIN(inertia) += period / PIN(ji) * PIN(fb_torque) * PIN(acc_cmd) * period;
+      adapt_inertia(pins, period);
       PIN(damping) += period / PIN(di) * PIN(fb_torque) * PIN(vel_cmd) * period;
       PIN(friction) += period / PIN(fi) * PIN(fb_torque) * SIGN(PIN(vel_cmd)) * period;
       PIN(offset) += period / PIN(li) * PIN(fb_torque) * period;
