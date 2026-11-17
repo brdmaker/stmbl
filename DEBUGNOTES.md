@@ -51,6 +51,22 @@ Entry format:
   one (1.1e-4): the soft loops alone lose most of a radian against
   friction. The wizard's verify step on the commissioned config: 0.0004
   rad holding, +-0.5 rad steps exact.
+  6. **The main cause on the SGMAH (bench 2026-11-17): idm's adaptive
+     inertia.** `pid0.j_mot = idm0.inertia`, adapted as
+     `inertia += fb_torque * acc_cmd * dt^2 / ji`. That gain grows with
+     acc_cmd^2: at the fast run's 6000 rad/s^2 it is ~500x the gentle
+     run's, faster than the speed loop it scales. Scope
+     (commissioning/sgmah-08a1_2026-11-10/runout/runout-inertia.csv): j
+     swings 3.3e-4 -> 6e-5 -> 2.3e-4 -> 5.5e-5 within 20 ms. The pid's
+     torque falls to ~0 while 36 rad/s behind, then fault 5 (0.5 rad); j
+     reads 2e-6 to 4e-6 after the trip. The same run with
+     `idm0.ji = 1e6` (j held at 1.1e-4) completes: largest error 0.29 rad,
+     fit j 1.04e-4 (runout-jfrozen.csv).
+  7. The current loop on the SGMAH had no back-EMF feedforward
+     (`conf0.cur_ind = 0`, `cur_ff = 0`). During a 6000 rad/s^2 ramp the
+     integrator lags (psi pp acc ~1700 V/s against cur_bw r ~1220 V/(A s)):
+     ~1.4 A short, measured torque half the command (runout-scurve.csv).
+     With both on, measured torque follows the command (runout-curind.csv).
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
