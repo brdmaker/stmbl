@@ -1006,6 +1006,10 @@ static int probe_jf(su_wizard_t *w, double max_t, double travel, double *j, doub
   }
   set_num(w, "idjf0.max_torque", max_t);
   set_num(w, "idjf0.max_travel", travel);
+  // the pulses' smallest scale: idjf's 0.01 Nm, or 1 % of the peak torque
+  // on a small motor (0.015 Nm on a 4e-7 kg m^2 rotor, 0.09 Nm peak, turned
+  // it 6.6 rad in one 20 ms pulse: over the travel, nothing measured)
+  set_num(w, "idjf0.min_dt", fmin(0.01, max_t / 30.0));
   if(enable(w) < 0) {
     return -1;
   }

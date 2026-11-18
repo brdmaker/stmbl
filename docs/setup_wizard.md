@@ -168,9 +168,11 @@ from a quarter turn.
     motors where the probe's j is 1.6× / 2.1× off (1.5 / 3.0 rad). The
     probe's j is within 16 % on 32 of 35 motors and its friction within 8 %.
     On the SGMAH: j 1.27e-4 (id_mot 1.0e-4), friction 0.016 Nm.
-  - **If the probe finds nothing usable** (a 4e-7 rotor in the simulator),
-    `id_mot` starts blind as before: idm's soft adaptive loops, no
-    feedforward.
+  - **If the probe finds nothing usable**, `id_mot` starts blind as before:
+    idm's soft adaptive loops, no feedforward. The probe's smallest pulse
+    scale is 1 % of the peak torque on a small motor (at most idjf's
+    0.01 Nm): on a 4e-7 kg m² rotor 0.01 Nm had turned it past the travel
+    in one pulse.
 - **The encoder check** (`encoder`, `conf/template/enc_check.txt`,
   `shared/comps/encchk.c`), before any loop closes on the feedback:
   - a d current (`id_pmsm`'s test current) turns the rotor like a stepper,

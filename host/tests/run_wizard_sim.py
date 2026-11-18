@@ -68,10 +68,6 @@ KNOWN = {
     ("sr60_4", "id.l"): "idpmsm: L/R 40 us: L +15 %",
     ("sgmph_01a1", "probe_j"): "idjf: j 1.5e-6, its pulses turn little against friction: j 2.1x",
     ("fanuc_b05_6000", "probe_j"): "idjf: friction 0.4 Nm against the pulses: j 1.6x",
-    ("syn_micro", "probe_j"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
-    ("syn_micro", "probe_f"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
-    ("syn_micro", "mot_err1"): "idjf found nothing: id_mot started blind (soft loops, no friction)",
-    ("syn_micro", "mot_err2"): "idjf found nothing: id_mot started blind (soft loops, no friction)",
     ("sgmph_01a1", "mot_err2"): "idjf's j 2.1x: the stiff loops run 2x too stiff",
     ("fanuc_b05_6000", "mot_err2"): "idjf's j 1.6x: the stiff loops run 1.6x too stiff",
 }

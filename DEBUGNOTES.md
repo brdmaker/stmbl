@@ -220,7 +220,13 @@ Entry format:
      held. Simulator: summed largest errors 3 / 16 rad (probe seeding alone
      21 / 25), no run lost; SGMAH 0.055 / 0.54 rad. Test: run_wizard_sim.py
      mot_err1 (< 0.5 rad) / mot_err2 (< 1 rad), known limits: the two motors
-     whose probe j is off, and the one the probe can't read.
+     whose probe j is off (damping, see "idjf scatters").
+ 10. (2026-11-18) syn_micro (j 4e-7, 0.09 Nm peak): the probe found nothing.
+     Its smallest pulse scale, idjf's min_dt 0.01 Nm, turned the rotor 6.6 rad
+     in one 20 ms pulse, over the 6 rad travel. The wizard sets min_dt to
+     1 % of the peak torque, at most 0.01: probe j +6 %, f -7 %; id_mot
+     0.15 / 0.35 rad (was pi / 1.1). Test: run_wizard_sim.py syn_micro
+     (its known limits removed).
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
