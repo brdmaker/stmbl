@@ -48,6 +48,17 @@ Entry format:
   0.04 / 0.73 rad, j fit 9.9e-5). Ideas: repeat the pulse set at a few
   positions and take the median; clamp a negative friction to 0 (the wizard
   does).
+- Also:    The simulator's two outliers (sgmph_01a1 j 2.1x, fanuc_b05_6000
+  1.6x; known limits in run_wizard_sim.py) have another cause: damping. Their
+  j / d (18 / 45 ms) is near the pulse length, and the fit j x = X - c h has
+  no damping term (an ideal model reads 1.41x on sgmph_01a1 from that
+  alone). Tried 2026-11-18: d as a fourth unknown. The four pulses alone are
+  singular (mirror images); with the integrals also at half the pulse,
+  least squares is exact on the ideal model, but in the simulator it gave
+  j < 0 and d 9x. The likely reason is timing: these rotors reach ~300 rad/s
+  in a 20 ms pulse, and a cycle's lag between the position and the measured
+  torque is 0.06 rad of 0.4-2. Not kept. Next: account for that lag, or end a
+  pulse at a speed limit.
 
 ## 2026-11-18  Wizard --redo electrical: id_pmsm ran with the current feedforward, HV overcurrent
 - Area:    `servoterm-cli/setup/su_steps.c` (su_build_config)
