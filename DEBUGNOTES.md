@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-11-18  id_pmsm: the encoder index's jump counted as rotor travel (14 pole pairs read 11)
+- Area:    `shared/comps/idpmsm.c` (state 2.2 pole pairs, 3.x psi coast)
+- Status:  Fixed
+- Symptom: Wizard suite, syn_torque_14p (14 pole pairs, j 0.01, friction
+  1.2 Nm): 11 pole pairs, psi 0.065 Wb (true 0.35); the torque constant
+  check stopped the wizard. It had failed so since before 11-16.
+- Cause:   idpmsm reads the rotor's travel from pos_fb, fb_switch0's
+  index-referenced position. It jumps once when an incremental encoder's
+  index first passes (here -2 rad). In the 2 s pole pair window this rotor
+  turns only ~7 rad, so the jump was 28 % (motors with fewer pole pairs
+  turn further, and the rounding hid it). psi then used the wrong pole pairs.
+- Fix:     travel_step(): a step no rotor makes in one cycle (> 0.1 rad and
+  twice vel_fb's) is left out, in the pole pair window and in psi's coast.
+  Test: host/tests/drive_id_pmsm_index.test (pp 11, psi 0.064 before; 14,
+  0.341 now). The suite's syn_torque_14p passes all 18 checks.
+
 ## 2026-11-18  idjf (torque probe) scatters on the SGMAH: friction barely determined
 - Area:    `shared/comps/idjf.c`, the wizard's mechanical step
 - Status:  Open

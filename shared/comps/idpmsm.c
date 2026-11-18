@@ -72,6 +72,21 @@ struct idpmsm_ctx_t {
   float coast_t;  // [s] since the current was switched off
 };
 
+// The rotor's travel this cycle from pos_fb. pos_fb (fb_switch0's
+// index-referenced position) jumps once when an incremental encoder's index
+// first passes: counted as travel, it made a 14 pole pair motor read 11
+// (the rotor turned ~7 rad in the window, the jump was 2 rad; psi then came
+// out 0.065 Wb for 0.35). A step no rotor makes in one cycle (more than
+// 0.1 rad and twice what vel_fb says) is left out.
+static float travel_step(struct idpmsm_ctx_t *ctx, struct idpmsm_pin_ctx_t *pins, float period) {
+  float step    = minus(PIN(pos_fb), ctx->last_pos);
+  ctx->last_pos = PIN(pos_fb);
+  if(ABS(step) > 0.1 + 2.0 * ABS(PIN(vel_fb)) * period) {
+    return 0.0;
+  }
+  return step;
+}
+
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   //struct idpmsm_ctx_t * ctx = (struct idpmsm_ctx_t *)ctx_ptr;
   struct idpmsm_pin_ctx_t *pins = (struct idpmsm_pin_ctx_t *)pin_ptr;
@@ -313,11 +328,11 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         ctx->rotor    = 0.0;
         ctx->last_pos = PIN(pos_fb);
       }
+      float step = travel_step(ctx, pins, period);
       if(PIN(timer) >= 1.5) {
         ctx->field += w * period;
-        ctx->rotor += minus(PIN(pos_fb), ctx->last_pos);
+        ctx->rotor += step;
       }
-      ctx->last_pos = PIN(pos_fb);
 
       PIN(timer) += period;
       if(PIN(timer) >= 3.5){
@@ -387,8 +402,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
         ctx->psi_n    = 0;
         ctx->last_pos = PIN(pos_fb);
       }
-      float step    = minus(PIN(pos_fb), ctx->last_pos);
-      ctx->last_pos = PIN(pos_fb);
+      float step = travel_step(ctx, pins, period);
 
       if(ABS(PIN(vel_fb)) > 0.1 * PIN(test_vel)){
         float psi  = (PIN(uq_fb) - PIN(iq_fb) * PIN(r)) / (PIN(vel_fb) * PIN(pp));

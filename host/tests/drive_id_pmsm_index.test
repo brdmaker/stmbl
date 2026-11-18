@@ -1,0 +1,35 @@
+# id_pmsm's pole pairs on a motor with many of them (14, a heavy rotor with
+# much friction: the wizard suite's syn_torque_14p). The rotor's travel was
+# read from the index-referenced position, which jumps once when the
+# encoder's index first passes. In the 2 s window the rotor turns ~7 rad,
+# and a 2 rad jump made it 11 pole pairs (and psi wrong after it, 0.065 Wb).
+# Steps that no rotor makes in one cycle are left out now. The encoder as
+# the suite's case has it: 2000 counts, the index at -2 rad.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_r = 2.5
+hv0.sim_l = 0.015
+hv0.sim_psi = 0.35
+hv0.sim_pp = 14
+hv0.sim_j = 0.01
+hv0.sim_d = 0.00165
+hv0.sim_f = 1.176
+hv0.sim_phase_rev = 1
+enc_fb0.sim_res = 2000
+enc_fb0.sim_index = -2
+conf0.mot_fb_res = 2000
+debug_level 1
+link id_pmsm
+relink
+start
+debug_level 0
+idpmsm0.test_cur = 1.34
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 40
+idpmsm0.state
+idpmsm0.pp
+idpmsm0.psi
+@expect idpmsm0.pp == 14
+@expect idpmsm0.psi ~ 0.35 5%
