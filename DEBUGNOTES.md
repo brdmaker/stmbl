@@ -5601,3 +5601,17 @@ Entry format:
   vel_int); lcnc_jitter.test keeps sync 0's numbers. Also fixed: host lcnc_jitter reset LinuxCNC's grid phase.
   Bench: measure the Pi's servo jitter (latency-histogram), run with sync 1 and wd 0.003, then make it the
   default in conf/template/sserial.txt if it holds.
+
+## 2026-11-09  Drive starts on a flat or charging bus (under-voltage start inhibit)
+- Area:    `shared/comps/fault.c` (`start_dc_volt`, `start_time`, `bus_ok`, `uv_inhibit`)
+- Status:  Fixed
+- Symptom: the drive enabled whenever `dc_volt` was above `min_dc_volt` (20 V): on a bus that the PSU's soft start was
+  still charging (or after a mains dip) it loaded the ramp. The PSU's BUS_READY contact was the only guard, and it is
+  removed from the PSU.
+- Cause:   no start condition on the bus voltage; the 20 V fault limit is for a lost bus, not for starting.
+- Fix:     `fault0.start_dc_volt` (default 0 = off, so 24 V stepper drives on small buses are unchanged; set 250 for a
+  230 V system) and `fault0.start_time` (0.2 s): DISABLED -> PHASING only with `bus_ok`; `uv_inhibit` shows an enable
+  held off. A bus that falls later is still `min_dc_volt`'s fault. `STMBL_FW_VERSION` is now 2 (a new pin configs may
+  set; no config change needed, no patch file). Tests: `host/tests/bus/bus_start_inhibit.test` (110 V mains: held
+  off, 230 V: starts after 0.2 s; fails without the fix: the pins do not exist) and `bus_start_noinhibit.test`
+  (default behaviour unchanged).

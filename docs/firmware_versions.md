@@ -7,7 +7,7 @@ counted up, and everything checks it:
 
 | what | where |
 |---|---|
-| **the number** | `STMBL_FW_VERSION` in `shared/version_number.h` (1: the first versioned firmware). The LV (F4) and HV (F3) images both carry it (`version_info_t.fw_version`, with `fw_magic`). |
+| **the number** | `STMBL_FW_VERSION` in `shared/version_number.h` (1: the first versioned firmware; the table below). The LV (F4) and HV (F3) images both carry it (`version_info_t.fw_version`, with `fw_magic`). |
 | **HV against LV** | The HV board reports the version it runs in its state rotation (`f3_state_data_t.fw_version`); the F4 compares it with the HV image it carries. Another one, or an HV board from before versioning (0), is fault `HV_VERSION_ERROR` (19): the drive won't enable. `hv_update` flashes the carried image; `hv0.fw_check = 0` turns the check off. Pins: `hv0.fw_version` (running; -1 not known yet), `hv0.fw_image`. |
 | **the config** | A config written for a version carries the line `#stmbl_conf_version N` (first line). At boot the drive warns about a config for another version. |
 | **`version`** | A console command, machine-readable: `version fw=1 hv=1 hv_image=1 conf=1`, then `hv_mismatch`, `conf_old` or `conf_newer` if so. Firmware from before versioning answers `not found: version`. `about` prints the versions too. |
@@ -19,6 +19,7 @@ counted up, and everything checks it:
 |---|---|---|
 | 1 | the first versioned firmware | — |
 | 2 | HV fault `HV_UNDERVOLT_ERROR` (22): the HV board's 3.3 V fell below its PVD (2.7 V) and TIM8 broke; CSS and core lockup also stop the bridge; the HV board reports its link timeouts (state word `link_to`: `hv0.link_to`, `hv0.link_drops`); `hv_verify` (2026-11-11) | unchanged, no patch |
+| 3 | `fault0.start_dc_volt` / `start_time`: the under-voltage start inhibit (`bus_ok`, `uv_inhibit`; 2026-11-09, merged 2026-11-18) | unchanged, no patch |
 
 ## Config patches
 

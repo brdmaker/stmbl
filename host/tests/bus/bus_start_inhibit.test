@@ -1,0 +1,40 @@
+# Under-voltage start inhibit (shared/comps/fault.c): with fault0.start_dc_volt
+# = 250 the drive enables only after the bus has been above 250 V for
+# fault0.start_time (0.2 s). The PSU's soft start charges the bus slowly and a
+# drive that starts on a flat bus would load the ramp (the PSU has no ready
+# output any more: the drive checks the bus itself).
+# 110 V mains charges the drive's 540 uF to ~154 V: enable is asked for and
+# held off (state stays DISABLED = 0, uv_inhibit 1, no fault). At 230 V
+# the bus goes to ~324 V, bus_ok comes after 0.2 s and the drive starts
+# (PHASING/ENABLED). Without the check (start_dc_volt = 0, the default) the
+# same drive starts on the 154 V bus at once.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+fault0.start_dc_volt = 250
+hv0.sim_mains = 110
+lcnc 0 0
+run 1.0
+lcnc 1 0
+run 1.0
+fault0.state
+fault0.uv_inhibit
+fault0.bus_ok
+fault0.en_out
+hv0.sim_vbus
+hv0.sim_mains = 230
+run 0.1
+fault0.state
+fault0.bus_ok
+run 2.0
+fault0.uv_inhibit
+fault0.bus_ok
+fault0.en_out
+@expect fault0.state[1] == 0
+@expect fault0.uv_inhibit[1] == 1
+@expect fault0.bus_ok[1] == 0
+@expect fault0.en_out[1] == 0
+@expect hv0.sim_vbus[1] < 200
+@expect fault0.state[2] == 0
+@expect fault0.bus_ok[2] == 0
+@expect fault0.uv_inhibit[2] == 0
+@expect fault0.bus_ok[3] == 1
+@expect fault0.en_out[2] == 1
