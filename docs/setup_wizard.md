@@ -73,14 +73,15 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 9 | `fbcheck` | the shaft turned by hand: encoder resolution and counting direction (below). A brake is released for it (`fault0.brake_release`); on a vertical axis only once the load is off or supported |
 | 10 | `gate` | before anything moves: motor uncoupled or the axis clear; how far it may turn |
 | 11 | `electrical` | `id_pmsm`: resistance, inductance, pole pairs, phase order, commutation offset, flux; cross-checked against the nameplate |
-| 12 | `mechanical` | `id_mot` twice: inertia, friction, damping |
-| 13 | `tuning` | `id_pid`: position and velocity loop gains |
-| 14 | `brake` | the holding brake (below): released by the drive, holds, no sag at disable. Horizontal axes: automatic (the drive pushes against it, below); vertical: by hand |
-| 15 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
-| 16 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
-| 17 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
-| 18 | `absolute` | a multi-turn absolute encoder (FANUC) with the smart-serial link: the final config links `mturn` and the encoder's multi-turn template; this step checks that the drive took the encoder's turn count (`mturn0.state` 1), warns of a lost count or a battery warning, and gives LinuxCNC's settings ([absolute_encoders.md](absolute_encoders.md)). Other feedback: skipped |
-| 19 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
+| 12 | `encoder` | the feedback checked open loop: a d current turns the rotor one turn each way (at most the allowed travel), slowly, and the feedback must follow the field every cycle (below) |
+| 13 | `mechanical` | the torque probe, then `id_mot` twice: inertia, friction, damping |
+| 14 | `tuning` | `id_pid`: position and velocity loop gains |
+| 15 | `brake` | the holding brake (below): released by the drive, holds, no sag at disable. Horizontal axes: automatic (the drive pushes against it, below); vertical: by hand |
+| 16 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
+| 17 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
+| 18 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
+| 19 | `absolute` | a multi-turn absolute encoder (FANUC) with the smart-serial link: the final config links `mturn` and the encoder's multi-turn template; this step checks that the drive took the encoder's turn count (`mturn0.state` 1), warns of a lost count or a battery warning, and gives LinuxCNC's settings ([absolute_encoders.md](absolute_encoders.md)). Other feedback: skipped |
+| 20 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
 
 The config it writes:
 - `link pid`, `link pmsm`, the feedback's template, and in the end the
@@ -170,6 +171,22 @@ from a quarter turn.
   - **If the probe finds nothing usable** (a 4e-7 rotor in the simulator),
     `id_mot` starts blind as before: idm's soft adaptive loops, no
     feedforward.
+- **The encoder check** (`encoder`, `conf/template/enc_check.txt`,
+  `shared/comps/encchk.c`), before any loop closes on the feedback:
+  - a d current (`id_pmsm`'s test current) turns the rotor like a stepper,
+    0.5 turn/s, one turn each way (at most the allowed travel), through
+    `dbrake0`, so the fault comp still switches it off;
+  - every cycle the feedback, followed through the turns, is compared with
+    the field (electrical); the rotor lags by its load angle, a few
+    degrees. Lost or extra counts, a wrong resolution or pole pair count,
+    the wrong direction or a glitch frame make the gap grow: above
+    0.5 rad electrical the current goes off and the step fails;
+  - it must count ±1 turn within 2 %.
+
+  SGMAH on the bench: +1.001 / −0.999 turns, at most 10° electrical
+  behind, no CRC error; with the direction set wrong it stopped after about
+  5° of travel. Tests: `host/tests/drive_enc_check*.test` (sound, wrong
+  resolution, wrong direction), run_wizard_sim.py (`enc_check`).
 - **`id_pid`** tunes the loops on the measured motor.
 - **Current feedforward:** from `id_pid` on (once `r`, `psi` and `j` are
   known) the config sets `conf0.cur_ff = 1` and `conf0.cur_ind = 1`. The
@@ -289,9 +306,10 @@ an NTC near 25 degC. Enough for a trip, not for a thermometer.
 The wizard is built against one configuration interface: the template
 names, the `conf0` pins, and the identification components' pins and
 states. `shared/setup_api.h` numbers it (`STMBL_SETUP_API`), and the
-drive prints it in `about` ("setup api 3"; 2 added the motor
+drive prints it in `about` ("setup api 4"; 2 added the motor
 temperature sensor, 3 the identification's following-error pins and its
-wait for the commutation).
+wait for the commutation, 4 the encoder check (`enc_check`, `encchk`) and
+the torque probe (`id_jf`, `idjf`)).
 
 | Drive | Wizard |
 |---|---|

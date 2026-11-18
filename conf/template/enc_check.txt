@@ -1,0 +1,20 @@
+# open-loop feedback check (encchk.c): a d
+# current turns the rotor, the feedback watches
+load encchk
+encchk0.rt_prio = 4
+encchk0.en = fault0.en_out
+encchk0.pos = fb_switch0.mot_pos
+encchk0.rev = fb_switch0.mot_rev
+encchk0.fb_pp = fb_switch0.mot_polecount
+encchk0.pp = conf0.polecount
+# the field through dbrake0 (fault0 switches it)
+dbrake0.d_in = encchk0.cur
+dbrake0.q_in = 0
+dbrake0.mode_in = 1
+dbrake0.pos_in = encchk0.angle
+dbrake0.vel_in = 0
+# no phasing (the field sets the angle), no pid
+fb_switch0.phase_mode = 2
+pid0.en = 0
+fault0.pos_error = 0
+fault0.sat_error = 0

@@ -1,0 +1,29 @@
+# encchk (conf/template/enc_check.txt): the feedback checked open loop. A
+# d current drags the rotor one turn each way, the feedback only watches.
+# Sound feedback: +1 / -1 turn, the field and the feedback within a few
+# degrees. A wrong resolution or direction is caught (error 1) and the
+# current goes off: drive_enc_check_bad.test.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+debug_level 1
+link enc_check
+relink
+start
+debug_level 0
+encchk0.i = 1.5
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 9
+encchk0.state
+encchk0.error
+encchk0.turns_fwd
+encchk0.turns_back
+encchk0.dev_max
+fault0.fault
+@expect encchk0.state == 10
+@expect encchk0.error == 0
+@expect encchk0.turns_fwd ~ 1 0.02
+@expect encchk0.turns_back ~ -1 0.02
+@expect encchk0.dev_max < 0.3
+@expect fault0.fault == 0

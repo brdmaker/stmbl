@@ -1,0 +1,27 @@
+# encchk with the direction set the wrong way: the encoder counts reversed (enc_fb0.sim_rev 1), the config says not. The simulated encoder is pinned
+# to its true value: host/sim_board.txt ties it to the config otherwise.
+# The feedback no longer follows the field (dev grows with the travel), and
+# the check stops with error 1, the current off
+# (drive_enc_check.test: the sound case).
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+debug_level 1
+link enc_check
+relink
+start
+debug_level 0
+enc_fb0.sim_rev = 1
+conf0.mot_fb_rev = 0
+encchk0.i = 1.5
+fault0.cmd_error = 0
+fault0.en = 0
+run 0.5
+fault0.en = 1
+run 9
+encchk0.state
+encchk0.error
+encchk0.cur
+encchk0.dev_max
+encchk0.turns_fwd
+@expect encchk0.state == 10
+@expect encchk0.error == 1
+@expect encchk0.cur == 0

@@ -938,6 +938,61 @@ static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d,
   return r;
 }
 
+// The feedback checked open loop before any loop closes on it
+// (conf/template/enc_check.txt, shared/comps/encchk.c): a d current turns the
+// rotor like a stepper, one turn (or the allowed travel) each way, and the
+// feedback must follow the field every cycle. It catches lost or extra
+// counts, a wrong resolution or direction and glitch frames, which a closed
+// loop would hide or turn into a runaway. On the SGMAH this was done by hand
+// first (brdmot tools/bench/openloop_run.py, 2026-11-16).
+static su_result_t step_enccheck(su_wizard_t *w) {
+  su_motor_t m;
+  su_limits_t lim;
+  motor_from_state(w->st, &m);
+  su_motor_limits(&m, bus_of(w->st), &lim);
+  double turns = fmin(1.0, su_get_num(w->st, "gate.turns", 2.0));
+  double cur   = lim.test_cur > 0.0 ? lim.test_cur : 0.2 * lim.max_ac_cur;
+  if(apply_config(w, 0) < 0 || load_template(w, "enc_check") < 0) {
+    return SU_FAIL;
+  }
+  set_num(w, "encchk0.i", cur);
+  set_num(w, "encchk0.turns", turns);
+  say(w, SU_MSG_INFO, "Encoder check: the field turns the motor %.2g turn each way, slowly (%.2g A); the feedback "
+                      "only watches...", turns, cur);
+  if(enable(w) < 0) {
+    return SU_FAIL;
+  }
+  int r = wait_state(w, "encchk0.state", 10.0, 30.0 + 8.0 * turns, "the encoder check");
+  double e = 0.0, tf = 0.0, tb = 0.0, dm = 0.0;
+  if(r == 0 && (get(w, "encchk0.error", &e) || get(w, "encchk0.turns_fwd", &tf) || get(w, "encchk0.turns_back", &tb) ||
+                get(w, "encchk0.dev_max", &dm))) {
+    r = -1;
+  }
+  disable(w);
+  if(r < 0) {
+    return SU_FAIL;
+  }
+  su_set_num(w->st, "enc.dev_max", dm);
+  su_set_num(w->st, "enc.turns_fwd", tf);
+  su_set_num(w->st, "enc.turns_back", tb);
+  // the turns counted: within 2 % and the rotor's lag behind the field
+  // (dev_max electrical; on a motor with few pole pairs that is a few %:
+  // e240, rx60_456 in the simulator)
+  double pp  = fmax(su_get_num(w->st, "id.pp", 1.0), 1.0);
+  double tol = 0.02 * turns + dm / (2.0 * M_PI * pp);
+  if(e != 0.0 || fabs(tf - turns) > tol || fabs(tb + turns) > tol) {
+    say(w, SU_MSG_ERROR,
+        "The feedback did not follow the field: it read %.3f / %.3f turns for %.2g / -%.2g, and was up to %.0f deg\n"
+        "(electrical) away from it. Lost counts, the wrong resolution or direction, or a bad cable: check the\n"
+        "feedback step's answers and the wiring.",
+        tf, tb, turns, turns, dm * 180.0 / M_PI);
+    return SU_FAIL;
+  }
+  say(w, SU_MSG_INFO, "The feedback followed: %.3f / %.3f turns, at most %.0f deg (electrical) behind the field.", tf,
+      tb, dm * 180.0 / M_PI);
+  return SU_OK;
+}
+
 // idjf (conf/template/id_jf.txt): friction, offset and inertia in torque
 // mode, the encoder only watching. 0 ok, -1 failed (*why set).
 static int probe_jf(su_wizard_t *w, double max_t, double travel, double *j, double *f, double *o, int *why) {
@@ -1573,6 +1628,7 @@ const su_step_t su_steps[] = {
     {"fbcheck", "Feedback check (turn by hand)", step_fbcheck},
     {"gate", "Before the motor moves", step_gate},
     {"electrical", "Measure the motor: electrical", step_electrical},
+    {"encoder", "Encoder check (open loop)", step_enccheck},
     {"mechanical", "Measure the motor: mechanical", step_mechanical},
     {"tuning", "Tune the control loops", step_tuning},
     {"brake", "Holding brake", step_brake},

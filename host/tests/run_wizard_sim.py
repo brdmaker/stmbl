@@ -255,6 +255,10 @@ def checks(c, rc, out, st):
     e = (off - c["index"]) * pp
     e = math.remainder(e, 2 * math.pi) if not math.isnan(e) else float("nan")
     chk(abs(e) < 0.2, "commutation offset %.4f: %.3f rad electrical from the index" % (off, e))
+    # the open-loop encoder check: the feedback followed the field
+    chk(abs(num(st, "enc.turns_fwd") + num(st, "enc.turns_back")) < 0.04 and num(st, "enc.dev_max") < 0.5,
+        "enc_check = %s / %s turns, %s rad el behind at most" %
+        (st.get("enc.turns_fwd"), st.get("enc.turns_back"), st.get("enc.dev_max")))
     # the torque probe before id_mot: its j, f seed idm (the loops' stiffness
     # and the friction feedforward)
     pj, pf = num(st, "mech.probe_j"), num(st, "mech.probe_f")
