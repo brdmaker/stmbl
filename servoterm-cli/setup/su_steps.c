@@ -938,6 +938,29 @@ static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d,
   return r;
 }
 
+// idjf (conf/template/id_jf.txt): friction, offset and inertia in torque
+// mode, the encoder only watching. 0 ok, -1 failed (*why set).
+static int probe_jf(su_wizard_t *w, double max_t, double travel, double *j, double *f, double *o, int *why) {
+  *why = 0;
+  if(apply_config(w, 0) < 0 || load_template(w, "id_jf") < 0) {
+    return -1;
+  }
+  set_num(w, "idjf0.max_torque", max_t);
+  set_num(w, "idjf0.max_travel", travel);
+  if(enable(w) < 0) {
+    return -1;
+  }
+  int r = wait_state(w, "idjf0.state", 10.0, 120.0, "the torque probe");
+  double e = 0.0;
+  if(r == 0 && (get(w, "idjf0.error", &e) || get(w, "idjf0.j", j) || get(w, "idjf0.friction", f) ||
+                get(w, "idjf0.offset", o))) {
+    r = -1;
+  }
+  disable(w);
+  *why = (int)e;
+  return r == 0 && e == 0.0 && *j > 0.0 ? 0 : -1;
+}
+
 // Two runs. idm's defaults (250 rad/s^2, 25 rad/s) are safe for any rotor
 // but give a high inertia on light motors with much friction: the inertia's
 // torque is small against the friction's, and at low speed the friction's
@@ -948,20 +971,40 @@ static int run_idm(su_wizard_t *w, double acc, double vel, double *j, double *d,
 // second run can lose the track (a Yaskawa SGMAH on the bench, the simulator
 // on many motors, DEBUGNOTES 2026-11-16); keeping it on track is open.
 static su_result_t step_mechanical(su_wizard_t *w) {
-  if(apply_config(w, 0) < 0 || load_template(w, "id_mot") < 0) {
-    return SU_FAIL;
-  }
   su_motor_t m;
   su_limits_t lim;
   motor_from_state(w->st, &m);
   su_motor_limits(&m, bus_of(w->st), &lim);
   double travel = su_get_num(w->st, "gate.turns", 2.0) * 2.0 * M_PI;
   travel        = fmin(travel, 10.0);  // idm's default range
+  // idm's loops are stiff in proportion to its inertia, and its friction is
+  // fed forward: started blind (a small inertia, no friction) the loops are
+  // soft against friction and lost the track (DEBUGNOTES 2026-11-16). The
+  // torque probe measures both first.
+  double pj = 0.0, pf = 0.0, po = 0.0;
+  int why = 0;
+  int probed = probe_jf(w, 0.3 * lim.max_force, fmin(travel, 6.0), &pj, &pf, &po, &why) == 0;
+  if(probed) {
+    say(w, SU_MSG_INFO, "Torque probe: j about %.3g kg m^2, friction %.3g Nm, offset %.3g Nm.", pj, pf, po);
+  } else {
+    say(w, SU_MSG_WARN, "The torque probe found nothing usable (error %d): id_mot starts blind.", why);
+  }
+  su_set_num(w->st, "mech.probe_j", probed ? pj : 0.0);
+  su_set_num(w->st, "mech.probe_f", probed ? pf : 0.0);
+  if(apply_config(w, 0) < 0 || load_template(w, "id_mot") < 0) {
+    return SU_FAIL;
+  }
   set_num(w, "idm0.min_pos", -travel);
   set_num(w, "idm0.max_pos", travel);
-  // idm's adaptive inertia sets the loop gains: start low, it rises (2e-4,
-  // its default, made a 4e-7 motor's gains 500x too high: saturation)
-  set_num(w, "idm0.inertia", fmin(2e-4, 5e-6 * fmax(lim.max_force, 0.01)));
+  if(probed) {
+    set_num(w, "idm0.inertia", pj);
+    set_num(w, "idm0.friction", fmax(pf, 0.0));
+    set_num(w, "idm0.offset", po);
+  } else {
+    // idm's adaptive inertia sets the loop gains: start low, it rises (2e-4,
+    // its default, made a 4e-7 motor's gains 500x too high: saturation)
+    set_num(w, "idm0.inertia", fmin(2e-4, 5e-6 * fmax(lim.max_force, 0.01)));
+  }
   say(w, SU_MSG_INFO, "Measuring inertia, friction and damping (moves +-%.1f turns, twice)...", travel / 2.0 / M_PI);
   double j, d, f, o, err1, err2;
   if(run_idm(w, 250.0, 25.0, &j, &d, &f, &o, &err1) < 0) {

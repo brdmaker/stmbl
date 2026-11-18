@@ -139,6 +139,20 @@ from a quarter turn.
     `j_rate` (1/s) times itself per second: it used to collapse within
     milliseconds at the second run's acceleration, which tripped the
     SGMAH.
+  - **Before the runs, a torque probe** (`idjf`, `conf/template/id_jf.txt`):
+    torque pulses with the encoder only watching, guarded by
+    0.3 × the peak torque and 6 rad of travel. Its inertia, friction and
+    offset seed `idm`. `idm`'s loops are stiff in proportion to its
+    inertia, and its friction is fed forward. Started blind (a small
+    inertia, no friction) they were soft against friction.
+    - Simulator: the probe's j is within 16 % on 32 of 35 motors and its
+      friction within 8 %. The gentle run's largest errors, summed over 32
+      motors, went from 100 rad (every motor lost the track) to 21 (3 lost);
+      the fast run's from 35 to 25 rad.
+    - SGMAH on the bench: probe j 1.27e-4 (id_mot 1.0e-4), friction 0.016 Nm;
+      the gentle run went from 1.47 to 0.22 rad.
+    - If the probe finds nothing usable (a 4e-7 rotor in the simulator),
+      `id_mot` starts blind as before.
 - **`id_pid`** tunes the loops on the measured motor.
 - **Current feedforward:** from `id_pid` on (once `r`, `psi` and `j` are
   known) the config sets `conf0.cur_ff = 1` and `conf0.cur_ind = 1`. The

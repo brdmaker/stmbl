@@ -105,6 +105,16 @@ Entry format:
      simulator, the second run's largest errors summed over 32 motors: 76
      rad instead of 35, many lost (pi); p50b's j and syn_servo_2kw's f out
      of tolerance. So the wizard sets them from id_pid on only.
+  8. (2026-11-18) The blind start: idm's inertia starts low on purpose
+     (5e-6 x the peak torque) and its friction at 0. The loops are stiff in
+     proportion to the inertia, so they were soft against friction: the
+     gentle run lost the track on every simulated motor and 1.47 rad on
+     the SGMAH. Fixed: the wizard runs the torque probe idjf first and seeds
+     idm's inertia, friction and offset. Simulator: the gentle run's summed
+     largest errors went from 100 to 21 rad (3 of 32 still lose: their probe
+     j 1.6x / 2.1x, or none on a 4e-7 rotor), the fast run's from 35 to
+     25 rad; SGMAH gentle run 0.22 rad. Test: run_wizard_sim.py
+     (probe_j / probe_f checks).
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),

@@ -66,6 +66,10 @@ KNOWN = {
     ("r2aa04003f", "id.l"): "idpmsm: L/R 55 us, a few rt cycles: L 2.7x",
     ("r2aa04003f", "f"): "idm: j 2.5e-6: friction -27 % (just outside 25 %)",
     ("sr60_4", "id.l"): "idpmsm: L/R 40 us: L +15 %",
+    ("sgmph_01a1", "probe_j"): "idjf: j 1.5e-6, its pulses turn little against friction: j 2.1x",
+    ("fanuc_b05_6000", "probe_j"): "idjf: friction 0.4 Nm against the pulses: j 1.6x",
+    ("syn_micro", "probe_j"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
+    ("syn_micro", "probe_f"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
 }
 
 
@@ -247,6 +251,11 @@ def checks(c, rc, out, st):
     e = (off - c["index"]) * pp
     e = math.remainder(e, 2 * math.pi) if not math.isnan(e) else float("nan")
     chk(abs(e) < 0.2, "commutation offset %.4f: %.3f rad electrical from the index" % (off, e))
+    # the torque probe before id_mot: its j, f seed idm (the loops' stiffness
+    # and the friction feedforward)
+    pj, pf = num(st, "mech.probe_j"), num(st, "mech.probe_f")
+    chk(abs(pj - c["j"]) <= 0.2 * c["j"], "probe_j = %.3g, true %.3g (20 %%)" % (pj, c["j"]))
+    chk(abs(pf - c["f"]) <= 0.15 * c["f"], "probe_f = %.3g, true %.3g (15 %%)" % (pf, c["f"]))
     j = num(st, "mech.j")
     chk(abs(j - c["j"]) <= max(0.25 * c["j"], 2e-6), "j = %.3g, true %.3g (25 %% or 2e-6)" % (j, c["j"]))
     f = num(st, "mech.f")
