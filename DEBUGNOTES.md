@@ -16,6 +16,21 @@ Entry format:
 
 ---
 
+## 2026-11-18  servoterm-cli --load: now and then a corrupted byte in the drive's echo (USB console)
+- Area:    the USB console (F4 CDC), `servoterm-cli --load`
+- Status:  Open
+- Symptom: 3 of ~20 `--load`s on drive 207D35A05631 aborted with "no ack for line N".
+  Once the echo had a corrupted byte: "adding link yaskawa_abs_\xef\xbf\xbdb0" for
+  "link yaskawa_abs_fb0". Each time the load wrote nothing, and the next try worked.
+- Cause:   Unknown. One byte of the drive's echo arrives wrong. It was not the
+  "INFO: Disabled" message: the corrupted line came 2 s after the disable.
+  It may happen on other replies too; only --load checks every byte.
+- Fix:     None yet. --load is safe: it compares every echo and writes the flash
+  only if all of them match. Scripts must check for "verified" and stop
+  otherwise. One of mine did not, and it enabled the drive on the old
+  config. Next: count corrupted echoes over a long run (USB vs the
+  smart-serial console).
+
 ## 2026-11-17  A following-error limit of pi or more never trips (pos_error wraps)
 - Area:    `shared/comps/pid.c` (pos_error), `fault.c` (max_pos_error), configs
 - Status:  Open
