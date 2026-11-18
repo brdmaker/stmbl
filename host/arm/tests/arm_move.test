@@ -5,7 +5,7 @@
 # gear deflection under gravity and the backlash. On disable the brakes
 # engage and hold the arm.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 lcnc 0
 run 0.5
 lcnc 1

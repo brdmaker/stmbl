@@ -2,7 +2,7 @@
 # current limit, commanded 1.2 mm inside the part) close on past it by more
 # than lost_tol: LOST, LinuxCNC turns the machine off (off_reason 7).
 @program arm/arm_sim
-@args arm/arcmate/arcmate_gripper.arm
+@args arm/arm6/arm6_gripper.arm
 @include arm/tests/inc_grip_pick.txt
 grip expect 30 2.0 0 0 0.15
 grip close

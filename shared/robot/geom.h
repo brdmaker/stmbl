@@ -20,6 +20,22 @@
  *   obstacle NAME capsule x1 y1 z1 x2 y2 z2 r
  *   obstacle NAME box cx cy cz hx hy hz [a b c]
  *   obstacle NAME plane px py pz nx ny nz
+ *   obstacle ... dock T                   (any of these) part of tool T's
+ *                                         dock: see below
+ *   tool T ...  /  dock x y z a b c ...   tool table lines (tool.h): a dock
+ *                                         [mm, deg, the flange pose in it]
+ *                                         adds tool T's stand (a fork plate,
+ *                                         a post to the floor, as the
+ *                                         console draws it), and the tool's
+ *                                         bodies that follow (`body L ...
+ *                                         tool T`) are also obstacles at the
+ *                                         dock: the tool standing in it.
+ *                                         Dock T's obstacles count unless
+ *                                         tool T is mounted (gm_world.tool:
+ *                                         the dock is empty) or the arm works
+ *                                         at that dock (gm_world.dock: a tool
+ *                                         change); gm_world.dock -1: none
+ *                                         count (the simulated plant)
  *   selfignore I J                        body pair (0-based, in order of
  *                                         the body lines) not checked
  *   selfskip N                            bodies on links N apart or less
@@ -35,6 +51,7 @@
 
 #define GM_MAXOBS 32
 #define GM_MAXBODY 16
+#define GM_MAXTOOL 16
 
 enum { GM_SPHERE, GM_CAPSULE, GM_BOX, GM_PLANE };
 
@@ -47,6 +64,7 @@ typedef struct {
   double wa[3], wb[3];  // bodies: a, b in the world after gm_update
   char name[16];
   int tool;            // bodies: of tool T only (0: always there)
+  int dock;            // obstacles: of tool T's dock (0: always there)
 } gm_shape;
 
 typedef struct gm_world_s {
@@ -58,10 +76,18 @@ typedef struct gm_world_s {
   int selfskip;
   double k, c;         // plant contact
   int tool;            // the tool mounted now (0 none): its bodies count
+  int dock;            // the dock being worked at (0 none, -1: no dock obstacles at all)
+  // parsing the tool table: the tool being read, the docks [m, base frame]
+  int cur_tool;
+  int has_dock[GM_MAXTOOL];
+  double dock_p[GM_MAXTOOL][3], dock_R[GM_MAXTOOL][3][3];
 } gm_world;
 
 // a body that is there now (not another tool's)
 #define GM_ACTIVE(w, i) ((w)->body[i].tool == 0 || (w)->body[i].tool == (w)->tool)
+// an obstacle that is there now (not an empty dock's, not the dock being worked at)
+#define GM_OBS_ACTIVE(w, j) \
+  ((w)->obs[j].dock == 0 || ((w)->dock >= 0 && (w)->obs[j].dock != (w)->tool && (w)->obs[j].dock != (w)->dock))
 
 // A pair's closest points: d = signed distance (< 0: penetration) [m],
 // pa on the body's core (segment / centre), pb on the other shape's

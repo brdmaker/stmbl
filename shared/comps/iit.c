@@ -20,7 +20,11 @@ HAL_PIN(temp);
 HAL_PIN(cur);
 
 struct iit_ctx_t {
-  float e;
+  // double: at a motor-length time constant (max_time minutes) a float e is
+  // so large that one period's increment rounds away, and temp stalled short
+  // of its final value (DEBUGNOTES 2026-11-11, tests/iit_long.test). A few
+  // software double operations a period on the M4.
+  double e;
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -40,13 +44,23 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   float cur_n = PIN(max_cur) / MAX(PIN(cur_boost), 1.0);
   float max_e = PIN(max_cur) * PIN(max_cur) * MAX(PIN(max_time), 0.1);
+  float rise  = PIN(high_temp) - PIN(amb_temp);
 
-  float temp = ctx->e / max_e * (PIN(max_temp) - PIN(amb_temp)) + PIN(amb_temp);
+  // max_cur 0 (not configured yet) or high_temp <= amb_temp: no model. temp
+  // was 0/0 = NaN, which every later limit compared false against, for good
+  // (the NaN stayed in e). Keep it a number (tests/iit_guard.test).
+  if(!(max_e > 0.0) || !(rise > 0.0)) {
+    ctx->e    = 0.0;
+    PIN(temp) = PIN(amb_temp);
+    return;
+  }
 
-  float pin = PIN(cur) * PIN(cur);
-  float pout = (temp - PIN(amb_temp)) * cur_n * cur_n / (PIN(high_temp) - PIN(amb_temp));
+  float temp = (float)ctx->e / max_e * (PIN(max_temp) - PIN(amb_temp)) + PIN(amb_temp);
 
-  ctx->e += (pin - pout) * period;
+  float pin  = PIN(cur) * PIN(cur);
+  float pout = (temp - PIN(amb_temp)) * cur_n * cur_n / rise;
+
+  ctx->e += (double)((pin - pout) * period);
 
   PIN(temp) = temp;
 }

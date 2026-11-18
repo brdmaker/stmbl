@@ -53,7 +53,7 @@ vnout
 @expect vnode0.node[1] == 0
 @match ^vnout 0 frames
 @match ^vnout 0x7e4 1 11$
-@match ^vnout 0x7e4 32 232038475610005100413034120301007370696e646c65
+@match ^vnout 0x7e4 32 232038475610005100413034120302007370696e646c65
 @match ^vnout 0x7e4 16 2520384756100051004130341203
 @match ^vnflash stored node 3 name spindle
 @expect vnode0.node[2] == 3

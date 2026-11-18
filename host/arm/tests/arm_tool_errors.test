@@ -1,4 +1,4 @@
-# Tool changer faults (arcmate_changer.arm), each a machine off:
+# Tool changer faults (arm6_changer.arm), each a machine off:
 # 1. tool 2 comes off the plate mid-move (presence lost): the monitor's
 #    CH_LOST, off_reason 9 / 3; the tool is gone (dropped).
 # 2. (after the reset the monitor takes what its sensors show: no tool;
@@ -8,8 +8,8 @@
 # 4. unlock requested away from the dock: the valve stays locked (the tool
 #    would fall), CH_UNDOCKED, 9 / 4; the tool is still on.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_changer.arm
-detector arm/arcmate/model_perturbed.arm
+@args arm/arm6/arm6_changer.arm
+detector arm/arm6/model_perturbed.arm
 lcnc 0
 run 0.5
 lcnc 1

@@ -27,9 +27,11 @@
 #include <math.h>
 
 #include "hal.h"
+#include "sserial_port.h"
 #include "commands.h"
 #include "usbd_cdc_if.h"
 #include "drive.h"
+#include "defines.h"
 #include "pty.h"
 #include "sim_io.h"
 #include "sscon.h"
@@ -48,6 +50,9 @@ extern volatile uint64_t systime;
 // follows it exactly, and vel_cmd is what LinuxCNC sends (joint.N.vel-cmd:
 // the average over the last period).
 static int lcnc_on = 0;
+// more LinuxCNCs on the other sserial ports (a router card, lcncio): their servo threads run
+static int lcncio_on[SSERIAL_PORTS];
+static long lcncio_count[SSERIAL_PORTS];
 static int rt_count = 0;
 static float lcnc_acc = 0.0f, lcnc_vel = 0.0f;
 
@@ -144,10 +149,73 @@ static void lcnc_servo(void) {
   io->seq++;
 }
 
+// LinuxCNC's servo thread with timing jitter (lcnc_jitter): each period's
+// update arrives up to lcnc_jit rt ticks (0.2 ms) early or late, in order,
+// or (lcnc_drop %) not at all; its commands stay on the nominal 1 ms grid
+static int lcnc_jit = 0, lcnc_drop = 0;
+static long lcnc_due = 0;       // the rt tick the next update arrives at
+static long lcnc_nominal = 0;   // its nominal tick
+static uint32_t lcnc_rnd = 1;
+static int lcnc_rand(int n) {  // 0..n-1
+  lcnc_rnd = lcnc_rnd * 1103515245u + 12345u;
+  return (int)((lcnc_rnd >> 16) % (uint32_t)n);
+}
+long lcnc_updates, lcnc_dropped;
+
+static void lcnc_tick(void) {
+  long t = rt_count++;
+  if(!lcnc_jit && !lcnc_drop) {
+    if(t % RT_PER_NRT == 0) {
+      lcnc_servo();
+      lcnc_updates++;
+    }
+    lcnc_nominal = lcnc_due = t - t % RT_PER_NRT + RT_PER_NRT;
+    return;
+  }
+  if(t < lcnc_due) {
+    return;
+  }
+  lcnc_nominal += RT_PER_NRT;
+  if(lcnc_drop && lcnc_rand(100) < lcnc_drop) {
+    // lost: LinuxCNC still moves its command on, the drive doesn't see it
+    sim_sserial_io.pos_cmd += sim_sserial_io.vel_cmd * 0.001;
+    lcnc_dropped++;
+  } else {
+    lcnc_servo();
+    lcnc_updates++;
+  }
+  long next = lcnc_nominal + lcnc_rand(2 * lcnc_jit + 1) - lcnc_jit;
+  lcnc_due  = next > t ? next : t + 1;
+}
+
+void cmd_lcnc_jitter(char *ptr) {
+  int j = 0, d = 0;
+  unsigned s = 1;
+  sscanf(ptr, " %i %i %u", &j, &d, &s);
+  lcnc_jit  = CLAMP(j, 0, RT_PER_NRT - 1);
+  lcnc_drop = CLAMP(d, 0, 100);
+  lcnc_rnd  = s ? s : 1;
+  // the grid keeps its phase (lcnc_tick keeps lcnc_nominal on it): LinuxCNC's
+  // servo thread doesn't restart when its timing gets worse
+  printf("lcnc_jitter %i ticks (%.1f ms), %i %% lost\n", lcnc_jit, lcnc_jit * RT_PERIOD * 1e3, lcnc_drop);
+}
+COMMAND("lcnc_jitter", cmd_lcnc_jitter, "LinuxCNC servo jitter: lcnc_jitter <rt ticks 0..4> [lost %] [seed]");
+
+void cmd_lcnc_stats(char *ptr) {
+  (void)ptr;
+  printf("lcnc_updates = %ld\nlcnc_dropped = %ld\n", lcnc_updates, lcnc_dropped);
+}
+COMMAND("lcnc_stats", cmd_lcnc_stats, "LinuxCNC updates sent and lost (lcnc_jitter)");
+
 static void run_cycles(long n) {
   for(long i = 0; i < n; i++) {
-    if(lcnc_on && rt_count++ % RT_PER_NRT == 0) {
-      lcnc_servo();
+    if(lcnc_on) {
+      lcnc_tick();
+    }
+    for(int p = 1; p < SSERIAL_PORTS; p++) {  // the other sides: their outputs, again
+      if(lcncio_on[p] && lcncio_count[p]++ % RT_PER_NRT == 0) {
+        sim_sserial_port(p)->seq++;
+      }
     }
     if(lcnc_can) {
       can_host_run(RT_PERIOD * 1e6);  // the bus during this rt period
@@ -213,6 +281,16 @@ void cmd_lcnc(char *ptr) {
 }
 COMMAND("lcnc", cmd_lcnc, "LinuxCNC side: lcnc <enable> [vel_cmd [pos_cmd [acc]]], or show feedback");
 
+void cmd_lcncacc(char *ptr) {
+  float acc = 0.0f;
+  if(sscanf(ptr, " %f", &acc) == 1) {
+    lcnc_vel = sim_sserial_io.vel_cmd;
+    lcnc_acc = acc;  // ramps from where the command is, as LinuxCNC's planner
+  }
+  printf("lcnc acc %f vel %f\n", (double)lcnc_acc, (double)lcnc_vel);
+}
+COMMAND("lcncacc", cmd_lcncacc, "LinuxCNC side: lcncacc <rad/s^2>: ramp the speed from where it is (0: hold it)");
+
 void cmd_lcncscale(char *ptr) {
   float scale = 0.0f;
   if(sscanf(ptr, " %f", &scale) == 1) {
@@ -221,6 +299,44 @@ void cmd_lcncscale(char *ptr) {
   printf("lcnc scale %f\n", (double)sim_sserial_io.scale);
 }
 COMMAND("lcncscale", cmd_lcncscale, "LinuxCNC side: lcncscale <units per motor turn> (sserial0.scale while lcnc is on)");
+
+// either side of a router card (conf/template/sserial_router.txt) as its LinuxCNC sees it:
+// lcncio <port> [on|off] [out <mask>] [pos <v>] [vel <v>]; no settings: print what that side reads
+void cmd_lcncio(char *ptr) {
+  int port = -1, k = 0;
+  if(sscanf(ptr, " %i%n", &port, &k) < 1 || !sim_sserial_port(port)) {
+    printf("lcncio <port 0..%i> [on|off] [out <mask>] [pos <v>] [vel <v>]\n", SSERIAL_PORTS - 1);
+    return;
+  }
+  sim_sserial_io_t *io = sim_sserial_port(port);
+  ptr += k;
+  int set = 0;
+  char word[16];
+  float v;
+  while(sscanf(ptr, " %15s%n", word, &k) == 1) {
+    ptr += k;
+    set = 1;
+    if(!strcmp(word, "on") || !strcmp(word, "off")) {
+      *(port ? &lcncio_on[port] : &lcnc_on) = word[1] == 'n';
+    } else if(sscanf(ptr, " %f%n", &v, &k) == 1) {
+      ptr += k;
+      if(!strcmp(word, "out")) {
+        for(int i = 0; i < 4; i++) {
+          io->out[i] = ((int)v >> i) & 1;
+        }
+      } else if(!strcmp(word, "pos")) {
+        io->pos_cmd = v;
+      } else if(!strcmp(word, "vel")) {
+        io->vel_cmd = v;
+      }
+    }
+  }
+  if(!set) {
+    printf("lcncio%i.in = %i\nlcncio%i.fault = %i\nlcncio%i.pos_fb = %f\nlcncio%i.vel_fb = %f\n", port,
+           io->in[0] | io->in[1] << 1 | io->in[2] << 2 | io->in[3] << 3, port, io->fault, port, (double)io->pos_fb, port, (double)io->vel_fb);
+  }
+}
+COMMAND("lcncio", cmd_lcncio, "a router card's sides: lcncio <port> [on|off] [out <mask>] [pos <v>] [vel <v>], or print what it reads");
 
 void cmd_lcncindex(char *ptr) {
   int arm = -1;

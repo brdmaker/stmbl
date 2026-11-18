@@ -9,7 +9,7 @@
 # the drive is reset (power cycle; the shaft keeps its place:
 # hv0.sim_keep_pos in fanuc_sim.txt); LinuxCNC enables at the
 # position it reads, holds, then jogs 10 mm (5 mm/s for 2 s).
-@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+@args --drive tests/abs/mill_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
 hv0.sim_upos = 234.04866
 run 0.05
 reset

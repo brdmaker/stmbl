@@ -24,6 +24,7 @@
 #include "lbp_dev.h"
 #include "lbp_flash.h"
 #include "fwstage.h"
+#include "boot_logic.h"
 
 #if __GNUC__ < 5
 #error gcc to old (< 5.0)
@@ -281,6 +282,16 @@ static void sserial_loader(int dfu_timeout_s) {
   }
 }
 
+// PA13 for boot_pin_wants_dfu (shared/boot_logic.h)
+static int pa13_low(void *ctx) {
+  (void)ctx;
+  return !GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_13);
+}
+static void pa13_pause(void) {
+  for(volatile uint32_t d = 0; d < 1000; d++) {  // 20-200 us (16 to 168 MHz)
+  }
+}
+
 int main(void) {
   GPIO_InitTypeDef GPIO_InitDef;
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA | RCC_AHB1Periph_CRC, ENABLE);
@@ -290,7 +301,10 @@ int main(void) {
   GPIO_InitDef.GPIO_PuPd  = GPIO_PuPd_UP;
   GPIO_InitDef.GPIO_Speed = GPIO_Speed_2MHz;
   GPIO_Init(GPIOA, &GPIO_InitDef);
-  uint32_t pin = !GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_13);
+  // low on all 100 samples, and not while a debugger is attached: one read
+  // right after the pull-up came on sent drives to DFU (DEBUGNOTES
+  // 2026-10-29 / 2026-11-11)
+  uint32_t pin = boot_pin_wants_dfu(pa13_low, 0, pa13_pause, (CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0, 100);
   RCC_AHB1PeriphResetCmd(RCC_AHB1Periph_GPIOA, ENABLE);  // reset gpio a
   RCC_AHB1PeriphResetCmd(RCC_AHB1Periph_GPIOA, DISABLE);
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, DISABLE);
@@ -317,6 +331,8 @@ int main(void) {
     // AN2606: map the system memory at 0, so the ROM's interrupts (USB) use
     // its own vector table and not ours; without it the ROM's USB never
     // enumerated and the drive needed BOOT0 to recover.
+    // AN2606: the ROM expects the reset clock tree (HSI, PLL off)
+    RCC_DeInit();
     RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
     SYSCFG->MEMRMP = 0x01;
     __set_MSP(*((uint32_t *)0x1FFF0000));

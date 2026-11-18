@@ -1,7 +1,7 @@
 # The same run into the wall with the guard on: stop, 20 mm back along the
 # path, estop; contact force 0, the wrist clear of the wall, held there.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 @include arm/tests/inc_wall.txt
 mark
 guard on

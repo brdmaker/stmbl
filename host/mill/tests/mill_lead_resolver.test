@@ -1,6 +1,6 @@
 # The same warm screw on the resolver alone: the error the scale removes.
 @program mill/mill_sim
-@args mill/machine/cn720.mill
+@args mill/machine/bridge.mill
 trapfrac 0.1
 lcnc 1
 run 0.3

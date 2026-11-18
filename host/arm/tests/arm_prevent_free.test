@@ -2,7 +2,7 @@
 # from it (margin 10 mm) runs through, then after a protective stop at the
 # wall (machine on again) the arm may move away from it, but not closer.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 @include arm/tests/inc_wall.txt
 prevent 10
 lmove 2 910 -200 1271 0 0 0

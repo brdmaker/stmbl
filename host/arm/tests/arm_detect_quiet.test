@@ -5,8 +5,8 @@
 # residual floor stays under the thresholds (moving ~9/11/8 Nm on J1-J3,
 # up to ~25 Nm near standstill: stiction holds part of the load).
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
-detector arm/arcmate/model_perturbed.arm
+@args arm/arm6/arm6.arm
+detector arm/arm6/model_perturbed.arm
 lcnc 0
 run 0.5
 lcnc 1

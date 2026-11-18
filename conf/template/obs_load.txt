@@ -1,0 +1,11 @@
+# The velocity observers (vel1, vel2) model the
+# load as pid0 does: motor + conf0.j_sys below
+# conf0.j_lpf, the motor alone above it. Their
+# estimate follows a loaded axis better, and
+# id_pid finds damping (vel_d) instead of its
+# bound 1. The loop sees another plant: run
+# id_pid again after linking this.
+vel1.j_sys = conf0.j_sys
+vel2.j_sys = conf0.j_sys
+vel1.j_lpf = conf0.j_lpf
+vel2.j_lpf = conf0.j_lpf

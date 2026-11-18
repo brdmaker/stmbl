@@ -1,100 +1,73 @@
 #include "ringbuf.h"
 
-/**
- * Read a single byte from a buffer
- *
- * \param   rb    pointer to ringbuffer struct
- * \param   data  pointer to data byte
- * \return  number of bytes read (0 if buffer was empty)
- */
+// the other side's index: acquire, so its data is visible before it
+#define LOAD(x) __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
+// our own index: release, so our data is stored before it
+#define STORE(x, v) __atomic_store_n(&(x), (v), __ATOMIC_RELEASE)
+
+// a + d, mod 2 * bufsize (a < 2 * bufsize, d <= bufsize)
+static unsigned advance(const struct ringbuf *rb, unsigned a, unsigned d) {
+  a += d;
+  return a >= 2 * rb->bufsize ? a - 2 * rb->bufsize : a;
+}
+
+// index into buf
+static unsigned at(const struct ringbuf *rb, unsigned a) {
+  return a >= rb->bufsize ? a - rb->bufsize : a;
+}
+
+static unsigned used(const struct ringbuf *rb, unsigned rd, unsigned wr) {
+  return wr >= rd ? wr - rd : wr + 2 * rb->bufsize - rd;
+}
+
+unsigned rb_len(const struct ringbuf *rb) {
+  return used(rb, LOAD(rb->rd), LOAD(rb->wr));
+}
+
+unsigned rb_free(const struct ringbuf *rb) {
+  return rb->bufsize - rb_len(rb);
+}
+
 int rb_getc(struct ringbuf *rb, char *data) {
-  if(!rb->len)
-    return 0;
-
-  *data = rb->buf[rb->pos++];
-  if(rb->pos >= rb->bufsize)
-    rb->pos -= rb->bufsize;
-  rb->len--;
-  return 1;
+  return rb_read(rb, data, 1);
 }
 
-
-/**
- * Write a single byte to a buffer
- *
- * \param   rb    pointer to ringbuffer struct
- * \param   data  pointer to data byte
- * \return  number of bytes written (0 if buffer was full)
- */
 int rb_putc(struct ringbuf *rb, const char data) {
-  if(rb->len >= rb->bufsize)
-    return 0;
-
-  unsigned i = rb->pos + rb->len;
-  if(i >= rb->bufsize)
-    i -= rb->bufsize;
-
-  rb->buf[i] = data;
-  rb->len++;
-
-  return 1;
+  return rb_write(rb, &data, 1);
 }
 
-/**
- * Read from a buffer
- *
- */
 int rb_read(struct ringbuf *rb, void *data, int len) {
-  if(len > rb->len)
-    len = rb->len;
-
-  int len1 = len;
-  if(rb->pos + len1 >= rb->bufsize) {
-    int len2 = (rb->pos + len1) - rb->bufsize;
-    len1 -= len2;
-    memcpy((char *)data + len1, rb->buf, len2);
+  unsigned rd = rb->rd;  // ours
+  unsigned n  = used(rb, rd, LOAD(rb->wr));
+  if(len < 0) {
+    len = 0;
   }
-  memcpy(data, rb->buf + rb->pos, len1);
-
-  rb->len -= len;
-  rb->pos += len;
-  if(rb->pos >= rb->bufsize)  // was '>': pos could stay at bufsize, one past the end
-    rb->pos -= rb->bufsize;
-
-  return len;
+  if((unsigned)len < n) {
+    n = len;
+  }
+  unsigned p  = at(rb, rd);
+  unsigned n1 = rb->bufsize - p < n ? rb->bufsize - p : n;
+  memcpy(data, rb->buf + p, n1);
+  memcpy((char *)data + n1, rb->buf, n - n1);
+  STORE(rb->rd, advance(rb, rd, n));
+  return n;
 }
 
-
-/**
- * Write to a buffer
- *
- * \param   rb    pointer to ringbuffer struct
- * \param   data  pointer to data byte
- * \return  number of bytes written (0 if buffer was full)
- *
- */
 int rb_write(struct ringbuf *rb, const void *data, int len) {
-  int i       = 0;
-  char *d_ptr = (char *)data;
-  while(len > 0 && rb_putc(rb, *d_ptr++)) {
-    len--;
-    i++;
+  unsigned wr = rb->wr;  // ours
+  unsigned n  = rb->bufsize - used(rb, LOAD(rb->rd), wr);
+  if(len < 0) {
+    len = 0;
   }
-  return (i);
-  //  if (len > rb->bufsize - rb->len)
-  //      len = rb->bufsize - rb->len;
-  //
-  //  int len1 = len;
-  //  if (rb->pos + rb->len + len1 >= rb->bufsize) {
-  //      int len2 = (rb->pos + rb->len + len1) - rb->bufsize;
-  //      len1 -= len2;
-  //      memcpy(rb->buf, (char*)data + len1, len2);
-  //  }
-  //
-  //  memcpy(rb->buf + rb->pos + rb->len, data, len1);
-  //
-  //  rb->len += len;
-  //  return len;
+  if((unsigned)len < n) {
+    n = len;
+  }
+  unsigned p  = at(rb, wr);
+  unsigned n1 = rb->bufsize - p < n ? rb->bufsize - p : n;
+  memcpy(rb->buf + p, data, n1);
+  memcpy(rb->buf, (const char *)data + n1, n - n1);
+  STORE(rb->wr, advance(rb, wr, n));
+  return n;
 }
 
 int rb_getline(struct ringbuf *rb, char *ptr, int len) {
@@ -111,10 +84,10 @@ int rb_getline(struct ringbuf *rb, char *ptr, int len) {
   }
 
   // Look for the end of the line without consuming anything, so an
-  // incomplete line stays in place (no rb_undo while the writer adds to it).
-  unsigned avail = rb->len;
+  // incomplete line stays in place while the writer adds to it.
+  unsigned avail = rb_len(rb);
   unsigned n     = avail < (unsigned)len ? avail : (unsigned)len;
-  unsigned p     = rb->pos;
+  unsigned p     = at(rb, rb->rd);
   for(unsigned i = 0; i < n; i++) {
     if(rb->buf[p] == '\n') {
       rb_read(rb, ptr, i + 1);
@@ -137,17 +110,14 @@ int rb_getline(struct ringbuf *rb, char *ptr, int len) {
 }
 
 int rb_undo(struct ringbuf *rb, int len) {
-  if(len == 0) {
-    return (0);
+  if(len <= 0) {
+    return 0;
   }
-  if(rb->len + len > rb->bufsize) {
-    return (0);
+  // the bytes before rd are still there unless the writer reused them
+  if(rb_len(rb) + (unsigned)len > rb->bufsize) {
+    return 0;
   }
-  if(rb->pos < len) {
-    rb->pos = rb->pos + rb->bufsize - len;
-  } else {
-    rb->pos = rb->pos - len;
-  }
-  rb->len = rb->len + len;
-  return (len);
+  unsigned rd = rb->rd;
+  STORE(rb->rd, rd >= (unsigned)len ? rd - len : rd + 2 * rb->bufsize - len);
+  return len;
 }

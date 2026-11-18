@@ -3,7 +3,7 @@
  * three simulated STMBL drives (host/mill/millcore.c) as a LinuxCNC
  * realtime component (uspace).
  *
- *   loadrt stmbl_mill machine=/path/cn720.mill lib=/path/libstmbl_drive.so
+ *   loadrt stmbl_mill machine=/path/bridge.mill lib=/path/libstmbl_drive.so
  *   addf stmbl-mill.0 servo-thread
  *
  * The servo thread's period is the drives' packet rate (1 ms, 0.5 ms ...;
@@ -39,7 +39,7 @@ MODULE_DESCRIPTION("simulated fixed-bridge mill on simulated STMBL drives");
 MODULE_LICENSE("GPL");
 
 static char *machine = "";
-RTAPI_MP_STRING(machine, "machine file (host/mill/machine/cn720.mill)");
+RTAPI_MP_STRING(machine, "machine file (host/mill/machine/bridge.mill)");
 static char *lib = "";
 RTAPI_MP_STRING(lib, "libstmbl_drive.so");
 

@@ -31,6 +31,28 @@ HAL_PIN(real_cmd_freq);
 HAL_PIN(wd);
 HAL_PIN(error);
 
+// sync 1: place each command at its LinuxCNC time instead of its arrival.
+// LinuxCNC's servo thread computes its positions on an exact 1/cmd_freq grid
+// but they arrive with its (and the link's) timing jitter: taken when it
+// arrives, an update early or late by d moves the command by vel x d, and a
+// lost one is extrapolated past the watchdog or (mode 1) taken as one period
+// when it was two (DEBUGNOTES 2026-11-11, tests/lcnc_jitter.test). The drive's
+// clock is locked to LinuxCNC's (sserial clock_scale), so the grid is tracked
+// by dead reckoning, its phase pulled toward the arrivals by sync_k each
+// update; a gap counts as the whole periods it spans. After more than
+// sync_resync periods without an update (standing still, the packets don't
+// change) the next arrival starts the grid again, as with sync 0.
+// Needs cmd_freq at LinuxCNC's servo rate, as mode 1 does (set lower,
+// sync_resyncs counts up and the following error is worse than sync 0). A
+// lost update leaves a gap of two periods plus the jitter: wd 0.003 rides
+// through one (wd 0.002 stops the extrapolation and flags error).
+HAL_PIN(sync);
+HAL_PIN(sync_k);       // the phase loop's gain, 0.02 (a time constant of 50 updates)
+HAL_PIN(sync_resync);  // [updates] 8
+HAL_PIN(sync_dev);     // out: the last update's arrival minus its place on the grid [s]
+HAL_PIN(sync_lost);    // out: updates the grid says were missed, counted
+HAL_PIN(sync_resyncs); // out: updates over half a period early (cmd_freq too low?), counted
+
 struct vel_int_ctx_t {
   float pos;
   float counter;
@@ -42,6 +64,10 @@ struct vel_int_ctx_t {
   int n;         // packets seen (up to 2)
   float v, a;    // velocity and acceleration at the newest packet
   float t;       // time since it
+  // sync
+  float tn;      // time since the newest command's place on LinuxCNC's grid
+  int locked;    // tn means something
+  int k1;        // periods the newest step spans (mode 1)
 };
 
 static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -61,6 +87,36 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
   PIN(cmd_freq) = 1000.0;
   ctx->cmd_freq = PIN(cmd_freq);
+
+  PIN(sync)        = 0.0;
+  PIN(sync_k)      = 0.02;
+  PIN(sync_resync) = 8.0;
+  ctx->locked      = 0;
+  ctx->k1          = 1;
+}
+
+// sync: a new command arrived tn after the last one's place on the grid.
+// Returns the periods it spans (1 unless updates were lost) and sets tn to the
+// time since its own place (negative when it came early).
+static int sync_arrive(struct vel_int_ctx_t *ctx, struct vel_int_pin_ctx_t *pins, float T) {
+  int k = (int)(ctx->tn / T + 0.5);
+  // k 0: more than half a period early on the grid. Not jitter (that is far
+  // less); cmd_freq lower than LinuxCNC's rate. Start the grid again each
+  // time, which takes the updates as they arrive (sync 0).
+  if(!ctx->locked || ctx->tn > PIN(sync_resync) * T || k < 1) {
+    if(ctx->locked && k < 1) {
+      PIN(sync_resyncs)++;
+    }
+    ctx->locked   = 1;
+    ctx->tn       = 0.0;
+    PIN(sync_dev) = 0.0;
+    return 1;
+  }
+  float dev = ctx->tn - k * T;
+  PIN(sync_dev) = dev;
+  PIN(sync_lost) += k - 1;
+  ctx->tn = dev * (1.0 - CLAMP(PIN(sync_k), 0.0, 1.0));
+  return k;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
@@ -70,22 +126,41 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   float p     = PIN(pos_in);
   float v     = PIN(vel_in);
   int new_cmd = p != ctx->last_p || v != ctx->last_v;  // before the watchdog zeroes v
+  int sync    = PIN(sync) > 0.0;
+  float T     = 1.0 / MAX(PIN(cmd_freq), 1.0);
+  int k       = 1;  // periods since the last command (sync)
+  if(sync) {
+    // also mode 1 after a lost update: without sync it takes the two
+    // periods' step as one, twice the speed and a spike of acceleration
+    // (0.48 rad of following error at 100 rad/s, tests/lcnc_jitter_sync.test).
+    // The arrival gap alone can't tell: with +-0.4 ms of jitter a late then
+    // an early update are 1.8 ms apart, and rounding that made it worse.
+    ctx->tn += period;
+    if(new_cmd) {
+      k = sync_arrive(ctx, pins, T);
+    }
+  } else {
+    ctx->locked = 0;
+  }
 
   if(PIN(mode) > 0.0) {
     if(new_cmd) {
-      float T  = 1.0 / MAX(PIN(cmd_freq), 1.0);
+      // the two steps span t1 and t0 (one period each, unless sync saw
+      // updates lost): average speeds s1, s0 at their middles
+      float t1 = k * T, t0 = ctx->k1 * T;
       float d1 = ctx->n >= 1 ? minus(p, ctx->p1) : 0.0;
       float d0 = ctx->n >= 2 ? minus(ctx->p1, ctx->p2) : 0.0;
       int stop = v == 0.0 || d1 == 0.0;
       if(stop || ctx->n < 2) {  // stopped (or starting): hold
-        ctx->v = d1 / T, ctx->a = 0.0;
+        ctx->v = d1 / t1, ctx->a = 0.0;
         if(v == 0.0) {
           ctx->v = 0.0;
         }
       } else {
-        ctx->a = (d1 - d0) / (T * T);
-        ctx->v = d1 / T + ctx->a * T * 0.5;
+        ctx->a = (d1 / t1 - d0 / t0) / (0.5 * (t1 + t0));
+        ctx->v = d1 / t1 + ctx->a * t1 * 0.5;
       }
+      ctx->k1 = stop ? 1 : k;
       // after a stop the history is "standing at p": standing still the
       // packets repeat and aren't new, so p2 would stay whatever came before
       // the stop (a jump while disabled, say), and the next move's first
@@ -93,7 +168,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
       ctx->p2 = stop ? p : ctx->p1;
       ctx->p1 = p;
       ctx->n  = stop ? 2 : ctx->n < 2 ? ctx->n + 1 : 2;
-      ctx->t  = 0.0;
+      ctx->t  = sync ? ctx->tn : 0.0;  // sync: at its place on the grid
       ctx->counter = 0.0;
       ctx->last_p = p, ctx->last_v = v;
       ctx->cmd_freq += 1.0;
@@ -136,7 +211,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->last_p  = p;
     ctx->last_v  = PIN(vel_in);
     ctx->counter = 0.0;
-    ctx->pos     = p;
+    ctx->pos     = sync ? p + v * ctx->tn : p;  // sync: at its place on the grid
     ctx->cmd_freq += 1.0;
   } else {
     ctx->pos += v * period;

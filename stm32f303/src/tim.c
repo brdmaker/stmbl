@@ -91,9 +91,12 @@ void MX_TIM8_Init(void) {
   sBreakDeadTimeConfig.BreakState       = TIM_BREAK_ENABLE;
   sBreakDeadTimeConfig.BreakPolarity    = TIM_BREAKPOLARITY_HIGH;
   sBreakDeadTimeConfig.BreakFilter      = 0xa;  //0.55uS
-  sBreakDeadTimeConfig.Break2State      = TIM_BREAK2_DISABLE;
+  // BKIN2 is phase W's comparator (COMP1, main.c): it was disabled, so a
+  // phase W overcurrent never cut the PWM (DEBUGNOTES 2026-11-10,
+  // host/tests/check_safety_wiring.py). Filtered as BKIN.
+  sBreakDeadTimeConfig.Break2State      = TIM_BREAK2_ENABLE;
   sBreakDeadTimeConfig.Break2Polarity   = TIM_BREAK2POLARITY_HIGH;
-  sBreakDeadTimeConfig.Break2Filter     = 0;
+  sBreakDeadTimeConfig.Break2Filter     = 0xa;  //0.55uS
   sBreakDeadTimeConfig.AutomaticOutput  = TIM_AUTOMATICOUTPUT_DISABLE;
   if(HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig) != HAL_OK) {
     Error_Handler();

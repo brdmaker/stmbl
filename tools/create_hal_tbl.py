@@ -2,6 +2,8 @@
 import re
 import sys
 
+PIN_NAME_MAX = 23  # shared/hal.h PIN_NAME is 24 bytes with the terminating 0
+
 comps = []
 
 for infile in sys.argv[2:]:
@@ -55,11 +57,12 @@ for comp_name, pins, file_name, comp_file in comps:
     # code.write("   \"nrt_start_time\",\n")
     
     for (p, i) in pins:
-        if i > 1:
-            for j in range(i):
-                code.write("   \"" + p + str(j) + "\",\n")
-        else:
-            code.write("   \"" + p + "\",\n")
+        names = [p + str(j) for j in range(i)] if i > 1 else [p]
+        for n in names:
+            if len(n) > PIN_NAME_MAX:  # shared/hal.h PIN_NAME: 24 bytes with the 0
+                sys.exit("create_hal_tbl.py: pin name '%s' (%s, %s) is %d characters, at most %d fit"
+                         % (n, comp_name, file_name, len(n), PIN_NAME_MAX))
+            code.write("   \"" + n + "\",\n")
 
 code.write("};\n\n")
 code.write("const uint32_t pin_count = sizeof(pins) / sizeof(pins[0]);\n\n")

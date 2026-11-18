@@ -12,6 +12,9 @@
 extern uint8_t APP_Rx_Buffer[]; /* Write CDC received data in this buffer.
                                      These data will be sent over USB IN endpoint
                                      in the CDC core functions. */
+extern uint32_t APP_Rx_ptr_out;  // the USB interrupt sends from here (read it with CDC_IN_OUT)
+#define CDC_IN_OUT (*(volatile uint32_t *)&APP_Rx_ptr_out)
+extern volatile uint32_t usb_tx_dropped;  // bytes dropped for a host reading too slowly (src/usb_cdc.c)
 extern uint32_t APP_Rx_ptr_in;  /* Increment this pointer or roll it back to
                                      start address when writing received data
                                      in the buffer APP_Rx_Buffer. */

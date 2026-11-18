@@ -346,6 +346,97 @@ Entry format:
   a fault code set from nrt when hal.hal_state != HAL_OK2), so LinuxCNC and
   the web UI see it.
 
+## 2026-11-15  "HV CRC error" (fault 8) is never raised
+- Area:    `src/comps/hv.c` (the F3 link), `shared/comps/fault.c`
+- Status:  Known
+- Symptom: brdmot's console help lists the drive faults; HV CRC error can't occur on this firmware.
+- Cause:   the line that would set it is commented out in hv.c: a bad packet from the HV board is counted
+  (`crc_error`) and dropped; enough of them in a row end as "HV timeout" (fault 9).
+- Fix:     none needed: the console's help says that a CRC problem shows as HV timeout. If CRC errors should fault
+  on their own, that's a decision (with a test) for hv.c.
+
+## 2026-11-14  stmbl_arm built from mixed objects after a header change (empty drive library path)
+- Area:    `host/arm/lcnc/Makefile` (the LinuxCNC module stmbl_arm), `host/arm/Makefile` (arm_sim)
+- Status:  Fixed
+- Symptom: brdmot's `make test-hmi`: "armcore: dlmopen : ...: cannot read file data", "bad line: drive 1
+  j1.conf": stmbl_arm saw an empty `lib=` although the INI and even a literal path gave it one.
+- Cause:   the rules listed headers by hand and missed some: after geom.h and tool.h grew (dock obstacles,
+  dockvia), make rebuilt geom.o / tool.o / plant.o / changersim.o but kept armcore.o and stmbl_arm_rt.o with the
+  old struct layouts; the module then wrote past its structs (the library path among the victims). The session
+  hook's LinuxCNC restore installs this build, so it came back after a restart.
+- Fix:     `-MMD -MP` and `-include *.d`: gcc's own header lists. arm_sim depends on every shared/robot header.
+  brdmot's linuxcnc/arm* modules the same. Test: host/tests/test_arm_makedeps.py (make -n -W <header>: every
+  object that includes it rebuilds; it failed on the old Makefile: geom.o alone; skipped without LinuxCNC).
+
+## 2026-11-14  Tool docks as obstacles for the guard (shared/robot geom.c); `dockvia`
+- Area:    `shared/robot/geom.c` / `geom.h`, `tool.c` / `tool.h`, `host/arm/plant.c`
+- Status:  Fixed
+- Symptom: brdmot's ARC Mate: the docks (stands, docked tools) were only in the console's drawing; armguard's
+  collision prevention didn't know them.
+- Cause:   the cell had no obstacles for them; the tool table's dock lines were read only by tool.h.
+- Fix:     a dock line adds its stand and the tool standing in it as obstacles tagged `dock T`; they count
+  unless T is mounted or `gm_world.dock` (the dock being worked at) is T; `dock -1` (the plant): none.
+  `dockvia dx dy dz` in the tool table: where tool changes pass in front of the docks (not `changer`: host/arm's
+  changersim reads that). Tests: tests/robot/test_robot.c (dock obstacles, dockvia); brdmot `make test-tool`.
+
+## 2026-11-13  Velocity observer ignores the load inertia (`conf0.j_sys`)
+- Area:    `shared/comps/vel.c`, `conf/template/pid.txt` (`vel1.j = conf0.j`), `conf/template/obs_load.txt`
+- Status:  Workaround (opt-in `link obs_load`; the default is unchanged)
+- Symptom: On a loaded axis the observer's estimate is off by up to 6.7 rad/s on 1000 rad/s^2 ramps (burn-in
+  motor + 5x inertia, stiff coupling, host sim), and id_pid leaves vel_d at its bound 1.
+- Cause:   vel1/vel2 predict torque / j (motor only), while pid0 splits at j_lpf (j + j_sys below it); between
+  the observer's 50 Hz and j_lpf the prediction is (j + j_sys) / j too high.
+- Fix:     vel.c pins j_sys, j_lpf (the same split as pid0; 0: as before). `link obs_load` links them: estimate
+  3.6 rad/s, id_pid finds vel_d 6.7, following error 0.032 -> 0.022 rad rms (a light soft load: 0.016 ->
+  0.024). Not the default: gains tuned with the old observer went into a 12 Hz limit cycle with the new model,
+  and the simulator machines (host/mill, portal) set j_sys with gains tuned without it. Re-run id_pid after
+  linking it. Test: host/tests/vel_obs_load.test (6.7 on the old vel.c). Bench: try on a loaded axis.
+
+## 2026-11-13  A fresh container lacks libGLU for gmsh (`make -C host check` fails at test_step2cell.py)
+- Area:    host check environment (`tests/robot/test_step2cell.py`, gmsh)
+- Status:  Workaround
+- Symptom: `OSError: libGLU.so.1: cannot open shared object file`, make check stops.
+- Cause:   gmsh from pip loads libGLU; the session image doesn't have it (CI installs it).
+- Fix:     `apt-get install -y libglu1-mesa`.
+
+## 2026-11-12  encf: request from the frt timer (`encf0.req_sync`), unproven here
+- Area:    `src/comps/encf.c`, `src/main.c` (TIM_SLAVE_HANDLER), `shared/encf_req.h`
+- Status:  Open
+- Symptom: The rt code starts a few us of jitter after the timer edge, so the
+  encoder's latch time (on the request) jitters with it. stmbl_freak's α3:
+  vel noise above 200 Hz 0.14 -> 0.105 rad/s, iq 0.45 -> 0.37 A with req_sync.
+- Cause:   rt writes SPI3 itself. TIM_SLAVE (TIM2, frt, priority 0) counts
+  TIM_MASTER (TIM4), which triggers the ADC that paces rt, so its next update
+  after rt is always at the same time after the edge.
+- Fix:     `encf0.req_sync = 1` arms the word; the frt interrupt sends it
+  first thing. `req_phase` shows TIM_SLAVE's count at arming. Default 0
+  until a bench run here: compare vel1/iq noise and `sserial_advance.py`'s
+  pos_advance with 0 and 1 on the α2/3000, then make 1 the default if it
+  helps. Tests: host/tests/test_encf_req.c (mailbox), check_encf.py 6-9
+  (wiring; they fail on the sources before).
+
+## 2026-11-11  FANUC α: what id_* reads against the datasheet (stmbl_freak)
+- Area:    `conf/fanuc_a2-3000.txt`, `host/tests/motors.py`
+- Status:  Note
+- Symptom: stmbl_freak's commissioned α3/3000 and α6/3000 (annotated
+  `[plate]`/`[id]`) differ from FANUC's datasheet in a steady way.
+- Cause:   psi 0.91 x the datasheet; r 1.16 x (cable, warm winding); j
+  1.16 x, 1.29 x with the brake; Ld < Lq (mtpa pays); L/R ~3-6 ms.
+- Fix:     Used as the expected values in the α2/3000 starting config (not
+  commissioned yet, so not on hardware). host/tests/test_motor_table.py
+  checks its derived lines and that motors.py rows match their configs;
+  motor_fanuc_a2_3000.test (autotune), soak and ebrake run it.
+
+## 2026-11-11  A stale `__pycache__` hid an edit to `host/tests/motors.py`
+- Area:    host python tests (`tests/motors.py` is imported)
+- Status:  Known
+- Symptom: After editing and reverting a motors.py value within one second,
+  `make check` still saw the edited value.
+- Cause:   Python's .pyc check compares source mtime (in whole seconds) and
+  size; the revert kept both, so the stale .pyc was used.
+- Fix:     `rm -rf host/tests/__pycache__` after quick scripted edits. Not a
+  problem for edits made by hand.
+
 ## 2026-11-09  One `pid0.vel_error = -inf` read in a soak (garbled, or real?)
 - Area:    `shared/comps/pid.c`, the USB console
 - Status:  Open
@@ -398,6 +489,12 @@ Entry format:
     timing is it, that can fail too).
   - Then hv0: send ERASE_FLASH and CRC_CHECK once and only listen until
     the reply comes.
+- Also:    2026-11-11, from stmbl_freak (which fixed this): f3_boot erases a page at a time and skips blank pages,
+  so a repeated ERASE answers in ms instead of erasing all 56 pages again; hv_update allows 12 s for the erase
+  (BOOT_ERASE_TICKS, was 4 s) and sends CRC_CHECK once, then listens 100 sending ticks (a request every tick
+  re-armed the receive and could lose the answer: the old-bootloader CRC_CHECK entry below may be the same).
+  shared/boot_logic.h; tests host/tests/test_boot_logic.c, host/tests/check_boot.py. Needs the new f3_boot on
+  the HV board (`make f3_boot_btburn`, DFU) and a bench hv_update to close.
 
 ## 2026-11-09  fanuc_tw: the request with interrupts on, 20 % sync errors: causes ruled out
 - Area:    `src/comps/fanuc_tw.c` (transmit_and_listen)
@@ -768,7 +865,7 @@ Entry format:
 
 ## 2026-05-24  ARM firmware build hangs in add_version_info.py
 - Area:    `tools/add_version_info.py`, `tools/crc32.py`, `tools/elf.py` (POSTLD step)
-- Status:  Workaround (Debian 12's binutils 2.40 builds fine; still hangs with 2.42)
+- Status:  Workaround (Debian 12's binutils 2.40 builds fine; 2.42 on Ubuntu 24.04 builds fine too since 2026-11-11)
 - Symptom: `make` (and the bootloader/f3 sub-makes) hang after linking, in the
   CRC/version post-processing step. The python process spins at ~800 MB RSS and
   never finishes. The C compiles fine; only this post-link step hangs.
@@ -781,6 +878,13 @@ Entry format:
   `elf_to_bin`/`add_version_info.py`, include only loadable flash sections
   (ALLOC+LOAD with LMA in the flash region) and skip RAM-LMA and debug sections,
   or cap/validate the computed image size before allocating.
+- 2026-11-07: `make obj_app/stmbl.elf` (link + version patch + CRC) finished in
+  seconds with binutils 2.42 / gcc 13.2.1 in the cloud container (`.data` LMA
+  in flash, 0x0806884c). `make all` (bootloader, F3, .dfu) not tried there.
+
+- 2026-11-11: the full `make deploy` (both bootloaders, F3, F4, f3/f4/stmbl .dfu) builds in ~5 s with Ubuntu
+  24.04's gcc-arm-none-eabi 13.2.1 / binutils 2.42, three clean runs; no hang. The CI firmware job
+  (.github/workflows/ci.yml) builds it on every push, so a return of the hang shows up there.
 
 ## 2026-05-24  ILP32 sscanf corruption in hal.c on 64-bit hosts
 - Area:    `shared/hal.c` (`hal_parse_`, `hal_linked_pins`)
@@ -1214,17 +1318,22 @@ Entry format:
   unreliable j shows. 5000 was fine on the bench motor (no faults).
 
 ## 2026-10-14  USB text and scope frames mix when the drive's TX buffer overflows
-- Area:    `src/syscalls.c` (`_write`), `src/usb_cdc.c` (`cdc_tx`), USB VCP
-- Status:  Open
+- Area:    `src/syscalls.c` (`_write`), `src/usb_cdc.c` (`cdc_tx`), USB VCP, shared/cdc_in.h
+- Status:  Fixed (unit test + source check); bench check open
 - Symptom: Scope bytes inside text: `[..] ?zy?L?{??conf0.j = ...` while
   logging 9-byte frames at 5 kHz (most frames were lost too), and 2 of 141
   `servoterm-cli --dump` reads with 9 text bytes missing or 1 replaced.
-- Cause:   Probably `_write`/`cdc_tx` writing into APP_Rx_Buffer without
-  checking how much is still unsent, so the write pointer laps unsent data
-  when the host doesn't keep up. Not confirmed.
-- Fix:     Idea: drop (or block for) data that doesn't fit, frame-atomic for
-  scope frames. Meanwhile: log at `--step 5` or slower (1 kHz had no losses),
-  and `--load` verifies by reading back, so a garbled read can't go to flash.
+- Cause:   (confirmed 2026-11-11) `_write` and `cdc_tx` wrote into APP_Rx_Buffer
+  without checking the free space: the write pointer lapped bytes the USB
+  interrupt hadn't sent yet when the host didn't keep up. Both run in the
+  main loop (one writer), so it was only the missing check.
+- Fix:     2026-11-11: both through `cdc_in_put` (shared/cdc_in.h): a scope
+  frame goes whole or not at all, text as much as fits; `_write` waits up to
+  20 ms in the main loop (feeding the watchdog) for the host, then drops.
+  `usbdiag` shows `dropped`. Tests: host/tests/test_cdc_in.c (a simulated
+  USB interrupt draining slower than the writers; the old code overwrote
+  unsent bytes and split frames), host/tests/check_usb.py. Bench: scope at
+  5 kHz while dumping the config: no text garbled, `dropped` counts the loss.
 
 ## 2026-10-18  setsserial could not flash through the smart-serial loader
 - Area:    `shared/lbp_dev.c`, `bootloader/src/main.c` (sserial_loader),
@@ -3921,6 +4030,9 @@ Entry format:
   CMP40M) merged with master: mill_move's following error 16.9 / 17.2 um
   against 15 (the branch: under 15); with pos_advance 0.0006 10/10. Marked
   @todo there too.
+- Also:    2026-11-11, tools/sserial_advance.py (from stmbl_freak) fits it from LinuxCNC's following error. On the
+  simulated drive (hwtest/burnin-sim `make test-advance`) it gives 0.00059 with 0.0006 configured (-9 us, inside
+  the scatter) and finds a 0.5 ms error put in over the console. Run it on the bench drive to close this.
 
 ## 2026-10-23  brdstepper KiCad project: what KiCad 7 headless can't do, and the board's room
 - Area:    hardware/brdstepper/gen (gen.py, check.py, pcb.py, drc.py)
@@ -4459,6 +4571,11 @@ Entry format:
   read, then leave) until it starts. Next: reproduce on a drive with the
   debugger, check whether the bootloader's clear reaches CCM before the ROM
   jump.
+- Also:    2026-11-11, another cause that fits (stmbl_freak's fix): the bootloader read PA13 (SWDIO, pull-up) once,
+  right after turning the pull-up on; a pin still charging read low = "DFU requested". Now low on all 100
+  samples (~2-20 ms) and never under a debugger (C_DEBUGEN), and RCC_DeInit before the ROM jump (AN2606: the ROM
+  expects the reset clocks). Tests: host/tests/test_boot_logic.c, host/tests/check_boot.py. Needs the new
+  bootloader on a drive (`make boot_btburn`) and a few btburn cycles to close.
 
 ## 2026-10-29  Bench: a new drive dropped off USB for good
 - Area:    hardware (drive with USB serial 207D35A45631)
@@ -5199,3 +5316,288 @@ Entry format:
 - Fix:     master's hv.c; sim_keep_pos restores `upos` and sets `abs0 = upos - abs_pos`
   from the static memory, so sim_abs_pos keeps its place over a reset and sim_off_move
   moves both. Host check 1476/1478 (2 known TODO), tests/abs included.
+
+## 2026-11-07  sserial on enc0 (router card): v3 pins in the first mod
+- Area:    `src/comps/sserial.c` (second instance), `inc/hw/hw.h`
+- Status:  Note
+- Symptom: A second sserial instance with RX on USART3/PB11 and TX enable PB7
+  would not hear enc0 on a v4.1 board, and drives the CMD port's transmitter.
+- Cause:   PB10/PB11 USART3 are the v3 FB0 UART. On v4 (netlist hw/kicad/v4.0)
+  enc0's pairs are: 1/2 = PD12, PC7, PC11 (driver enable PD11), 3/6 = PD13,
+  PC8, PC10 (enable PD10), 4/5 = PD14, PC6, PC12 (enable PD15). PB7 is CMD_36E,
+  the CMD port's TX driver. The TX DMA's `DMA_Mode = DMA_Priority_Low` (from
+  upstream) is a typo with the same value as `DMA_Mode_Normal`.
+- Fix:     Port table in sserial.c: port 1 = USART3 RX PC11 (DMA1 S1) on 1/2,
+  TX PC10 (DMA1 S3) on 3/6, PD10 high, PD11/PD15 low: the CMD port's pairs, so
+  the same cable to a Mesa port. sserialN on port N (`sserialN.port`). Typo
+  fixed. Built on master's reply_mode (idle IRQ per port: USART1_IRQHandler,
+  USART3_IRQHandler). Not yet run on hardware.
+- 2026-11-07: enc1 added (port 2: USART3 RX PB11 on 1/2, TX PB10 on 4/5;
+  enc1's 3/6 pair PE11/PB12/PB13 has no UART TX on the F405) and enc0 on
+  USART6 (port 3: PC7/PC6, TX on 4/5) so enc0 and enc1 can run together.
+  Ports and their USARTs: shared/sserial_port.h; a clash errors the later
+  instance (host-tested).
+
+## 2026-11-07  sserial: two instances can both busy-wait in one frt tick
+- Area:    `src/comps/sserial.c` (process-data RPC, reply_mode 0)
+- Status:  Workaround (conf/template/sserial_router.txt sets reply_mode 1)
+- Symptom: none seen (no hardware run yet): a timing risk.
+- Cause:   In reply_mode 0 each instance waits up to 5 bytes (~22 us at 2.5
+  Mbaud) for the rest of a process-data frame. sserial1's host is not
+  phase-locked to the card (io0.clock_scale follows sserial0), so both waits
+  can fall in the same 50 us frt period.
+- Fix:     The router template sets reply_mode 1 on both: each port's own
+  idle-line interrupt (USART1, USART3) answers, and the frt does not wait.
+
+## 2026-11-07  HAL: a comp without ctx shares its ctx address with the next one
+- Area:    `shared/hal.c` (load_comp), anything that finds its own instance
+- Status:  Note
+- Symptom: sserial0 (host model) found itself as instance 1 and listened on
+  port 1: CMD error at start in acc_ff_jump, mot_temp_fb.
+- Cause:   ctx = &hal.ctxs[ctx_count]; a comp with ctx_size 0 doesn't advance
+  ctx_count, so the next comp gets the same ctx pointer. Matching
+  comp_insts[i].ctx == ctx_ptr hit the earlier comp.
+- Fix:     Match `comp_insts[i].pin_insts == pin_ptr` (every comp has pins).
+  Also in the host model: take the port's seq at load (nrt_init), not at the
+  first rt, or the first packet is missed and the link starts in timeout.
+
+## 2026-11-07  Session hook: LinuxCNC restore script moved away in the repo split
+- Area:    `.claude/hooks/session-start.sh`, `hwtest/linuxcnc_restore.sh`
+- Status:  Fixed
+- Symptom: in a fresh cloud session LinuxCNC (/home/user/linuxcnc-2.9) was missing; /tmp/linuxcnc_restore.log:
+  "failed to run command .../hwtest/arcmate-sim/linuxcnc_restore.sh: No such file".
+- Cause:   the script went to brdmot with hwtest/arcmate-sim, but stmbl's own LinuxCNC tests (hwtest/*-sim,
+  host/lcnc) and the archive (orphan branch linuxcnc-bin) are here.
+- Fix:     hwtest/linuxcnc_restore.sh: restore, packages, the user lcnc, stmbl's modules (stmbl_sim, the arm,
+  sserialterm, stmblcan); the hook runs it. brdmot's script calls this one through its submodule. No automated test:
+  environment set-up, checked by running it.
+
+## 2026-11-09 The machines' configs and models moved to brdmot
+- Area:    hwtest/, host/mill, host/arm (repository layout)
+- Status:  Note
+- Symptom: older entries name `hwtest/mill-sim`, `hwtest/hsm400u-sim`, `hwtest/arcmate`, `host/mill/machine/cn720*.mill`,
+  `hsm400u*`, `host/mill/HSM400U.md`, `runs.py`, `hsm_runs.py`, `RESULTS.md`, `host/mill/tests/hsm_*.test`,
+  `host/arm/arcmate/`.
+- Cause:   machine configs belong with the machines (brdmot), stmbl keeps the drive.
+- Fix:     moved with their history to brdmot: `hwtest/cn720-sim` (was mill-sim), `hwtest/hsm400u-sim`, `hwtest/arcmate`,
+  `sim/mill/...`, `sim/arm/arcmate`. stmbl's tests run on generic copies: `host/mill/machine/bridge*.mill` (the CN 720's
+  data), `host/arm/arm6/` (the ARC Mate's), `host/tests/abs/mill_x_fanuc.conf`. `make -C host check` passes.
+
+## 2026-11-10 The retrofit portal machines moved to brdmot
+- Area:    host/portal/machine, host/portal/tests (repository layout)
+- Status:  Note
+- Symptom: older entries name `host/portal/machine/retrofit/...` and `portal_retrofit*.test`.
+- Fix:     moved with their history to brdmot's `sim/portal/retrofit` and `sim/portal/tests` (`make sim-check` there).
+  The gantry-link tests run on generic copies: `host/portal/machine/gantry/heavy_glink.portal` (laser3015's),
+  `light_glink.portal` (pcbdrill's), `slow_glink.portal` (cmm's). `make -C host check` passes.
+
+## 2026-11-10 Safety gaps found by comparing with the stmbl_freak fork
+- Area:    stm32f303 (PVD, CSS)
+- Status:  Fixed (unit tests + source checks); bench check open
+- Symptom: (from the fork's analysis) no F3 undervoltage break (PVD) and no clock security (CSS): a sagging 3.3 V
+  or a failed crystal left the bridge to chance. The other findings are fixed, see the 2026-11-10 and 2026-11-11
+  entries (iabs, Break2, io4 rt_stop, appendconf; hal stop paths / F3 bridge off, F3 watchdog and ADC wait,
+  ringbuf, iit).
+- Cause:   inherited from upstream; FreaKontrol's fork (brdmaker/stmbl_freak, Eduard Kachur 2026-10) fixed it.
+- Fix:     2026-11-11 (A5): the PVD (level 6, ~2.7 V) and a core lockup break TIM8 (SYSCFG_CFGR2 PVD_LOCK,
+  LOCKUP_LOCK); io latches PVDO while enabled and reports the break as HV_UNDERVOLT_ERROR (22, new;
+  STMBL_FW_VERSION 2, docs/firmware_versions.md) instead of HV_OVERCURRENT_HW. CSS on; its NMI clears CSSF and
+  turns the bridge off before hal_error (the F3 then runs on HSI, the link with it, so the F4 sees
+  HV_TIMEOUT_ERROR; the watchdog resets it). Tests: host/tests/test_f3_safety.c (PVD latch),
+  check_safety_wiring.py (PVD, locks, CSS, NMI), check_faults.py (fault lists in step; soak.py lacked 19-21),
+  tests/ebrake/estop_hv_undervolt.test (the F4 names 22 and turns the outputs off). Bench: a slow HV ramp down
+  with the drive enabled should end in fault 22, not 16.
+
+## 2026-11-10 F3 software overcurrent trip missed negative V/W currents
+- Area:    stm32f303/src/comps/io.c, shared/iabs.h
+- Status:  Fixed (host test; not yet seen on hardware)
+- Symptom: `iabs = MAX3(ABS(iu), iv, iw)`: only U's magnitude, so a negative V or W current (e.g. V shorted to
+  ground) never tripped HV_OVERCURRENT_PEAK / HV_OVERCURRENT_RMS; only the hardware comparators were left.
+- Cause:   a missing ABS, inherited from upstream.
+- Fix:     `phase_iabs()` (shared/iabs.h) takes the magnitude of all three. Test: host/tests/test_iabs.c
+  (`make -C host check`; -V, -W and a lone -V fault failed before).
+
+## 2026-11-10 Phase W's comparator never cut the PWM (TIM8 Break2 disabled)
+- Area:    stm32f303/src/tim.c, stm32f303/src/main.c
+- Status:  Fixed (source check); bench check open
+- Symptom: COMP1 (phase W, PA1) is routed to TIM8 BKIN2 (OUTSEL 0100), but tim.c had
+  `Break2State = TIM_BREAK2_DISABLE`: a phase W overcurrent only tripped the software check, a cycle or more late.
+- Cause:   inherited from upstream.
+- Fix:     Break2 enabled, filter 0xa as BKIN; MOE cleared by either break shows as HV_OVERCURRENT_HW as before.
+  Test: host/tests/check_safety_wiring.py (every COMPx routed to a TIM8 break has it enabled; no simulator runs
+  the F3's timer). Still to do on the bench (hwtest/suite): a W overcurrent trips, and no false trip from ringing
+  at the comparator level (dac 1560).
+
+## 2026-11-10 Brake stayed released when the F4's hal stopped (io4 had no rt_stop)
+- Area:    src/comps/hw/io4.c, host/hw/io.c
+- Status:  Fixed (host test + source check); bench check open
+- Symptom: console `stop` or a hal fault while enabled: rt stops, PE4 (DIO0, fault0.mot_brake) kept its last
+  level, so a released holding brake stayed released with the motor unpowered (a vertical axis could drop).
+- Cause:   `io_comp_struct.rt_stop = 0`.
+- Fix:     io4's rt_stop drives PE4 low and TIM9 CCR1/CCR2 (out1/out2) to 0; the host stand-in does the same to
+  out0_state. Tests: host/tests/ebrake/hal_stop_brake.test (out0_state stayed 1 after `stop` before),
+  host/tests/check_safety_wiring.py (io4's rt_stop resets PE4).
+
+## 2026-11-10 appendconf could write past config[]
+- Area:    src/config.c, host/drive.c, vibsensor/src/config.c, brdstepper/src/config.c, shared/conf_append.h
+- Status:  Fixed
+- Symptom: with the RAM config nearly full, `appendconf` wrote past `config[]` (15 kB on the F4) into whatever
+  follows it in RAM; the other targets' versions truncated mid-line, and with a full config their
+  `sizeof - strlen - 2` wrapped around to a huge count.
+- Cause:   strncat's count is the room left, not the buffer size (`strncat(config, ptr, sizeof(config) - 1)`).
+- Fix:     `conf_append()` (shared/conf_append.h) appends line + '\n' only if it fits whole, else prints
+  "config full, not added" and leaves the config unchanged; all four targets use it. Test:
+  host/tests/test_conf_append.c (canary past the buffer; overflowed before: glibc's fortify aborted).
+
+## 2026-11-11 `make -j deploy` failed: stages raced each other
+- Area:    Makefile (`deploy`)
+- Status:  Fixed
+- Symptom: `make -j8 deploy` from a clean tree: "No rule to make target 'obj_f3_boot/f3_boot.bin', needed by
+  'f3.bin'", or, once that was ordered, undefined `HAL_TIM_*` when linking obj_hvf3/hvf3.elf.
+- Cause:   `deploy: f3_boot f3 boot build binall` as prerequisites: with -j, binall ran before the f3_boot sub-make
+  had made f3_boot.bin (no rule for it at the top level), and `f3` and build's `hv_firmware.o` ran the F3 sub-make
+  into the same obj_hvf3/ at once.
+- Fix:     `deploy` runs the stages one after another (each still parallel inside). Test: the CI firmware job runs
+  `make -j"$(nproc)" deploy` from a clean checkout (.github/workflows/ci.yml); failed here before, three clean
+  -j8 runs pass after.
+
+## 2026-11-11 Overrun and interrupted-run stops skipped every rt_stop (F3 kept its PWM, F4 its brake output)
+- Area:    shared/hal.c (`hal_run_rt`, `hal_run_frt`), stm32f303/src/main.c, stm32f303/src/comps/io.c
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading; stmbl_freak's A3) an rt or frt overrun (RT_TOO_LONG / FRT_TOO_LONG seen by the hal) or a
+  run that never finished (MISC_ERROR) set RT_STOP without calling hal_stop, so no component's rt_stop ran: the
+  F4's io4 brake output (fixed 2026-11-10) stayed as it was, and the F3, which had no rt_stop at all, kept TIM8
+  switching its last compares with no current loop behind them.
+- Cause:   the "// call stop" paths in hal.c only set the states; the F3's io had no rt_stop.
+- Fix:     those paths call hal_stop (`hal_stop_with`), and the rt/frt loops stop calling components once the hal
+  is stopped mid-run. The F3: io's rt_stop runs `bridge_off()` (MOE off, HV_EN low) and clears `enabled`, and
+  the PWM interrupt calls `bridge_off()` on every tick while the rt is stopped. Tests: host/tests/test_hal_stop.c
+  (the real hal.c, rt_stop/frt_stop on all six stop paths; four failed before), host/tests/check_safety_wiring.py
+  (the F3 wiring). Bench: stop the F3 (`stop` on its USB console) while enabled, the phase current goes to 0.
+
+## 2026-11-11 F3: no watchdog, and a stalled ADC DMA hung the rt for good
+- Area:    stm32f303/src/main.c, stm32f303/src/comps/io.c, shared/f3_safety.h
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading; stmbl_freak's A4) io's rt waited `while(!(DMA1->ISR & DMA_ISR_TCIF1))` with no limit: a
+  stalled ADC DMA hung the TIM8 interrupt with the bridge on. And the F3 had no watchdog to end any hang.
+- Cause:   inherited from upstream.
+- Fix:     `f3_wait_flags` gives up after F3_ADC_WAIT_POLLS (~60 us, under the 66.7 us rt) and the hal stops with
+  MISC_ERROR (bridge off, see above). The F3 starts its IWDG (20 ms) before the main loop, fed only through
+  `f3_wdog_may_feed`: while the rt runs or after a console `stop`; an error stop, a stuck interrupt or a hung main
+  loop resets the F3 (it then comes back with the bridge off; the F4 sees the link drop). Tests:
+  host/tests/test_f3_safety.c, host/tests/check_safety_wiring.py. Bench (hwtest/suite): no reset in normal running
+  and under console traffic, a reset after `stop` is not expected, and an F3 hang (debugger halt aside) resets.
+
+## 2026-11-11 ringbuf: the USB interrupt and the main loop both changed `len`
+- Area:    shared/ringbuf.c, shared/ringbuf.h, src/syscalls.c, host/cdc_host.c
+- Status:  Fixed
+- Symptom: (from reading; stmbl_freak's A8) the console's RX buffer (`usb_rx_buf`, written in the USB interrupt)
+  and the F4<->F3 text buffers: `len++` in the writer and `len--` in the reader are read-modify-writes, so one
+  could be lost: bytes dropped, repeated or read before written, or the buffer stuck "full" or "empty". In the
+  host stress test the reader got unwritten bytes within the first 50.
+- Cause:   one shared length counter changed by both sides.
+- Fix:     the writer owns `wr`, the reader owns `rd` (both mod 2 * bufsize, acquire/release), no shared field;
+  `rb_len()` / `rb_free()` replace `.len`. Test: host/tests/test_ringbuf.c (a writer and a reader thread, 20 M
+  bytes in order, no stall; failed before; ThreadSanitizer clean after).
+
+## 2026-11-11 iit: NaN at max_cur 0, and a long time constant stalled short of its final value
+- Area:    shared/comps/iit.c
+- Status:  Fixed
+- Symptom: (stmbl_freak's A9) with `max_cur` 0 (before conf0.max_ac_cur is set) `temp` was 0/0 = NaN, and stayed NaN
+  (in the state) after max_cur was set: every limit compared against it was false. With max_time 600 s the
+  estimate stalled at 41.55 instead of 42.5 C.
+- Cause:   no guard on max_e (or high_temp <= amb_temp); a float state, whose per-period increment rounded away.
+- Fix:     no model (temp = amb_temp, state 0) while max_e or high_temp - amb_temp is not > 0; the state is a double.
+  Tests: host/tests/iit_guard.test, host/tests/iit_long.test (both failed before).
+
+## 2026-11-11 encf: a noisy or broken line wrote past the 10-byte frame; request time wandered
+- Area:    src/comps/encf.c (FANUC alpha, aA64: our alpha2/3000), shared/encf_frame.h
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading) the decoder turned each gap between edges into `bits` and set them without a limit: a
+  long gap in a run of ones (a dropout, a broken cable) or too many edges wrote past `data.enc_data[10]` into the
+  RAM after it, and its uint8_t bit count could wrap. Also (stmbl_freak 2963ea4, measured there on an alpha 3):
+  the request for the next frame went out at the end of rt, after the decode, so the time the encoder latched its
+  position wandered with the frame's bit pattern, ~1 us rms: 0.24 rad/s of velocity noise at 126 rad/s.
+- Cause:   inherited from upstream.
+- Fix:     the decoder is shared/encf_frame.h, bounded to the frame's 77 bits; rt copies the captures, sends the
+  request at its start, then decodes the copy; the DMA re-arm waits for EN = 0 (bounded) and clears all its
+  flags. Tests: host/tests/test_encf_frame.c (frames built with their CRC, 3 % rate error, timer wrap; long gaps
+  and noise wrote past the frame before), host/tests/check_encf.py (request before decode). Bench: fbtest /
+  velocity noise on the alpha2/3000 before and after. The fork's req_sync (request from the frt timer) not taken.
+
+## 2026-11-11 yaskawa: noise wrote past the reply buffers and a bad reply's position was used
+- Area:    src/comps/yaskawa.c (Yaskawa Sigma serial encoders: conf/sgmph-*.txt, sda_b.txt), shared/yaskawa_frame.h
+- Status:  Fixed (unit test + source check); bench check open (the encoder noise being debugged now)
+- Symptom: (from reading, and the open noise trouble on a Yaskawa axis) a noisy reply moved the axis: its position
+  was used even when its CRC failed (crc_error only counted); a Manchester code error set `error` and the next
+  lines set it back to 0. The decoder wrote bits without a limit: every good reply wrote its end flag one byte past
+  `yaskawa_reply[14]`, a reply with no end flag (noise) wrote up to bit ~276 past `m_data[150]`, and it read one
+  capture past the last. The capture input had no digital filter, so a spike was an edge.
+- Cause:   an experimental driver from upstream.
+- Fix:     shared/yaskawa_frame.h: a bounded decoder that rejects a reply with no sync, a code error, no end flag
+  or too few bits, or a bad CRC; `yask_track` reports a bad reply as the last position moved on by the last step
+  and raises `error` (fault0.mot_fb_error) only after more than `max_bad` (default 2) bad replies in a row. New
+  pins: `max_bad`, `bad`, counters `err_short`, `err_sync`, `err_code`, `err_frame` (with crc_ok / crc_error),
+  `ic_filter` (IC3F, default 2: ~48 ns; a half bit is 125 ns). DMA re-arms wait for EN = 0 and clear the right
+  flags; the request wait is bounded. Tests: host/tests/test_yaskawa_frame.c under AddressSanitizer and UBSan
+  (replies built with stuffing and CRC, jitter, timer wrap, a glitch, a reply with no end; the old decoder
+  overflowed on a good reply and on the endless one), host/tests/check_yaskawa.py. Bench: watch the counters to
+  see which noise it is; try ic_filter 3 (~95 ns) if err_code climbs.
+
+## 2026-11-11 biquad / frf (from stmbl_freak): two things to know
+- Area:    shared/comps/biquad.c, shared/comps/frf.c, conf/template/filters.txt, id_frf.txt
+- Status:  Note
+- Symptom: (1) a biquad low pass (type 2) at its default q 2 doubles the signal at its corner instead of -3 dB.
+  (2) frf's two-mass fit reads the motor inertia ~25 % high in the simulator (0.000055 against 0.000044) at any
+  sweep band, while the anti-resonance (14.7-14.9 against 15.0 Hz) and the load inertia (+12 %) are right.
+- Cause:   (1) a biquad low pass has gain q at f0; q is shared with the notch. (2) the measured response falls
+  off at high frequency, and the fit counts that as inertia.
+- Fix:     (1) q 0.707 for a plain corner (noted in filters.txt, docs/motion_control.md; host/tests/biquad.test).
+  (2) use frf for f_anti (conf0.j_lpf) and f_res (the notch), not for conf0.j; host/tests/frf_two_mass.test
+  checks f_anti to 5 %, the inertias loosely.
+
+## 2026-11-11 hv: state words wrote past hv_uid[3]; short HV link drops went unseen
+- Area:    src/comps/hv.c, stm32f303/src/comps/ls.c, shared/hv_link.h, shared/common.h (f3_state_data_t)
+- Status:  Fixed (unit test + source check); bench check open
+- Symptom: (from reading) (1) every state word from the uid on went into hv_uid[a - 9] with no upper bound:
+  fw_version (word 12) wrote hv_uid[3], one past the array, each time it came round. (2) (stmbl_freak d683d54) the
+  F3 drops its gates after ~0.33 ms without packets, the F4 faults only after 3 rt ticks (0.6 ms): a short dropout
+  stopped the bridge and the F4 never knew.
+- Cause:   (1) a lower bound only, since fw_version (STMBL_FW_VERSION 1) was added after the uid. (2) the F3 kept
+  its timeout count to itself.
+- Fix:     (1) the uid words only. (2) the F3 sends its link-timeout ticks (state word link_to, part of
+  STMBL_FW_VERSION 2); the F4 counts a rise while enabled in hv0.link_drops and holds HV_TIMEOUT_ERROR until the
+  enable drops, unless the F3 reports a fault of its own (that code wins). Also `hv_verify` (from the fork): with
+  the drive disabled, reads the F3 app back from its bootloader and lists the words that differ from the image
+  the F4 carries. Tests: host/tests/test_hv_link.c, host/tests/check_hv.py (all five failed on the old code).
+  Bench: hv_verify on a board left in its bootloader by a failed hv_update.
+
+## 2026-11-11 The F3's io.c runs on the host; it found the PVD latch kept across a disable
+- Area:    stm32f303/src/comps/io.c, host/f3sim/ (register stand-in), host/tests/test_f3_io.c
+- Status:  Fixed
+- Symptom: the F3 fixes of 2026-11-10/11 had only source checks (no simulator ran F3 code). Running the real io.c
+  showed: after one PVD dip while enabled, every later TIM8 break (a real overcurrent too, after a disable and
+  enable) was reported as HV_UNDERVOLT_ERROR (22).
+- Cause:   the latch was cleared only in rt_stop, not on disable (my A5 change of the same day).
+- Fix:     cleared on disable as well. host/tests/test_f3_io.c compiles the real io.c (bridge_off moved there from
+  main.c) and hal.c against host/f3sim/stm32f3xx_hal.h: offsets, A1 on every phase and sign, A3 (any hal stop:
+  MOE and HV_EN off, re-arm after restart), A4 (a stalled ADC DMA stops the hal, bridge off), A5 (16 / 22, the
+  latch). Against the io.c before the fixes (332ade1) it fails A1 -V/-W and A3, and hangs at A4.
+
+## 2026-11-11 LinuxCNC servo jitter and lost updates raise the following error a lot
+- Area:    the drive's command path from smart-serial (sserial0 -> linrev / vel_int, the command interpolation of
+  2026-10 "exact command interpolation"), host/main.c lcnc_jitter
+- Status:  Workaround (2026-11-12: `vel_int0.sync = 1`, opt-in until the bench)
+- Symptom: in the host simulation (tests/lcnc_jitter.test, burn-in axis at 100 rad/s), pid0.pos_error: steady
+  updates 0.0006 rad; +-0.2 ms jitter 0.018; +-0.4 ms 0.041; 5 % of updates lost 0.038; 20 % lost 0.10. No faults.
+  vel_int mode 1 (acceleration feedforward) with 5 % lost: 0.48 rad.
+- Cause:   vel_int takes each update at its arrival: early or late by d moves the command by vel x d. A lost one
+  leaves a 2.4 ms gap, past the 2 ms watchdog (mode 0 stops extrapolating); mode 1 takes the two periods' step
+  as one period: twice the speed and an acceleration spike (the 0.48 rad).
+- Fix:     vel_int0.sync 1: track LinuxCNC's grid (dead reckoning on the locked clock, phase pulled toward the
+  arrivals by sync_k), place each update on it, count a gap's periods. With wd 0.003: 0.0019 / 0.0038 / 0.0013
+  (mode 0 and 1). Rounding the arrival gap without the grid made mode 1 worse (a late then an early update are
+  1.8 ms apart). Tests: tests/lcnc_jitter_sync.test and tests/lcnc_lost_mode1.test (both fail on the old
+  vel_int); lcnc_jitter.test keeps sync 0's numbers. Also fixed: host lcnc_jitter reset LinuxCNC's grid phase.
+  Bench: measure the Pi's servo jitter (latency-histogram), run with sync 1 and wd 0.003, then make it the
+  default in conf/template/sserial.txt if it holds.

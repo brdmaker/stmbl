@@ -4,7 +4,7 @@ The setup is a Pi 4 with a Mesa 7C81 over SPI (hostmot2 smart-serial
 firmware), stmbl drives on smart-serial at 2.5 Mbit/s, and LinuxCNC 2.9.10
 with `hm2_spix`. The numbers come from the bench (`DEBUGNOTES.md`,
 2026-10-14 and 2026-10-21) and from the HSM 400U simulation
-(`host/mill/hsm_runs.py --rates`).
+(brdmot's `sim/mill/hsm_runs.py --rates`).
 
 ## Summary
 
@@ -73,7 +73,7 @@ servo period (LinuxCNC, Pi 4)                  drive (STM32F4)
 
 ## What the rate buys (simulated HSM 400U, motor encoders)
 
-`python3 host/mill/hsm_runs.py --rates` measures the largest contour error
+brdmot's `python3 sim/mill/hsm_runs.py --rates` measures the largest contour error
 in µm:
 
 | scenario | 1 kHz | 2 kHz | 4 kHz | 5 kHz |

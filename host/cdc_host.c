@@ -56,8 +56,8 @@ int cdc_getline(char *ptr, int len) {
   }
   char buf[64];
   uint32_t n;
-  while(usb_rx_buf.len < usb_rx_buf.bufsize &&
-        (n = fifo_get(&from_host, buf, MIN(sizeof(buf), (uint32_t)(usb_rx_buf.bufsize - usb_rx_buf.len)))) > 0) {
+  while(rb_free(&usb_rx_buf) &&
+        (n = fifo_get(&from_host, buf, MIN(sizeof(buf), (uint32_t)rb_free(&usb_rx_buf)))) > 0) {
     rb_write(&usb_rx_buf, buf, n);
   }
   return rb_getline(&usb_rx_buf, ptr, len);

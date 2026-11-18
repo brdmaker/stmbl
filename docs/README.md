@@ -5,6 +5,8 @@ pinout, supply, motor and feedback setup, tuning, commands, servoterm.
 `linuxcnc/` holds the LinuxCNC side: the example configuration (`config/`),
 `sserialterm` and `stmblcan` ([linuxcnc/README.md](../linuxcnc/README.md)).
 
+**Component reference:** [components/](components/README.md), every HAL component with its description, pins and the templates that use it, generated from the sources by `tools/comp_docs.py` (kept current by `make -C host check`).
+
 Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 
 | doc | what |
@@ -12,6 +14,7 @@ Smart-serial features (branches `sserial_console`, `sserial_bootloader`):
 | [sserial_console.md](sserial_console.md) | the drive's console over smart-serial: setup with `sserialterm`, the frame and link protocol, limits, troubleshooting |
 | [capture_scope.md](capture_scope.md) | `scope0`: capture in the drive, download over any console; pins, triggers, modes, dump format |
 | [sserial_bootloader.md](sserial_bootloader.md) | firmware updates: in-band over the console (`fwup`, `servoterm-cli --update`) and recovery with `setsserial flash`; flash layout, the single-bank stall |
+| [sserial_router.md](sserial_router.md) | a card as a router between two LinuxCNC controllers: sserial on the CMD and enc0 ports, `link sserial_router`, link loss |
 
 Setup (branch `setup-wizard`):
 
@@ -61,7 +64,8 @@ the web GUI (`webui/`, millweb), the hardware designs (`hardware/`: stman,
 vibsensor, brdstepper, teststand, kigen), the application LinuxCNC parts
 (`linuxcnc/` arm6hmi, armcollide, armgrip, armguard, armkins, armtool, vis3d,
 lathe, dynwiz, powerquota, pcomp), their simulated machine configs
-(`hwtest/arcmate-sim`, `hwtest/portal-sim`) and docs (ctxtwin, hmi, hsm400u,
+(`hwtest/arcmate-sim`, `hwtest/portal-sim`; since 2026-11-09 also the machines' own configs and
+models: `hwtest/cn720-sim`, `hwtest/hsm400u-sim`, `hwtest/arcmate`, `sim/`) and docs (ctxtwin, hmi, hsm400u,
 stman.md, vibsensor.md, brdstepper_hw.md). brdmot uses this repository as a
 submodule (`stmbl/`). What stays here: the drive (firmware, its components,
 the host simulator, servoterm-cli and the setup wizard, the LinuxCNC drive

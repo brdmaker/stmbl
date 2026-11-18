@@ -6,8 +6,8 @@
 # found within ~10 ms (on the wrist at this pose), 10 N is not (sensitivity
 # sweep in host/arm/README.md). Simulation: ideal sensors.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
-detector arm/arcmate/model_perturbed.arm
+@args arm/arm6/arm6.arm
+detector arm/arm6/model_perturbed.arm
 lcnc 0
 run 0.5
 lcnc 1

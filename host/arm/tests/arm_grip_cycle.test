@@ -9,7 +9,7 @@
 # drops it at once (unchecked). No collision
 # hit, no fault anywhere.
 @program arm/arm_sim
-@args arm/arcmate/arcmate_gripper.arm
+@args arm/arm6/arm6_gripper.arm
 @include arm/tests/inc_grip_pick.txt
 grip expect 30 2.0 0 0 0.15
 grip close

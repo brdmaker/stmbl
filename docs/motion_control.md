@@ -7,6 +7,7 @@ How to get accuracy at speed out of stmbl drives under LinuxCNC. It covers two d
 - [What limits accuracy at speed](#what-limits-accuracy-at-speed)
 - [Drive settings](#drive-settings)
 - [Tuning procedure](#tuning-procedure)
+- [Torque-command filters and FRF: biquad, dob, frf](#torque-command-filters-and-frf-biquad-dob-frf)
 - [pcomp: model-based command conditioning](#pcomp-model-based-command-conditioning)
 - [Gantry-aware control](#gantry-aware-control)
 - [Measuring the machine](#measuring-the-machine)
@@ -63,11 +64,41 @@ d1 and d0 are the last two position steps. Between packets the command is interp
 
 In mode 0 (the default) `acc_out` passes `vel0.acc` through, so configs with `vel0.en = 1` keep working.
 
+### `vel_int0.sync = 1`: updates on LinuxCNC's grid
+
+LinuxCNC computes its positions on an exact 1/`cmd_freq` grid, but they reach the drive with the servo thread's
+and the link's timing jitter. With `sync` 0 each update counts from its arrival, so one that is δ early or late
+moves the command by vel·δ. In mode 1 a lost update also makes the next step look like one period when it spans
+two, which doubles the velocity. With `sync` 1 the drive tracks the grid's phase (its clock is locked to
+LinuxCNC's, a slow loop pulls the phase toward the arrivals with `sync_k` 0.02) and places each update on it,
+counting a gap as the periods it spans. In the host simulation, at 100 rad/s:
+
+| | sync 0 | sync 1 |
+|---|---|---|
+| ±0.2 ms jitter | 0.018 rad | 0.0019 |
+| ±0.4 ms jitter | 0.041 | 0.0038 |
+| 5 % lost, mode 0 / mode 1 | 0.038 / 0.48 | 0.0013 / 0.0013 |
+
+- `cmd_freq` must be LinuxCNC's servo rate. If it is set lower, `sync_resyncs` counts up and it does worse than 0.
+- `wd 0.003` rides through one lost update (two periods plus the jitter); 0.002 stops the extrapolation.
+- `sync_dev` shows the last arrival's offset from the grid, `sync_lost` the updates the grid says went missing.
+- Off by default until it has run on the bench (DEBUGNOTES 2026-11-12).
+
 ### `vel1.bc = 1` (`shared/comps/vel.c`)
 
 Adds the observer's proportional correction to the reported velocity, so it is the derivative of the observer's own position estimate. The 2·d·a/w lag disappears. `vel_bw` then is the real bandwidth, and the w/(2d) ceiling no longer applies.
 
 `bc_lp` filters the correction if encoder quantization makes it noisy; 300 Hz cost nothing in the tests.
+
+### `link obs_load`: the observer with the load (`conf/template/obs_load.txt`)
+
+By default the observers (`vel1`, `vel2`) predict acceleration from torque / `conf0.j`, the motor alone. On an axis with `conf0.j_sys` set, the motor accelerates at torque / (j + j_sys) up to where the coupling gives (`conf0.j_lpf`). Between the observer's own 50 Hz and that point, it reads (j + j_sys) / j times too much acceleration. `link obs_load` gives them `pid0`'s split: motor plus load below `j_lpf`, the motor alone above it.
+
+- **What it does** (host simulation; burn-in motor with 5× its inertia behind a stiff coupling, each variant tuned by id_pid):
+  - The estimate stays within 3.6 rad/s of the true speed, against 6.7 with the motor-only model (`host/tests/vel_obs_load.test`).
+  - id_pid finds damping (`vel_d` 6.7) instead of stopping at its bound of 1.
+  - Following error: 0.032 → 0.022 rad RMS on that axis. On a light, softer load (2× inertia, 400 Hz coupling) it was 0.016 → 0.024.
+- **Run id_pid again after linking it.** The loop sees a different plant. Gains tuned with the motor-only observer went into a 12 Hz limit cycle with it in the simulation. That is why it is opt-in rather than in `pid.txt`.
 
 ### Linear motors: `conf0.j` is the whole moving mass
 
@@ -91,6 +122,31 @@ For each drive, after the motor is identified (setup wizard or `rlpsij`):
 4. **Judge the tuning while moving, not at standstill.** Guide friction acts as heavy damping around zero speed, so a loop that rings in motion can hold perfectly still. Run constant-speed moves and acceleration steps, and watch `pid0.pos_error` and the current.
 5. **Raise vel_bw until the first mechanical resonance shows** (ringing at a fixed frequency after acceleration steps), then back off 30 %. On a gantry this is often the racking mode: the two Y loops against the bridge's yaw. In the yaw each Y motor moves only `2 J / L²` of the bridge, a quarter or less of the mass it is tuned for, so its loop is that much faster there. With the default current loop (`cur_bw` 1000 rad/s) four of the five simulated gantries fought at 160–235 Hz with vel_bw 500: raise `conf0.cur_bw` to 2000 or lower vel_bw (`host/portal/machine/retrofit/README.md`). `dynwiz mass` and `dynwiz cogging` detect it.
 6. **Then pos_bw:** typically vel_bw/5 to vel_bw/4.
+
+## Torque-command filters and FRF: biquad, dob, frf
+
+Three opt-in components from the stmbl_freak fork, between `pid0` and the torque controller.
+
+| Component | What | Template |
+|---|---|---|
+| `frf` | Stepped-sine frequency response with the loop running, and a two-mass fit: anti-resonance (`f_anti`, the `conf0.j_lpf` corner), resonance (`f_res`), motor and load inertia, crossover and phase margin | `link id_frf` (creeps the axis back and forth itself; run before `id_pid`) |
+| `biquad` | Notch (`type` 1) or low pass (`type` 2) on the torque command | `link filters` |
+| `dob` | Disturbance observer: estimates the load torque (`d_est`) and cancels it (`k` 1) | `link filters` |
+
+**Order of work:**
+1. `link id_frf` on the free axis; it prints the table, the fit and a `conf0.j_lpf` line.
+2. Set `conf0.j_lpf` to the anti-resonance, then tune with `id_pid`.
+3. A resonance above the crossover that still rings: `link filters`, then `biquad0.type = 1`, `biquad0.f0 = <f_res>`, `q` 2, `depth` 0–0.1.
+4. Load disturbances (cutting forces): `dob0.j` the total inertia, `dob0.k = 1`. Turn the friction feedforward off (`conf0.f`, `d`, `o` = 0): `dob` estimates friction too.
+
+**Things to know:**
+- A biquad low pass has gain `q` at its corner. Use `q` 0.707 for a plain −3 dB corner; the default `q` 2 (set for the notch) gives a ×2 peak.
+- Templates loaded at runtime need `stop`, `link filters`, `start`: a component loaded while the hal runs never gets its `rt_prio`.
+
+**Results in the simulator** (`host/hw/hv.c` two-mass load: `hv0.sim_jl`, `sim_kl`, `sim_dl`):
+- **`frf`** (`tests/frf_two_mass.test`): anti-resonance 14.7–14.9 Hz against 15.0 true; resonance 25.8 against 27.1; load inertia within 12 %. The motor inertia reads about 25 % high whatever the band: the measured response falls off at high frequency, and the fit counts that as inertia.
+- **`dob`** (`tests/dob_load_step.test`, 0.3 Nm step on the burn-in motor): the position error dropped from 0.075 to 0.050 rad at `bw` 50 Hz (0.040 at 200 Hz). The fork reports 2.5–3× on its Y axis; our burn-in loop is already stiff.
+- **`biquad`:** `tests/biquad.test`.
 
 ## pcomp: model-based command conditioning
 
@@ -161,7 +217,7 @@ gantry0.en = fault0.en_pid
 gantry0.r_vel = 0.4
 ```
 
-In the simulator (`glink DELAY EVERY` in a portal file; `machine/retrofit/*_glink.portal`, at the default gains):
+In the simulator (`glink DELAY EVERY` in a portal file; brdmot's retrofit machines `sim/portal/retrofit/*_glink.portal`, at the default gains; stmbl's tests run on generic copies of three of them, `host/portal/machine/gantry/`):
 
 | machine | without the link | with it (`glink 3 2`) |
 |---|---|---|
@@ -173,7 +229,7 @@ In the simulator (`glink DELAY EVERY` in a portal file; `machine/retrofit/*_glin
 - **Stability rule:** keep the yaw's velocity bandwidth `vel_bw · r_vel / (m_yaw / m_side)` below about 1.8 × `cur_bw`.
 - **The link must be fast:** at most about 1 ms. At 2 ms the fight starts to return; at 3 ms, as a relay through LinuxCNC and smart-serial would take, it is back in full (`tests/portal_gantry_delay.test`).
 - **So it has to be drive to drive.** The intended transport is classic CAN between the two Y drives: stmbl v4's P10 has CAN1, and needs a transceiver board (can-support branch). An 8-byte frame each way every 400 µs is 68 % of 1 Mbit/s, with about 600 µs latency. That transport isn't written yet: without a link (`rx_ok` 0) the component passes the feedback through unchanged.
-- **Until then:** `conf0.cur_bw = 2000` or a lower vel_bw (`machine/retrofit/README.md`). dynwiz detects the fight.
+- **Until then:** `conf0.cur_bw = 2000` or a lower vel_bw (brdmot's `sim/portal/retrofit/README.md`). dynwiz detects the fight.
 
 **What doesn't help:**
 - **The pid's inertia split** (`j_mot`/`j_sys`/`j_lpf`) can't tell the modes apart.
@@ -223,13 +279,13 @@ All in one HAL `sampler` row per servo cycle:
 
 Everything below runs without hardware. The drives are the real drive code (`libstmbl_drive.so`); the machines are simulated plants.
 
-Besides the portal (`host/portal/machine/portal.portal`) there are four imaginary retrofit machines in `host/portal/machine/retrofit`:
+Besides the portal (`host/portal/machine/portal.portal`) and the generic gantries with the gantry link (`host/portal/machine/gantry/`: heavy, light, slow), brdmot has four imaginary retrofit machines (`sim/portal/retrofit`):
 - a 3 × 1.5 m laser on iron-core motors;
 - a dispenser with one Y motor and an idler rail;
 - a CMM on air bearings;
 - a 2 g PCB driller.
 
-Their README has what each needed. `linuxcnc/dynwiz`'s `make test-sim` runs the wizard on all of them and checks what it finds against their files; `make -C hwtest/portal-sim dynwiz` runs it through LinuxCNC.
+Their README has what each needed. brdmot's `linuxcnc/dynwiz` `make test-sim` runs the wizard on all of them and checks what it finds against their files; `make -C hwtest/portal-sim dynwiz` runs it through LinuxCNC.
 
 ### Host suite
 

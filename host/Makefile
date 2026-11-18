@@ -125,6 +125,58 @@ test_yaskawa_abs: tests/test_yaskawa_abs.c ../shared/yaskawa_abs.c ../shared/yas
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_yaskawa_abs.c ../shared/yaskawa_abs.c -lm
 
 # shared/wdog.h: reset cause, watchdog feeding, the breathing LED (src/wdog.c)
+# shared/iabs.h (the F3's overcurrent trip) and shared/conf_append.h
+# (appendconf), safety fixes of 2026-11-10
+test_iabs: tests/test_iabs.c ../shared/iabs.h ../shared/defines.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_iabs.c -lm
+
+test_conf_append: tests/test_conf_append.c ../shared/conf_append.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_conf_append.c
+
+# shared/ringbuf.c with a concurrent writer and reader (two threads),
+# shared/hal.c's stop paths, shared/f3_safety.h (2026-11-11)
+test_ringbuf: tests/test_ringbuf.c ../shared/ringbuf.c ../shared/ringbuf.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_ringbuf.c ../shared/ringbuf.c -lpthread
+
+test_hal_stop: tests/test_hal_stop.c ../shared/hal.c ../shared/hal.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wno-format -I../shared -o $@ tests/test_hal_stop.c -lm
+
+test_f3_safety: tests/test_f3_safety.c ../shared/f3_safety.h ../shared/wdog.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_f3_safety.c
+
+# shared/encf_frame.h, the FANUC alpha frame decoder (2026-11-11)
+test_encf_frame: tests/test_encf_frame.c ../shared/encf_frame.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_encf_frame.c
+
+test_encf_req: tests/test_encf_req.c ../shared/encf_req.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_encf_req.c
+
+# shared/yaskawa_frame.h, the Yaskawa Sigma reply decoder (2026-11-11),
+# with AddressSanitizer: a read or write past a buffer fails it
+test_yaskawa_frame: tests/test_yaskawa_frame.c ../shared/yaskawa_frame.h ../shared/yaskawa_crc16.c
+	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_yaskawa_frame.c ../shared/yaskawa_crc16.c
+
+# shared/boot_logic.h: PA13 DFU check, F3 erase, hv_update pacing (2026-11-11)
+test_boot_logic: tests/test_boot_logic.c ../shared/boot_logic.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_boot_logic.c
+
+# shared/hv_link.h: HV link drops, hv_verify (2026-11-11)
+test_hv_link: tests/test_hv_link.c ../shared/hv_link.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_hv_link.c
+
+# the F3's real io.c on a register stand-in (f3sim/), with the real hal.c:
+# A1, A3, A4, A5 run (2026-11-11). Its io_comp.h is the F3's, not hw/io.c's.
+gen_f3/io_comp.h: $(ROOT)/stm32f303/src/comps/io.c
+	@mkdir -p gen_f3
+	@$(PYTHON) $(ROOT)/tools/create_comp_h.py $@ $<
+
+test_f3_io: tests/test_f3_io.c gen_f3/io_comp.h $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c f3sim/stm32f3xx_hal.h ../shared/hal.c ../shared/f3_safety.h ../shared/iabs.h
+	$(CC) -O1 -g -std=gnu11 -Wall -Wno-format -Wno-pointer-to-int-cast -Igen_f3 -If3sim -I../shared -o $@ tests/test_f3_io.c $(ROOT)/stm32f303/src/comps/io.c f3sim/f3sim.c ../shared/angle.c -lm
+
+# shared/cdc_in.h: the USB IN buffer, never over unsent bytes (2026-11-11)
+test_cdc_in: tests/test_cdc_in.c ../shared/cdc_in.h
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_cdc_in.c
+
 test_wdog: tests/test_wdog.c ../shared/wdog.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_wdog.c
 
@@ -138,7 +190,19 @@ test_adc_sum: tests/test_adc_sum.c ../shared/adc_sum.h ../shared/sserial_sync.h
 
 # Self-checking suite (tests/*.test, see tests/run_tests.py); fails on any
 # unmet expectation.
-check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_yaskawa_abs
+check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader test_bip test_stmblcan test_vibproto test_wdog test_errlog test_adc_sum test_fanuc1p test_fanuc_tw test_iabs test_conf_append test_ringbuf test_hal_stop test_f3_safety test_encf_frame test_encf_req test_yaskawa_frame test_boot_logic test_hv_link test_f3_io test_cdc_in test_yaskawa_abs
+	@./test_iabs
+	@./test_cdc_in
+	@./test_f3_io
+	@./test_hv_link
+	@./test_boot_logic
+	@./test_yaskawa_frame
+	@./test_encf_frame
+	@./test_encf_req
+	@./test_ringbuf
+	@./test_hal_stop
+	@./test_f3_safety
+	@./test_conf_append
 	@./test_fanuc1p
 	@./test_fanuc_tw
 	@./test_yaskawa_abs
@@ -158,12 +222,24 @@ check: stmbl_host test_robot test_ssq test_sscon test_cur_offset test_bootloader
 	@$(PYTHON) tests/test_mkssfw.py
 	@$(PYTHON) tests/test_scope.py
 	@$(PYTHON) tests/check_sserial_table.py
+	@$(PYTHON) tests/check_safety_wiring.py
+	@$(PYTHON) tests/check_encf.py
+	@$(PYTHON) tests/check_yaskawa.py
+	@$(PYTHON) tests/check_boot.py
+	@$(PYTHON) tests/check_faults.py
+	@$(PYTHON) tests/check_hv.py
+	@$(PYTHON) tests/check_usb.py
+	@$(PYTHON) tests/test_comp_docs.py
+	@$(PYTHON) ../tools/comp_docs.py --check
+	@$(PYTHON) tests/test_sserial_advance.py
 	@$(PYTHON) tests/test_comp_names.py
 	@$(PYTHON) tests/test_stmblconf.py
+	@$(PYTHON) tests/test_motor_table.py
+	@$(PYTHON) tests/test_arm_makedeps.py
 	@$(MAKE) -s -C ../servoterm-cli
 	@$(PYTHON) tests/test_servoterm_ident.py
 	@$(PYTHON) tests/test_servoterm_update.py
-	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arcmate/arcmate_base.arm
+	@./test_robot tests/robot/rtb_ref.txt tests/robot/genserkins_ref.txt arm/arm6/arm6_base.arm
 	@$(PYTHON) tests/robot/test_step2cell.py
 	@$(MAKE) -s -C arm all
 	@$(MAKE) -s -C portal all

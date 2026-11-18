@@ -38,6 +38,15 @@ int rb_tools_line(rb_tools *tt, const char *line) {
   }
   const char *p = line + off;
   rb_tool *t = &tt->t[tt->cur];
+  if(!strcmp(kw, "dockvia")) {  // not "changer": host/arm's changersim has that
+    if(sscanf(p, " %lf %lf %lf", &v[0], &v[1], &v[2]) != 3) {
+      return -1;
+    }
+    for(int k = 0; k < 3; k++) {
+      tt->via[k] = v[k] / 1000.0;
+    }
+    return 1;
+  }
   if(!strcmp(kw, "tool")) {
     if(sscanf(p, " %d %15s", &id, name) != 2 || id < 1 || id >= RB_MAXTOOL) {
       return -1;

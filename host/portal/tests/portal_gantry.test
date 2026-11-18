@@ -1,11 +1,11 @@
 # The gantry link (shared/comps/gantry.c, portal line glink): laser3015's Y
 # drives at the default current loop, which made them fight at 200 Hz
-# (portal_retrofit_fight.test), here with each other's position error and
+# (brdmot's portal_retrofit_fight.test), here with each other's position error and
 # velocity over the simulated link (600 us, every 400 us), the yaw's
 # velocity gain at r_vel 0.4: a slow pass stays clean and a 1 g move keeps
 # the bridge square. Then the link off: the fight is back.
 @program portal/portal_sim
-@args portal/machine/retrofit/laser3015_glink.portal
+@args portal/machine/gantry/heavy_glink.portal
 run 0.05
 lcnc 1
 run 0.3

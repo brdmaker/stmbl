@@ -24,6 +24,7 @@
 #include "commands.h"
 #include "stm32f4xx_conf.h"
 #include "confident.h"
+#include "conf_append.h"
 
 char config[15 * 1024];
 const char *config_ro = (char *)0x08008000;
@@ -113,8 +114,9 @@ COMMAND("showconf", showconf, "show config");
 
 void appendconf(char *ptr) {
   printf("adding %s\n", ptr);
-  strncat(config, ptr, sizeof(config) - 1);
-  strncat(config, "\n", sizeof(config) - 1);
+  if(conf_append(config, sizeof(config), ptr)) {
+    printf("config full, not added\n");
+  }
 }
 COMMAND("appendconf", appendconf, "append string to config");
 

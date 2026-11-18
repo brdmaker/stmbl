@@ -3,7 +3,7 @@
 # it modulo 2^16, so a wrap is not a mismatch and linrev keeps counting.
 # Then the CN 720's real travel: X at 69.99 turns (699.9 mm) reads to
 # better than 1 um over the float smart-serial field.
-@args --drive tests/abs/cn720_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
+@args --drive tests/abs/mill_x_fanuc.conf --sim tests/abs/fanuc_sim.txt
 lcncscale 10
 lcnc 0 0
 hv0.sim_upos = 3.1415927

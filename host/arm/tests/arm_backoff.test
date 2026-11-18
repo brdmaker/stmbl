@@ -5,7 +5,7 @@
 # stops, backs off 20 mm along its path, and only then estops: no contact
 # force left, ~15 mm clear.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 @include arm/tests/inc_wall.txt
 mark
 lmove 6 1100 0 1271 0 0 0

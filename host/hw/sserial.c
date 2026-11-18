@@ -10,6 +10,7 @@
 #include "sim_io.h"
 #include "sserial_q.h"
 #include "sscon.h"
+#include "sserial_port.h"
 
 HAL_COMP(sserial);
 
@@ -18,6 +19,7 @@ HAL_PIN(error);
 HAL_PIN(crc_error);
 HAL_PIN(connected);
 HAL_PIN(timeout);  // [20 kHz ticks], as on the drive
+HAL_PIN(port);     // shared/sserial_port.h: 0 CMD, 1 enc0, 2 enc1, 3 enc0 on USART6; default: the instance
 HAL_PIN(pos_cmd);
 HAL_PIN(pos_cmd_d);
 HAL_PIN(pos_fb);
@@ -41,10 +43,38 @@ HAL_PIN(enable);
 HAL_PIN(index_clear);
 HAL_PIN(index_out);
 HAL_PIN(pos_advance);
+HAL_PIN(reply_mode);  // the drive: answer from the idle interrupt; here packets are taken whole anyway
+HAL_PIN(irq_count);
+
+hal_comp_t sserial_comp_struct;
 
 sim_sserial_io_t sim_sserial_io;
+static sim_sserial_io_t sim_sserial_other[SSERIAL_PORTS - 1];
+
+sim_sserial_io_t *sim_sserial_port(int p) {
+  if(p == 0) {
+    return &sim_sserial_io;
+  }
+  return p > 0 && p < SSERIAL_PORTS ? &sim_sserial_other[p - 1] : 0;
+}
+
+// as the drive's hw_init: the port, or 0 if an instance loaded before has its USART
+static sim_sserial_io_t *port_io(hal_pin_inst_t *pin_ptr, float port) {
+  int p = (int)CLAMP(port, 0, SSERIAL_PORTS - 1);
+  for(int i = 0; i < hal.comp_inst_count && hal.comp_insts[i].pin_insts != pin_ptr; i++) {
+    if(hal.comp_insts[i].comp == &sserial_comp_struct) {
+      struct sserial_pin_ctx_t *other = (struct sserial_pin_ctx_t *)hal.comp_insts[i].pin_insts;
+      int q = (int)CLAMP(other->port.source->value, 0, SSERIAL_PORTS - 1);
+      if(sserial_port_conflict(p, q)) {
+        return 0;
+      }
+    }
+  }
+  return sim_sserial_port(p);
+}
 
 struct sserial_ctx_t {
+  sim_sserial_io_t *io;  // the port's process data
   uint32_t seq;
   float since;  // [s] since the last update
   ssq_t power_q;
@@ -56,13 +86,33 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(timeout)     = 100.0;
   PIN(clock_scale) = 1.0;
   ctx->since       = 1.0;  // start in timeout, as the drive does
-  ctx->seq         = sim_sserial_io.seq;
+  // as src/comps/sserial.c: sserialN on port N unless the config says otherwise
+  PIN(port) = 0;
+  for(int i = 0; i <= hal.comp_inst_count && i < HAL_MAX_COMPS; i++) {
+    if(hal.comp_insts[i].pin_insts == pin_ptr) {  //not ctx: a comp without ctx shares its address
+      PIN(port) = hal.comp_insts[i].instance;
+    }
+  }
+  ctx->io  = sim_sserial_port((int)PIN(port));
+  ctx->seq = ctx->io->seq;
 }
 
 static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct sserial_ctx_t *ctx      = (struct sserial_ctx_t *)ctx_ptr;
   struct sserial_pin_ctx_t *pins = (struct sserial_pin_ctx_t *)pin_ptr;
-  sim_sserial_io_t *io           = &sim_sserial_io;
+  sim_sserial_io_t *want = port_io(pin_ptr, PIN(port));
+  if(!want) {  // its USART is taken: no link, as on the drive
+    ctx->io        = 0;
+    PIN(connected) = 0;
+    PIN(error)     = 1;
+    return;
+  }
+  if(want != ctx->io) {  // the config moved it (sserialN.port)
+    ctx->io  = want;
+    ctx->seq = want->seq;
+  }
+  sim_sserial_io_t *io = ctx->io;
+  int cmd_port         = io == &sim_sserial_io;  // the console runs on the CMD port only
 
   if(io->seq != ctx->seq) {
     ctx->seq   = io->seq;
@@ -79,7 +129,9 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     io->in[2]   = PIN(in2) > 0;
     io->in[3]   = PIN(in3) > 0;
     io->fault   = PIN(fault) > 0;
-    io->con_fb  = sscon_frame(&sscon0, io->con_cmd);  // the console (shared/sscon.h)
+    if(cmd_port) {
+      io->con_fb = sscon_frame(&sscon0, io->con_cmd);  // the console (shared/sscon.h)
+    }
 
     PIN(index_out)      = io->index_enable;
     io->index_enable_fb = PIN(index_clear) > 0 ? 0 : io->index_enable;
@@ -97,7 +149,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   }
 
   if(ctx->since > PIN(timeout) * 0.00005) {
-    if(PIN(connected) > 0) {  // the link went away: the console's other side restarts
+    if(cmd_port && PIN(connected) > 0) {  // the link went away: the console's other side restarts
       sscon_reset(&sscon0);
     }
     PIN(connected) = 0;

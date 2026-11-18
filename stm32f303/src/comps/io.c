@@ -8,6 +8,8 @@
 #include "f3hw.h"
 #include "common.h"
 #include "cur_offset.h"
+#include "iabs.h"
+#include "f3_safety.h"
 
 HAL_COMP(io);
 
@@ -73,6 +75,7 @@ struct io_ctx_t {
   uint32_t mot_temp;
   uint32_t fault;
   uint32_t enabled;
+  uint32_t pvd;  // the PVD (3.3 V below 2.7 V) seen since enable (f3_safety.h)
 };
 
 #define ARES 4096.0  // analog resolution, 12 bit
@@ -197,9 +200,14 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct io_ctx_t *ctx      = (struct io_ctx_t *)ctx_ptr;
   struct io_pin_ctx_t *pins = (struct io_pin_ctx_t *)pin_ptr;
 
-  while(!(DMA1->ISR & DMA_ISR_TCIF1)) {
-  }
-  while(!(DMA2->ISR & DMA_ISR_TCIF5)) {
+  // A stalled ADC DMA used to hang this wait for good, the rt interrupt
+  // with it, and the bridge kept its last PWM (A4, DEBUGNOTES 2026-11-11).
+  // Give up within the rt period: the hal stops (its rt_stop turns the
+  // bridge off and no later component runs) and the watchdog resets the F3.
+  if(!f3_wait_flags(&DMA1->ISR, DMA_ISR_TCIF1, &DMA2->ISR, DMA_ISR_TCIF5, F3_ADC_WAIT_POLLS)) {
+    hal_stop();
+    hal.hal_state = MISC_ERROR;
+    return;
   }
 
   DMA1->IFCR = DMA_IFCR_CTCIF1;
@@ -239,7 +247,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     PIN(v)        = VOLT(adc_12_buf[5] >> 16) * 0.05 + PIN(v) * 0.95;
     PIN(u)        = VOLT(adc_34_buf[5] & 0xFFFF) * 0.05 + PIN(u) * 0.95;
     PIN(udc)      = VOLT(adc_34_buf[5] >> 16) * 0.05 + PIN(udc) * 0.95;
-    PIN(iabs)     = MAX3(ABS(PIN(iu)), PIN(iv), PIN(iw));
+    PIN(iabs)     = phase_iabs(PIN(iu), PIN(iv), PIN(iw));
     ctx->hv_temp  = adc_34_buf[0];
     ctx->mot_temp = adc_34_buf[3];
 
@@ -280,8 +288,10 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 #endif
         //Master out enable is cleared by timer break input.
         //Timer break input is connected to comperators
+        // (or the PVD: the 3.3 V collapsing with the DC bus, A5)
+        f3_pvd_latch(&ctx->pvd, (PWR->CSR & PWR_CSR_PVDO) != 0, 1);
         if(!(TIM8->BDTR & TIM_BDTR_MOE)) {
-          ctx->fault = HV_OVERCURRENT_HW;
+          ctx->fault = ctx->pvd ? HV_UNDERVOLT_ERROR : HV_OVERCURRENT_HW;
         }
       } else {
         ctx->fault_pin_error = 0;
@@ -293,6 +303,7 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     } else {
       ctx->enabled = 0;
       ctx->fault   = NO_ERROR;
+      f3_pvd_latch(&ctx->pvd, 0, 0);  // a dip while enabled is that enable's (host/tests/test_f3_io.c)
 #ifdef HV_EN_PIN
       //clear driver enable pin
       HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
@@ -335,6 +346,29 @@ void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(mot_temp) = MOT_R(MOT_REF(ADC(ctx->mot_temp >> 16)));
 }
 
+// The bridge off: TIM8's outputs off (as a comparator break does) and the
+// gate driver's enable low. TIM8 runs on its own: with the rt stopped the
+// last compares stayed latched with no current loop behind them
+// (DEBUGNOTES 2026-11-11, A3). io's rt_stop, the PWM interrupt (main.c) and
+// the CSS NMI call it; here so host/tests/test_f3_io.c runs it.
+void bridge_off(void) {
+  TIM8->BDTR &= ~TIM_BDTR_MOE;
+#ifdef HV_EN_PIN
+  HAL_GPIO_WritePin(HV_EN_PORT, HV_EN_PIN, GPIO_PIN_RESET);
+#endif
+}
+
+// The rt stopped (any way: hal.c runs this on every stop path): bridge off,
+// and forget it was enabled, so a restart re-arms MOE on the next enable
+// (A3, DEBUGNOTES 2026-11-11, host/tests/check_safety_wiring.py).
+static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  struct io_ctx_t *ctx = (struct io_ctx_t *)ctx_ptr;
+  (void)pin_ptr;
+  bridge_off();
+  ctx->enabled = 0;
+  f3_pvd_latch(&ctx->pvd, 0, 0);
+}
+
 hal_comp_t io_comp_struct = {
     .name      = "io",
     .nrt       = nrt_func,
@@ -343,7 +377,7 @@ hal_comp_t io_comp_struct = {
     .nrt_init  = nrt_init,
     .rt_start  = 0,
     .frt_start = 0,
-    .rt_stop   = 0,
+    .rt_stop   = rt_stop,
     .frt_stop  = 0,
     .ctx_size  = sizeof(struct io_ctx_t),
     .pin_count = sizeof(struct io_pin_ctx_t) / sizeof(struct hal_pin_inst_t),

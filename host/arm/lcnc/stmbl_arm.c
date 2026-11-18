@@ -2,7 +2,7 @@
  * stmbl_arm: the simulated arm with one simulated STMBL drive per joint
  * (host/arm/armcore.c) as a LinuxCNC realtime component (uspace).
  *
- *   loadrt stmbl_arm arm=/path/arcmate.arm lib=/path/libstmbl_drive.so [cell=/path/cell.txt]
+ *   loadrt stmbl_arm arm=/path/arm6.arm lib=/path/libstmbl_drive.so [cell=/path/cell.txt]
  *   addf stmbl-arm.0 servo-thread
  *
  * Per joint J (0-based, as LinuxCNC's joints), the pins of a drive's
@@ -59,7 +59,7 @@ MODULE_DESCRIPTION("simulated arm on simulated STMBL drives");
 MODULE_LICENSE("GPL");
 
 static char *arm = "";
-RTAPI_MP_STRING(arm, "arm description file (host/arm/arcmate/arcmate.arm)");
+RTAPI_MP_STRING(arm, "arm description file (host/arm/arm6/arm6.arm)");
 static char *lib = "";
 RTAPI_MP_STRING(lib, "libstmbl_drive.so");
 static char *cell = "";

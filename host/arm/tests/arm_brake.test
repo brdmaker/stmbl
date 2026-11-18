@@ -2,7 +2,7 @@
 # torque x gear ratio) carry gravity; the arm stays. With J2's brake gone
 # (0 Nm) the upper arm falls onto its hard stop at +90 deg.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 home 0 20 10 30 -60 0
 run 1.0
 print q hits

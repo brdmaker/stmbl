@@ -521,6 +521,19 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   PIN(fb1z) = GPIO_ReadInputDataBit(FB1_Z_PORT, FB1_Z_PIN);
 }
 
+// The hal stopped (console "stop", a hal fault): rt no longer runs and the
+// outputs would keep their last level. DIO0 (PE4) is the holding brake's
+// release (fault0.mot_brake), so it drops and the brake grips; out1/out2
+// (TIM9 PWM) go to 0 as well. DEBUGNOTES 2026-11-10, tests/ebrake/
+// hal_stop_brake.test, tests/check_safety_wiring.py.
+static void rt_stop(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
+  (void)ctx_ptr;
+  (void)pin_ptr;
+  GPIO_ResetBits(GPIOE, GPIO_Pin_4);
+  TIM9->CCR1 = 0;
+  TIM9->CCR2 = 0;
+}
+
 hal_comp_t io_comp_struct = {
     .name      = "io",
     .nrt       = 0,
@@ -530,7 +543,7 @@ hal_comp_t io_comp_struct = {
     .hw_init   = hw_init,
     .rt_start  = 0,
     .frt_start = 0,
-    .rt_stop   = 0,
+    .rt_stop   = rt_stop,
     .frt_stop  = 0,
     .ctx_size  = 0,
     .pin_count = sizeof(struct io_pin_ctx_t) / sizeof(struct hal_pin_inst_t),

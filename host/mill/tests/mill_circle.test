@@ -2,7 +2,7 @@
 # stays within a few um (screw wind-up and the head's swing); 12 m/min
 # (0.4 g) roughly doubles it.
 @program mill/mill_sim
-@args mill/machine/cn720.mill
+@args mill/machine/bridge.mill
 servo 0.5
 drv all vel_int0.cmd_freq = 2000
 lcnc 1

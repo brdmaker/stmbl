@@ -4,7 +4,7 @@
 # (arm.gres = change + J^T f ~ 0; J2 takes ~180 Nm, J3 ~90 Nm). The drives
 # hold without a fault; the links deflect by the gear elasticity only.
 @program arm/arm_sim
-@args arm/arcmate/arcmate.arm
+@args arm/arm6/arm6.arm
 fric 1 0 0 0 0
 fric 2 0 0 0 0
 fric 3 0 0 0 0

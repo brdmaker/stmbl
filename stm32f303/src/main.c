@@ -34,6 +34,7 @@
 #include "common.h"
 #include "commands.h"
 #include "f3hw.h"
+#include "f3_safety.h"
 
 #include "usbd_cdc_if.h"
 #ifdef USB_TERM
@@ -71,6 +72,11 @@ uint32_t hal_get_systick_freq() {
 void SystemClock_Config(void);
 void Error_Handler(void);
 
+void bridge_off(void);  // comps/io.c
+
+// rt runs counted for the watchdog (shared/f3_safety.h)
+static volatile uint32_t rt_count;
+
 void TIM8_UP_IRQHandler() {
   GPIOA->BSRR |= GPIO_PIN_9;
   __HAL_TIM_CLEAR_IT(&htim8, TIM_IT_UPDATE);
@@ -79,7 +85,31 @@ void TIM8_UP_IRQHandler() {
     hal_stop();
     hal.hal_state = RT_TOO_LONG;
   }
+  // whatever stopped the rt (hal.c runs io's rt_stop on every stop path;
+  // this is the second line): no PWM without the current loop
+  if(hal.rt_state == RT_STOP) {
+    bridge_off();
+  } else {
+    rt_count++;
+  }
   GPIOA->BSRR |= GPIO_PIN_9 << 16;
+}
+
+// The independent watchdog (shared/f3_safety.h, A4): 20 ms. RM0316 26.3:
+// KR 0xCCCC starts it (from then on only a reset stops it), 0x5555 unlocks
+// PR and RLR; any other KR write in between re-locks them, so no
+// interrupt. Frozen while a debugger halts the core.
+static void wdog_start(void) {
+  DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_IWDG_STOP;
+  __disable_irq();
+  IWDG->KR  = 0xCCCC;
+  IWDG->KR  = 0x5555;
+  IWDG->PR  = 0;  // LSI / 4: 0.1 ms a count
+  IWDG->RLR = F3_WDOG_RLR;
+  while(IWDG->SR) {
+  }
+  IWDG->KR = 0xAAAA;
+  __enable_irq();
 }
 
 void about(char *ptr) {
@@ -154,6 +184,14 @@ int main(void) {
 #endif
 
   MX_TIM8_Init();
+  // A5 (stmbl_freak d515232, 6595dbc): the PVD at level 6 (falls at ~2.7 V,
+  // DS9118) and a core lockup break TIM8 as the comparators do. PVD_LOCK
+  // also freezes PVDE/PLS until reset. The 3.3 V comes from the DC bus: a
+  // collapsing bus takes it down; io reports HV_UNDERVOLT_ERROR.
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
+  PWR->CR = (PWR->CR & ~PWR_CR_PLS) | PWR_CR_PLS_LEV6 | PWR_CR_PVDE;
+  SYSCFG->CFGR2 |= SYSCFG_CFGR2_PVD_LOCK | SYSCFG_CFGR2_LOCKUP_LOCK;
   MX_ADC1_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
@@ -359,9 +397,16 @@ int main(void) {
   // error foo
   hal_start();
 
+  wdog_start();
+  wdog_feed_t feed = {0};
   while(1) {
     hal_run_nrt();
     cdc_poll();
+    // fed while the rt runs, or after a console `stop`; an rt stopped by an
+    // error, a stuck interrupt or a hung main loop: reset (f3_safety.h)
+    if(f3_wdog_may_feed(&feed, rt_count, hal.rt_state == RT_STOP, hal.hal_state == HAL_OK2, (uint32_t)systime)) {
+      IWDG->KR = 0xAAAA;
+    }
     HAL_Delay(1);
   }
 }
@@ -422,6 +467,12 @@ void SystemClock_Config(void) {
 
   /* SysTick_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+
+  // A5: the clock security system: a failed crystal switches to the HSI
+  // and raises the NMI (stm32f3xx_it.c: bridge off, hal stopped; the
+  // watchdog then resets, and a dead crystal stops in Error_Handler with
+  // the LED on: the F4 sees HV_TIMEOUT_ERROR, the link can't run on HSI)
+  RCC->CR |= RCC_CR_CSSON;
 }
 
 /**

@@ -119,7 +119,7 @@ open(script, "w").write("".join(l + "\n" for l in r.stdout.splitlines() if l.sta
                         "print clear\n")
 arm = os.path.join(HOST, "arm", "arm_sim")
 if os.access(arm, os.X_OK):
-    o = subprocess.run([arm, os.path.join(HOST, "arm", "arcmate", "arcmate.arm"), script],
+    o = subprocess.run([arm, os.path.join(HOST, "arm", "arm6", "arm6.arm"), script],
                        capture_output=True, text=True).stdout
     ok("ERROR" not in o and "arm.clear =" in o, "the box lines load into arm_sim's geometry", o[-200:])
 print("1..%d" % n)

@@ -26,8 +26,8 @@ run 0.1
 lcnc 1 0
 run 2
 fault0.state
-@match ^version fw=1 hv=1 hv_image=1 conf=0$
-@match ^version fw=1 hv=0 hv_image=1 conf=0 hv_mismatch$
+@match ^version fw=2 hv=2 hv_image=2 conf=0$
+@match ^version fw=2 hv=0 hv_image=2 conf=0 hv_mismatch$
 @expect fault0.state[1] == 1
 @expect fault0.state[2] == 3
 @expect fault0.fault[1] == 19

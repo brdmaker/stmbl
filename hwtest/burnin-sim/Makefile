@@ -41,4 +41,15 @@ test-can:
 	test -f can_test.result && test "$$(cat can_test.result)" = 0 || \
 	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }
 
-.PHONY: test-console test-can
+.PHONY: test-console test-can test-advance
+
+# tools/sserial_advance.py against the simulated drive (adv_test.py): the
+# tool finds a pos_advance set 0.5 ms too long over the console.
+test-advance:
+	@$(MAKE) -s -C ../../servoterm-cli
+	@d=$$(mktemp -d /tmp/burnin-sim.XXXXXX) && cp $(HERE)/* $$d/ && cd $$d && \
+	sed -i 's|^DISPLAY = .*|DISPLAY = ./adv_test.py|; s|^TTY = .*|TTY = '"$$d"'/stmbl-sim|' stmbl.ini && \
+	(export SERVOTERM_CLI=$(CLI) CON_TTY=$$d/stmbl-sim STMBL_TOOLS=$(abspath ../../tools); $(ENV) linuxcnc stmbl.ini > linuxcnc.log 2>&1; true) && \
+	cat adv_test.tap 2>/dev/null; \
+	test -f adv_test.result && test "$$(cat adv_test.result)" = 0 || \
+	{ echo "# failed: log in $$d/linuxcnc.log"; exit 1; }

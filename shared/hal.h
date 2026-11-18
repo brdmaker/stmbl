@@ -50,7 +50,12 @@ extern void hal_reset_watchdog();
 
 typedef char NAME[32];
 
-typedef NAME const pin_t;
+// pin names in the generated table (tools/create_hal_tbl.py, which refuses a
+// longer one): 24 bytes, not NAME's 32. The longest is 20; at 32 the table
+// took 67 KB of the F4's 448 KB application flash, at 24 it saves 17 KB
+// (the merge of 2026-11-18 overflowed it by 4 KB).
+typedef char PIN_NAME[24];
+typedef PIN_NAME const pin_t;
 
 typedef struct hal_pin_inst_t {
   float value;

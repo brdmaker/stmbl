@@ -111,6 +111,12 @@ HAL_PIN(sim_pp);     // pole pairs
 HAL_PIN(sim_j);      // inertia [kg*m^2]
 HAL_PIN(sim_d);      // damping [Nm/(rad/s)]
 HAL_PIN(sim_f);      // coulomb friction [Nm]
+// friction beyond coulomb (off while 0): breakaway (static) friction, the
+// Stribeck speed it falls to coulomb over, and coulomb for negative speeds
+// (fc + (fs - fc) * exp(-(v / vs)^2), Karnopp stick below fs)
+HAL_PIN(sim_fs);     // breakaway friction [Nm] (0: = coulomb)
+HAL_PIN(sim_vs);     // Stribeck speed [rad/s] (0: 0.1)
+HAL_PIN(sim_fneg);   // coulomb for negative speeds [Nm] (0: = sim_f)
 HAL_PIN(sim_load);   // external load torque [Nm]
 HAL_PIN(sim_brake);  // holding brake torque [Nm], applied while not released
 HAL_PIN(sim_brake_release);  // brake output (io0.out0), 1 = released
@@ -180,6 +186,12 @@ HAL_PIN(sim_max_pos);
 HAL_PIN(sim_stop_hits);  // end stop contacts
 HAL_PIN(sim_vel);  // mechanical velocity [rad/s]
 HAL_PIN(sim_dist); // mechanical position, not wrapped [rad] (tests: how far a stop went)
+// a load behind a coupling (two-mass): off while sim_jl is 0. Anti-resonance
+// sqrt(kl / jl), resonance that * sqrt(1 + jl / sim_j) (rad/s). frf, biquad, dob
+HAL_PIN(sim_jl);    // load inertia [kg*m^2]
+HAL_PIN(sim_kl);    // coupling stiffness [Nm/rad]
+HAL_PIN(sim_dl);    // coupling damping [Nm/(rad/s)]
+HAL_PIN(sim_lvel);  // out: load speed [rad/s]
 HAL_PIN(sim_turn); // a hand on the shaft: turns it by this much [rad], at 1 rev/s, counting down to 0
 HAL_PIN(sim_acc);
 HAL_PIN(sim_upos);  // unwrapped mechanical position [rad] (sim_pos = mod(sim_upos))
@@ -206,6 +218,8 @@ HAL_PIN(sim_slip);    // induction: slip, electrical [rad/s]
 #define FB_DELAY_MAX 4
 
 struct hv_ctx_t {
+  double defl;  // two-mass: load position - rotor position [rad]
+  float wl;     // two-mass: load speed [rad/s]
   float fb[FB_DELAY_MAX + 1][4];  // id, iq, ud, uq of the last cycles
   unsigned fb_pos;
   uint32_t rnd;  // noise generator state
@@ -289,9 +303,16 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_torque)  = te;
     return;
   }
-  float tf     = PIN(sim_f) + (PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0);
   float torque = te + PIN(sim_load) - PIN(sim_vel) * PIN(sim_d);
   float v      = PIN(sim_vel);
+  float ts     = 0.0;  // the coupling's torque on the rotor
+  if(PIN(sim_jl) > 0.0) {
+    ts = PIN(sim_kl) * (float)ctx->defl + PIN(sim_dl) * (ctx->wl - v);
+    torque += ts;
+  } else {
+    ctx->defl = 0.0;
+    ctx->wl   = v;
+  }
   if(PIN(sim_upos) != ctx->upos_pin) {  // set from outside
     ctx->upos     = PIN(sim_upos);
     ctx->upos_pin = PIN(sim_upos);
@@ -301,7 +322,15 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     ctx->abs0_set = 1;
   }
   // coulomb friction: holds the rotor when the other torques can't beat it
-  if(fabsf(v) < 1e-4 && fabsf(torque) <= tf) {
+  // friction: the direction it acts against, its coulomb and breakaway
+  // levels there, and the Stribeck curve between them
+  float brake = PIN(sim_brake_on) > 0.0 ? PIN(sim_brake) : 0.0;
+  float dir   = fabsf(v) < 1e-4 ? SIGN(torque) : SIGN(v);
+  float fc    = dir < 0.0 && PIN(sim_fneg) > 0.0 ? PIN(sim_fneg) : PIN(sim_f);
+  float fs    = MAX(PIN(sim_fs), fc);
+  float vs    = PIN(sim_vs) > 0.0 ? PIN(sim_vs) : 0.1;
+  float tf    = fc + (fs - fc) * expf(-(v / vs) * (v / vs)) + brake;
+  if(fabsf(v) < 1e-4 && fabsf(torque) <= fs + brake) {
     PIN(sim_vel) = 0.0;
     PIN(sim_acc) = 0.0;
   } else {
@@ -340,6 +369,11 @@ static void mech_step(struct hv_ctx_t *ctx, struct hv_pin_ctx_t *pins, float te,
     PIN(sim_dist) += (float)(ctx->upos - was);
     PIN(sim_upos) = ctx->upos_pin = (float)ctx->upos;
   }
+  if(PIN(sim_jl) > 0.0) {  // the load: only the coupling acts on it
+    ctx->wl -= ts / PIN(sim_jl) * dt;
+    ctx->defl += (ctx->wl - PIN(sim_vel)) * dt;
+  }
+  PIN(sim_lvel) = ctx->wl;
   PIN(sim_pos)     = (float)(fmod(fmod(ctx->upos + M_PI, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI) - M_PI);
   PIN(sim_abs_pos) = (float)(ctx->upos - ctx->abs0);
   PIN(sim_torque)  = te;
