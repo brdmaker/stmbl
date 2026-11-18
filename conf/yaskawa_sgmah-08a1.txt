@@ -1,6 +1,8 @@
 #stmbl_motor Yaskawa SGMAH-08A1A61D
 # setup wizard 2026-11-16, drive 207D35A05631,
 # 200 V DC bench (brdmot commissioning/)
+# 2026-11-17: current feedforward, id_pid retuned
+# with it (autotune-ff-2026-11-17.md)
 link pid
 link pmsm
 link yaskawa_abs_fb0
@@ -15,13 +17,15 @@ conf0.polecount = 3 # id_pmsm
 conf0.mot_fb_offset = -1.02329 # id_pmsm
 conf0.out_rev = 0 # id_pmsm
 conf0.psi = 0.0946403 # id_pmsm
+conf0.cur_ff = 1 # r feedforward
+conf0.cur_ind = 1 # back-EMF feedforward
 conf0.j = 0.000110656 # id_mot
 conf0.d = 0.000481369 # id_mot
 conf0.f = 0.0263896 # id_mot
 conf0.o = -0.0020876 # id_mot
-conf0.pos_bw = 16.5056 # id_pid
+conf0.pos_bw = 24.1659 # id_pid, with ff
 conf0.vel_bw = 500 # id_pid
-conf0.vel_d = 2.82635 # id_pid
+conf0.vel_d = 5.00706 # id_pid, with ff
 conf0.max_ac_cur = 18.9505 # setup
 iit0.cur_boost = 3.04545 # setup
 conf0.max_force = 8.07065 # setup
