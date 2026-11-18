@@ -106,7 +106,13 @@ Isolated bad frames keep the last good one.
 
 **encmon:** like `fanuc_tw`'s, the position is a cycle older than a
 resolver's. The setup wizard sets `encmon0.delay` to 0.00032, as for
-`fanuc_tw` *(guess: not swept on this encoder yet)*.
+`fanuc_tw`. Swept on the SGMAH (2026-11-18, 200 rad/s, 600 rad/s
+electrical): the d residual goes linearly with the delay, about 5.7 % of
+the back-EMF per 0.1 ms, and crosses 0 at 0.32 ms in one direction and
+0.38 ms in the other. At 0.32 ms it is +0.5 % / +3.2 %; at 0 it was
+−18 % / +22 %. The q residual is −4 / −5 % (the model's psi or r a few
+percent off). The trip threshold is 30 %. Captures: brdmot
+`commissioning/sgmah-08a1_2026-11-10/encmon/`.
 
 ## Pins
 
