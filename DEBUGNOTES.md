@@ -115,6 +115,17 @@ Entry format:
      j 1.6x / 2.1x, or none on a 4e-7 rotor), the fast run's from 35 to
      25 rad; SGMAH gentle run 0.22 rad. Test: run_wizard_sim.py
      (probe_j / probe_f checks).
+     Tried on top and dropped (simulator, largest errors summed over 32
+     motors, gentle / fast run; probe seeding alone 21 / 25):
+     - idm loops 15/150 with the inertia held, both runs: 7 / 35 (the fast
+       run lost on the two motors whose probe j is 1.6x / 2.1x);
+     - the same for the gentle run only, the fast run on idm's defaults:
+       7 / 74 (16 lost).
+     The soft 5/40 fast run needs the inertia the gentle run leaves, drifted
+     2-3x above the true value: that is what stiffens it. Started at the true
+     value it loses the track. The SGMAH disagrees in part: 15/150 held gave
+     a fast run of 0.28 rad against 1.00. Open: a fast run that tracks
+     without leaning on a wrong inertia.
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
