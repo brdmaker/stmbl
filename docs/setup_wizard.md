@@ -126,15 +126,15 @@ from a quarter turn.
     ~20–30 %.
   - Both runs wait until the commutation is known (an incremental encoder
     phases at enable) and settled, and start where the motor stands.
-  - The report gives each run's largest following error. **The second run
-    can lose the track:** a Yaskawa SGMAH did on the bench (10000 rad/s²,
-    a lot of current), and in the simulator many motors do. The fit uses
-    measured torque and motion, so the result stays right, but on a large
-    motor or a fixed axis that is dangerous. Keeping it on track is open
-    (DEBUGNOTES 2026-11-16): `idm` has a following-error limit
-    (`max_err`, off), S-curve moves (`max_jerk`, off: they bias the
-    friction fit) and a torque-mode probe for friction and inertia
-    (`conf/template/id_jf.txt`) ready for it. `idm`'s adaptive inertia
+  - The report gives each run's largest following error. **The runs used to
+    lose the track:** a Yaskawa SGMAH did on the bench (10000 rad/s², a lot
+    of current), and in the simulator every motor did in the gentle run.
+    The fit uses measured torque and motion, so its result stayed right, but
+    on a large motor or a fixed axis that is dangerous. The torque probe and
+    what follows from it (below) keep them on track now (DEBUGNOTES
+    2026-11-16). Still available, off: `idm`'s following-error limit
+    (`max_err`) and S-curve moves (`max_jerk`, they bias the friction fit).
+    `idm`'s adaptive inertia
     sets the loop's gain during the runs. Its change is limited to
     `j_rate` (1/s) times itself per second: it used to collapse within
     milliseconds at the second run's acceleration, which tripped the
@@ -145,14 +145,31 @@ from a quarter turn.
     offset seed `idm`. `idm`'s loops are stiff in proportion to its
     inertia, and its friction is fed forward. Started blind (a small
     inertia, no friction) they were soft against friction.
-    - Simulator: the probe's j is within 16 % on 32 of 35 motors and its
-      friction within 8 %. The gentle run's largest errors, summed over 32
-      motors, went from 100 rad (every motor lost the track) to 21 (3 lost);
-      the fast run's from 35 to 25 rad.
-    - SGMAH on the bench: probe j 1.27e-4 (id_mot 1.0e-4), friction 0.016 Nm;
-      the gentle run went from 1.47 to 0.22 rad.
-    - If the probe finds nothing usable (a 4e-7 rotor in the simulator),
-      `id_mot` starts blind as before.
+  - **With the probe's values both runs then use:**
+    - stiffer loops (`pos_bw` 15, `vel_bw` 150);
+    - the inertia held, not adapted;
+    - the current loop's r and back-EMF feedforward.
+
+    Without the feedforward the torque fell 20–35 % short while the speed
+    changed, and only an inflated inertia made up for it (the adaptive
+    estimate drifted 2–3× high).
+  - **Results:**
+
+    | | gentle run | fast run |
+    |---|---|---|
+    | simulator, summed largest errors over 32 motors: blind start | 100 rad | 35 rad |
+    | the same, probe seeding only | 21 rad | 25 rad |
+    | the same, all of the above | 3 rad | 16 rad |
+    | SGMAH on the bench: blind start | 1.47 rad | 1.03 rad |
+    | SGMAH: all of the above | 0.055 rad | 0.54 rad |
+
+    In the simulator every fast run stays within 0.6 rad except on two
+    motors where the probe's j is 1.6× / 2.1× off (1.5 / 3.0 rad). The
+    probe's j is within 16 % on 32 of 35 motors and its friction within 8 %.
+    On the SGMAH: j 1.27e-4 (id_mot 1.0e-4), friction 0.016 Nm.
+  - **If the probe finds nothing usable** (a 4e-7 rotor in the simulator),
+    `id_mot` starts blind as before: idm's soft adaptive loops, no
+    feedforward.
 - **`id_pid`** tunes the loops on the measured motor.
 - **Current feedforward:** from `id_pid` on (once `r`, `psi` and `j` are
   known) the config sets `conf0.cur_ff = 1` and `conf0.cur_ind = 1`. The
@@ -160,10 +177,10 @@ from a quarter turn.
   instead of making its integrator follow every speed change. SGMAH,
   tuned loop, 200 rad/s at 10000 rad/s²: the torque reaches 87 % of the
   command in the ramps instead of 43 %, and the following error is
-  0.48 rad instead of 0.56. Not during `id_mot`: its soft loops tracked
-  worse with it. On the SGMAH the fast run reached 1.8 rad instead of
-  1.0, and in the simulator most motors lost the track. The fit stays the
-  same either way.
+  0.48 rad instead of 0.56. In `id_mot` it is on only after the torque
+  probe (above): with the blind start's soft loops it made the tracking
+  worse (SGMAH fast run 1.8 rad instead of 1.0, most simulated motors
+  lost the track).
 
 ## Holding brake
 

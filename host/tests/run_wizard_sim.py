@@ -70,6 +70,10 @@ KNOWN = {
     ("fanuc_b05_6000", "probe_j"): "idjf: friction 0.4 Nm against the pulses: j 1.6x",
     ("syn_micro", "probe_j"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
     ("syn_micro", "probe_f"): "idjf: nothing usable on a 4e-7 rotor: id_mot starts blind",
+    ("syn_micro", "mot_err1"): "idjf found nothing: id_mot started blind (soft loops, no friction)",
+    ("syn_micro", "mot_err2"): "idjf found nothing: id_mot started blind (soft loops, no friction)",
+    ("sgmph_01a1", "mot_err2"): "idjf's j 2.1x: the stiff loops run 2x too stiff",
+    ("fanuc_b05_6000", "mot_err2"): "idjf's j 1.6x: the stiff loops run 1.6x too stiff",
 }
 
 
@@ -256,6 +260,12 @@ def checks(c, rc, out, st):
     pj, pf = num(st, "mech.probe_j"), num(st, "mech.probe_f")
     chk(abs(pj - c["j"]) <= 0.2 * c["j"], "probe_j = %.3g, true %.3g (20 %%)" % (pj, c["j"]))
     chk(abs(pf - c["f"]) <= 0.15 * c["f"], "probe_f = %.3g, true %.3g (15 %%)" % (pf, c["f"]))
+    # id_mot's largest following errors (the gentle and the fast run): the
+    # identification must stay on track (DEBUGNOTES 2026-11-16)
+    chk(num(st, "mech.err1") < 0.5, "mot_err1 = %s rad: id_mot's gentle run, largest following error (< 0.5)" %
+        st.get("mech.err1"))
+    chk(num(st, "mech.err2") < 1.0, "mot_err2 = %s rad: id_mot's fast run, largest following error (< 1)" %
+        st.get("mech.err2"))
     j = num(st, "mech.j")
     chk(abs(j - c["j"]) <= max(0.25 * c["j"], 2e-6), "j = %.3g, true %.3g (25 %% or 2e-6)" % (j, c["j"]))
     f = num(st, "mech.f")

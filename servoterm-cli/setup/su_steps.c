@@ -967,9 +967,10 @@ static int probe_jf(su_wizard_t *w, double max_t, double travel, double *j, doub
 // sign changes often; the fit puts the misfit into j (4x on a 1e-5 kg m^2
 // motor). The second run accelerates with 30 % of the peak torque for that
 // (high) estimate, so it can't saturate, and runs faster: within ~20 %.
-// The largest following error of each run is reported (idm0.err_max): the
-// second run can lose the track (a Yaskawa SGMAH on the bench, the simulator
-// on many motors, DEBUGNOTES 2026-11-16); keeping it on track is open.
+// The largest following error of each run is reported (idm0.err_max). Started
+// blind the runs lost the track (a Yaskawa SGMAH on the bench, the simulator
+// on most motors, DEBUGNOTES 2026-11-16); the torque probe first keeps them on
+// it (run_wizard_sim.py: mot_err1 / mot_err2).
 static su_result_t step_mechanical(su_wizard_t *w) {
   su_motor_t m;
   su_limits_t lim;
@@ -997,9 +998,19 @@ static su_result_t step_mechanical(su_wizard_t *w) {
   set_num(w, "idm0.min_pos", -travel);
   set_num(w, "idm0.max_pos", travel);
   if(probed) {
+    // a known inertia: stiffer loops, the inertia held, and the current
+    // loop's r and back-EMF feedforward (without it the torque fell 20-35 %
+    // short while the speed changed, and only an inflated inertia made up
+    // for it, DEBUGNOTES 2026-11-16)
     set_num(w, "idm0.inertia", pj);
     set_num(w, "idm0.friction", fmax(pf, 0.0));
     set_num(w, "idm0.offset", po);
+    set_num(w, "idm0.pos_bw", 15.0);
+    set_num(w, "idm0.vel_bw", 150.0);
+    set_num(w, "idm0.vel_d", 4.0);
+    set_num(w, "idm0.ji", 1e9);
+    set(w, "conf0.cur_ff", "1");
+    set(w, "conf0.cur_ind", "1");
   } else {
     // idm's adaptive inertia sets the loop gains: start low, it rises (2e-4,
     // its default, made a 4e-7 motor's gains 500x too high: saturation)

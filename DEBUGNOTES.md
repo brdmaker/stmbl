@@ -32,7 +32,7 @@ Entry format:
 
 ## 2026-11-16  Identification: the motor can lose the track (id_mot's fast run); what was found
 - Area:    `shared/comps/idm.c`, `ids.c`, `conf/template/id_mot.txt`, `id_pid.txt`, the setup wizard
-- Status:  Open (keeping it on track); Fixed (the parts below)
+- Status:  Fixed (2026-11-18; three simulated motors are known limits, see 9)
 - Symptom: Yaskawa SGMAH on the bench: id_mot's second run (10000 rad/s^2,
   94 rad/s) lost the track and pulled a lot of current. In the simulator,
   with a following-error limit added, most of the 36 wizard motors exceed
@@ -124,8 +124,18 @@ Entry format:
      The soft 5/40 fast run needs the inertia the gentle run leaves, drifted
      2-3x above the true value: that is what stiffens it. Started at the true
      value it loses the track. The SGMAH disagrees in part: 15/150 held gave
-     a fast run of 0.28 rad against 1.00. Open: a fast run that tracks
-     without leaning on a wrong inertia.
+     a fast run of 0.28 rad against 1.00.
+  9. (2026-11-18) Why the true inertia lost: without the back-EMF feedforward
+     the measured torque fell 35 % short in the ramps and 20 % at nearly
+     steady speed (the integrator chases the rising back-EMF; simulated
+     mitsu: 0.13 of 0.20 Nm, 0.095 of 0.12 against 0.08 Nm of friction),
+     and the soft 5/40 loop's P term (vel_bw j) could not make up a 6 %
+     friction error. An inflated inertia multiplied every torque. Fixed: after
+     the probe both runs use cur_ff = cur_ind = 1, 15/150 and the inertia
+     held. Simulator: summed largest errors 3 / 16 rad (probe seeding alone
+     21 / 25), no run lost; SGMAH 0.055 / 0.54 rad. Test: run_wizard_sim.py
+     mot_err1 (< 0.5 rad) / mot_err2 (< 1 rad), known limits: the two motors
+     whose probe j is off, and the one the probe can't read.
 - Fix:     The wizard keeps the old runs, now with fixes 1 and 3, and reports
   each run's largest following error; idm's limit, S-curve and the probe
   are available, off. Tests: drive_id_mot_start (ready, start position),
