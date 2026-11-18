@@ -53,6 +53,11 @@ HAL_PIN(max_ac_cur);
 
 HAL_PIN(pos_error);
 HAL_PIN(max_pos_error);
+// pos_error followed through the turns: pid0.pos_error is the shortest way
+// (-pi..pi), so a limit above pi could never trip and a motor that fell
+// half a turn behind read a small error again (DEBUGNOTES 2026-11-17).
+// max_pos_error compares this one. Restarts from pos_error while not enabled.
+HAL_PIN(pos_error_turns);
 
 HAL_PIN(sat);
 HAL_PIN(max_sat);
@@ -143,6 +148,7 @@ struct fault_ctx_t {
   int hv_fault; // this cycle's fault came from the HV board: outputs off
   float hold;   // [s] left of the brake hold
   int hold_by;  // what holds: 1 the quick stop, 2 the dynamic brake
+  float last_pos_error;  // pos_error's last value, for pos_error_turns
 };
 
 // the stop for a fault (fault.c's own checks; HV faults coast)
@@ -300,9 +306,17 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
     ctx->state      = SOFT_FAULT;
   }
 
+  // the error through the turns: it changes by far less than pi a cycle
+  if(ctx->state == ENABLED) {
+    PIN(pos_error_turns) += minus(PIN(pos_error), ctx->last_pos_error);
+  } else {
+    PIN(pos_error_turns) = PIN(pos_error);
+  }
+  ctx->last_pos_error = PIN(pos_error);
+
   // a quick stop brakes at the limit on purpose: no position or
   // saturation error then
-  if(ctx->stop != 1 && PIN(max_pos_error) > 0 && (ABS(PIN(pos_error)) > PIN(max_pos_error))) {
+  if(ctx->stop != 1 && PIN(max_pos_error) > 0 && (ABS(PIN(pos_error_turns)) > PIN(max_pos_error))) {
     ctx->fault      = POS_ERROR;
     PIN(last_fault) = ctx->fault;
     ctx->state      = SOFT_FAULT;

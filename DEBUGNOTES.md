@@ -33,7 +33,7 @@ Entry format:
 
 ## 2026-11-17  A following-error limit of pi or more never trips (pos_error wraps)
 - Area:    `shared/comps/pid.c` (pos_error), `fault.c` (max_pos_error), configs
-- Status:  Open
+- Status:  Fixed (2026-11-18)
 - Symptom: SGMAH, id_mot with idm0.max_err 6 (fault0.max_pos_error 6): the
   motor lost the track (idm0.err_max 3.14) and no fault 5 came.
 - Cause:   pid0.pos_error = minus(cmd, fb) wraps to +-pi; fault.c compares
@@ -41,9 +41,13 @@ Entry format:
   that slips past pi reads a small error again. conf/weiler-spindle.txt
   sets conf0.max_pos_error = 5: effectively off. idm's err_max saturates
   at pi the same way.
-- Fix:     None yet (options: count turns of the error in pid, or refuse a
-  limit >= pi when the config loads). LinuxCNC's own following error
-  (multi-turn) still covers machines run from it.
+- Fix:     fault.c follows the error through the turns
+  (fault0.pos_error_turns: it adds each cycle's wrapped change, and starts
+  again from pos_error while not enabled) and compares that with
+  max_pos_error. pid is unchanged: it still pushes the shortest way. Test:
+  host/tests/drive_pos_error_turns.test (the rotor held by friction, a 5 rad
+  limit: fault 5; before, none). weiler-spindle's 5 rad limit now trips
+  at 5 rad.
 
 ## 2026-11-16  Identification: the motor can lose the track (id_mot's fast run); what was found
 - Area:    `shared/comps/idm.c`, `ids.c`, `conf/template/id_mot.txt`, `id_pid.txt`, the setup wizard

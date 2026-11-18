@@ -1,0 +1,22 @@
+# A following-error limit above pi never tripped: pid0.pos_error is the
+# shortest way from the feedback to the command (-pi..pi), and fault.c
+# compared that. A motor that falls behind by more than half a turn read a
+# small error again (Yaskawa SGMAH, idm0.max_err 6 rad, 2026-11-17;
+# conf/weiler-spindle.txt has max_pos_error 5). fault.c now follows the
+# error through the turns (fault0.pos_error_turns). Here the rotor can't
+# follow (torque limit below its friction) and the command moves on.
+@args --drive ../hwtest/burnin/ECMA-C30604FS/stmbl.conf
+hv0.sim_f = 0.05
+conf0.max_force = 0.01
+conf0.max_sat = 0
+conf0.max_pos_error = 5
+lcnc 0 0
+run 0.5
+lcnc 1 0
+run 3
+lcnc 1 150
+run 4
+fault0.fault
+fault0.last_fault
+fault0.pos_error_turns
+@expect fault0.last_fault == 5
