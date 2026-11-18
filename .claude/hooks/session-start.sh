@@ -13,9 +13,10 @@ fi
 # Sanity-build the native host simulator (fast, ~5s).
 make -C "$CLAUDE_PROJECT_DIR/host" >/dev/null
 
-# LinuxCNC 2.9 for the LinuxCNC tests (hwtest/*-sim), prebuilt on the orphan
-# branch linuxcnc-bin: restored in the background (~1 min, mostly apt), log in
-# /tmp/linuxcnc_restore.log. Not needed for the host simulator.
+# LinuxCNC 2.9.10 for the simulations (hwtest/*-sim), prebuilt on the orphan
+# branches linuxcnc-bin-2.9.10-* of brdmaker/linuxcnc: restored in the
+# background (~1-2 min, mostly apt), log in /tmp/linuxcnc_restore.log. Not
+# needed for the host simulator.
 nohup "$CLAUDE_PROJECT_DIR/hwtest/linuxcnc_restore.sh" \
   > /tmp/linuxcnc_restore.log 2>&1 &
 # gmsh (OpenCascade) for tools/step2cell.py (STEP -> collider boxes)

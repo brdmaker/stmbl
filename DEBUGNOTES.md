@@ -1761,6 +1761,9 @@ Entry format:
   ./configure ... --disable-gtk2`; a stub a2x on PATH; run as user `lcnc`;
   the test display writes its TAP to a file; pack `configs/common`. See
   `build_linuxcnc.sh` on `linuxcnc-bin` and `hwtest/arcmate-sim/README.md`.
+  2026-11-15: the binaries moved to brdmaker/linuxcnc, orphan branches
+  `linuxcnc-bin-2.9.10-<date>` (README there: the build, now with real man
+  pages); `hwtest/linuxcnc_restore.sh` restores the newest.
 
 ## 2026-10-15  Collision residual at standstill: gearbox stiction
 - Area:    `shared/robot/collide.c`, `linuxcnc/armcollide`
@@ -3565,7 +3568,8 @@ Entry format:
 - Symptom: `qtvcp` fails to import PyQt5 (LinuxCNC's modules are python3.12;
   Ubuntu's python3-pyqt5 doesn't match it). Then the xcb platform plugin
   fails to load.
-- Cause:   `linuxcnc_restore.sh` installs no Qt.
+- Cause:   `linuxcnc_restore.sh` installs no Qt. Now: `LCNC_QT=1
+  hwtest/linuxcnc_restore.sh` installs both (2026-11-15).
 - Fix:     install by hand:
   - `python3.12 -m pip install --break-system-packages PyQt5 QScintilla PyOpenGL`
   - `apt-get install xvfb libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0`
