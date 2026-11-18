@@ -16,6 +16,23 @@ Entry format:
 
 ---
 
+## 2026-11-18  idjf (torque probe) scatters on the SGMAH: friction barely determined
+- Area:    `shared/comps/idjf.c`, the wizard's mechanical step
+- Status:  Open
+- Symptom: The same motor, 8 probes: j 1.22e-4 .. 2.06e-4 (id_mot fits 1.0e-4),
+  friction -0.0016 .. 0.015 Nm (id_mot: 0.026 .. 0.042). In one wizard run:
+  j 2.06e-4, friction -0.0016. One probe ended with error 2 (travel over
+  6 rad, the pulses lengthened to 0.32 s). The current limit (6 / 18.95 A)
+  makes no difference.
+- Cause:   (probably) The friction is small and the motor's cogging torque
+  is of the same size. One pulse each way at whatever position the shaft
+  stands sees different torques. The simulator has no cogging: within 8 %
+  there.
+- Fix:     None yet. The wizard still did well with the bad seeds (id_mot
+  0.04 / 0.73 rad, j fit 9.9e-5). Ideas: repeat the pulse set at a few
+  positions and take the median; clamp a negative friction to 0 (the wizard
+  does).
+
 ## 2026-11-18  Wizard --redo electrical: id_pmsm ran with the current feedforward, HV overcurrent
 - Area:    `servoterm-cli/setup/su_steps.c` (su_build_config)
 - Status:  Fixed
