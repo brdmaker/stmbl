@@ -63,7 +63,11 @@ Entry format:
   write over unsent bytes" (dc5af7e7, from the debug-memory-checks
   branch; test_cdc_in). Bench, brdmot tools/bench/console_stress.py (a
   query 10 000+ times, every reply compared): 5acfae00 2 corrupted in
-  10 000; master (8c6d5dee) 0 in 60 000. --load was safe throughout: it
+  10 000 idle, 20 in 20 000 with the motor running id_mot's fast profile
+  (more console traffic and load: the race more likely); master (8c6d5dee)
+  0 in 60 000 idle. Master under motion is not checked yet: it needs the HV
+  board on firmware version 3 (hv_update). No stall in either run (every
+  query answered). --load was safe throughout: it
   compares every echo and writes the flash only if all of them match.
 
 ## 2026-11-17  A following-error limit of pi or more never trips (pos_error wraps)
