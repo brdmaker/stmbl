@@ -2,7 +2,7 @@
 
 Every HAL component of the firmware, generated from its source by `tools/comp_docs.py` (`make -C host check` fails while a page is out of date). Describe a component in a comment before its pins and each pin in a comment after it; then run `tools/comp_docs.py`.
 
-115 components, 596 of 2137 pins described.
+115 components, 600 of 2141 pins described.
 
 ## F4 and F3 (shared)
 
@@ -28,7 +28,7 @@ Every HAL component of the firmware, generated from its source by `tools/comp_do
 | [encchk](encchk.md) | 18/20 | encchk: checks the motor feedback open loop, before it closes any loop (conf/template/enc_check.txt, the setup wizard's encoder step). |
 | [encmon](encmon.md) | 24/32 | Encoder monitor: checks the motor feedback against the motor's own voltage equation. The current loop works in the frame of com ... |
 | [fanuc](fanuc.md) | 0/5 | fanuc encoder |
-| [fault](fault.md) | 17/60 |  |
+| [fault](fault.md) | 21/64 |  |
 | [fb_switch](fb_switch.md) | 12/51 |  |
 | [field](field.md) | 0/19 | in |
 | [fmove](fmove.md) | 0/29 |  |

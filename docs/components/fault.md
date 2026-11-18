@@ -6,7 +6,7 @@
 
 **Config templates:** `acvf`, `can`, `en`, `enc_check`, `enc_cmd`, `enc_fb0`, `encdmm_fb0`, `encm_fb0`, `encmon`, `encs_fb0`, `fanuc_fb0`, `fanuc_tw_fb0`, `filters`, `id_acim`, `id_dc`, `id_frf`, `id_jf`, `id_mot`, `id_pid`, `id_pmsm`, `jog_cmd`, `linkv3`, `mpid`, `pid`, `pmsm`, `pos_filter`, `res_fb0`, `smartabs_fb0`, `sserial`, `sserial_acvf`, `sserial_uf`, `uf`, `uvw_fb0`, `uvw_fb1`, `yaskawa_abs_fb0`
 
-## Pins (60, 17 described)
+## Pins (64, 21 described)
 
 | pin | description |
 |---|---|
@@ -38,6 +38,10 @@
 | `scale` |  |
 | `dc_volt` |  |
 | `min_dc_volt` |  |
+| `start_dc_volt` | the drive enables only with the bus above this [V] (0: no check, the default) |
+| `start_time` | for this long [s] |
+| `bus_ok` | out: the bus is up to start |
+| `uv_inhibit` | out: enable asked, held off by the low bus |
 | `high_dc_volt` |  |
 | `max_dc_volt` |  |
 | `dc_cur` |  |
