@@ -353,7 +353,11 @@ char *su_build_config(const su_state_t *st, int final) {
   // there id_mot's soft loops lean on the adaptive inertia's drift, which the
   // current loop's lag drives; with the feedforward the fast run lost more
   // (1.83 rad instead of 1.03, DEBUGNOTES 2026-11-16).
-  if(su_get_num(st, "id.psi", 0.0) > 0.0 && su_get_num(st, "id.r", 0.0) > 0.0 && su_get_num(st, "mech.j", 0.0) > 0.0) {
+  // On done.mechanical, not on mech.j being there: --redo keeps the old
+  // measurements, and an id_pmsm redone with the feedforward on tripped the
+  // HV board's overcurrent (fault 16, SGMAH 2026-11-18).
+  if(su_get_num(st, "id.psi", 0.0) > 0.0 && su_get_num(st, "id.r", 0.0) > 0.0 &&
+     su_get_num(st, "done.mechanical", 0.0) > 0.0) {
     c = su_conf_set_num(c, "conf0.cur_ff", 1.0, "r feedforward");
     c = su_conf_set_num(c, "conf0.cur_ind", 1.0, "back-EMF feedforward");
   }

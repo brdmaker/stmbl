@@ -16,6 +16,21 @@ Entry format:
 
 ---
 
+## 2026-11-18  Wizard --redo electrical: id_pmsm ran with the current feedforward, HV overcurrent
+- Area:    `servoterm-cli/setup/su_steps.c` (su_build_config)
+- Status:  Fixed
+- Symptom: SGMAH, `--wizard --redo electrical` on the 11-16 session: fault 16
+  (HV_OVERCURRENT_HW) during id_pmsm at 3.11 A. The same step passed on 11-16.
+- Cause:   The config builder set `conf0.cur_ff = cur_ind = 1` once `mech.j`
+  was in the session (e75f661c). `--redo` clears only the steps' done
+  flags and keeps the old measurements, so id_pmsm's config had the
+  feedforward. id_pmsm sets the current loop's r to the value it is
+  measuring, and the r feedforward drove the current too high. The
+  simulator suite never redoes a step, so mech.j never appeared early there.
+- Fix:     The feedforward is set on `done.mechanical`, not on mech.j. Test:
+  servoterm-cli `make check` ("no current feedforward while the mechanical
+  step isn't done (a redo keeps mech.j)"; it fails before the fix).
+
 ## 2026-11-18  servoterm-cli --load: now and then a corrupted byte in the drive's echo (USB console)
 - Area:    the USB console (F4 CDC), `servoterm-cli --load`
 - Status:  Open

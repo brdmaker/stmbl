@@ -275,14 +275,22 @@ static void test_build(void) {
   ok(su_conf_get(c, "conf0.cur_ff", v, sizeof(v)) < 0 && su_conf_get(c, "conf0.cur_ind", v, sizeof(v)) < 0,
      "build: no current feedforward before id_mot is done");
   free(c);
+  // --redo electrical keeps the old mech.j: the step configs before the
+  // mechanical step is done must not have the feedforward (id_pmsm with it
+  // tripped the HV board's overcurrent, fault 16, SGMAH 2026-11-18)
   su_state_parse(s, "mech.j = 0.00011\n");
+  c = su_build_config(s, 0);
+  ok(su_conf_get(c, "conf0.cur_ff", v, sizeof(v)) < 0 && su_conf_get(c, "conf0.cur_ind", v, sizeof(v)) < 0,
+     "build: no current feedforward while the mechanical step isn't done (a redo keeps mech.j)");
+  free(c);
+  su_state_parse(s, "done.mechanical = 1\n");
   c = su_build_config(s, 1);
   ok(su_conf_get(c, "conf0.cur_ff", v, sizeof(v)) == 0 && strcmp(v, "1") == 0 &&
          su_conf_get(c, "conf0.cur_ind", v, sizeof(v)) == 0 && strcmp(v, "1") == 0,
-     "build: r and back-EMF feedforward once r, psi and j are known");
+     "build: r and back-EMF feedforward once r and psi are known and the mechanical step is done");
   ok(su_conf_validate(c, err, sizeof(err)) == 0, "build: with them the config fits the drive");
   free(c);
-  su_state_parse(s, "mech.j = 0\n");
+  su_state_parse(s, "mech.j = 0\ndone.mechanical = 0\n");
   c = su_build_config(s, 1);
   free(c);
 
