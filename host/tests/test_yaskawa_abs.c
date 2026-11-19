@@ -210,6 +210,19 @@ int main(void) {
     int n = yab_request_chips(c, 200);
     CHECK(n == 2 * 54 + 2, "request chips %d", n);
     CHECK(c[0] == 0 && c[1] == 1 && c[2] == 1 && c[3] == 0, "request starts 0 1 (chips 01 10)");
+    // the data-driven request: ff ff without a CRC is exactly the fixed one
+    uint8_t c2[400];
+    const uint8_t ff[2] = {0xff, 0xff};
+    int n2 = yab_request_data_chips(ff, 2, 0, c2, 400);
+    CHECK(n2 == n && !memcmp(c, c2, n), "request data ff ff == the fixed request (%d / %d chips)", n2, n);
+    // stuffing: 0x7c (01111100) needs none, 0xf8 0x00 one after five 1s
+    const uint8_t r1[1] = {0xf8};
+    int n3 = yab_request_data_chips(r1, 1, 0, c2, 400);
+    CHECK(n3 == 2 * (19 + 8 + 8 + 1 + 8) + 2, "0xf8: 8 bits + 1 stuffed (%d chips)", n3);
+    // with a CRC: 2 more bytes; too long: -1
+    int n4 = yab_request_data_chips(r1, 1, 1, c2, 400);
+    CHECK(n4 > n3 + 2 * 16 - 1, "with a CRC: 16 bits more (%d)", n4);
+    CHECK(yab_request_data_chips(ff, 2, 0, c2, 50) == -1, "too long for the buffer: -1");
   }
   // driver state: error until a good frame, tolerates max_err - 1 bad polls
   {

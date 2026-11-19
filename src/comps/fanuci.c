@@ -209,7 +209,7 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   TIM7->SR   = 0;
   NVIC_InitTypeDef nv;
   nv.NVIC_IRQChannel                   = TIM7_IRQn;
-  nv.NVIC_IRQChannelPreemptionPriority = 1;  // below frt (0), above rt (2)
+  nv.NVIC_IRQChannelPreemptionPriority = 2;  // below frt (1), above rt (3): src/setup.c
   nv.NVIC_IRQChannelSubPriority        = 0;
   nv.NVIC_IRQChannelCmd                = ENABLE;
   NVIC_Init(&nv);

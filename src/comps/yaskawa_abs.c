@@ -11,7 +11,7 @@
  * writes GPIO BSRR words, a chip of 125 ns, ~14 us; TX enable PD15), and
  * rt decodes the last reply meanwhile (Manchester at 4 Mbit/s from the
  * edge times, HDLC flag and bit stuffing, CRC-16). When the request is out
- * the DMA's interrupt (priority 1, above rt) turns the line around and
+ * the DMA's interrupt (priority 0, above frt) turns the line around and
  * TIM4 CH3 captures the reply's edges (DMA1 stream 7 ch 2) into the other
  * of two buffers. Bench (2026-11-10, pid and pmsm loaded): 47 us of rt.
  * Load no other FB0 encoder comp with it.
@@ -51,6 +51,17 @@ HAL_PIN(us_col);     // time: all of the rt function
 HAL_PIN(us_dec);     // time: of that yab_decode
 HAL_PIN(us_tx);      // time: starting the request (the interrupt turns the line around)
 HAL_PIN(dump);       // rising edge: print the next capture's edge times, result and bytes
+// bench: another request (the encoder's other commands, brdmot yaskawa.md).
+// req_n data bytes req0..req3 (as on the line, MSB first), with req_crc > 0 a
+// CRC-16 after them. Default 2 bytes ff ff, no CRC: the position request.
+// Any other request gets other replies: the position is lost (error) until
+// it is back.
+HAL_PIN(req_n);
+HAL_PIN(req0);
+HAL_PIN(req1);
+HAL_PIN(req2);
+HAL_PIN(req3);
+HAL_PIN(req_crc);
 
 #define YAB_RXN 600
 #define YAB_TXN 128
@@ -66,6 +77,7 @@ struct yaskawa_abs_ctx_t {
   volatile int sel;      // the buffer the next capture goes to
   volatile int started;  // the turnaround interrupt started a capture
   volatile int dump_want, dump_ready;
+  uint32_t req_key;  // the request txbuf holds
   int dres, dn;
   uint16_t dedges[YAB_RXN];
   uint8_t dbytes[YAB_BYTES];
@@ -88,6 +100,8 @@ static void nrt_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct yaskawa_abs_pin_ctx_t *pins = (struct yaskawa_abs_pin_ctx_t *)pin_ptr;
   PIN(enable)  = 1;
   PIN(max_err) = 4;
+  PIN(req_n)   = 2;
+  PIN(req0) = PIN(req1) = PIN(req2) = PIN(req3) = 255;
   PIN(error)   = 1;
   yab_init(&ctx->d, 4);
   ctx->started = 0;
@@ -139,7 +153,7 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   g_ctx = ctx;
   NVIC_InitTypeDef nv;  // the turnaround, when the request is out
   nv.NVIC_IRQChannel                   = DMA2_Stream1_IRQn;
-  nv.NVIC_IRQChannelPreemptionPriority = 1;  // below frt (0), above rt (2)
+  nv.NVIC_IRQChannelPreemptionPriority = 0;  // above frt (1): see below and src/setup.c
   nv.NVIC_IRQChannelSubPriority        = 0;
   nv.NVIC_IRQChannelCmd                = ENABLE;
   NVIC_Init(&nv);
@@ -150,6 +164,25 @@ static void transmit(struct yaskawa_abs_ctx_t *ctx) {
   FB0_Z_PORT->BSRRH = FB0_Z_PIN;  // low, as the request starts (chip 0)
   zpin_output();
   FB0_Z_TXEN_PORT->BSRRL = FB0_Z_TXEN_PIN;
+
+  // the reply's capture made ready now (the DMA enabled, the timer stopped
+  // and not requesting): the turnaround interrupt only has to start it
+  FB0_ENC_TIM->CR1  = 0;
+  FB0_ENC_TIM->DIER = 0;
+  FB0_ENC_TIM->CCER = 0;
+  DMA1_Stream7->CR &= ~DMA_SxCR_EN;
+  while(DMA1_Stream7->CR & DMA_SxCR_EN) {
+  }
+  DMA1->HIFCR        = DMA_HIFCR_CTCIF7 | DMA_HIFCR_CHTIF7 | DMA_HIFCR_CTEIF7 | DMA_HIFCR_CDMEIF7 | DMA_HIFCR_CFEIF7;
+  DMA1_Stream7->CR   = DMA_Channel_2 | DMA_DIR_PeripheralToMemory | DMA_MemoryInc_Enable |
+                     DMA_PeripheralDataSize_HalfWord | DMA_MemoryDataSize_HalfWord | DMA_Priority_VeryHigh;
+  DMA1_Stream7->PAR  = (uint32_t)&FB0_ENC_TIM->CCR3;
+  DMA1_Stream7->M0AR = (uint32_t)rxbuf[ctx->sel];
+  DMA1_Stream7->NDTR = YAB_RXN;
+  DMA1_Stream7->FCR  = 0;
+  DMA1_Stream7->CR |= DMA_SxCR_EN;
+  FB0_ENC_TIM->CNT   = 0;
+  FB0_ENC_TIM->CCMR2 = TIM_CCMR2_CC3S_0;
 
   DMA2_Stream1->CR &= ~DMA_SxCR_EN;
   while(DMA2_Stream1->CR & DMA_SxCR_EN) {
@@ -177,27 +210,19 @@ void DMA2_Stream1_IRQHandler(void) {
   }
   TIM8->CR1 = 0;
 
+  // The encoder answers at once: when the capture starts, its preamble is
+  // nearly over, and a capture ~2 us late misses the flag. At priority 1
+  // this interrupt waited whenever frt (then priority 0, 2.1 us) ran: 1-74 %
+  // frame errors, depending only on where the code sat and so where the
+  // turnaround fell against frt (2026-11-19). Now priority 0, the capture
+  // prepared in transmit(), and the timer counting before the capture is
+  // armed (armed first, an edge before CEN got the time 0).
+  struct yaskawa_abs_ctx_t *ctx = g_ctx;
   FB0_Z_TXEN_PORT->BSRRH = FB0_Z_TXEN_PIN;
   zpin_af();
-
-  struct yaskawa_abs_ctx_t *ctx = g_ctx;
-  DMA1_Stream7->CR &= ~DMA_SxCR_EN;
-  while(DMA1_Stream7->CR & DMA_SxCR_EN) {
-  }
-  DMA1->HIFCR        = DMA_HIFCR_CTCIF7 | DMA_HIFCR_CHTIF7 | DMA_HIFCR_CTEIF7 | DMA_HIFCR_CDMEIF7 | DMA_HIFCR_CFEIF7;
-  DMA1_Stream7->CR   = DMA_Channel_2 | DMA_DIR_PeripheralToMemory | DMA_MemoryInc_Enable |
-                     DMA_PeripheralDataSize_HalfWord | DMA_MemoryDataSize_HalfWord | DMA_Priority_VeryHigh;
-  DMA1_Stream7->PAR  = (uint32_t)&FB0_ENC_TIM->CCR3;
-  DMA1_Stream7->M0AR = (uint32_t)rxbuf[ctx->sel];
-  DMA1_Stream7->NDTR = YAB_RXN;
-  DMA1_Stream7->FCR  = 0;
-  DMA1_Stream7->CR |= DMA_SxCR_EN;
-
-  FB0_ENC_TIM->CNT   = 0;
-  FB0_ENC_TIM->CCMR2 = TIM_CCMR2_CC3S_0;
-  FB0_ENC_TIM->CCER  = TIM_CCER_CC3E | TIM_CCER_CC3P | TIM_CCER_CC3NP;
-  FB0_ENC_TIM->DIER  = TIM_DIER_CC3DE;
-  FB0_ENC_TIM->CR1   = TIM_CR1_CEN;
+  FB0_ENC_TIM->CR1  = TIM_CR1_CEN;
+  FB0_ENC_TIM->CCER = TIM_CCER_CC3E | TIM_CCER_CC3P | TIM_CCER_CC3NP;
+  FB0_ENC_TIM->DIER = TIM_DIER_CC3DE;
   ctx->started       = 1;
 }
 
@@ -264,6 +289,22 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   FB0_ENC_TIM->CR1 &= ~TIM_CR1_CEN;
   FB0_ENC_TIM->CCER = 0;
   ctx->started      = 0;
+  // another request asked for: txbuf anew (the last request is long out)
+  int rn       = CLAMP((int)PIN(req_n), 1, 4);
+  uint8_t rq[4] = {(uint8_t)PIN(req0), (uint8_t)PIN(req1), (uint8_t)PIN(req2), (uint8_t)PIN(req3)};
+  uint32_t key  = ((uint32_t)rq[0] << 24 | (uint32_t)rq[1] << 16 | (uint32_t)rq[2] << 8 | rq[3]) ^
+                 ((uint32_t)rn << 4 | (PIN(req_crc) > 0.0f ? 1u : 0u)) * 0x9e3779b1u;
+  if(key != ctx->req_key) {
+    static uint8_t chips[YAB_TXN];  // not on rt's stack (256 bytes: replies came short, 2026-11-19)
+    int m = yab_request_data_chips(rq, rn, PIN(req_crc) > 0.0f, chips, YAB_TXN);
+    if(m > 0) {
+      for(int i = 0; i < m; i++) {
+        txbuf[i] = chips[i] ? FB0_Z_PIN : ((uint32_t)FB0_Z_PIN << 16);
+      }
+      ctx->txn = m;
+    }
+    ctx->req_key = key;
+  }
   // the next request out now, into the other buffer; decoding meanwhile
   if(PIN(enable) > 0.0f) {
     ctx->sel = k ^ 1;

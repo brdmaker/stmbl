@@ -21,6 +21,58 @@ int yab_request_chips(uint8_t *chips, int max) {
   return n;
 }
 
+static int put_bit(uint8_t *chips, int n, int max, int bit) {
+  if(n + 2 <= max) {
+    chips[n]     = bit ? 1 : 0;
+    chips[n + 1] = bit ? 0 : 1;
+  }
+  return n + 2;
+}
+
+int yab_request_data_chips(const uint8_t *data, int len, int crc, uint8_t *chips, int max) {
+  static const char pre[] = "0101010101010101010";
+  static const uint8_t flag = 0x7e;  // 01111110
+  uint8_t d[8];
+  int nd = 0;
+  for(int i = 0; i < len && nd < 6; i++) {
+    d[nd++] = data[i];
+  }
+  if(crc) {
+    uint16_t c = yab_crc16(d, nd);
+    d[nd++]    = (uint8_t)(c >> 8);
+    d[nd++]    = (uint8_t)c;
+  }
+  int n = 0;
+  for(int i = 0; pre[i]; i++) {
+    n = put_bit(chips, n, max, pre[i] == '1');
+  }
+  for(int k = 7; k >= 0; k--) {
+    n = put_bit(chips, n, max, (flag >> k) & 1);
+  }
+  int ones = 0;  // a 0 after five 1s (HDLC), MSB first: the bytes as on the line
+  for(int i = 0; i < nd; i++) {
+    for(int k = 7; k >= 0; k--) {
+      int bit = (d[i] >> k) & 1;
+      n       = put_bit(chips, n, max, bit);
+      ones    = bit ? ones + 1 : 0;
+      if(ones == 5) {
+        n    = put_bit(chips, n, max, 0);
+        ones = 0;
+      }
+    }
+  }
+  for(int k = 7; k >= 0; k--) {
+    n = put_bit(chips, n, max, (flag >> k) & 1);
+  }
+  for(int i = 0; i < 2; i++) {
+    if(n < max) {
+      chips[n] = 0;
+    }
+    n++;
+  }
+  return n <= max ? n : -1;
+}
+
 #define YAB_TRIES 3      // every rt cycle: few
 #define YAB_FLAGBITS 48  // the opening flag within this many bits (the preamble is 19)
 

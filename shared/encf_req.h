@@ -5,7 +5,7 @@
 // after the ADC's DMA, a few microseconds of jitter after the timer edge;
 // the frt timer (TIM_SLAVE) counts TIM_MASTER, which also triggers that ADC,
 // so the next frt update after the rt arms the word is always the same one,
-// a fixed time after the edge. The frt interrupt (priority 0) sends the word
+// a fixed time after the edge. The frt interrupt (priority 1) sends the word
 // first thing (src/main.c). On stmbl_freak's alpha 3 axis this lowered the
 // velocity noise above 200 Hz from 0.14 to 0.105 rad/s.
 //

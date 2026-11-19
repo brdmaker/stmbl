@@ -16,8 +16,8 @@ before until you turn one on. The smart-serial protocol, the F3 firmware and
 - **Parsing:** the frt's packet parser became `parse(pins, spin)`. In mode 0
   the frt calls it with `spin = 1`, exactly as before.
 - **In mode 1:**
-  - Only `USART1_IRQHandler` parses. It runs at NVIC priority 1: below the
-    frt (0) and above rt (2), so the frt and the interrupt never parse at
+  - Only `USART1_IRQHandler` parses. It runs at NVIC priority 2 (src/setup.c): below the
+    frt (1) and above rt (3), so the frt and the interrupt never parse at
     the same time.
   - **The frt still does:** the link timeout, and the clock lock
     (`clock_scale`, `shared/sserial_sync.h`). A packet the interrupt

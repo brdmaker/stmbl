@@ -352,7 +352,7 @@ struct sserial_ctx_t {
   sserial_out_process_data_t data_out;
   sserial_in_process_data_t data_in;
   ssq_t power_q;  // power's rounding error, carried frame to frame
-  // reply_mode 1: the idle interrupt parses; it runs between the frt (priority 0) and rt (2),
+  // reply_mode 1: the idle interrupt parses; it runs between the frt (priority 1) and rt (3),
   // so only one of them parses
   struct sserial_pin_ctx_t *irq_pins;  // the pins, for the interrupt
   volatile uint32_t reply_irq;         // reply_mode > 0, as the frt last saw it
@@ -505,13 +505,13 @@ static void hw_init(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   USART_Cmd(hw->rx_usart, ENABLE);
   USART_Cmd(hw->tx_usart, ENABLE);
 
-  //idle line: a packet has ended (reply_mode 1). Above rt (2), below the frt (0).
+  //idle line: a packet has ended (reply_mode 1). Above rt (3), below the frt (1).
   ctx->irq_pins      = pins;
   port_ctx[ctx->port] = ctx;
   USART_ITConfig(hw->rx_usart, USART_IT_IDLE, ENABLE);
   NVIC_InitTypeDef NVIC_InitStructure;
   NVIC_InitStructure.NVIC_IRQChannel                   = hw->rx_irq;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;  // below frt (1), above rt (3): src/setup.c
   NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
   NVIC_Init(&NVIC_InitStructure);

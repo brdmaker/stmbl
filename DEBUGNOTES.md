@@ -16,6 +16,44 @@ Entry format:
 
 ---
 
+## 2026-11-19  yaskawa_abs: frame errors 0-74 % depending only on code layout (turnaround behind frt)
+- Area:    `src/comps/yaskawa_abs.c` (DMA2_Stream1 turnaround interrupt), `src/setup.c` (priorities)
+- Status:  Fixed
+- Symptom: Adding request pins to yaskawa_abs (no change to the default
+  request) gave 1.3, 13, 21, 24 or 74 % frame errors, depending on small
+  code changes. a1d3b626 gave 0 at the same shaft position. The fault comp
+  flickered "Fault 2: mot FB error".
+- Cause:   The encoder answers at once: when the capture starts, its preamble
+  is nearly over, and a capture ~2 us late misses the flag (res -3 / -4).
+  The turnaround interrupt (priority 1) waited whenever frt (priority 0,
+  2.1 us every 50 us) ran. Whether the request's end fell into an frt run
+  depended on how long rt took before starting it, so on code placement.
+  a1d3b626 was lucky. Also, the capture was armed before its timer counted,
+  so an edge in between got the time 0 (a dump showed 20 edges at 0).
+- Fix:     The turnaround at priority 0, above frt (now 1). sserial,
+  fanuc_tw and fanuci at 2, rt at 3, so every older order is kept
+  (src/setup.c lists them). The capture is prepared in transmit(), and the
+  timer starts before the capture is armed. Bench: 0 errors in 94 500 polls
+  on the build that had 74 %. Smart-serial link tests pass with the new
+  priorities (sserial0.reply_mode 1, hwtest/suite run hw-20261119-143152).
+  No automated test: interrupt timing on the F4, not in the host simulator.
+  The bench check is brdmot tools/bench/yab_rate.py.
+  fanuc_tw's open "20 % sync errors" entry may be the same frt collision:
+  its poll interrupt stays below frt (renumbered to 2); try it at 0.
+
+## 2026-11-19  hwtest/suite --only: a pattern can pull in motion tests (machine on, program)
+- Area:    `hwtest/suite/hwtest.py` (--only)
+- Status:  Known
+- Symptom: `--only LinuxCNC,smart-serial,power` meant to run the link tests;
+  it also matched "smart-serial console traffic ... while the program runs",
+  "capture scope over smart-serial: trigger on a rapid" and "power field
+  under motion". Their helper switched the machine on, homed it and ran a
+  program: on the bench that moved a motor (the SGMAH) under the burnin
+  machine's settings, until a following error stopped it.
+- Fix:     None in the tool. Check what a pattern matches before running on hw
+  with another motor attached; the motion tests belong only with the
+  burnin machine's motor.
+
 ## 2026-11-18  id_pmsm: the encoder index's jump counted as rotor travel (14 pole pairs read 11)
 - Area:    `shared/comps/idpmsm.c` (state 2.2 pole pairs, 3.x psi coast)
 - Status:  Fixed

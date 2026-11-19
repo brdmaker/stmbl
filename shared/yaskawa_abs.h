@@ -25,6 +25,14 @@ enum { YAB_OK = 0, YAB_NOSYNC = -1, YAB_MANCHESTER = -2, YAB_NOFLAG = -3, YAB_LE
  * Returns the number of chips (at most max). */
 int yab_request_chips(uint8_t *chips, int max);
 
+/* A request with other data (bench: trying the encoder's other commands):
+ * the preamble, the flag, len data bytes (at most 6, MSB first: as on the
+ * line, as the reply's bytes are shown), with crc != 0 a CRC-16 as the
+ * reply's (yab_crc16) after them, bit-stuffed, the flag, 2 low chips.
+ * {0xff, 0xff} without a CRC is the request above. Returns the number of
+ * chips, or -1 when they don't fit in max. */
+int yab_request_data_chips(const uint8_t *data, int len, int crc, uint8_t *chips, int max);
+
 /* Decode a reply from the receiver's edge times t[0..n-1] (both edges, a
  * free-running timer), ticks_per_bit the timer ticks per bit (84 MHz / 4
  * Mbit/s = 21). Syncs on the first long interval (the capture starts near

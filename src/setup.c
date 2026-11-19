@@ -184,16 +184,25 @@ void setup_res() {
   DMA_Init(DMA2_Stream0, &DMA_InitStructure);
 
   NVIC_InitTypeDef NVIC_InitStructure;
+  // NVIC preemption priorities (lower runs first):
+  //   0  an encoder's turnaround (yaskawa_abs): the line released and the
+  //      reply's capture started within ~2 us of the request's end, or the
+  //      reply's start is lost; frt (2.1 us) in the way cost 1-74 % of the
+  //      frames, depending on where the code sat (2026-11-19)
+  //   1  frt (20 kHz)
+  //   2  sserial's USART, fanuc_tw / fanuci's poll interrupts
+  //   3  rt (5 kHz)
+  //   14 SysTick, 15 USB
   //HAL Fast realtime irq 20kHz
   NVIC_InitStructure.NVIC_IRQChannel                   = TIM_SLAVE_IRQ;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
 
   //HAL Realtime irq 5kHz
   NVIC_InitStructure.NVIC_IRQChannel                   = DMA2_Stream0_IRQn;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
