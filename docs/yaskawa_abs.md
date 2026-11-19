@@ -98,9 +98,14 @@ with a resolver.
 Isolated bad frames keep the last good one.
 
 **Not there yet:**
-- **Battery and turns-valid alarms:** the status bits aren't known, so
-  `fault0.mot_fb_bat` and `mot_fb_nref` stay unlinked. A drive with a flat
-  battery runs, with a wrong turn count.
+- **Battery and turns-valid alarms:** none found in this reply. Tested on the
+  SGMAH (2026-11-19, brdmot `yaskawa.md`): without the battery, a power-up
+  starts the turn count at 0 with no flag in the frame. Header bit 15 shows
+  only briefly around battery events while powered. So
+  `fault0.mot_fb_bat` and `mot_fb_nref` stay unlinked, and a drive with a
+  flat battery runs with a wrong turn count. The alarm likely answers
+  another request code (not tried: unknown codes may write the encoder's
+  parameters).
 - **mturn:** for the same reason the turn count isn't tied to `mturn`
   (LinuxCNC's absolute position, docs/absolute_encoders.md).
 
