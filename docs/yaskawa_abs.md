@@ -103,9 +103,10 @@ Isolated bad frames keep the last good one.
   starts the turn count at 0 with no flag in the frame. Header bit 15 shows
   only briefly around battery events while powered. So
   `fault0.mot_fb_bat` and `mot_fb_nref` stay unlinked, and a drive with a
-  flat battery runs with a wrong turn count. The alarm likely answers
-  another request code (not tried: unknown codes may write the encoder's
-  parameters).
+  flat battery runs with a wrong turn count. Other requests (pins `req_n`,
+  `req0`..`req3`, `req_crc`; brdmot `yaskawa.md`): one-byte requests with a
+  CRC read three short registers; command 0 reads `00 00` so far, the
+  candidate for the alarm word (not yet read with the battery lost).
 - **mturn:** for the same reason the turn count isn't tied to `mturn`
   (LinuxCNC's absolute position, docs/absolute_encoders.md).
 
@@ -122,6 +123,11 @@ percent off). The trip threshold is 30 %. Captures: brdmot
 ## Pins
 
 **Link:** `enable` (1), `max_err` (4).
+
+**Request (bench):** `req_n` data bytes (1-4) `req0`..`req3` (as on the line,
+MSB first), `req_crc` > 0 adds a CRC-16. Default 2, `ff ff`, no CRC: the
+position request. Any other request gets other replies: the position
+reads as an error until it is back.
 
 **Feedback:**
 - `pos`, `abs_pos` (rad, −π…π);
