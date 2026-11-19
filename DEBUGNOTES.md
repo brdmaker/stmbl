@@ -92,8 +92,8 @@ Entry format:
   query 10 000+ times, every reply compared): 5acfae00 2 corrupted in
   10 000 idle, 20 in 20 000 with the motor running id_mot's fast profile
   (more console traffic and load: the race more likely); master (8c6d5dee)
-  0 in 60 000 idle. Master under motion is not checked yet: it needs the HV
-  board on firmware version 3 (hv_update). No stall in either run (every
+  0 in 60 000 idle, and 0 in 20 000 under motion (2026-11-19, after the
+  hv_update to fw 3). No stall in any run (every
   query answered). --load was safe throughout: it
   compares every echo and writes the flash only if all of them match.
 
@@ -491,7 +491,7 @@ Entry format:
 
 ## 2026-11-09  hv_update on a v207 HV board: no code difference found; long bootloader ops?
 - Area:    `src/comps/hv.c` (hv_update), `f3_boot/src/main.c`
-- Status:  Open
+- Status:  Fixed (2026-11-19, the F4 side alone, on drive 207D35A05631)
 - Symptom: The desk drive's v207 HV board (2026-11-05): erase acked after
   ~11 s (2 s of flash), then no write acks (FLASH_FAILED in 0.4 s).
 - Cause:   Not the bootloader's protocol or the image layout: the v207
@@ -535,6 +535,18 @@ Entry format:
   re-armed the receive and could lose the answer: the old-bootloader CRC_CHECK entry below may be the same).
   shared/boot_logic.h; tests host/tests/test_boot_logic.c, host/tests/check_boot.py. Needs the new f3_boot on
   the HV board (`make f3_boot_btburn`, DFU) and a bench hv_update to close.
+- Result:  2026-11-19, drive 207D35A05631: F4 on master (a1d3b626, fw 3), HV
+  board still on its bootloader from the 11-10 DFU recovery (the old code,
+  no page skipping). hv_update with the new F4 side: SEND_TO_BOOTLOADER,
+  ERASE_FLASH (1.2 s), SEND_APP, CRC_CHECK, SEND_TO_APP, SLAVE_IN_APP in
+  18 s; hv=3. Also after a 24 V power cycle; motor verify and id_mot runs
+  fine. So the board's CRC answer had been lost to the repeated requests:
+  sending CRC_CHECK once and listening fixes it. Once at the switch to the
+  new application: fault 11 (HV volt error; the bus not yet reported),
+  cleared by the next enable. The new f3_boot (page skipping) is still
+  untested on hardware; it matters for the slow erase seen with the v207
+  bootloader (11 s on the desk drive). Log:
+  ~/stmbl-firmware/newdrive-207D35A05631/hvupdate/.
 
 ## 2026-11-09  fanuc_tw: the request with interrupts on, 20 % sync errors: causes ruled out
 - Area:    `src/comps/fanuc_tw.c` (transmit_and_listen)
