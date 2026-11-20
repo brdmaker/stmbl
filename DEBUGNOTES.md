@@ -45,7 +45,8 @@ Entry format:
   on 11-19 one did not, after a power-up without the battery (turns lost).
   11-19's readings were all with the latch set. Byte 0 bit 0x20 (`a0`)
   is a low-battery warning, set below ~2.75 V (PPK2 sweep, 11-20): set in
-  every frame before, so the bench cell is low.
+  every frame before, so the bench cell is low. The turn count is lost
+  between 2.4 and 2.2 V with no flag at all (header `a0 78` after).
 - Fix:     Not yet. Idea: a `bat` out pin from status `00100` (and a
   warning from byte 0 bit 0x20), linked to
   `fault0.mot_fb_bat`; find what clears the latch first (an alarm-reset

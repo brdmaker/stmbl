@@ -106,7 +106,8 @@ Isolated bad frames keep the last good one.
   the battery on (a latch from a power-up without the battery outlived
   that on 11-19).
   Byte 0 bit 0x20 (`a0` vs `80`) is a low-battery warning: set below
-  ~2.75 V, not latched (2026-11-20, the PPK2 as the battery).
+  ~2.75 V, not latched (2026-11-20, the PPK2 as the battery). The turn
+  count is lost between 2.4 and 2.2 V, with no flag for it.
   Command 1's second data byte carries byte 1; command 0 reads
   `00 00` throughout. A power-up without the battery restarts the turn
   count at 0. Until the alarm is decoded, `fault0.mot_fb_bat` and
