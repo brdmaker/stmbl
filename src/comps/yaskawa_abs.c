@@ -56,12 +56,12 @@ HAL_PIN(dump);       // rising edge: print the next capture's edge times, result
 // CRC-16 after them. Default 2 bytes ff ff, no CRC: the position request.
 // Any other request gets other replies: the position is lost (error) until
 // it is back.
-HAL_PIN(req_n);
-HAL_PIN(req0);
-HAL_PIN(req1);
-HAL_PIN(req2);
-HAL_PIN(req3);
-HAL_PIN(req_crc);
+HAL_PIN(req_n);    // bench: the request's data bytes, 1..4 (2: the position request)
+HAL_PIN(req0);     // bench: its first data byte, 0..255 (255)
+HAL_PIN(req1);     // bench: its second data byte (255)
+HAL_PIN(req2);     // bench: its third data byte (255)
+HAL_PIN(req3);     // bench: its fourth data byte (255)
+HAL_PIN(req_crc);  // bench: > 0: a CRC-16 after the data bytes (0)
 
 #define YAB_RXN 600
 #define YAB_TXN 128

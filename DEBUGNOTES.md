@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-11-20  CI red since run 31: stale docs/components; runs 28 and 30: apt hung
+- Area:     .github/workflows/ci.yml, src/comps/yaskawa_abs.c, docs/components (tools/comp_docs.py)
+- Status:   Fixed
+- Symptom:  CI failed on master from run 31 (26cf462) on: "not ok - docs/components is out of date
+            (yaskawa_abs.md, README.md)". Runs 28 and 30 failed differently: "Install dependencies" /
+            "Install toolchain" timed out after 15 minutes.
+- Cause:    26cf462 added yaskawa_abs's req_n / req0..3 / req_crc pins (and moved the turnaround interrupt to
+            priority 0) without running tools/comp_docs.py; the commits after it were docs only. The apt
+            steps: a stalled mirror makes apt-get hang, not fail, so the three-try loop never got to its
+            second try and the step's timeout ended the job.
+- Fix:      comp_docs.py run; the six request pins described in the source (they showed blank). CI: each apt
+            command under `timeout 240` with 30 s connection timeouts, so a hang is retried; dpkg repaired
+            between tries; a check that the toolchain is there after the loop (it fell through quietly);
+            pip bounded too. Test: `make -C host check` (comp_docs --check) is the test that caught it; no
+            new test for the apt hang (it needs a stalled mirror): watch the next runs.
+
 ## 2026-11-20  yaskawa_abs: the battery alarm is in header byte 1, and it latches
 - Area:    `src/comps/yaskawa_abs.c` (header bits 8-15), docs/yaskawa_abs.md
 - Status:  Open
