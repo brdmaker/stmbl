@@ -102,7 +102,9 @@ Isolated bad frames keep the last good one.
   brdmot `yaskawa.md`, battery test 3) the header's byte 1 (bits 8-15) is
   a 3-bit counter (top) and 5 status bits: `11000` with the battery OK,
   `00100` once the battery was unplugged while powered, and it stays
-  `00100` (latched) after the battery is back; what clears it is open.
+  `00100` (latched) after the battery is back, until a power cycle with
+  the battery on (a latch from a power-up without the battery outlived
+  that on 11-19).
   Command 1's second data byte carries the same byte; command 0 reads
   `00 00` throughout. A power-up without the battery restarts the turn
   count at 0. Until the alarm is decoded, `fault0.mot_fb_bat` and

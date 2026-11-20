@@ -25,7 +25,9 @@ Entry format:
   power-up, stops at 111) + 5 status bits: `11000` battery OK, `00100`
   after the battery was unplugged while powered. Reconnecting doesn't clear
   it (latched; it was clear the next morning after a night unpowered with
-  the battery on). 11-19's readings were all with the latch set.
+  the battery on). A 24 V cycle with the battery on cleared it on 11-20;
+  on 11-19 one did not, after a power-up without the battery (turns lost).
+  11-19's readings were all with the latch set.
 - Fix:     Not yet. Idea: a `bat` out pin from status `00100`, linked to
   `fault0.mot_fb_bat`; find what clears the latch first (an alarm-reset
   request, or time). No test until then (hardware state of the encoder).
