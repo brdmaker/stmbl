@@ -98,15 +98,17 @@ with a resolver.
 Isolated bad frames keep the last good one.
 
 **Not there yet:**
-- **Battery and turns-valid alarms:** none found in this reply. Tested on the
-  SGMAH (2026-11-19, brdmot `yaskawa.md`): without the battery, a power-up
-  starts the turn count at 0 with no flag in the frame. Header bit 15 shows
-  only briefly around battery events while powered. So
-  `fault0.mot_fb_bat` and `mot_fb_nref` stay unlinked, and a drive with a
-  flat battery runs with a wrong turn count. Other requests (pins `req_n`,
-  `req0`..`req3`, `req_crc`; brdmot `yaskawa.md`): one-byte requests with a
-  CRC read three short registers; command 0 reads `00 00` so far, the
-  candidate for the alarm word (not yet read with the battery lost).
+- **Battery alarm:** found but not used yet. On the SGMAH (2026-11-20,
+  brdmot `yaskawa.md`, battery test 3) the header's byte 1 (bits 8-15) is
+  a 3-bit counter (top) and 5 status bits: `11000` with the battery OK,
+  `00100` once the battery was unplugged while powered, and it stays
+  `00100` (latched) after the battery is back; what clears it is open.
+  Command 1's second data byte carries the same byte; command 0 reads
+  `00 00` throughout. A power-up without the battery restarts the turn
+  count at 0. Until the alarm is decoded, `fault0.mot_fb_bat` and
+  `mot_fb_nref` stay unlinked and a drive with a flat battery runs with a
+  wrong turn count. Other requests: pins `req_n`, `req0`..`req3`,
+  `req_crc` (brdmot `yaskawa.md`).
 - **mturn:** for the same reason the turn count isn't tied to `mturn`
   (LinuxCNC's absolute position, docs/absolute_encoders.md).
 

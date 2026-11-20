@@ -16,6 +16,20 @@ Entry format:
 
 ---
 
+## 2026-11-20  yaskawa_abs: the battery alarm is in header byte 1, and it latches
+- Area:    `src/comps/yaskawa_abs.c` (header bits 8-15), docs/yaskawa_abs.md
+- Status:  Open
+- Symptom: On 11-19 byte 1 read `04` / `84` all day, which was taken first
+  for "no flag", then for "bit 7 = battery checked OK". Both wrong.
+- Cause:   Byte 1 = a 3-bit counter (top bits, counts up ~1/min after
+  power-up, stops at 111) + 5 status bits: `11000` battery OK, `00100`
+  after the battery was unplugged while powered. Reconnecting doesn't clear
+  it (latched; it was clear the next morning after a night unpowered with
+  the battery on). 11-19's readings were all with the latch set.
+- Fix:     Not yet. Idea: a `bat` out pin from status `00100`, linked to
+  `fault0.mot_fb_bat`; find what clears the latch first (an alarm-reset
+  request, or time). No test until then (hardware state of the encoder).
+
 ## 2026-11-19  yaskawa_abs: frame errors 0-74 % depending only on code layout (turnaround behind frt)
 - Area:    `src/comps/yaskawa_abs.c` (DMA2_Stream1 turnaround interrupt), `src/setup.c` (priorities)
 - Status:  Fixed
