@@ -27,8 +27,11 @@ Entry format:
   it (latched; it was clear the next morning after a night unpowered with
   the battery on). A 24 V cycle with the battery on cleared it on 11-20;
   on 11-19 one did not, after a power-up without the battery (turns lost).
-  11-19's readings were all with the latch set.
-- Fix:     Not yet. Idea: a `bat` out pin from status `00100`, linked to
+  11-19's readings were all with the latch set. Byte 0 bit 0x20 (`a0`)
+  is a low-battery warning, set below ~2.75 V (PPK2 sweep, 11-20): set in
+  every frame before, so the bench cell is low.
+- Fix:     Not yet. Idea: a `bat` out pin from status `00100` (and a
+  warning from byte 0 bit 0x20), linked to
   `fault0.mot_fb_bat`; find what clears the latch first (an alarm-reset
   request, or time). No test until then (hardware state of the encoder).
 
