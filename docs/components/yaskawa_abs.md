@@ -21,7 +21,7 @@ Load no other FB0 encoder comp with it.
 
 **Config templates:** `yaskawa_abs_fb0`
 
-## Pins (25, 21 described)
+## Pins (28, 24 described)
 
 | pin | description |
 |---|---|
@@ -40,6 +40,9 @@ Load no other FB0 encoder comp with it.
 | `noreply` |  |
 | `edges` | edges in the last capture |
 | `res` | the last poll: 0 ok, 1 no reply, < 0 a YAB_ error |
+| `bat_status` | the battery status bits (header byte 1 & 0x1f): 24 (0x18) OK, 4 the battery was lost |
+| `bat_fail` | bat_status not OK (to fault0.mot_fb_bat): latched by the encoder until its power is cycled |
+| `bat_low` | the battery is low (below ~2.75 V; the turns are lost below ~2.3 V): a warning |
 | `us_col` | time: all of the rt function |
 | `us_dec` | time: of that yab_decode |
 | `us_tx` | time: starting the request (the interrupt turns the line around) |

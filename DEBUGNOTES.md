@@ -34,7 +34,7 @@ Entry format:
 
 ## 2026-11-20  yaskawa_abs: the battery alarm is in header byte 1, and it latches
 - Area:    `src/comps/yaskawa_abs.c` (header bits 8-15), docs/yaskawa_abs.md
-- Status:  Open
+- Status:  Fixed
 - Symptom: On 11-19 byte 1 read `04` / `84` all day, which was taken first
   for "no flag", then for "bit 7 = battery checked OK". Both wrong.
 - Cause:   Byte 1 = a 3-bit counter (top bits, counts up ~1/min after
@@ -47,10 +47,15 @@ Entry format:
   is a low-battery warning, set below ~2.75 V (PPK2 sweep, 11-20): set in
   every frame before, so the bench cell is low. The turn count is lost
   between 2.4 and 2.2 V with no flag at all (header `a0 78` after).
-- Fix:     Not yet. Idea: a `bat` out pin from status `00100` (and a
-  warning from byte 0 bit 0x20), linked to
-  `fault0.mot_fb_bat`; find what clears the latch first (an alarm-reset
-  request, or time). No test until then (hardware state of the encoder).
+- Fix:     yaskawa_abs decodes them: `bat_status`, `bat_fail` (status not
+  0x18; template links it to fault0.mot_fb_bat, fault 21) and `bat_low`
+  (byte 0 bit 0x20, warning). Test: host/tests/test_yaskawa_abs.c
+  "battery bits" (real frames `80 84`, `a0 04`; fails to build without the
+  fields). On the SGMAH with the motor running (brdmot yab_bat_run.py,
+  PPK2 as battery): a battery cut gave bat_fail ~21 s later and fault 21
+  stopped the drive; re-enable refused until a 24 V cycle. Also seen: the
+  encoder load-tests its battery every ~6 min (100-640 uA pulses); the
+  PPK2 may dip then and trip the alarm. A lost turn count has no flag.
 
 ## 2026-11-19  yaskawa_abs: frame errors 0-74 % depending only on code layout (turnaround behind frt)
 - Area:    `src/comps/yaskawa_abs.c` (DMA2_Stream1 turnaround interrupt), `src/setup.c` (priorities)

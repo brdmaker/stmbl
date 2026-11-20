@@ -13,7 +13,15 @@
  * 0xffff) over bytes 0-11. Fields are LSB first in received bit order:
  *   bits 56-75  single-turn position, 20 bits (2^20 per turn)
  *   bits 76-91  turns, signed 16 bits
- *   bits 0-55   header, status and changing data not understood yet
+ *   bits 0-55   header, status and changing data, partly understood:
+ *     byte 0 (as received) bit 0x20: low battery, set below ~2.75 V (the
+ *       count is lost below ~2.3 V); follows the voltage, no latch
+ *     byte 1 bits 0x1f: the battery status, 0x18 OK, 0x04 after the battery
+ *       was lost or failed the encoder's load test (every ~6 min) while
+ *       powered: latched until the encoder's power is cycled with a good
+ *       battery; bits 0xe0 a counter
+ *   A turn count lost with the encoder unpowered is not flagged at all
+ *   (brdmot yaskawa.md, battery tests 3 and 4, 2026-11-20).
  */
 #include <stdint.h>
 
@@ -51,7 +59,10 @@ typedef struct {
   uint32_t pos;   // 0 .. 2^20-1
   int16_t turns;
   uint16_t crc, crc_rx;
+  uint8_t bat_status;  // byte 1 & 0x1f: YAB_BAT_OK, 0x04 the battery was lost
+  uint8_t bat_low;     // byte 0 & 0x20: the battery is low (warning)
 } yab_frame_t;
+#define YAB_BAT_OK 0x18
 
 uint16_t yab_crc16(const uint8_t *data, int n);
 /* The fields of a decoded reply: YAB_OK, YAB_LEN or YAB_CRC. */
@@ -70,6 +81,8 @@ typedef struct {
   int have;
   int state;  // 0 none / error, 3 good (absolute)
   int error;
+  int bat_fail;  // the last good frame's battery status is not OK (to fault0.mot_fb_bat)
+  int bat_low;   // the last good frame says low battery
 } yab_t;
 void yab_init(yab_t *d, int max_err);
 void yab_poll(yab_t *d, int res, const yab_frame_t *f);

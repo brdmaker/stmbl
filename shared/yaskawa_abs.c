@@ -289,6 +289,8 @@ int yab_frame(const uint8_t *bytes, int nbytes, yab_frame_t *f) {
   uint32_t r2 = rev32((uint32_t)bytes[11] << 24);  // bits 88-95
   f->pos      = r1 & 0xfffff;                                           // bits 56-75
   f->turns    = (int16_t)(uint16_t)((r1 >> 20) | ((r2 & 0xf) << 12));  // bits 76-91
+  f->bat_status = bytes[1] & 0x1f;
+  f->bat_low    = (bytes[0] & 0x20) ? 1 : 0;
   f->crc      = yab_crc16(bytes, 12);
   f->crc_rx   = (uint16_t)((bytes[12] << 8) | bytes[13]);
   return f->crc == f->crc_rx ? YAB_OK : YAB_CRC;
@@ -311,6 +313,8 @@ void yab_poll(yab_t *d, int res, const yab_frame_t *f) {
     d->bad_run = 0;
     d->state   = 3;
     d->error   = 0;
+    d->bat_fail = f->bat_status != YAB_BAT_OK;
+    d->bat_low  = f->bat_low;
     return;
   }
   if(res == YAB_NOREPLY) {

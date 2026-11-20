@@ -46,6 +46,9 @@ HAL_PIN(frame_er);   // no sync, not Manchester, no flag, too short
 HAL_PIN(noreply);
 HAL_PIN(edges);      // edges in the last capture
 HAL_PIN(res);        // the last poll: 0 ok, 1 no reply, < 0 a YAB_ error
+HAL_PIN(bat_status); // the battery status bits (header byte 1 & 0x1f): 24 (0x18) OK, 4 the battery was lost
+HAL_PIN(bat_fail);   // bat_status not OK (to fault0.mot_fb_bat): latched by the encoder until its power is cycled
+HAL_PIN(bat_low);    // the battery is low (below ~2.75 V; the turns are lost below ~2.3 V): a warning
 
 HAL_PIN(us_col);     // time: all of the rt function
 HAL_PIN(us_dec);     // time: of that yab_decode
@@ -255,6 +258,9 @@ static void collect(struct yaskawa_abs_ctx_t *ctx, struct yaskawa_abs_pin_ctx_t 
     PIN(turns)   = d->f.turns;
     PIN(mpos)    = (float)d->f.turns * 2.0f * (float)M_PI + p;
     PIN(raw_pos) = d->f.pos;
+    PIN(bat_status) = d->f.bat_status;
+    PIN(bat_fail)   = d->bat_fail;
+    PIN(bat_low)    = d->bat_low;
   }
   PIN(state)    = d->state;
   PIN(error)    = d->error;

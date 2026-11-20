@@ -2,7 +2,7 @@
 
 Every HAL component of the firmware, generated from its source by `tools/comp_docs.py` (`make -C host check` fails while a page is out of date). Describe a component in a comment before its pins and each pin in a comment after it; then run `tools/comp_docs.py`.
 
-115 components, 606 of 2147 pins described.
+115 components, 609 of 2150 pins described.
 
 ## F4 and F3 (shared)
 
@@ -121,7 +121,7 @@ Every HAL component of the firmware, generated from its source by `tools/comp_do
 | [sserial](sserial.md) | 6/30 | pins |
 | [usart](usart.md) | 1/7 |  |
 | [yaskawa](yaskawa.md) | 8/26 |  |
-| [yaskawa_abs](yaskawa_abs.md) | 21/25 | yaskawa_abs: feedback driver for Yaskawa Sigma-II serial absolute encoders (the 16-bit absolute of an SGMAH-xxA1..., 20 bits per turn ... |
+| [yaskawa_abs](yaskawa_abs.md) | 24/28 | yaskawa_abs: feedback driver for Yaskawa Sigma-II serial absolute encoders (the 16-bit absolute of an SGMAH-xxA1..., 20 bits per turn ... |
 
 ## F4 (logic board, board io)
 

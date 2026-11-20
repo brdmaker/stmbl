@@ -239,6 +239,66 @@ int main(void) {
     yab_poll(&d, YAB_NOSYNC, &f);
     CHECK(d.state == 0 && d.error == 1 && d.crc_er == 1 && d.noreply == 1 && d.frame_er == 1, "three: error");
   }
+  // the battery bits (brdmot yaskawa.md, battery tests 3 and 4): byte 1 &
+  // 0x1f the status (0x18 OK, 0x04 lost, latched), byte 0 & 0x20 low
+  {
+    // SGMAH 2026-11-20 on the PPK2 at 3.6 V, status latched: 80 84
+    static const char lost_hex[] = "8084f532c493083a308a000015a6";
+    uint8_t ok_b[YAB_BYTES];
+    yab_t d;
+    yab_init(&d, 3);
+
+    hex2(lost_hex, b);
+    CHECK(yab_frame(b, YAB_BYTES, &f) == YAB_OK, "battery lost frame: CRC");
+    CHECK(f.bat_status == 0x04 && !f.bat_low, "80 84: status 0x04, not low (%02x %d)", f.bat_status, f.bat_low);
+    yab_poll(&d, YAB_OK, &f);
+    CHECK(d.bat_fail && !d.bat_low && d.state == 3, "80 84: bat_fail, still absolute");
+
+    // the same with byte 1 = 0x78 (counter 011, status OK), CRC redone
+    memcpy(ok_b, b, YAB_BYTES);
+    ok_b[1]     = 0x78;
+    uint16_t c  = yab_crc16(ok_b, 12);
+    ok_b[12]    = c >> 8;
+    ok_b[13]    = c & 0xff;
+    CHECK(yab_frame(ok_b, YAB_BYTES, &f) == YAB_OK, "OK frame: CRC");
+    CHECK(f.bat_status == YAB_BAT_OK, "80 78: status OK");
+    yab_poll(&d, YAB_OK, &f);
+    CHECK(!d.bat_fail && !d.bat_low, "80 78: no battery alarm");
+
+    // every counter value with status OK, as logged after power-up
+    static const uint8_t counts[] = {0x18, 0x98, 0xd8, 0x38, 0xb8, 0x78, 0xf8, 0x58};
+    for(unsigned i = 0; i < sizeof(counts); i++) {
+      ok_b[1] = counts[i];
+      c       = yab_crc16(ok_b, 12);
+      ok_b[12] = c >> 8;
+      ok_b[13] = c & 0xff;
+      yab_frame(ok_b, YAB_BYTES, &f);
+      yab_poll(&d, YAB_OK, &f);
+      CHECK(!d.bat_fail, "byte 1 %02x: no alarm", counts[i]);
+    }
+
+    // a bad frame doesn't change the battery state; a good one does
+    hex2(lost_hex, b);
+    b[1] ^= 0x10;  // 0x94: CRC fails
+    CHECK(yab_frame(b, YAB_BYTES, &f) == YAB_CRC, "corrupted frame: CRC error");
+    yab_poll(&d, YAB_CRC, &f);
+    CHECK(!d.bat_fail, "a CRC error keeps the last good frame's battery state");
+
+    // 11-10's capture: a0 04, low and lost
+    hex2(cap1_hex, b);
+    CHECK(yab_frame(b, YAB_BYTES, &f) == YAB_OK, "a0 04 frame: CRC");
+    yab_poll(&d, YAB_OK, &f);
+    CHECK(d.bat_fail && d.bat_low, "a0 04: bat_fail and bat_low");
+
+    // a0 f8 (low but OK, as on the old cell 2026-11-20 morning)
+    b[1]     = 0xf8;
+    c        = yab_crc16(b, 12);
+    b[12]    = c >> 8;
+    b[13]    = c & 0xff;
+    yab_frame(b, YAB_BYTES, &f);
+    yab_poll(&d, YAB_OK, &f);
+    CHECK(!d.bat_fail && d.bat_low, "a0 f8: only bat_low");
+  }
   printf("%s test_yaskawa_abs: %d/%d passed\n", fails ? "FAIL" : "ok", tests - fails, tests);
   return fails ? 1 : 0;
 }
