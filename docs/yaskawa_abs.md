@@ -114,7 +114,10 @@ Isolated bad frames keep the last good one.
   short commands' replies are the same as when it was kept; a lost count
   reads 0), so a count lost with the drive unpowered goes unnoticed: `mot_fb_nref` stays unlinked; replace
   the battery when `bat_low` comes on. Command 1's second data byte
-  carries byte 1; command 0 reads `00 00` throughout. Other requests: pins `req_n`, `req0`..`req3`,
+  carries byte 1; command 0 reads `00 00` throughout. Request modes (2026-11-23): after a plain `ff ff` the encoder ignores
+multi-byte requests with a CRC; after `ff ff` + CRC it answers them (with
+the position frame, whatever the bytes). A scan with the count lost found
+no other command and no alarm register (brdmot `yaskawa.md`). Other requests: pins `req_n`, `req0`..`req3`,
   `req_crc` (brdmot `yaskawa.md`).
 - **mturn:** for the same reason the turn count isn't tied to `mturn`
   (LinuxCNC's absolute position, docs/absolute_encoders.md).
