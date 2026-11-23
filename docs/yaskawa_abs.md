@@ -109,8 +109,10 @@ Isolated bad frames keep the last good one.
   keeps it from enabling (checked on the SGMAH with the motor running,
   brdmot tools/bench/yab_bat_run.py). Byte 0 bit 0x20 is `bat_low`: set
   below ~2.75 V, not latched; a warning only, not linked. The turn count
-  is lost between 2.4 and 2.2 V with **no flag**, so a count lost with the
-  drive unpowered goes unnoticed: `mot_fb_nref` stays unlinked; replace
+  is lost between 2.4 and 2.2 V, or 1-3 s after the battery goes with the
+  encoder unpowered, with **no flag** (2026-11-23: the frames and the
+  short commands' replies are the same as when it was kept; a lost count
+  reads 0), so a count lost with the drive unpowered goes unnoticed: `mot_fb_nref` stays unlinked; replace
   the battery when `bat_low` comes on. Command 1's second data byte
   carries byte 1; command 0 reads `00 00` throughout. Other requests: pins `req_n`, `req0`..`req3`,
   `req_crc` (brdmot `yaskawa.md`).
