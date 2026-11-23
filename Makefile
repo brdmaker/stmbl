@@ -388,11 +388,12 @@ ssfw_install: ssfw
 
 # development flashing over smart-serial (CLAUDE.md); make btburn is the backup
 # in-band: staged by the running application, copied by the bootloader
-# (DEV=/dev/ttyACM0, or sserialterm's pty for the smart-serial console)
-DEV ?= /dev/ttyACM0
+# (DEV= the USB console, default: servoterm-cli finds the drive's by id;
+# or sserialterm's pty for the smart-serial console)
+DEV ?=
 update: build
 	$(MAKE) -C servoterm-cli
-	servoterm-cli/servoterm-cli -d $(DEV) -t 5 --update $(TARGET).bin
+	servoterm-cli/servoterm-cli $(if $(DEV),-d $(DEV)) -t 5 --update $(TARGET).bin
 
 # recovery path: sserialboot, then LinuxCNC's setsserial through the loader
 ssburn: ssfw_install

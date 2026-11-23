@@ -2,6 +2,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -384,4 +386,34 @@ int su_link_reset(su_link_t *l, double timeout) {
     l->fd = -1;
   }
   return -1;
+}
+
+int su_link_default_dev(const char *byid_dir, const char *fallback, char *out, size_t n) {
+  char pat[PATH_MAX];
+  glob_t g;
+  snprintf(pat, sizeof(pat), "%s/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00", byid_dir);
+  if(glob(pat, 0, NULL, &g) == 0 && g.gl_pathc > 0) {
+    snprintf(out, n, "%s", g.gl_pathv[0]);  // sorted: the same drive every time
+    globfree(&g);
+    return 0;
+  }
+  globfree(&g);
+  char fb[PATH_MAX];
+  int rc = 0;
+  snprintf(out, n, "%s", fallback);
+  if(realpath(fallback, fb)) {
+    snprintf(pat, sizeof(pat), "%s/*", byid_dir);
+    if(glob(pat, 0, NULL, &g) == 0) {
+      for(size_t i = 0; i < g.gl_pathc; i++) {
+        char rp[PATH_MAX];
+        if(realpath(g.gl_pathv[i], rp) && strcmp(rp, fb) == 0) {
+          snprintf(out, n, "%s", g.gl_pathv[i]);  // another device's
+          rc = -1;
+          break;
+        }
+      }
+    }
+    globfree(&g);
+  }
+  return rc;
 }

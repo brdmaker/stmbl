@@ -18,6 +18,13 @@
 typedef struct su_link su_link_t;
 
 su_link_t *su_link_open(const char *dev, char *err, size_t errlen);
+
+// The drive's console when none is given: the first STMBL USB console in
+// byid_dir (/dev/serial/by-id), else fallback (/dev/ttyACM0), unless a link
+// there shows the fallback belongs to another device (a PPK2 took ttyACM0
+// after a reboot: drive commands went to it, DEBUGNOTES 2026-11-23). The
+// path goes to out; 0, or -1 with out naming the other device.
+int su_link_default_dev(const char *byid_dir, const char *fallback, char *out, size_t n);
 void su_link_close(su_link_t *l);
 
 // every piece of text from the drive, as it comes (logging, a GUI's console)

@@ -17,7 +17,8 @@
  * Usage:
  *   servoterm-cli [-d DEV] [-s FILE] [-t SEC] [-w MS]
  *                 [--dump FILE] [--load FILE [--no-backup]] [-c CMD]... [SCRIPT]
- *     -d DEV    serial device (default /dev/ttyACM0)
+ *     -d DEV    serial device (default: the first STMBL console in
+ *               /dev/serial/by-id, else /dev/ttyACM0 if no other device has it)
  *     -s FILE   write decoded scope samples to FILE as CSV
  *     -t SEC    after input is exhausted, keep reading until the drive has
  *               been quiet (no text) for SEC seconds, then exit (default 0.5)
@@ -1319,7 +1320,8 @@ static void usage(void) {
 }
 
 int main(int argc, char **argv) {
-  const char *dev        = "/dev/ttyACM0";
+  const char *dev        = NULL;  // -d, else su_link_default_dev()
+  static char dev_buf[4096];
   const char *scope_path = NULL;
   const char *script     = NULL;
   const char *cmds[MAX_CMDS];
@@ -1420,6 +1422,15 @@ int main(int argc, char **argv) {
     } else {
       script = argv[i];
     }
+  }
+
+  if(!dev) {
+    if(su_link_default_dev("/dev/serial/by-id", "/dev/ttyACM0", dev_buf, sizeof(dev_buf)) < 0) {
+      fprintf(stderr, "servoterm-cli: no STMBL drive found, and /dev/ttyACM0 is %s: give the drive with -d\n",
+              dev_buf);
+      return 1;
+    }
+    dev = dev_buf;
   }
 
   if(wizard) {

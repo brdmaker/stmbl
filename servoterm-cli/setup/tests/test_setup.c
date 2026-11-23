@@ -17,6 +17,7 @@
 #include <poll.h>
 #include <pty.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -546,7 +547,39 @@ static void test_reconnect(void) {
   unlink(link);
 }
 
+// the console when no -d is given (2026-11-23: a PPK2 had ttyACM0)
+static void test_default_dev(void) {
+  char dir[] = "/tmp/su_byid_XXXXXX", byid[300], tty0[300], tty2[300], l1[400], l2[400], out[512];
+  if(!mkdtemp(dir)) {
+    ok(0, "default dev: mkdtemp");
+    return;
+  }
+  snprintf(byid, sizeof(byid), "%s/by-id", dir);
+  snprintf(tty0, sizeof(tty0), "%s/ttyACM0", dir);
+  snprintf(tty2, sizeof(tty2), "%s/ttyACM2", dir);
+  mkdir(byid, 0700);
+  fclose(fopen(tty0, "w"));
+  fclose(fopen(tty2, "w"));
+  ok(su_link_default_dev(byid, tty0, out, sizeof(out)) == 0 && strcmp(out, tty0) == 0,
+     "default dev: nothing in by-id: the fallback");
+  snprintf(l1, sizeof(l1), "%s/usb-Nordic_Semiconductor_PPK2_FF4211140255-if01", byid);
+  symlink(tty0, l1);
+  ok(su_link_default_dev(byid, tty0, out, sizeof(out)) == -1 && strcmp(out, l1) == 0,
+     "default dev: ttyACM0 is a PPK2's: refused, named");
+  snprintf(l2, sizeof(l2), "%s/usb-STMicroelectronics_STMBL_Virtual_ComPort_207D35A05631-if00", byid);
+  symlink(tty2, l2);
+  ok(su_link_default_dev(byid, tty0, out, sizeof(out)) == 0 && strcmp(out, l2) == 0,
+     "default dev: the STMBL console by id (ttyACM2)");
+  unlink(l1);
+  unlink(l2);
+  unlink(tty0);
+  unlink(tty2);
+  rmdir(byid);
+  rmdir(dir);
+}
+
 int main(void) {
+  test_default_dev();
   test_state();
   test_conf();
   test_version();

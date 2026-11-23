@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-11-23  servoterm-cli / make update defaulted to /dev/ttyACM0: drive commands went to a PPK2
+- Area:    `servoterm-cli/servoterm-cli.c`, `setup/su_link.c`, `Makefile` (update), `tools/ssflash.sh`, brdmot tools/bench
+- Status:  Fixed
+- Symptom: After a Pi reboot the Nordic PPK2 enumerated first (ttyACM0/1)
+  and the drive came up as ttyACM2. A bench script wrote console text to
+  ttyACM0: the PPK2 reset (a space is its RESET command, 0x20), switching
+  off the encoder's battery supply. `make update` and servoterm-cli without
+  -d would have sent the update to the PPK2 the same way.
+- Cause:   `/dev/ttyACM0` as the default device everywhere.
+- Fix:     `su_link_default_dev()`: the first STMBL console in
+  /dev/serial/by-id, else ttyACM0 only when no by-id link names it as
+  another device's (then refused, naming it). servoterm-cli uses it
+  without -d; `make update` passes -d only with DEV=; ssflash.sh has no
+  ttyACM0 fallback; brdmot's bench scripts use tools/bench/drive_port.py.
+  Test: servoterm-cli/setup/tests/test_setup.c "default dev" (3 cases).
+
 ## 2026-11-20  CI red since run 31: stale docs/components; runs 28 and 30: apt hung
 - Area:     .github/workflows/ci.yml, src/comps/yaskawa_abs.c, docs/components (tools/comp_docs.py)
 - Status:   Fixed
