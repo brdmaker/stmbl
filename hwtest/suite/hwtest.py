@@ -35,6 +35,14 @@ import serial
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import hm2_driver  # noqa: E402
 
+
+def stmbl_usb():
+    """the drive's USB console by id, not a bare ttyACM0: another device (a
+    PPK2) can hold that one (DEBUGNOTES 2026-11-23); ttyACM0 when none"""
+    import glob
+    p = sorted(glob.glob("/dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00"))
+    return p[0] if p else "/dev/ttyACM0"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CLI = os.path.join(REPO, "servoterm-cli", "servoterm-cli")
@@ -1348,7 +1356,7 @@ def main():
     p.add_argument("--phase", choices=["drive", "lcnc", "ebrake", "post", "report"], required=True)
     p.add_argument("--target", choices=["hw", "sim"], default="hw")
     p.add_argument("--out", required=True, help="run directory")
-    p.add_argument("--usb", default="/dev/ttyACM0", help="the drive's USB console (sim: its pty)")
+    p.add_argument("--usb", default=stmbl_usb(), help="the drive's USB console (sim: its pty)")
     p.add_argument("--con", default="", help="the smart-serial console pty (sserialterm)")
     p.add_argument("--prefix", default="hm2_7c81.0.stbl.0.0.", help="LinuxCNC pin prefix of the drive")
     p.add_argument("--only", default="", help="comma-separated parts of test names to run")

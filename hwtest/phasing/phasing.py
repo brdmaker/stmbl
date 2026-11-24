@@ -37,6 +37,14 @@ CLI = os.path.join(REPO, "servoterm-cli", "servoterm-cli")
 HAL_FILE = os.path.join(HERE, "phasing.hal")
 sys.path.insert(0, os.path.join(HERE, ".."))
 import hm2_driver  # noqa: E402
+
+
+def stmbl_usb():
+    """the drive's USB console by id, not a bare ttyACM0: another device (a
+    PPK2) can hold that one (DEBUGNOTES 2026-11-23); ttyACM0 when none"""
+    import glob
+    p = sorted(glob.glob("/dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00"))
+    return p[0] if p else "/dev/ttyACM0"
 WORKER = os.path.join(HERE, "phasing_worker.py")
 
 
@@ -286,7 +294,7 @@ def fmt(v, d=3):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--usb", default="/dev/ttyACM0")
+    p.add_argument("--usb", default=stmbl_usb())
     p.add_argument("--prefix", default="hm2_7c81.0.stbl.0.0.", help="hm2 pin prefix of the drive")
     p.add_argument("--positions", type=int, default=12)
     p.add_argument("--step", type=float, default=0.55,

@@ -37,6 +37,14 @@ import time
 
 import serial
 
+
+def stmbl_usb():
+    """the drive's USB console by id, not a bare ttyACM0: another device (a
+    PPK2) can hold that one (DEBUGNOTES 2026-11-23); ttyACM0 when none"""
+    import glob
+    p = sorted(glob.glob("/dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00"))
+    return p[0] if p else "/dev/ttyACM0"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLI = os.path.join(HERE, '..', '..', 'servoterm-cli', 'servoterm-cli')
 
@@ -211,7 +219,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--uno', default='/dev/ttyUSB0')
-    ap.add_argument('--dev', default='/dev/ttyACM0', help='the drive console')
+    ap.add_argument('--dev', default=stmbl_usb(), help='the drive console')
     ap.add_argument('--port', default='fb1', choices=['fb1'],
                     help='the drive port the fixture is on')
     ap.add_argument('--no-transmit', action='store_true',

@@ -26,6 +26,14 @@ import time
 
 import serial
 
+
+def stmbl_usb():
+    """the drive's USB console by id, not a bare ttyACM0: another device (a
+    PPK2) can hold that one (DEBUGNOTES 2026-11-23); ttyACM0 when none"""
+    import glob
+    p = sorted(glob.glob("/dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00"))
+    return p[0] if p else "/dev/ttyACM0"
+
 # --------------------------------------------------------------------------
 # drive console
 
@@ -618,7 +626,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--target", default="hw", help="label for the report: sim or hw")
     p.add_argument("--mode", choices=["motion", "console"], default="motion")
-    p.add_argument("--port", default="/dev/ttyACM0", help="drive console (sim: the pty link)")
+    p.add_argument("--port", default=stmbl_usb(), help="drive console (sim: the pty link)")
     p.add_argument("--out", required=True, help="run directory")
     p.add_argument("--program", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "soak.ngc"))
     p.add_argument("--hours", type=float, default=0, help="stop after this long (0: no limit)")

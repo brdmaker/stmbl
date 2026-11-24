@@ -4,7 +4,7 @@
 #   run_soak.sh sim [soak.py options]       LinuxCNC + stmbl_sim (hwtest/burnin-sim)
 #   run_soak.sh hw  [soak.py options]       LinuxCNC + the real drive (hwtest/burnin)
 #   run_soak.sh console [soak.py options]   no LinuxCNC: health/console checks
-#                                           of an idle drive on /dev/ttyACM0
+#                                           of an idle drive (its USB console by id)
 #
 # Environment: SOAK_MAX_VEL=N (mm/s, the machine's top speed), SOAK_SERVO_US=N (the servo
 # period), SOAK_CONSOLE=sserial
@@ -21,12 +21,19 @@ shift
 RUN=$HERE/runs/$TARGET-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$RUN"
 
+# the drive's USB console by id (a PPK2 can hold ttyACM0: DEBUGNOTES 2026-11-23)
+stmbl_usb() {
+  local p
+  p=$(ls /dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00 2>/dev/null | head -1)
+  [ -n "$p" ] || { echo "no STMBL drive in /dev/serial/by-id" >&2; return 1; }
+  echo "$p"
+}
 case $TARGET in
   console)
     exec python3 "$HERE/soak.py" --target hw --mode console --out "$RUN" "$@"
     ;;
   sim)  SRC=$REPO/hwtest/burnin-sim; PORT=$RUN/stmbl-sim ;;
-  hw)   SRC=$REPO/hwtest/burnin;     PORT=/dev/ttyACM0 ;;
+  hw)   SRC=$REPO/hwtest/burnin;     PORT=$(stmbl_usb) || exit 1 ;;
   *)    echo "unknown target $TARGET" >&2; exit 1 ;;
 esac
 

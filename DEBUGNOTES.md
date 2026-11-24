@@ -69,6 +69,10 @@ Entry format:
   without -d; `make update` passes -d only with DEV=; ssflash.sh has no
   ttyACM0 fallback; brdmot's bench scripts use tools/bench/drive_port.py.
   Test: servoterm-cli/setup/tests/test_setup.c "default dev" (3 cases).
+  2026-11-24: the hwtest tools had the same default (soak run_soak.sh /
+  soak.py, suite run_hwtest.sh / hwtest.py, phasing.py, fbtest.py): now the
+  first STMBL by-id console (the shell runners refuse without one). Used by
+  the soak of drive 206E35A05631 (console by id, PASS).
 
 ## 2026-11-20  CI red since run 31: stale docs/components; runs 28 and 30: apt hung
 - Area:     .github/workflows/ci.yml, src/comps/yaskawa_abs.c, docs/components (tools/comp_docs.py)

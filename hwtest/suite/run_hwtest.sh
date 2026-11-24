@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hardware test suite: the drive alone over USB, then under LinuxCNC.
 #
-#   run_hwtest.sh hw  [hwtest.py options]   the real drive: /dev/ttyACM0,
+#   run_hwtest.sh hw  [hwtest.py options]   the real drive: its USB console by id,
 #                                           LinuxCNC on hwtest/burnin + hm2
 #   run_hwtest.sh sim [hwtest.py options]   the simulated drive: stmbl_host
 #                                           --pty, then LinuxCNC + stmbl_sim
@@ -31,8 +31,15 @@ for m in sserialterm $([ "$TARGET" = sim ] && echo stmbl_sim); do
   [ -f /usr/lib/linuxcnc/modules/$m.so ] || { echo "LinuxCNC module $m not installed (see hwtest/suite/README.md)" >&2; exit 1; }
 done
 
+# the drive's USB console by id (a PPK2 can hold ttyACM0: DEBUGNOTES 2026-11-23)
+stmbl_usb() {
+  local p
+  p=$(ls /dev/serial/by-id/usb-STMicroelectronics_STMBL_Virtual_ComPort_*-if00 2>/dev/null | head -1)
+  [ -n "$p" ] || { echo "no STMBL drive in /dev/serial/by-id" >&2; return 1; }
+  echo "$p"
+}
 case $TARGET in
-  hw)  SRC=$REPO/hwtest/burnin;     USB=/dev/ttyACM0; PREFIX=hm2_7c81.0.stbl.0.0. ;;
+  hw)  SRC=$REPO/hwtest/burnin;     USB=$(stmbl_usb) || exit 1; PREFIX=hm2_7c81.0.stbl.0.0. ;;
   sim) SRC=$REPO/hwtest/burnin-sim; USB=$RUN/drive-usb; PREFIX=stmbl-sim.0. ;;
   *)   echo "unknown target $TARGET" >&2; exit 1 ;;
 esac
