@@ -64,6 +64,20 @@ static inline int boot_crc_send(uint32_t *wait) {
   return 1;
 }
 
-// hv_update's ERASE_FLASH: a full erase takes 1-2 s and a lost answer costs
-// a round; 12 s at the rt rate (5 kHz) before FLASH_FAILED (was 20000, 4 s)
-#define BOOT_ERASE_TICKS 60000
+// hv_update's ERASE_FLASH: a full erase takes 1-2 s on the new f3_boot (it
+// skips blank pages) but 11 s and more on old ones (v0.9.18-207), which
+// start the erase again for every request they take in: a request every
+// tick never let drive 206E35A05631's board finish (FLASH_FAILED after 12 s,
+// twice, 2026-11-24). Send it, then listen BOOT_ERASE_LISTEN sends (15 s at
+// hv's 2.5 kHz) before sending again; FLASH_FAILED after BOOT_ERASE_TICKS
+// rt ticks (60 s at 5 kHz: four sends). Returns 1: send now.
+#define BOOT_ERASE_TICKS 300000
+#define BOOT_ERASE_LISTEN 37500
+static inline int boot_erase_send(uint32_t *wait) {
+  if(*wait) {
+    (*wait)--;
+    return 0;
+  }
+  *wait = BOOT_ERASE_LISTEN;
+  return 1;
+}

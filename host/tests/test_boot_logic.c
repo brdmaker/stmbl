@@ -84,6 +84,23 @@ int main(void) {
   }
   ok(sent == 10, "CRC_CHECK: sent once per 100 ticks of listening (10 in 1000), not every tick");
   ok(BOOT_ERASE_TICKS / 5000 >= 10, "the erase gets 10 s or more at 5 kHz (a full erase 1-2 s)");
+  // ERASE_FLASH: old F3 bootloaders restart the erase for every request
+  // (11 s and more): once, then 15 s of listening (2026-11-24, 206E35A05631)
+  uint32_t ew = 0;
+  int esent   = 0, first = -1, second = -1;
+  for(int t = 0; t < 2500 * 60; t++) {  // 60 s of sends at 2.5 kHz
+    if(boot_erase_send(&ew)) {
+      if(first < 0) {
+        first = t;
+      } else if(second < 0) {
+        second = t;
+      }
+      esent++;
+    }
+  }
+  ok(first == 0 && esent == 4, "ERASE_FLASH: sent at once, then 4 in 60 s (not every tick)");
+  ok(second - first >= 2500 * 12, "ERASE_FLASH: 12 s or more between requests (the slowest erase seen: 11 s)");
+  ok(BOOT_ERASE_TICKS / 5000 >= 2 * BOOT_ERASE_LISTEN / 2500, "the erase timeout covers two requests or more");
   printf("1..%d\n", n);
   return fails != 0;
 }

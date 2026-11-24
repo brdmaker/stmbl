@@ -16,6 +16,28 @@ Entry format:
 
 ---
 
+## 2026-11-24  hv_update: ERASE_FLASH repeated every tick; and its timeout never reached (16-bit counter)
+- Area:    `src/comps/hv.c` (ERASE_FLASH), `shared/boot_logic.h`
+- Status:  Open (the board, see below); the two code faults Fixed
+- Symptom: New drive 206E35A05631 (F4 and HV board on v0.9.18-207,
+  2025-01-21), F4 flashed to master over DFU: hv_update FLASH_FAILED after
+  12 s in ERASE_FLASH, twice. After the change below it hung in ERASE_FLASH
+  for minutes.
+- Cause:   (1) hv0 sent ERASE_FLASH every other rt tick until answered; old
+  f3_boot versions start the erase again for every request they take in
+  (DEBUGNOTES 2026-10-29: 11 s on the desk drive, 1.2 s on 207D35A05631).
+  (2) After raising BOOT_ERASE_TICKS to 300000: ctx->timeout was a
+  uint16_t, so the limit was never reached.
+- Fix:     ERASE_FLASH sent once, then 15 s of listening before the next
+  (boot_erase_send(), as CRC_CHECK's), FLASH_FAILED after 60 s; timeout a
+  uint32_t, with a _Static_assert that BOOT_ERASE_TICKS fits it (fails the
+  build on 16 bits: checked). Test: host/tests/test_boot_logic.c
+  "ERASE_FLASH" (3 cases).
+- Open:    with that, still no answer from this HV board, and none to
+  hv_verify either (no bytes at all, hv0.dc_volt 0): the board is either
+  unpowered or not linked. Its state before the first hv_update wasn't
+  checked.
+
 ## 2026-11-23  servoterm-cli / make update defaulted to /dev/ttyACM0: drive commands went to a PPK2
 - Area:    `servoterm-cli/servoterm-cli.c`, `setup/su_link.c`, `Makefile` (update), `tools/ssflash.sh`, brdmot tools/bench
 - Status:  Fixed

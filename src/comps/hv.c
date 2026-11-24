@@ -95,11 +95,16 @@ struct hv_ctx_t {
   f3_config_data_t config;
   f3_state_data_t state;
   uint32_t addr;
-  uint16_t timeout;
+  uint32_t timeout;  // rt ticks; BOOT_ERASE_TICKS (300000) needs more than 16 bits
   uint8_t conf_addr;
   uint8_t send_state;
   hv_fwver_t fwver;
 };
+// the update timeouts count in ctx->timeout: they must fit (a 16-bit counter
+// never reached BOOT_ERASE_TICKS = 300000, and hv_update hung in ERASE_FLASH)
+_Static_assert(BOOT_ERASE_TICKS < (1ULL << (8 * sizeof(((struct hv_ctx_t *)0)->timeout))),
+               "BOOT_ERASE_TICKS doesn't fit hv_ctx_t.timeout");
+
 
 typedef enum {
   SLAVE_IN_APP,
@@ -524,8 +529,8 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
 
       // flash_state = SLAVE_IN_APP;
 
-      // 12 s: a full erase takes 1-2 s, a lost answer costs another round
-      // (shared/boot_logic.h; was 20000, 4 s)
+      // sent once every 15 s, 60 s in all (old F3 bootloaders restart the
+      // erase for every request: shared/boot_logic.h)
       if(ctx->timeout > BOOT_ERASE_TICKS) {
         ctx->timeout = 0;
         flash_state  = FLASH_FAILED;
@@ -620,6 +625,13 @@ static void rt_func(float period, void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   if(flash_state != CRC_CHECK) {
     crc_wait = 0;
   } else if(tx_size && !boot_crc_send(&crc_wait)) {
+    tx_size = 0;
+  }
+  // ERASE_FLASH the same, listening 15 s between requests
+  static uint32_t erase_wait;
+  if(flash_state != ERASE_FLASH) {
+    erase_wait = 0;
+  } else if(tx_size && !boot_erase_send(&erase_wait)) {
     tx_size = 0;
   }
 
