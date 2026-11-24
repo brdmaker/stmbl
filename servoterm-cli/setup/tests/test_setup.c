@@ -154,6 +154,17 @@ static void test_feedback(void) {
      "feedback: across the counter's wrap");
   long back[3] = {100, 10100, 100};
   ok(su_fb_counts(back, 3, 65536, &counts, &dir) == -2, "feedback: turned back: rejected");
+  // absolute mode: Yaskawa Sigma-II not supported (a lost count isn't flagged,
+  // brdmot yaskawa.md 2026-11-23); FANUC 4-wire is (mturn)
+  const su_fb_type_t *y = su_fb_find("yaskawa_abs"), *f = su_fb_find("fanuc");
+  ok(y && y->abs_unsupported && strstr(y->abs_unsupported, "not supported") && !y->mt_link,
+     "feedback: yaskawa_abs: absolute mode not supported, no mturn");
+  ok(f && f->mt_link && !f->abs_unsupported, "feedback: fanuc: multi-turn, absolute supported");
+  int both = 0;
+  for(int i = 0; i < su_fb_ntypes; i++) {
+    both += su_fb_types[i].mt_link && su_fb_types[i].abs_unsupported;
+  }
+  ok(both == 0, "feedback: no type both ties its turns to mturn and calls them untrusted");
   ok(su_fb_counts(cnt, 1, 65536, &counts, &dir) == -1, "feedback: one pulse is not enough");
   ok(su_fb_lines(10000) == 2500 && su_fb_lines(10002) == 0, "feedback: lines");
   ok(su_fb_find("enc") && su_fb_find("resolver") && !su_fb_find("nope"), "feedback: types");

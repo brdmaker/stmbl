@@ -621,6 +621,9 @@ static su_result_t step_feedback(su_wizard_t *w) {
     say(w, SU_MSG_WARN, "%s: supported by the firmware, but this wizard's steps for it are untested.",
         fb->name);
   }
+  if(fb->abs_unsupported) {
+    say(w, SU_MSG_WARN, "%s", fb->abs_unsupported);
+  }
   return SU_OK;
 }
 
@@ -1537,9 +1540,15 @@ static su_result_t step_verify(su_wizard_t *w) {
 }
 
 // a multi-turn absolute encoder (fb->mt_link): with the final config on the
-// drive, mturn has loaded the encoder's turn count, or says why not
+// drive, mturn has loaded the encoder's turn count, or says why not; one whose
+// count can't be trusted (fb->abs_unsupported): says so, and homing it is
 static su_result_t step_absolute(su_wizard_t *w) {
   const su_fb_type_t *fb = su_fb_find(su_get(w->st, "feedback.type"));
+  if(fb && fb->abs_unsupported) {
+    su_set(w->st, "absolute.supported", "0");
+    say(w, SU_MSG_WARN, "%s", fb->abs_unsupported);
+    return SU_OK;
+  }
   if(!fb || !fb->mt_link) {
     return SU_OK;
   }

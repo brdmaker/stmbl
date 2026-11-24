@@ -80,7 +80,7 @@ allowed), Enter takes the default, and `q` stops; the session is kept.
 | 16 | `limits` | current (peak, and continuous for the thermal model `iit0`), torque, speed (nameplate and bus voltage); the axis's top speed |
 | 17 | `link` | LinuxCNC over smart-serial (with the command connector's pinout and the units per motor turn) or CAN, or none yet |
 | 18 | `verify` | the final config: the drive enables, holds, makes ±0.5 rad steps; checks it moved and the position error is small |
-| 19 | `absolute` | a multi-turn absolute encoder (FANUC) with the smart-serial link: the final config links `mturn` and the encoder's multi-turn template; this step checks that the drive took the encoder's turn count (`mturn0.state` 1), warns of a lost count or a battery warning, and gives LinuxCNC's settings ([absolute_encoders.md](absolute_encoders.md)). Other feedback: skipped |
+| 19 | `absolute` | a multi-turn absolute encoder (FANUC) with the smart-serial link: the final config links `mturn` and the encoder's multi-turn template; this step checks that the drive took the encoder's turn count (`mturn0.state` 1), warns of a lost count or a battery warning, and gives LinuxCNC's settings ([absolute_encoders.md](absolute_encoders.md)). Yaskawa Σ-II (`yaskawa_abs`): says absolute mode is not supported (a lost count isn't flagged; home after every power-up), as the feedback step does; session `absolute.supported = 0`. Other feedback: skipped |
 | 20 | `save` | `stmbl-<time>.conf` and `stmbl-setup-report-<time>.txt` |
 
 The config it writes:

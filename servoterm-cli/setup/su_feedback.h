@@ -35,6 +35,9 @@ typedef struct {
   const char *wiring_col;  // column of the feedback connector table (su_wiring)
   int simulated;           // the host simulator has it (tested end to end)
   const char *mt_link;     // multi-turn: its template for mturn ("fanuc_mt"), or NULL
+  // an encoder that keeps a turn count the drive must not trust: why (shown
+  // when it is chosen and in the absolute step), or NULL
+  const char *abs_unsupported;
 } su_fb_type_t;
 
 extern const su_fb_type_t su_fb_types[];

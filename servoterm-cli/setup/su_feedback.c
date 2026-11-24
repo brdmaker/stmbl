@@ -20,10 +20,16 @@ const su_fb_type_t su_fb_types[] = {
      NULL, "encf0.abs_pos", SU_FB_RES_FIXED, "FANUC", 1, "fanuc_mt"},
     {"fanuc_tw", "FANUC 2-wire serial pulsecoder (betaiA128 etc., 1 pair RD/*RD)", "fanuc_tw_fb0", NULL,
      "fanuc_tw0.pos", SU_FB_RES_FIXED, "FANUC-2wire", 0},
-    // multi-turn not tied to mturn yet: its status bits (battery, turns
-    // valid) aren't known (docs/yaskawa_abs.md)
+    // absolute mode not supported: a lost turn count is not flagged
+    // (brdmot yaskawa.md, 2026-11-23; docs/yaskawa_abs.md)
     {"yaskawa_abs", "Yaskawa Sigma-II serial encoder (SGMAH-xxA1..., 20 bits a turn)", "yaskawa_abs_fb0", NULL,
-     "yaskawa_abs0.pos", SU_FB_RES_FIXED, "Yaskawa", 0},
+     "yaskawa_abs0.pos", SU_FB_RES_FIXED, "Yaskawa", 0, NULL,
+     "Absolute (multi-turn) mode is not supported with Yaskawa Sigma-II encoders: when the\n"
+     "encoder loses its turn count (no battery for more than ~1 s with the drive off, or the\n"
+     "battery below ~2.3 V) it reads 0 turns and reports nothing, so a lost count can't be\n"
+     "told from a real one. The position within the turn is absolute; the machine has to be\n"
+     "homed after every power-up (LinuxCNC: no HOME_ABSOLUTE_ENCODER for this joint). The\n"
+     "battery alarms still work: bat_fail (fault 21) and bat_low."},
 };
 const int su_fb_ntypes = sizeof(su_fb_types) / sizeof(su_fb_types[0]);
 

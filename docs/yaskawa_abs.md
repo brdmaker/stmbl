@@ -119,8 +119,12 @@ multi-byte requests with a CRC; after `ff ff` + CRC it answers them (with
 the position frame, whatever the bytes). A scan with the count lost found
 no other command and no alarm register (brdmot `yaskawa.md`). Other requests: pins `req_n`, `req0`..`req3`,
   `req_crc` (brdmot `yaskawa.md`).
-- **mturn:** for the same reason the turn count isn't tied to `mturn`
-  (LinuxCNC's absolute position, docs/absolute_encoders.md).
+- **Absolute (multi-turn) mode: not supported** (decided 2026-11-24). A
+  lost count reads 0 turns with no flag, so it can't be told from a real
+  one; the turn count isn't tied to `mturn`, and the setup wizard says so
+  (feedback and absolute steps, `abs_unsupported` in
+  servoterm-cli/setup/su_feedback.c). Home the machine after every
+  power-up. The position within the turn and the battery alarms work.
 
 **encmon:** like `fanuc_tw`'s, the position is a cycle older than a
 resolver's. The setup wizard sets `encmon0.delay` to 0.00032, as for
