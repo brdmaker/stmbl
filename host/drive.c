@@ -138,7 +138,11 @@ COMMAND("loadconf", loadconf, "parse config");
 
 void showconf(char *ptr) {
   const char *t = conf_flash_text();
-  printf("%.*s", (int)strnlen(t, sizeof(config) - 1), t);
+  size_t n      = strnlen(t, sizeof(config) - 1);
+  printf("%.*s", (int)n, t);
+  if(conf_show_needs_newline(t, n)) {  // a last line without one: shared/confident.h
+    printf("\n");
+  }
 }
 COMMAND("showconf", showconf, "show config");
 

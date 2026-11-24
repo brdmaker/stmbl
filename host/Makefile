@@ -130,7 +130,7 @@ test_yaskawa_abs: tests/test_yaskawa_abs.c ../shared/yaskawa_abs.c ../shared/yas
 test_iabs: tests/test_iabs.c ../shared/iabs.h ../shared/defines.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_iabs.c -lm
 
-test_conf_append: tests/test_conf_append.c ../shared/conf_append.h
+test_conf_append: tests/test_conf_append.c ../shared/conf_append.h ../shared/confident.h
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -I../shared -o $@ tests/test_conf_append.c
 
 # shared/ringbuf.c with a concurrent writer and reader (two threads),

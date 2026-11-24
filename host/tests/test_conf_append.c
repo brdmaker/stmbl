@@ -3,6 +3,7 @@
  * the config whole when a line doesn't fit. Prints TAP.
  */
 #include "conf_append.h"
+#include "confident.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -63,6 +64,13 @@ int main(void) {
   reset();
   memset(m.config, 'x', SZ - 3);
   ok(conf_append(m.config, SZ, "ab") != 0 && canary_ok() && strlen(m.config) == SZ - 3, "no room for the newline: refused");
+
+  // showconf: a config whose last line has no newline gets one (the drive's
+  // console is line-buffered and held that line back, 2026-11-24)
+  const char *festo_tail = "res0.phase = 0.8\nconf0.mot_fb_offset = -0.255";
+  ok(conf_show_needs_newline(festo_tail, strlen(festo_tail)), "showconf: no newline at the end: add one");
+  ok(!conf_show_needs_newline("a = 1\n", 6), "showconf: ends with a newline: nothing added");
+  ok(!conf_show_needs_newline("", 0), "showconf: empty config: nothing added");
 
   printf("1..%d\n", n);
   return fails != 0;

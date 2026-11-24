@@ -16,6 +16,22 @@ Entry format:
 
 ---
 
+## 2026-11-24  --load into a new drive: "no ack for line 1": showconf held back a last line without a newline
+- Area:    `src/config.c` / `host/drive.c` (showconf), `shared/confident.h`, `conf/festo.txt`
+- Status:  Fixed
+- Symptom: New drive 206E35A05631, just flashed with f4.bin (whose config
+  is conf/festo.txt): servoterm-cli --load aborted every time, "no ack for
+  line 1 (appendconf #stmbl_motor ...), got: conf0.mot_fb_offset =
+  -0.255adding #stmbl_motor ...". The backup lacked that last line.
+- Cause:   conf/festo.txt ends without a newline, and the drive's console
+  is line-buffered (newlib, _isatty 1): showconf's last line stayed in the
+  buffer until the next '\n', the first appendconf's ack. The simulator's
+  console isn't line-buffered, so its tests couldn't see it.
+- Fix:     showconf prints a '\n' after a config that doesn't end with one
+  (conf_show_needs_newline(), firmware and simulator). Test:
+  host/tests/test_conf_append.c "showconf" (3 cases). On the drive: the
+  load then went through and the backup has the line.
+
 ## 2026-11-24  hv_update: ERASE_FLASH repeated every tick; and its timeout never reached (16-bit counter)
 - Area:    `src/comps/hv.c` (ERASE_FLASH), `shared/boot_logic.h`
 - Status:  Open (the board, see below); the two code faults Fixed

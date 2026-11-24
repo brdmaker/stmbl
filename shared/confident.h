@@ -14,6 +14,16 @@ static inline const char *conf_text(const char *flash) {
   return (!flash || (unsigned char)flash[0] == 0xFF) ? "" : flash;
 }
 
+// showconf's text ends with a newline: the drive's console is line-buffered
+// (newlib, _isatty 1), so a config whose last line has none (conf/festo.txt,
+// the image's default) held that line back until the next output. It reached
+// servoterm-cli in front of --load's first ack, which then failed ("no ack for
+// line 1"), and it was missing from the backup (new drive 206E35A05631,
+// 2026-11-24). 1: print a '\n' after the n bytes of t.
+static inline int conf_show_needs_newline(const char *t, size_t n) {
+  return n > 0 && t[n - 1] != '\n';
+}
+
 #define CONF_NAME_KEY "#stmbl_name"
 #define CONF_MOTOR_KEY "#stmbl_motor"
 // "appendconf " + key + ' ' + value must fit the console's 63-char line
