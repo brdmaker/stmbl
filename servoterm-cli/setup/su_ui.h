@@ -28,6 +28,14 @@ typedef enum {
 
 struct su_link;
 
+// what a hand action waits for, so a script can go on as soon as it holds
+// ("until N" in an answers file): fn returns 1 when done. NULL: nothing to
+// check (the action then waits its fixed time, or for the user).
+typedef struct {
+  int (*fn)(void *ctx);
+  void *ctx;
+} su_ready_t;
+
 typedef struct su_ui {
   void *user;
 
@@ -48,8 +56,10 @@ typedef struct su_ui {
 
   // the user does something by hand (wire, turn the shaft, ...) and then
   // continues. drive is the open link: an answers file can play the hand
-  // in the simulator through it.
-  int (*action)(void *user, const char *key, const char *instruction, struct su_link *drive);
+  // in the simulator through it. ready (or NULL): when what the step needs
+  // has happened.
+  int (*action)(void *user, const char *key, const char *instruction, struct su_link *drive,
+                const su_ready_t *ready);
 
   // a long operation: fraction 0..1, or < 0 when unknown
   void (*progress)(void *user, const char *what, double fraction);

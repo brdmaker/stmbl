@@ -8,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <time.h>
 
 struct su_cli {
   su_ui_t ui;
@@ -216,8 +217,16 @@ static int cli_confirm(void *user, const char *key, const char *q, int *out) {
   }
 }
 
-// "send <line>; wait <s>; ..." against the drive (the simulator's hand)
-static int play(su_cli_t *c, const char *script, su_link_t *drive) {
+static double now_s(void) {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec + t.tv_nsec * 1e-9;
+}
+
+// "send <line>; wait <s>; until <s>; ..." against the drive (the simulator's
+// hand). until: wait up to s seconds, on as soon as the step's ready check
+// holds (a person turning the shaft: on when it has turned and stands still)
+static int play(su_cli_t *c, const char *script, su_link_t *drive, const su_ready_t *ready) {
   char *copy = strdup(script), *save = NULL;
   int rc     = 0;
   for(char *part = strtok_r(copy, ";", &save); part && !rc; part = strtok_r(NULL, ";", &save)) {
@@ -233,6 +242,18 @@ static int play(su_cli_t *c, const char *script, su_link_t *drive) {
       } else {
         usleep((useconds_t)(atof(part + 5) * 1e6));
       }
+    } else if(strncmp(part, "until ", 6) == 0) {
+      double end = now_s() + atof(part + 6);
+      while(now_s() < end) {
+        if(drive) {
+          su_link_pump(drive, 0.25);
+        } else {
+          usleep(250000);
+        }
+        if(ready && ready->fn && ready->fn(ready->ctx)) {
+          break;
+        }
+      }
     } else if(strcmp(part, "done") != 0 && part[0]) {
       fprintf(stderr, "ERROR: answers file: unknown action \"%s\"\n", part);
       rc = SU_ABORT;
@@ -243,13 +264,14 @@ static int play(su_cli_t *c, const char *script, su_link_t *drive) {
   return rc;
 }
 
-static int cli_action(void *user, const char *key, const char *instruction, su_link_t *drive) {
+static int cli_action(void *user, const char *key, const char *instruction, su_link_t *drive,
+                      const su_ready_t *ready) {
   su_cli_t *c   = user;
   const char *a = scripted(c, key);
   fprintf(stderr, "%s\n", instruction);
   if(a) {
     fprintf(stderr, "> %s   (%s)\n", a, key);
-    return play(c, a, drive);
+    return play(c, a, drive, ready);
   }
   if(!c->tty) {
     fprintf(stderr, "ERROR: no answer for %s\n", key);

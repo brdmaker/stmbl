@@ -668,7 +668,7 @@ static su_result_t step_wiring(su_wizard_t *w) {
       "Use a shielded cable for the feedback; the shield to the connector shell at the drive.\n"
       "Leave the command connector (LinuxCNC) for later: the wizard doesn't need it.");
   if(w->ui->action(w->ui->user, "wiring.done", "Wire the drive as above, switch on the HV supply, then go on.",
-                   w->link) == SU_ABORT) {
+                   w->link, NULL) == SU_ABORT) {
     return SU_ABORTED;
   }
   return SU_OK;
@@ -761,6 +761,35 @@ static su_result_t step_fbcheck(su_wizard_t *w) {
   return r;
 }
 
+// a hand turn's ready check (su_ready_t): the position at pin has moved
+// min rad or more from p0 and then stood still for about a second (the hand
+// let go). Lets an answers file's "until N" go on at once instead of waiting
+// all of N (2026-11-25: a fixed 15 min wait on the bench).
+typedef struct {
+  su_wizard_t *w;
+  const char *pin;
+  double p0, last, min;
+  int still, have;
+} su_turned_t;
+
+static int turned_ready(void *ctx) {
+  su_turned_t *t = ctx;
+  double p;
+  if(get(t->w, t->pin, &p) < 0) {
+    return 0;
+  }
+  double moved = fabs(remainder(p - t->p0, 2.0 * M_PI));
+  double step  = t->have ? fabs(remainder(p - t->last, 2.0 * M_PI)) : 1e9;
+  t->last      = p;
+  t->have      = 1;
+  if(moved < t->min) {
+    t->still = 0;
+    return 0;
+  }
+  t->still = step < 0.02 ? t->still + 1 : 0;
+  return t->still >= 4;
+}
+
 static su_result_t fbcheck(su_wizard_t *w, const su_fb_type_t *fb) {
   if(fb->res == SU_FB_RES_MEASURED) {
     set_num(w, "enc_fb0.res", SU_FB_MEASURE_WRAP);
@@ -769,7 +798,7 @@ static su_result_t fbcheck(su_wizard_t *w, const su_fb_type_t *fb) {
     if(w->ui->action(w->ui->user, "fbcheck.turn",
                      "Turn the motor shaft by hand, slowly, at least 3 full turns in the direction\n"
                      "you want to call forward (positive). Then go on.",
-                     w->link) == SU_ABORT) {
+                     w->link, NULL) == SU_ABORT) {
       return SU_ABORTED;
     }
     su_link_pump(w->link, 0.3);
@@ -811,10 +840,12 @@ static su_result_t fbcheck(su_wizard_t *w, const su_fb_type_t *fb) {
   if(get(w, fb->pos_pin, &p0) < 0) {
     return SU_FAIL;
   }
+  su_turned_t qt   = {w, fb->pos_pin, p0, p0, 0.3, 0, 0};
+  su_ready_t ready = {turned_ready, &qt};
   if(w->ui->action(w->ui->user, "fbcheck.quarter",
                    "Turn the shaft by hand about a quarter turn forward (the direction you want to\n"
                    "call positive), then go on.",
-                   w->link) == SU_ABORT) {
+                   w->link, &ready) == SU_ABORT) {
     return SU_ABORTED;
   }
   if(get(w, fb->pos_pin, &p1) < 0) {
@@ -1324,10 +1355,12 @@ static su_result_t step_brake(su_wizard_t *w) {
   if(get(w, raw_pos(w), &p0) < 0) {
     return SU_FAIL;
   }
+  su_turned_t rt   = {w, raw_pos(w), p0, p0, 0.3, 0, 0};
+  su_ready_t ready = {turned_ready, &rt};
   if(w->ui->action(w->ui->user, "brake.release_turn",
                    "The drive has released the brake (the drive is off): turn the shaft by hand about\n"
                    "a quarter turn; it should turn freely. Then go on.",
-                   w->link) == SU_ABORT) {
+                   w->link, &ready) == SU_ABORT) {
     set(w, "fault0.brake_release", "0");
     return SU_ABORTED;
   }
@@ -1348,7 +1381,7 @@ static su_result_t step_brake(su_wizard_t *w) {
   if(vertical && w->ui->action(w->ui->user, "brake.loaded",
                                "Put the axis's load back on (couple the motor, remove the supports),\n"
                                "with the drive off the brake now holds it. Then go on.",
-                               w->link) == SU_ABORT) {
+                               w->link, NULL) == SU_ABORT) {
     return SU_ABORTED;
   }
 
@@ -1359,7 +1392,7 @@ static su_result_t step_brake(su_wizard_t *w) {
   if(w->ui->action(w->ui->user, "brake.hold_turn",
                    "The drive is off and the brake closed: try to turn the shaft by hand, both ways\n"
                    "(it must not turn). Then go on.",
-                   w->link) == SU_ABORT) {
+                   w->link, NULL) == SU_ABORT) {
     return SU_ABORTED;
   }
   d = drift(w, p0, vertical ? 2.0 : 0.2);

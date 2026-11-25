@@ -7,7 +7,10 @@
  * the question's default (and fails when there is none). For hand actions
  * the file gives "done", or what to do in the simulator:
  *   fbcheck.turn = send hv0.sim_turn = 19; wait 5
- * ("send" a console line, "wait" seconds while reading the drive).
+ * ("send" a console line, "wait" seconds while reading the drive). For a
+ * person at a real motor, "until N": up to N seconds, on as soon as the step
+ * sees it done (a hand turn: moved and let go):
+ *   fbcheck.quarter = until 900
  */
 #pragma once
 #include "su_ui.h"

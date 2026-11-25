@@ -165,7 +165,9 @@ def answers(c, wait):
         "brake.release_turn = send hv0.sim_turn = 1.5; wait %g" % wait,
         "brake.hold_turn = send hv0.sim_turn = 1; wait %g" % wait,
         "feedback.type = %s" % c["fb"], "wiring.done = done",
-        "fbcheck.quarter = send hv0.sim_turn = 1.6; wait %g" % wait,
+        # until: on as soon as the step sees the turn done (moved, then still),
+        # as on the bench (2026-11-25); the cap is far above that
+        "fbcheck.quarter = send hv0.sim_turn = 1.6; until %g" % (wait * 20),
         "fbcheck.turn = send hv0.sim_turn = 19; wait %g" % wait,
         "gate.free = y", "gate.turns = 2", "link.kind = sserial", "link.scale = 10", ""])
 
