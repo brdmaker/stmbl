@@ -87,7 +87,7 @@ thousands of turns it gets coarse (≈ 0.03 mm at 32768 turns of 10 mm).
 |---|---|---|---|---|---|
 | FANUC αA64 type (4-wire) | `encf` | 16 bit | frame "un-indexed" bit | frame bit 5 (unverified) | simulated, wizard |
 | FANUC βiA128 (1-pair) | `fanuci` | 16 bit (decoded) | unknown (frame bit 68?) | unknown | frame decode in progress |
-| Yaskawa Σ-II 16-bit abs (SGMAH) | `yaskawa_abs` | 16 bit (decoded) | **none: a lost count reads 0, unflagged** | header status + low-battery bit (`bat_fail` fault 21, `bat_low`) | **absolute mode not supported**: home after every power-up ([yaskawa_abs.md](yaskawa_abs.md)) |
+| Yaskawa Σ-II 16-bit abs (SGMAH) | `yaskawa_abs` | 16 bit (decoded) | **none: a lost count reads 0, unflagged** | header status + low-battery bit (`bat_fail`, `bat_low`: reported, no fault) | **absolute mode not supported**: home after every power-up ([yaskawa_abs.md](yaskawa_abs.md)) |
 
 ## Tests (host simulator)
 

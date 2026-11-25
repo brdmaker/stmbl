@@ -171,6 +171,20 @@ static void test_feedback(void) {
   ok(su_fb_find("yaskawa_abs") && strcmp(su_fb_find("yaskawa_abs")->link, "yaskawa_abs_fb0") == 0 &&
          su_fb_find("yaskawa_abs")->res == SU_FB_RES_FIXED,
      "feedback: yaskawa_abs, its template");
+  {
+    // absolute mode not supported: the battery alarm must not stop the motor
+    // (2026-11-25: a latched alarm, fault 21, stopped the wizard on the bench)
+    char *t = NULL;
+    FILE *f = fopen("../conf/template/yaskawa_abs_fb0.txt", "r");
+    if(f) {
+      t = calloc(1, 4096);
+      fread(t, 1, 4095, f);
+      fclose(f);
+    }
+    ok(t && strstr(t, "load yaskawa_abs") && !strstr(t, "\nfault0.mot_fb_bat"),
+       "feedback: yaskawa_abs template: the battery alarm is not a fault");
+    free(t);
+  }
   for(int i = 0; i < su_fb_ntypes; i++) {
     char *t = su_wiring_feedback(su_fb_types[i].wiring_col);
     char what[96];

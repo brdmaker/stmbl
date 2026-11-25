@@ -104,10 +104,12 @@ Isolated bad frames keep the last good one.
   `bat_status` 24 (`11000`) OK, 4 (`00100`) after the battery was lost or
   failed the encoder's load test (it checks every ~6 min; a cut was seen
   ~20 s later). The encoder latches it until its power is cycled with a
-  good battery. `bat_fail` (status not OK) is linked to
-  `fault0.mot_fb_bat` by the template: fault 21 stops a running drive and
-  keeps it from enabling (checked on the SGMAH with the motor running,
-  brdmot tools/bench/yab_bat_run.py). Byte 0 bit 0x20 is `bat_low`: set
+  good battery. `bat_fail` is 1 when the status isn't OK. Since
+  2026-11-25 the template doesn't link it to `fault0.mot_fb_bat`: with
+  absolute mode not supported a battery alarm protects nothing, and a
+  latched one (fault 21) blocked enabling and stopped the setup wizard on
+  the bench. Linked by hand it works (fault 21 stopped a running drive,
+  2026-11-20, brdmot tools/bench/yab_bat_run.py). Byte 0 bit 0x20 is `bat_low`: set
   below ~2.75 V, not latched; a warning only, not linked. The turn count
   is lost between 2.4 and 2.2 V, or 1-3 s after the battery goes with the
   encoder unpowered, with **no flag** (2026-11-23: the frames and the

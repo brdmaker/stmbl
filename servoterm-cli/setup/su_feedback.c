@@ -29,7 +29,7 @@ const su_fb_type_t su_fb_types[] = {
      "battery below ~2.3 V) it reads 0 turns and reports nothing, so a lost count can't be\n"
      "told from a real one. The position within the turn is absolute; the machine has to be\n"
      "homed after every power-up (LinuxCNC: no HOME_ABSOLUTE_ENCODER for this joint). The\n"
-     "battery alarms still work: bat_fail (fault 21) and bat_low."},
+     "battery alarms are reported (yaskawa_abs0.bat_fail, bat_low) but stop nothing."},
 };
 const int su_fb_ntypes = sizeof(su_fb_types) / sizeof(su_fb_types[0]);
 

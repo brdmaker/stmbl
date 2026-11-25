@@ -106,7 +106,9 @@ Entry format:
   every frame before, so the bench cell is low. The turn count is lost
   between 2.4 and 2.2 V with no flag at all (header `a0 78` after).
 - Fix:     yaskawa_abs decodes them: `bat_status`, `bat_fail` (status not
-  0x18; template links it to fault0.mot_fb_bat, fault 21) and `bat_low`
+  0x18; the template linked it to fault0.mot_fb_bat, fault 21, until
+  2026-11-25: absolute mode given up, a latched alarm blocked the wizard;
+  now report only, test_setup "battery alarm is not a fault") and `bat_low`
   (byte 0 bit 0x20, warning). Test: host/tests/test_yaskawa_abs.c
   "battery bits" (real frames `80 84`, `a0 04`; fails to build without the
   fields). On the SGMAH with the motor running (brdmot yab_bat_run.py,
