@@ -46,7 +46,7 @@ Load no other FB0 encoder comp with it.
 | `us_col` | time: all of the rt function |
 | `us_dec` | time: of that yab_decode |
 | `us_tx` | time: starting the request (the interrupt turns the line around) |
-| `dump` | rising edge: print the next capture's edge times, result and bytes |
+| `dump` | rising edge to 1: print the next capture's edge times, result and bytes; to 2: the next bad one |
 | `req_n` | bench: the request's data bytes, 1..4 (2: the position request) |
 | `req0` | bench: its first data byte, 0..255 (255) |
 | `req1` | bench: its second data byte (255) |
