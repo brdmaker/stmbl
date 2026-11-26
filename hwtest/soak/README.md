@@ -38,6 +38,7 @@ already be running.
 | After each cycle | `fault0.state`, `fault0.fault` | `drive_fault` with the fault name |
 | After each cycle | `hv0.dc_volt` | `dc_volt` more than `--dc-tol` (5%) off the first reading |
 | After each cycle | `hv0.hv_temp`, `iit0.temp` | over `--max-hv-temp` (70 °C), `--max-mot-temp` (80 °C) |
+| After each cycle | the feedback driver's frame counters (`yaskawa_abs0`, `fanuc_tw0`: good frames, CRC / frame or sync / no-reply errors), the interval since the last check | `fb_errors` over `--max-fb-err-pct` (0.01 %) of the interval's frames; fewer errors: info. Totals in the summary (`Feedback ...` row), per check in `health.csv` (`fb_ok`, `fb_err`). The drive itself faults only after several bad frames in a row, so a lossy link passed a soak before (2026-11-24) |
 | Any time | text the drive sends on its own | `ERROR …` lines; `INFO …` lines are logged as info |
 | Any time | console answers | `console_no_answer`; USB gone: reconnect for 30 s, else the run ends |
 | Every `--config-every` (10) cycles | `showconf` compared with the first read | `config_changed` if it differs twice; one bad read that a re-read fixes is `config_readback` (a transfer error; info unless `--strict-console`) |

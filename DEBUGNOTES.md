@@ -34,7 +34,7 @@ Entry format:
 
 ## 2026-11-25  yaskawa_abs: 6-9 % frame errors at rest with the smart-serial config
 - Area:    `src/comps/yaskawa_abs.c` / rt load (conf: SGMAH + link sserial, adc0.fast = 1)
-- Status:  Open
+- Status:  Open (at rest: gone with the new cable; under LinuxCNC: 0.36 %, see below)
 - Symptom: Drive 206E35A05631, the SGMAH soak config (brdmot
   commissioning/sgmah-08a1_2026-11-10/sgmah-soak.conf): 6-9 % frame errors
   with the drive disabled and LinuxCNC not running; the plain SGMAH config
@@ -42,8 +42,16 @@ Entry format:
   4 h soak with it passed (the soak doesn't count encoder frame errors, and
   fault 2 needs 4 bad frames in a row). Measured before the cable above
   was found bad, so it may be the same cause: recheck with the new cable.
-- Fix:     Open: rerun yab_rate.py with sgmah-soak.conf and the new cable;
-  if it stays, look at the request's timing against sserial's interrupt.
+- Fix:     Open. 2026-11-26, new cable, second SGMAH's soak config: at rest
+  0 %; moved from the USB console (brdmot tools/bench/yab_moveerr.py, the
+  same config, LinuxCNC not running) 0.005-0.012 % up to 30 rev/s; the
+  soak under LinuxCNC (smart-serial traffic) 0.36 % in 2 cycles (704
+  frame_er, 1 noreply in 196283). So mostly LinuxCNC's smart-serial
+  traffic. Not DMA priority (the capture stream is VeryHigh, sserial's
+  High, other streams). Next: the frames' result codes and edges with
+  LinuxCNC running (the soak over the smart-serial console, dumps over USB).
+  Found by the soak's new feedback counters (hwtest/soak/soak.py
+  fb_errors, test_soak.py); before them a soak passed with it unseen.
 
 ## 2026-11-24  --load into a new drive: "no ack for line 1": showconf held back a last line without a newline
 - Area:    `src/config.c` / `host/drive.c` (showconf), `shared/confident.h`, `conf/festo.txt`

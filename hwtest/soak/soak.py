@@ -201,7 +201,7 @@ class Run:
         self.cycles_w = csv.writer(self.cycles_f)
         self.health_w.writerow(["time", "elapsed_s", "cycle", "hal_state", "rt_us", "rt_max_us",
                                 "frt_max_us", "uptime_s", "fault_state", "fault", "dc_volt",
-                                "hv_temp", "mot_temp", "pos_error"])
+                                "hv_temp", "mot_temp", "pos_error", "fb_ok", "fb_err"])
         self.cycles_w.writerow(["time", "cycle", "duration_s", "ferror_max_mm", "ferror_rest_mm",
                                 "vel_max", "result"])
         self.events = []  # (time, kind, failure, text)
@@ -213,6 +213,8 @@ class Run:
         self.config_checks = [0, 0]  # ok, bad
         self.console_checks = [0, 0]
         self.recoveries = 0
+        self.fb_prev = {}    # comp: the last counter reading
+        self.fb_totals = {}  # comp: {counter: sum of the intervals}
 
     def event(self, kind, text, failure=True):
         e = (now(), kind, failure, text)
@@ -248,6 +250,12 @@ class Run:
         lines.append("| Config read-back checks | %d ok, %d bad |" % tuple(self.config_checks))
         lines.append("| Console long-line checks | %d ok, %d bad |" % tuple(self.console_checks))
         lines.append("| Fault recoveries | %d |" % self.recoveries)
+        for comp, tot in sorted(self.fb_totals.items()):
+            good, errs = FB_COUNTERS[comp]
+            n_err = sum(tot[k] for k in errs)
+            lines.append("| Feedback %s | %d frames, %d bad (%.4f %%): %s |" % (
+                comp, tot[good] + n_err, n_err, 100.0 * n_err / max(tot[good] + n_err, 1),
+                ", ".join("%s %d" % (k, tot[k]) for k in errs)))
         if fails:
             result = "FAIL"
         elif not final:
@@ -274,10 +282,12 @@ class Run:
         lines.append("")
         for e in self.events[-30:]:
             lines.append("- %s **%s** %s%s" % (e[0], e[1], "" if e[2] else "(info) ", e[3]))
-        open(os.path.join(self.dir, "summary.md"), "w").write("\n".join(lines) + "\n")
-        json.dump({"cycles": self.cycles, "elapsed_s": self.elapsed(), "events": self.events,
-                   "stats": self.stats, "stop_reason": self.stop_reason, "result": result},
-                  open(os.path.join(self.dir, "summary.json"), "w"), indent=1)
+        with open(os.path.join(self.dir, "summary.md"), "w") as f:
+            f.write("\n".join(lines) + "\n")
+        with open(os.path.join(self.dir, "summary.json"), "w") as f:
+            json.dump({"cycles": self.cycles, "elapsed_s": self.elapsed(), "events": self.events,
+                   "stats": self.stats, "stop_reason": self.stop_reason, "result": result,
+                       "fb_totals": self.fb_totals}, f, indent=1)
 
     def stop_reason_is_failure(self):
         return self.stop_reason not in (None, "time limit", "cycle limit", "STOP file", "signal")
@@ -285,6 +295,44 @@ class Run:
 
 # --------------------------------------------------------------------------
 # checks
+
+
+# the feedback drivers' frame counters (a driver that isn't loaded answers "not found"
+# and is skipped): good frames and each kind of error. A soak passed with 6-9 % of the
+# Yaskawa encoder's frames lost (2026-11-24/25): the drive only faults after max_err bad
+# frames in a row, so the counters themselves are checked.
+FB_COUNTERS = {
+    "yaskawa_abs0": ("ok", ("crc_er", "frame_er", "noreply")),
+    "fanuc_tw0": ("ok", ("crc_er", "sync_er", "noreply")),
+}
+
+
+def fb_delta(prev, cur):
+    """Per-interval good frames and errors from two readings of one driver's counters
+    ({pin: value}), or None for the first reading or after a reset (a counter went
+    back: the drive restarted)."""
+    if prev is None or cur is None or any(cur[k] < prev[k] for k in cur):
+        return None
+    return {k: cur[k] - prev[k] for k in cur}
+
+
+def fb_check(run, d, comp, good, errs):
+    """Book one interval's delta d of comp's counters; returns False on a failure."""
+    a = run.args
+    tot = run.fb_totals.setdefault(comp, {k: 0 for k in d})
+    for k in d:
+        tot[k] += d[k]
+    n_err = sum(d[k] for k in errs)
+    rate = 100.0 * n_err / max(d[good] + n_err, 1)
+    run.stat("fb_err_pct", rate)
+    if n_err > 0:
+        what = ", ".join("%s %d" % (k, d[k]) for k in errs if d[k])
+        if rate > a.max_fb_err_pct:
+            return not run.event("fb_errors", "%s: %s of %d frames (%.3f %% > %.3f %%)" % (
+                comp, what, d[good] + n_err, rate, a.max_fb_err_pct))
+        run.event("fb_errors", "%s: %s of %d frames (%.3f %%)" % (comp, what, d[good] + n_err, rate),
+                  failure=False)
+    return True
 
 
 def health_check(run, con, cycle):
@@ -299,6 +347,12 @@ def health_check(run, con, cycle):
                           con.command("iit0.temp") + con.command("pid0.pos_error") +
                           # the encoder monitor, if loaded (link encmon): "not found" otherwise
                           con.command("encmon0.max_ratio") + con.command("encmon0.max_timer"))
+        fb = {}
+        for comp, (good, errs) in FB_COUNTERS.items():
+            vals = pin_values(sum((con.command("%s.%s" % (comp, k)) for k in (good,) + errs), []))
+            cur = {k: vals.get("%s.%s" % (comp, k)) for k in (good,) + errs}
+            if all(v is not None for v in cur.values()):
+                fb[comp] = cur
     except ConsoleError as e:
         run.event("console_no_answer", str(e))
         return False
@@ -316,8 +370,6 @@ def health_check(run, con, cycle):
     fs, fc = pins.get("fault0.state"), pins.get("fault0.fault")
     dc, hvt, mt, pe = (pins.get("hv0.dc_volt"), pins.get("hv0.hv_temp"),
                        pins.get("iit0.temp"), pins.get("pid0.pos_error"))
-    run.health_w.writerow([now(), "%.1f" % run.elapsed(), cycle, hal_state, rt, rt_max, frt_max, uptime,
-                           fs, fc, dc, hvt, mt, pe])
     run.stat("rt_max_us", rt_max)
     run.stat("dc_volt", dc)
     run.stat("hv_temp", hvt)
@@ -325,6 +377,18 @@ def health_check(run, con, cycle):
     if pins.get("encmon0.max_ratio") is not None:
         run.stat("encmon_max_ratio", pins["encmon0.max_ratio"])
         run.stat("encmon_max_timer_s", pins.get("encmon0.max_timer"))
+
+    fb_ok, fb_err = "", ""
+    for comp, cur in fb.items():
+        good, errs = FB_COUNTERS[comp]
+        d = fb_delta(run.fb_prev.get(comp), cur)
+        run.fb_prev[comp] = cur
+        if d is not None:
+            fb_ok, fb_err = d[good], sum(d[k] for k in errs)
+            if not fb_check(run, d, comp, good, errs):
+                ok = False
+    run.health_w.writerow([now(), "%.1f" % run.elapsed(), cycle, hal_state, rt, rt_max, frt_max, uptime,
+                           fs, fc, dc, hvt, mt, pe, fb_ok, fb_err])
 
     if hal_state != "HAL_OK2":
         ok = run.event("hal_state", "%s\n%s" % (hal_state, text))
@@ -642,6 +706,8 @@ def main():
     p.add_argument("--dc-tol", type=float, default=0.05, help="DC bus tolerance against its first reading")
     p.add_argument("--max-hv-temp", type=float, default=70.0)
     p.add_argument("--max-mot-temp", type=float, default=80.0)
+    p.add_argument("--max-fb-err-pct", type=float, default=0.01,
+                   help="feedback frame errors in a health interval above this %% fail the run")
     p.add_argument("--rt-max-frac", type=float, default=0.9, help="note rt max above this part of the period")
     p.add_argument("--settle", type=float, default=0.5, help="s at rest before the rest error is read")
     p.add_argument("--cycle-timeout", type=float, default=300.0)
