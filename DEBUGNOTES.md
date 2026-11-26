@@ -16,6 +16,35 @@ Entry format:
 
 ---
 
+## 2026-11-25  yaskawa_abs: 10-18 % frame errors only while enabled: a bad encoder cable (PWM noise)
+- Area:    hardware (encoder cable), `src/comps/yaskawa_abs.c` (fault 2 after max_err bad frames)
+- Status:  Fixed (cable replaced)
+- Symptom: Second SGMAH-08A1 (S/N D0064A146820022) on drive 206E35A05631:
+  the setup wizard's torque probe and id_mot stopped with fault 2 (mot FB
+  error). 0 % frame errors with the drive disabled, 10-18 % the moment it
+  was enabled, holding still; the rt time unchanged by enabling. CRC
+  errors 0: the frames were cut short (res -4), each with 1-2 edge
+  intervals of 14-16 ticks (normal ~10.5 / ~21) at the same place, ~1210-
+  1240 ticks (~14.5 us) into the capture: a switching edge of the PWM,
+  which runs in step with rt, inside every reply.
+- Fix:     The user replaced the encoder cable: 0 % enabled
+  (brdmot tools/bench/yab_enerr.py: frame errors disabled vs enabled), and
+  the wizard then finished. No test possible (wiring). Check with
+  yab_enerr.py when a Yaskawa axis faults with 2 only under power.
+
+## 2026-11-25  yaskawa_abs: 6-9 % frame errors at rest with the smart-serial config
+- Area:    `src/comps/yaskawa_abs.c` / rt load (conf: SGMAH + link sserial, adc0.fast = 1)
+- Status:  Open
+- Symptom: Drive 206E35A05631, the SGMAH soak config (brdmot
+  commissioning/sgmah-08a1_2026-11-10/sgmah-soak.conf): 6-9 % frame errors
+  with the drive disabled and LinuxCNC not running; the plain SGMAH config
+  on the same drive and encoder 0 %. rt time ~157 / 188 us of 200. The
+  4 h soak with it passed (the soak doesn't count encoder frame errors, and
+  fault 2 needs 4 bad frames in a row). Measured before the cable above
+  was found bad, so it may be the same cause: recheck with the new cable.
+- Fix:     Open: rerun yab_rate.py with sgmah-soak.conf and the new cable;
+  if it stays, look at the request's timing against sserial's interrupt.
+
 ## 2026-11-24  --load into a new drive: "no ack for line 1": showconf held back a last line without a newline
 - Area:    `src/config.c` / `host/drive.c` (showconf), `shared/confident.h`, `conf/festo.txt`
 - Status:  Fixed
