@@ -113,7 +113,7 @@ Entry format:
 
 ## 2026-11-20  CI red since run 31: stale docs/components; runs 28 and 30: apt hung
 - Area:     .github/workflows/ci.yml, src/comps/yaskawa_abs.c, docs/components (tools/comp_docs.py)
-- Status:   Fixed
+- Status:   Workaround
 - Symptom:  CI failed on master from run 31 (26cf462) on: "not ok - docs/components is out of date
             (yaskawa_abs.md, README.md)". Runs 28 and 30 failed differently: "Install dependencies" /
             "Install toolchain" timed out after 15 minutes.
@@ -126,6 +126,14 @@ Entry format:
             between tries; a check that the toolchain is there after the loop (it fell through quietly);
             pip bounded too. Test: `make -C host check` (comp_docs --check) is the test that caught it; no
             new test for the apt hang (it needs a stalled mirror): watch the next runs.
+- 2026-11-26: not enough. Runs 42, 44 and 51 hung in all three tries (the mirror down for the whole 15
+            min); run 49's `apt-get update` "succeeded" with no lists fetched (apt only warns), so the
+            install found no packages. Now .github/ci-apt.sh: the .deb files kept in GitHub's cache
+            (actions/cache, keyed by the runner image, restore-keys from an older one) and installed with
+            dpkg, no mirror asked; only a miss fetches: `update --error-on=any`, from the second try
+            archive.ubuntu.com instead of the Azure mirror, `-q` so the log says what failed. Tested here
+            with a small package: a fetch, an install from the cache, a cache missing a package (fetched,
+            the set complete again), a junk file in it (dropped).
 
 ## 2026-11-20  yaskawa_abs: the battery alarm is in header byte 1, and it latches
 - Area:    `src/comps/yaskawa_abs.c` (header bits 8-15), docs/yaskawa_abs.md
