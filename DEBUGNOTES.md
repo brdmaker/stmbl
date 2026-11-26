@@ -52,6 +52,19 @@ Entry format:
   LinuxCNC running (the soak over the smart-serial console, dumps over USB).
   Found by the soak's new feedback counters (hwtest/soak/soak.py
   fb_errors, test_soak.py); before them a soak passed with it unseen.
+  Cause of most (dump = 2, the next bad capture, brdmot
+  tools/bench/yab_baddump.py): the capture DMA read late, so an edge was
+  overwritten before it was read: an interval of ~31 ticks, then 0 (a
+  duplicate time), at fixed points of the reply (~1597, ~1722, ~691
+  ticks): the rt loop runs in step with the smart-serial packets, so
+  their bus traffic lands at the same moment every time. Fixed in the
+  decoder: a lost mid-bit edge (1.25-2.25 bits, then ~0) is put back
+  one bit (short-short step: half a bit) after (shared/yaskawa_abs.c;
+  test host/tests/test_yaskawa_abs.c "an edge lost to a late capture":
+  1237 of 2012 decoded before, all after). Soak: 0.48 % -> 0.018 %.
+  Left: frames corrupt without a duplicate (the Python decoder fails on
+  them too), ~1 in 5000 under LinuxCNC; cause open (two edges lost, or a
+  spurious pair?).
 
 ## 2026-11-24  --load into a new drive: "no ack for line 1": showconf held back a last line without a newline
 - Area:    `src/config.c` / `host/drive.c` (showconf), `shared/confident.h`, `conf/festo.txt`

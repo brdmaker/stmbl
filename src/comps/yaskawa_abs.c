@@ -53,7 +53,7 @@ HAL_PIN(bat_low);    // the battery is low (below ~2.75 V; the turns are lost be
 HAL_PIN(us_col);     // time: all of the rt function
 HAL_PIN(us_dec);     // time: of that yab_decode
 HAL_PIN(us_tx);      // time: starting the request (the interrupt turns the line around)
-HAL_PIN(dump);       // rising edge: print the next capture's edge times, result and bytes
+HAL_PIN(dump);       // rising edge to 1: print the next capture's edge times, result and bytes; to 2: the next bad one
 // bench: another request (the encoder's other commands, brdmot yaskawa.md).
 // req_n data bytes req0..req3 (as on the line, MSB first), with req_crc > 0 a
 // CRC-16 after them. Default 2 bytes ff ff, no CRC: the position request.
@@ -242,6 +242,13 @@ static void collect(struct yaskawa_abs_ctx_t *ctx, struct yaskawa_abs_pin_ctx_t 
   int res    = YAB_NOREPLY;
   yab_frame_t f;
   uint8_t bytes[24] = {0};
+  // a dump shows the edges as captured: the decoder puts lost edges back in place
+  int dumping = ctx->dump_want && !ctx->dump_ready;
+  if(dumping) {
+    for(int i = 0; i < n; i++) {
+      ctx->dedges[i] = buf[i];
+    }
+  }
   if(n >= 16) {
     uint32_t t0 = SysTick->VAL;
     int nb      = yab_decode(buf, n, 21, bytes, sizeof(bytes));
@@ -269,12 +276,10 @@ static void collect(struct yaskawa_abs_ctx_t *ctx, struct yaskawa_abs_pin_ctx_t 
   PIN(frame_er) = d->frame_er;
   PIN(noreply)  = d->noreply;
   PIN(res) = res;
-  if(ctx->dump_want && !ctx->dump_ready) {
+  // dump_want 2: only a capture that didn't decode (rare errors, 2026-11-26)
+  if(dumping && (ctx->dump_want == 1 || res != YAB_OK)) {
     for(int i = 0; i < YAB_BYTES; i++) {
       ctx->dbytes[i] = bytes[i];
-    }
-    for(int i = 0; i < n; i++) {
-      ctx->dedges[i] = buf[i];
     }
     ctx->dn   = n;
     ctx->dres = res;
@@ -337,7 +342,7 @@ static void nrt_func(void *ctx_ptr, hal_pin_inst_t *pin_ptr) {
   struct yaskawa_abs_ctx_t *ctx      = (struct yaskawa_abs_ctx_t *)ctx_ptr;
   struct yaskawa_abs_pin_ctx_t *pins = (struct yaskawa_abs_pin_ctx_t *)pin_ptr;
   if(RISING_EDGE(PIN(dump))) {
-    ctx->dump_want = 1;
+    ctx->dump_want = PIN(dump) >= 2.0f ? 2 : 1;
   }
   if(ctx->dump_ready) {
     printf("yab res=%d n=%d edges", ctx->dres, ctx->dn);

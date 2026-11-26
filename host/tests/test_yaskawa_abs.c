@@ -239,6 +239,33 @@ int main(void) {
     yab_poll(&d, YAB_NOSYNC, &f);
     CHECK(d.state == 0 && d.error == 1 && d.crc_er == 1 && d.noreply == 1 && d.frame_er == 1, "three: error");
   }
+  // one edge lost to a late capture DMA (bench 2026-11-26, LinuxCNC's smart-serial
+  // traffic on the bus: ~0.4 % of frames): edge k is stored with edge k+1's time
+  // (the capture register overwritten before it was read), then edge k+1 is read
+  // again: the edges hold a duplicate. Every edge of the reply, real frames, both
+  // polarities: decoded whole.
+  {
+    int tried = 0, okd = 0;
+    for(unsigned i = 0; i < sizeof(rec) / sizeof(rec[0]); i++) {
+      hex2(rec[i].hex, b);
+      for(int inv = 0; inv < 2; inv++) {
+        uint16_t t0[600], t[600];
+        int ne = reply_edges(b, inv, 3, 0.0f, 20u, t0, 590);
+        for(int k = 12; k < ne - 2; k++) {  // past the start (the first long interval)
+          memcpy(t, t0, sizeof(t0[0]) * ne);
+          t[k] = t[k + 1];
+          uint8_t out[24];
+          yab_frame_t g;
+          int nb = yab_decode(t, ne, 21, out, sizeof(out));
+          int r  = nb >= YAB_BYTES ? yab_frame(out, nb, &g) : nb;
+          tried++;
+          okd += r == YAB_OK && memcmp(out, b, YAB_BYTES) == 0;
+        }
+      }
+    }
+    CHECK(okd == tried, "an edge lost to a late capture (a duplicate time), at every edge: %d of %d decoded",
+          okd, tried);
+  }
   // the battery bits (brdmot yaskawa.md, battery tests 3 and 4): byte 1 &
   // 0x1f the status (0x18 OK, 0x04 lost, latched), byte 0 & 0x20 low
   {

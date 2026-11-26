@@ -100,6 +100,14 @@ int yab_request_data_chips(const uint8_t *data, int len, int crc, uint8_t *chips
 // next edge (the line not settled: bench, SGMAH, 2026-11-10, ~5 % of frames
 // at some positions): a long and then ~0 is two shorts, and in the
 // short-short step a long then ~0 is a short.
+// A mid-bit edge can be lost to a late capture DMA (bench, 2026-11-26: the
+// smart-serial traffic under LinuxCNC, ~0.4 % of frames): the capture
+// register is overwritten before it is read, so the lost edge carries the
+// next one's time and that time comes twice. From a mid-bit edge that is an
+// interval of 1.5 bits (a bit, then half a bit to a boundary) or 2 bits
+// (two bits), then ~0: the lost edge was one bit after; in the short-short
+// step half a bit after the boundary edge. It is put back in place (the
+// edge buffer is the comp's, rewritten every capture) and the step goes on.
 // The times don't wrap within a reply (the comp starts its timer at 0 for
 // each capture; a reply is ~3000 of 65536 ticks). Two sentinel edges after
 // the last one, a gap each, end the steps.
@@ -112,12 +120,14 @@ static inline __attribute__((always_inline)) int decode_from(uint16_t *t, int n,
   const unsigned lim4 = (unsigned)tpb * 3;  // 4 * the threshold: 3/4 of a bit, between short (1/2) and long (1)
   const unsigned gap  = (unsigned)(tpb + tpb / 2);
   const unsigned tiny = (unsigned)tpb;  // 4 * an interval below it: ~0, a late edge
+  const unsigned lost = (unsigned)(2 * tpb + tpb / 4);  // a lost mid-bit edge: 1.25..2.25 bits, then ~0
   if(n < 2) {
     return YAB_NOSYNC;
   }
   t[n]              = (uint16_t)(t[n - 1] + 4 * tpb);  // the sentinels
   t[n + 1]          = (uint16_t)(t[n] + 4 * tpb);
-  const uint16_t *p = t + from, *end = t + n - 1;  // end: the last edge
+  uint16_t *p = t + from;  // not const: a lost edge is put back in place
+  const uint16_t *end = t + n - 1;  // end: the last edge
   while(p < end && !(4u * ((unsigned)p[1] - p[0]) > lim4 && (unsigned)p[1] - p[0] <= gap)) {
     p++;
   }
@@ -131,6 +141,10 @@ static inline __attribute__((always_inline)) int decode_from(uint16_t *t, int n,
 #define YAB_STEP(out)                                                       \
   do {                                                                      \
     unsigned d_ = (unsigned)p[1] - p[0];                                    \
+    if(4 * d_ > 5u * (unsigned)tpb && d_ <= lost && 4 * ((unsigned)p[2] - p[1]) < tiny) { \
+      p[1] = (uint16_t)(p[0] + tpb); /* a lost mid-bit edge, see above */   \
+      d_   = (unsigned)tpb;                                                           \
+    }                                                                       \
     if(d_ > gap) {                                                          \
       goto out;                                                             \
     }                                                                       \
@@ -143,6 +157,10 @@ static inline __attribute__((always_inline)) int decode_from(uint16_t *t, int n,
       }                                                                     \
     } else {                                                                \
       unsigned d2_ = (unsigned)p[2] - p[1];                                 \
+      if(4 * d2_ > 5u * (unsigned)tpb && d2_ <= lost && 4 * ((unsigned)p[3] - p[2]) < tiny) { \
+        p[2] = (uint16_t)(p[1] + tpb / 2); /* the lost mid-bit edge */      \
+        d2_  = (unsigned)tpb / 2;                                                     \
+      }                                                                     \
       if(d2_ > gap) {                                                       \
         goto out;                                                           \
       }                                                                     \
